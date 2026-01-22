@@ -125,5 +125,5 @@ fn init_physics(mut world: ResMut<PhysicsWorld>) {
 
 fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
-    print!("test");
+    print!("tick ");
 }

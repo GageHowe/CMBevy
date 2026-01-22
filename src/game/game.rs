@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::game::level::level::LevelPlugin;
 use crate::game::player::player::PlayerPlugin;
 use crate::game::ui::ui::*;
-use crate::game::{physics::physics::PhysicsPlugin, window::WindowSettingsPlugin};
+use crate::game::{physics::physics_world::PhysicsPlugin, window::WindowSettingsPlugin};
 
 pub struct GamePlugin;
 
