@@ -29,7 +29,7 @@ fn init_player(
     mut commands: Commands,
     // mut meshes: ResMut<Assets<Mesh>>,
     // mut materials: ResMut<Assets<StandardMaterial>>,
-    // mut physics: ResMut<PhysicsWorld>,
+    // mut physworld: ResMut<PhysicsWorld>,
 ) {
     commands.spawn((
         Player {},
