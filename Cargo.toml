@@ -1,0 +1,10 @@
+[package]
+name = "cmbevy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = {version = "0.18.0", features = ["dynamic_linking"] }
+bevy_renet = "4.0.0"
+rapier3d = "0.32.0" # not bevy_rapier3d
+
