@@ -16,10 +16,7 @@ client = [
   "bevy/debug"
 ]
 
-server = [
-#  "bevy/std",
-#  "bevy/debug"
-]
+server = []
 
 [[bin]]
 name = "client"

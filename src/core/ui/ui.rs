@@ -10,7 +10,7 @@ impl Plugin for UIPlugin {
     }
 }
 
-pub fn spawn_crosshair(window_query: Query<&Window, With<PrimaryWindow>>, mut commands: Commands) {
+pub fn spawn_crosshair(mut commands: Commands) {
     // let window = window_query.single().unwrap();
     let crosshair_size = 2.0;
 
