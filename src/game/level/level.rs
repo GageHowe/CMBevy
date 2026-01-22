@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use rapier3d::prelude::*;
 
 pub struct LevelPlugin;
 
@@ -11,7 +10,7 @@ impl Plugin for LevelPlugin {
 
 fn init_level(
     mut commands: Commands,
-    mut _meshes: ResMut<Assets<Mesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let _level_material = materials.add(StandardMaterial {
@@ -29,5 +28,11 @@ fn init_level(
         },
         Transform::from_xyz(0.0, 10.0, 0.0) // “location” of the sun
             .looking_at(Vec3::ZERO, Vec3::Y), // points at origin
+    ));
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::from_size(Vec3::splat(1.0)))),
+        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+        Transform::from_xyz(0.0, 0.5, 0.0), // Position it
+        Visibility::Visible,                // Ensure it is visible
     ));
 }
