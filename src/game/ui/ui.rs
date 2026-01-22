@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::ui::prelude::*;
 // use bevy::ui::
 use bevy::window::*;
 
@@ -12,7 +11,7 @@ impl Plugin for UIPlugin {
 }
 
 pub fn spawn_crosshair(window_query: Query<&Window, With<PrimaryWindow>>, mut commands: Commands) {
-    let window = window_query.single().unwrap();
+    // let window = window_query.single().unwrap();
     let crosshair_size = 2.0;
 
     commands

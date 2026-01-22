@@ -1,6 +1,6 @@
 use bevy::{
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowMode, WindowResolution},
+    window::{CursorGrabMode, CursorOptions, PrimaryWindow, /* WindowMode*/ WindowResolution},
 };
 
 pub struct WindowSettingsPlugin;

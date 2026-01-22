@@ -1,4 +1,4 @@
-use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+// use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 
 use crate::game::game::GamePlugin;

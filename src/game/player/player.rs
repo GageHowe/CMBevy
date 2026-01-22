@@ -1,5 +1,5 @@
 use super::camera_controller;
-use crate::game::physics::physics_world::*;
+// use crate::game::physics::physics_world::*;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 
@@ -27,9 +27,9 @@ pub struct PlayerBodyHandle {
 
 fn init_player(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut physics: ResMut<PhysicsWorld>,
+    // mut meshes: ResMut<Assets<Mesh>>,
+    // mut materials: ResMut<Assets<StandardMaterial>>,
+    // mut physics: ResMut<PhysicsWorld>,
 ) {
     commands.spawn((
         Player {},

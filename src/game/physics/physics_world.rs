@@ -100,35 +100,52 @@ fn init_physics(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // make/init a physics cube
     let cube_rb = RigidBodyBuilder::dynamic()
         .translation(Vec3::new(10.0, 5.0, -3.0))
         .build();
     let cube_handle = world.rigid_body_set.insert(cube_rb);
     let cube_collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
 
+    // plane
+    let plane_rb = RigidBodyBuilder::fixed()
+        .translation(Vec3::new(0.0, -10.0, 0.0))
+        .build();
+    let plane_handle = world.rigid_body_set.insert(plane_rb);
+    let plane_collider = ColliderBuilder::cuboid(10.0, 2.0, 10.0);
     let PhysicsWorld {
         collider_set,
         rigid_body_set,
         ..
     } = &mut *world;
-
     collider_set.insert_with_parent(cube_collider, cube_handle, rigid_body_set);
+    collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
 
+    // spawn visual cube
     commands.spawn((
-        Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)))), // cube mesh
+        Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.7, 0.6),
             ..Default::default()
         })),
-        Transform::from_xyz(10.0, 5.0, -3.0),
         Visibility::default(),
         PhysicsBodyHandle(cube_handle),
+    ));
+
+    commands.spawn((
+        Mesh3d(meshes.add(Mesh::from(Cuboid::new(20.0, 4.0, 20.0)))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.0, 0.7, 0.0),
+            ..Default::default()
+        })),
+        Visibility::default(),
+        PhysicsBodyHandle(plane_handle),
     ));
 }
 
 fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
-    print!("tick ");
+    // print!("tick ");
 }
 
 fn sync_physics_to_transforms(
