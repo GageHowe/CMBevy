@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 bevy = { version = "0.18.0", default-features = false, features = ["bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr", "bevy_text", "bevy_ui", "bevy_gizmos" ] }
 # bevy_renet = "4.0.0"
-# rapier3d = "0.32.0" # not bevy_rapier3d
+rapier3d = {version = "0.32.0", features = [ "simd-stable", "parallel" ] }
 
 [profile.dev]
 opt-level = 0

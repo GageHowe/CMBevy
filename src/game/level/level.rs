@@ -1,0 +1,33 @@
+use bevy::prelude::*;
+use rapier3d::prelude::*;
+
+pub struct LevelPlugin;
+
+impl Plugin for LevelPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, init_level);
+    }
+}
+
+fn init_level(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let level_material = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        ..Default::default()
+    });
+    // commands::spawn(())
+    // spawn objects here
+
+    commands.spawn((
+        DirectionalLight {
+            illuminance: light_consts::lux::OVERCAST_DAY,
+            shadows_enabled: true,
+            ..Default::default()
+        },
+        Transform::from_xyz(0.0, 10.0, 0.0) // “location” of the sun
+            .looking_at(Vec3::ZERO, Vec3::Y), // points at origin
+    ));
+}
