@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.18.0", default-features = false, features = ["bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr", "bevy_text", "bevy_ui", "bevy_gizmos" ] }
+bevy = { version = "0.18.0", default-features = false, features = ["dev", "scene", "3d_bevy_render"] }
 # bevy_renet = "4.0.0"
 rapier3d = {version = "0.32.0", features = [ "simd-stable", "parallel" ] }
 

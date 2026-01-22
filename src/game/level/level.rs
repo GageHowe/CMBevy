@@ -11,10 +11,10 @@ impl Plugin for LevelPlugin {
 
 fn init_level(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut _meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let level_material = materials.add(StandardMaterial {
+    let _level_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         ..Default::default()
     });
