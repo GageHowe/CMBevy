@@ -1,7 +1,11 @@
 use bevy::prelude::*;
+// use bevy::render::
 // use nalgebra::Vector3;
+use super::components::PhysicsBodyHandle;
+use bevy::math::primitives::Cuboid;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
+
 #[derive(Resource)] // means this is a singleton
 pub struct PhysicsWorld {
     pub rigid_body_set: RigidBodySet,
@@ -75,24 +79,6 @@ impl PhysicsWorld {
             &self.event_handler,
         );
     }
-
-    pub fn spawn_capsule_player(&mut self, start: Vector3) -> RigidBodyHandle {
-        let rb = RigidBodyBuilder::dynamic()
-            .translation(start)
-            .lock_rotations()
-            .build();
-
-        let handle = self.rigid_body_set.insert(rb);
-
-        let collider = ColliderBuilder::capsule_y(0.9, 0.4) // height, radius
-            .friction(0.0)
-            .build();
-
-        self.collider_set
-            .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-
-        handle
-    }
 }
 
 pub struct PhysicsPlugin;
@@ -101,17 +87,23 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::new(0.0, -9.81, 0.0)))
             .add_systems(Startup, init_physics)
-            .add_systems(FixedUpdate, step_physics);
+            .add_systems(
+                FixedUpdate,
+                (step_physics, sync_physics_to_transforms).chain(),
+            );
     }
 }
 
-fn init_physics(mut world: ResMut<PhysicsWorld>) {
+fn init_physics(
+    mut world: ResMut<PhysicsWorld>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     let cube_rb = RigidBodyBuilder::dynamic()
-        .translation(Vector::new(10.0, 5.0, -3.0))
+        .translation(Vec3::new(10.0, 5.0, -3.0))
         .build();
-
     let cube_handle = world.rigid_body_set.insert(cube_rb);
-
     let cube_collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
 
     let PhysicsWorld {
@@ -121,9 +113,36 @@ fn init_physics(mut world: ResMut<PhysicsWorld>) {
     } = &mut *world;
 
     collider_set.insert_with_parent(cube_collider, cube_handle, rigid_body_set);
+
+    commands.spawn((
+        Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)))), // cube mesh
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.8, 0.7, 0.6),
+            ..Default::default()
+        })),
+        Transform::from_xyz(10.0, 5.0, -3.0),
+        Visibility::default(),
+        PhysicsBodyHandle(cube_handle),
+    ));
 }
 
 fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
     print!("tick ");
+}
+
+fn sync_physics_to_transforms(
+    world: Res<PhysicsWorld>,
+    mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
+) {
+    for (body_handle, mut transform) in query.iter_mut() {
+        if let Some(body) = world.rigid_body_set.get(body_handle.0) {
+            let pos = body.position();
+            let translation = pos.translation;
+            let rotation = pos.rotation;
+
+            transform.translation = Vec3::new(translation.x, translation.y, translation.z);
+            transform.rotation = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w);
+        }
+    }
 }
