@@ -63,9 +63,9 @@ fn main() {
     let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
     app.insert_resource(transport);
 
-    app.add_systems(send_message_system);
-    app.add_systems(receive_message_system);
-    app.add_systems(handle_events_system);
+    app.add_systems(Startup, send_message_system);
+    app.add_systems(Startup, receive_message_system);
+    app.add_systems(Startup, handle_events_system);
 
     // :)
     app.run();
@@ -90,15 +90,13 @@ fn receive_message_system(mut server: ResMut<RenetServer>) {
     }
 }
 
-fn handle_events_system(mut server_events: MessageReader<ServerEvent>) {
-    for event in server_events.read() {
-        match event {
-            ServerEvent::ClientConnected { client_id } => {
-                println!("Client {client_id} connected");
-            }
-            ServerEvent::ClientDisconnected { client_id, reason } => {
-                println!("Client {client_id} disconnected: {reason}");
-            }
+fn handle_events_system(mut event: ServerEvent) {
+    match event {
+        ServerEvent::ClientConnected { client_id } => {
+            println!("Client {client_id} connected");
+        }
+        ServerEvent::ClientDisconnected { client_id, reason } => {
+            println!("Client {client_id} disconnected: {reason}");
         }
     }
 }
