@@ -15,6 +15,7 @@ rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
 # ruzstd = "0.8.2"
 serde = "1.0.228"
 wincode = "0.2.5"
+wincode-derive = "0.2.3"
 zstd = "0.13.3"
 
 [features]
@@ -30,7 +31,7 @@ server = []
 
 [[bin]]
 name = "client"
-path = "src/bin/client.rs"
+path = "src/bin/client/client.rs"
 required-features = ["client"]
 
 [[bin]]
