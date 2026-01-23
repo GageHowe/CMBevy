@@ -7,10 +7,12 @@ default-run = "client"
 [dependencies]
 bevy = { version = "0.18.0", optional = true, default-features = false }
 bevy_renet = "4.0.0"
-bincode = "3.0.0"
+# bincode = "3.0.0" all my homies hate bincode
 local-ip-address = "0.6.9"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
+ruzstd = "0.8.2"
 serde = "1.0.228"
+wincode = "0.2.5"
 
 [features]
 default = ["client", "server"]
