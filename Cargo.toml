@@ -2,10 +2,15 @@
 name = "cmbevy"
 version = "0.1.0"
 edition = "2024"
+default-run = "client"
 
 [dependencies]
 bevy = { version = "0.18.0", optional = true, default-features = false }
+bevy_renet = "4.0.0"
+bincode = "3.0.0"
+local-ip-address = "0.6.9"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
+serde = "1.0.228"
 
 [features]
 default = ["client", "server"]
