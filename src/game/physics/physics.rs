@@ -75,6 +75,24 @@ impl PhysicsWorld {
             &self.event_handler,
         );
     }
+
+    pub fn spawn_capsule_player(&mut self, start: Vector3) -> RigidBodyHandle {
+        let rb = RigidBodyBuilder::dynamic()
+            .translation(start)
+            .lock_rotations()
+            .build();
+
+        let handle = self.rigid_body_set.insert(rb);
+
+        let collider = ColliderBuilder::capsule_y(0.9, 0.4) // height, radius
+            .friction(0.0)
+            .build();
+
+        self.collider_set
+            .insert_with_parent(collider, handle, &mut self.rigid_body_set);
+
+        handle
+    }
 }
 
 pub struct PhysicsPlugin;

@@ -13,7 +13,7 @@ pub fn update_camera_controller(
 ) {
     if let Ok((mut camera_controller, mut transform)) = camera_query.single_mut() {
         for ev in mouse_motion.read() {
-            println!("mouse: {:?}", ev.delta);
+            // println!("mouse: {:?}", ev.delta);
 
             camera_controller.rotation.y -= ev.delta.x * camera_controller.sensitivity;
             camera_controller.rotation.x -= ev.delta.y * camera_controller.sensitivity;

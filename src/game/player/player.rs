@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 // use bevy::window::PrimaryWindow;
 // // use bevy_rapier3d::{plugin::RapierContext, prelude::QueryFilter};
-// use crate::game::physics::*;
 use super::camera_controller;
+use crate::game::physics::physics::*;
 use rapier3d::prelude::*;
 // use crate::game::{
 //     level::targets::{DeadTarget, Target},
@@ -30,7 +30,25 @@ pub struct PlayerBodyHandle {
     pub handle: RigidBodyHandle,
 }
 
-fn init_player(mut commands: Commands) {
+fn init_player(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut physics: ResMut<PhysicsWorld>,
+) {
+    // let start_pos = Vector3::new(0.0, 2.0, 5.0);
+    // let rb_handle = physics.spawn_capsule_player(start_pos);
+
+    // // 2. Spawn a visible mesh for the body
+    // let mesh_handle = meshes.add(Mesh::from(shape::Capsule {
+    //     radius: 0.4,
+    //     depth: 1.8,
+    //     ..Default::default()
+    // }));
+    // let material_handle = materials.add(Color::rgb(0.2, 0.6, 1.0).into());
+
+    // let player_transform = Transform::from_xyz(start_pos.x, start_pos.y, start_pos.z);
+
     commands.spawn((
         Player {},
         Camera3d::default(),

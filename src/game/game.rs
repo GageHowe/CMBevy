@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::game::level::level::LevelPlugin;
 use crate::game::player::player::PlayerPlugin;
+use crate::game::ui::ui::*;
 use crate::game::{physics::physics::PhysicsPlugin, window::WindowSettingsPlugin};
 
 pub struct GamePlugin;
@@ -13,5 +14,6 @@ impl Plugin for GamePlugin {
         // app.add_plugins(PhysicsPlugin);
         app.add_plugins(PlayerPlugin);
         app.add_plugins(LevelPlugin);
+        app.add_plugins(UIPlugin);
     }
 }
