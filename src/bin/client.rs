@@ -4,6 +4,7 @@ use bevy_renet::{
     netcode::*,
     renet::{ClientId, ConnectionConfig, DefaultChannel, ServerEvent},
 };
+use cmbevy::core::config::SERVER_ADDRESS;
 use cmbevy::core::{
     level::level::*,
     physics::{components::*, physics_world::*},
@@ -11,6 +12,7 @@ use cmbevy::core::{
     ui::ui::UIPlugin,
     window::*,
 };
+
 use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 // use ruzstd::decoding::*;
 
@@ -39,12 +41,12 @@ fn main() {
     app.add_plugins(NetcodeClientPlugin);
 
     let authentication = ClientAuthentication::Unsecure {
-        server_addr: "127.0.0.1:5000".parse().unwrap(),
+        server_addr: SERVER_ADDRESS.parse().unwrap(),
         client_id: 0,
         user_data: None,
         protocol_id: 0,
     };
-    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();

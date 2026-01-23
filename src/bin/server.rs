@@ -8,6 +8,7 @@ use bevy_renet::{
     netcode::*,
     renet::{ClientId, ConnectionConfig, DefaultChannel, ServerEvent},
 };
+use cmbevy::core::config::SERVER_ADDRESS;
 use cmbevy::core::{
     level::level::*,
     physics::{components::*, physics_world::*},
@@ -49,7 +50,7 @@ fn main() {
 
     // Transport layer setup
     app.add_plugins(NetcodeServerPlugin);
-    let server_addr = "127.0.0.1:5000".parse().unwrap();
+    let server_addr = SERVER_ADDRESS.parse().unwrap();
     let socket = UdpSocket::bind(server_addr).unwrap();
     let server_config = ServerConfig {
         current_time: SystemTime::now()
@@ -65,7 +66,7 @@ fn main() {
 
     app.add_systems(Startup, send_message_system);
     app.add_systems(Startup, receive_message_system);
-    app.add_systems(Startup, handle_events_system);
+    // app.add_systems(Startup, handle_events_system);
 
     // :)
     app.run();
@@ -90,13 +91,49 @@ fn receive_message_system(mut server: ResMut<RenetServer>) {
     }
 }
 
-fn handle_events_system(mut event: ServerEvent) {
-    match event {
-        ServerEvent::ClientConnected { client_id } => {
-            println!("Client {client_id} connected");
-        }
-        ServerEvent::ClientDisconnected { client_id, reason } => {
-            println!("Client {client_id} disconnected: {reason}");
-        }
-    }
-}
+// fn handle_events_system(
+//     event: On<RenetServerEvent>,
+//     // mut lobby: ResMut<Lobby>,
+//     mut server: ResMut<RenetServer>,
+//     mut commands: Commands,
+// ) {
+//     match **event {
+//         ServerEvent::ClientConnected { client_id } => {
+//             println!("Player {} connected.", client_id);
+//             // // Spawn player cube
+//             // let player_entity = commands
+//             //     .spawn((
+//             //         Mesh3d(meshes.add(Cuboid::from_size(Vec3::splat(1.0)))),
+//             //         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+//             //         Transform::from_xyz(0.0, 0.5, 0.0),
+//             //     ))
+//             //     .insert(PlayerInput::default())
+//             //     .insert(Player { id: client_id })
+//             //     .id();
+
+//             // // We could send an InitState with all the players id and positions for the client
+//             // // but this is easier to do.
+//             // for &player_id in lobby.players.keys() {
+//             //     let message =
+//             //         bincode::serialize(&ServerMessages::PlayerConnected { id: player_id }).unwrap();
+//             //     server.send_message(client_id, DefaultChannel::ReliableOrdered, message);
+//             // }
+
+//             // lobby.players.insert(client_id, player_entity);
+
+//             // let message =
+//             //     bincode::serialize(&ServerMessages::PlayerConnected { id: client_id }).unwrap();
+//             // server.broadcast_message(DefaultChannel::ReliableOrdered, message);
+//         }
+//         ServerEvent::ClientDisconnected { client_id, reason } => {
+//             println!("Player {} disconnected: {}", client_id, reason);
+//             // if let Some(player_entity) = lobby.players.remove(&client_id) {
+//             //     commands.entity(player_entity).despawn();
+//             // }
+
+//             // let message =
+//             //     bincode::serialize(&ServerMessages::PlayerDisconnected { id: client_id }).unwrap();
+//             // server.broadcast_message(DefaultChannel::ReliableOrdered, message);
+//         }
+//     }
+// }

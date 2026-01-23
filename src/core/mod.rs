@@ -1,4 +1,5 @@
 // pub mod game;
+pub mod config;
 pub mod level;
 pub mod net;
 pub mod physics;
