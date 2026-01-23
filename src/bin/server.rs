@@ -1,38 +1,45 @@
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use bevy::render::settings::{RenderCreation, WgpuSettings};
-use cmbevy::core::level::level::*;
-use cmbevy::core::physics::physics_world::*;
-use cmbevy::core::player::player::*;
+use bevy::render::{
+    RenderPlugin,
+    settings::{RenderCreation, WgpuSettings},
+};
+use bevy_renet::{
+    RenetClient, RenetClientPlugin, RenetServer, RenetServerEvent, RenetServerPlugin,
+    netcode::*,
+    renet::{ClientId, ConnectionConfig, DefaultChannel, ServerEvent},
+};
+use cmbevy::core::{
+    level::level::*,
+    physics::{components::*, physics_world::*},
+    player::player::*,
+    ui::ui::UIPlugin,
+    window::*,
+};
+use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
+// use ruzstd::decoding::*;
 
-use bevy_renet::netcode::*;
-use bevy_renet::renet::ServerEvent;
-use bevy_renet::renet::{ConnectionConfig, DefaultChannel};
-use bevy_renet::*;
-use std::net::UdpSocket;
-use std::time::SystemTime;
-// use bevy_renet::renet::
+#[derive(Debug, Default, Resource)]
+pub struct ServerLobby {
+    pub players: HashMap<ClientId, Entity>,
+}
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(
-        // https://taintedcoders.com/bevy/how-to/headless-mode
-        DefaultPlugins
-            // .set(ScheduleRunnerPlugin::run_once())
-            .set(RenderPlugin {
-                // synchronous_pipeline_compilation: true,
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    backends: None,
-                    ..default()
-                }),
-                ..default()
-            }),
-    )
-    // .add_plugins(FrameTimeDiagnosticsPlugin::default())
+    app.add_plugins(DefaultPlugins.set(RenderPlugin {
+        // nasty windowless workaround
+        synchronous_pipeline_compilation: true,
+        render_creation: RenderCreation::Automatic(WgpuSettings {
+            backends: None,
+            ..default()
+        }),
+        ..default()
+    }))
     .insert_resource(Time::<Fixed>::from_hz(60.0))
+    .add_plugins(WindowSettingsPlugin)
     .add_plugins(PhysicsPlugin)
     .add_plugins(PlayerPlugin)
-    .add_plugins(LevelPlugin);
+    .add_plugins(LevelPlugin)
+    .add_plugins(UIPlugin);
 
     // renet setup
     app.add_plugins(RenetServerPlugin);
@@ -56,13 +63,15 @@ fn main() {
     let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
     app.insert_resource(transport);
 
-    app.add_systems(Startup, send_message_system);
-    app.add_systems(Startup, receive_message_system);
-    app.add_systems(Startup, handle_events_system);
+    app.add_systems(send_message_system);
+    app.add_systems(receive_message_system);
+    app.add_systems(handle_events_system);
 
-    // start server
+    // :)
     app.run();
 }
+
+// use zstd here
 
 fn send_message_system(mut server: ResMut<RenetServer>) {
     let channel_id = 0;
@@ -81,10 +90,7 @@ fn receive_message_system(mut server: ResMut<RenetServer>) {
     }
 }
 
-fn handle_events_system(
-    mut server_events: MessageReader<ServerEvent>, // maybe EventReader etc?
-    mut server: ResMut<RenetServer>,
-) {
+fn handle_events_system(mut server_events: MessageReader<ServerEvent>) {
     for event in server_events.read() {
         match event {
             ServerEvent::ClientConnected { client_id } => {

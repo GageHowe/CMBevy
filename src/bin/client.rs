@@ -1,17 +1,23 @@
 use bevy::prelude::*;
-// use bevy_renet::renet::*;
-use bevy_renet::netcode::*;
-use bevy_renet::renet::{ConnectionConfig, DefaultChannel};
-use bevy_renet::*;
-use cmbevy::core::level::level::*;
-use cmbevy::core::physics::physics_world::*;
-use cmbevy::core::player::player::*;
-use cmbevy::core::ui::ui::UIPlugin;
-use cmbevy::core::window::*;
-use std::net::UdpSocket;
-use std::time::SystemTime;
-
+use bevy_renet::{
+    RenetClient, RenetClientPlugin, RenetServer, RenetServerEvent, RenetServerPlugin,
+    netcode::*,
+    renet::{ClientId, ConnectionConfig, DefaultChannel, ServerEvent},
+};
+use cmbevy::core::{
+    level::level::*,
+    physics::{components::*, physics_world::*},
+    player::player::*,
+    ui::ui::UIPlugin,
+    window::*,
+};
+use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 // use ruzstd::decoding::*;
+
+#[derive(Debug, Default, Resource)]
+pub struct ServerLobby {
+    pub players: HashMap<ClientId, Entity>,
+}
 
 fn main() {
     let mut app = App::new();
@@ -62,5 +68,6 @@ fn send_message_system(mut client: ResMut<RenetClient>) {
 fn receive_message_system(mut client: ResMut<RenetClient>) {
     while let Some(message) = client.receive_message(DefaultChannel::ReliableOrdered) {
         // Handle received message
+        println!("client recieved message: {:?}", message)
     }
 }

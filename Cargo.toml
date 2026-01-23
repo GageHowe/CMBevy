@@ -6,7 +6,9 @@ default-run = "client"
 
 [dependencies]
 bevy = { version = "0.18.0", optional = true, default-features = false }
+# bevy-steamworks = "0.16.0"
 bevy_renet = "4.0.0"
+# bevy_renet2 = "0.13.1" wtf even is this
 # bincode = "3.0.0" all my homies hate bincode
 local-ip-address = "0.6.9"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
