@@ -35,12 +35,20 @@ impl Message {
     }
 }
 
+// the following functions might be unnecessary and may be removed
+
 // "0.0.0.0:0" for client, SERVER_ADDRESS for server
-// actually this might be retarded
 fn get_udp_socket(addr: &str) -> io::Result<UdpSocket> {
     UdpSocket::bind(addr)
 }
+fn compress(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    encode_all(Cursor::new(bytes), 3)
+}
+fn decompress(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    decode_all(Cursor::new(bytes))
+}
 
+/// TODO: deprecate in favor of send_pkt_batch
 fn send_single_pkt(sock: &UdpSocket, dst: &str, msg: Message) -> io::Result<()> {
     let bytes = serialize(&msg).map_err(|e| {
         eprintln!("serialize failed: {e}");
@@ -53,16 +61,20 @@ fn send_single_pkt(sock: &UdpSocket, dst: &str, msg: Message) -> io::Result<()> 
     Ok(())
 }
 
-// fn send_slice_of_pkts
+/// serialize, compress, and send a vector of Messages
+fn send_pkt_batch(sock: &UdpSocket, dst: &str, msgs: Vec<Message>) -> io::Result<()> {
+    let bytes = serialize(&msgs).map_err(|e| {
+        eprintln!("serialize batch failed: {e}");
+        io::Error::new(io::ErrorKind::Other, "serialize batch failed")
+    })?;
 
-fn compress(bytes: &[u8]) -> io::Result<Vec<u8>> {
-    encode_all(Cursor::new(bytes), 3)
+    let compressed = compress(&bytes)?;
+
+    sock.send_to(&compressed, dst)?;
+    Ok(())
 }
 
-fn decompress(bytes: &[u8]) -> io::Result<Vec<u8>> {
-    decode_all(Cursor::new(bytes))
-}
-
+// TODO: deprecate this in favor of server_loop_batched
 fn server_loop(sock: &UdpSocket) -> io::Result<()> {
     let mut buf = [0u8; 1500];
 
@@ -71,6 +83,54 @@ fn server_loop(sock: &UdpSocket) -> io::Result<()> {
         match deserialize::<Message>(&buf[..len]) {
             Ok(msg) => msg.handle_on_server(&src.to_string()),
             Err(e) => eprintln!("bad packet from {src}: {e}"),
+        }
+    }
+}
+
+fn server_loop_batched(sock: &UdpSocket) -> io::Result<()> {
+    let mut buf = [0u8; 1500];
+
+    loop {
+        let (len, src) = sock.recv_from(&mut buf)?;
+        let decompressed = match decompress(&buf[..len]) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("decompress failed from {src}: {e}");
+                continue;
+            }
+        };
+
+        match deserialize::<Vec<Message>>(&decompressed) {
+            Ok(vec) => {
+                for msg in vec {
+                    msg.handle_on_server(&src.to_string());
+                }
+            }
+            Err(e) => eprintln!("bad packet from {src}: {e}"),
+        }
+    }
+}
+
+fn client_loop_batched(sock: &UdpSocket) -> io::Result<()> {
+    let mut buf = [0u8; 1500];
+
+    loop {
+        let (len, src) = sock.recv_from(&mut buf)?;
+        let decompressed = match decompress(&buf[..len]) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("client: decompress failed: {e}");
+                continue;
+            }
+        };
+
+        match deserialize::<Vec<Message>>(&decompressed) {
+            Ok(vec) => {
+                for msg in vec {
+                    msg.handle_on_client();
+                }
+            }
+            Err(e) => eprintln!("client: bad packet: {e}"),
         }
     }
 }
