@@ -42,3 +42,7 @@ fn main() {
     // :)
     app.run();
 }
+
+// handle_udp runs on FixedPreUpdate
+// step_physics runs on FixedUpdate
+// flush_outgoing_udp runs on FixedPostUpdate

@@ -8,7 +8,7 @@ use std::io::Cursor;
 use std::net::{TcpStream, UdpSocket};
 use wincode::{deserialize, serialize};
 use wincode_derive::{SchemaRead, SchemaWrite};
-use zstd::{Decoder, Encoder};
+// use zstd::{Decoder, Encoder};
 use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq)]
@@ -19,31 +19,34 @@ pub enum Message {
     MoreData(String),
 }
 
-impl Message {
-    pub fn handle_on_server(self, src: &str) {
-        match self {
-            Message::Ping => { /* server behavior */ }
-            Message::Pong => { /* server behavior */ }
-            Message::Data(v) => { /* server behavior */ }
-            _ => {}
-        }
-    }
+// impl Message {
+//     pub fn handle_on_server(self, src: &str) {
+//         match self {
+//             Message::Ping => { /* server behavior */ }
+//             Message::Pong => { /* server behavior */ }
+//             Message::Data(v) => { /* server behavior */ }
+//             _ => {}
+//         }
+//     }
 
-    pub fn handle_on_client(self) {
-        match self {
-            Message::Ping => { /* client behavior */ }
-            Message::Pong => { /* client behavior */ }
-            Message::Data(v) => { /* client behavior */ }
-            _ => {}
-        }
-    }
-}
+//     pub fn handle_on_client(self) {
+//         match self {
+//             Message::Ping => { /* client behavior */ }
+//             Message::Pong => { /* client behavior */ }
+//             Message::Data(v) => { /* client behavior */ }
+//             _ => {}
+//         }
+//     }
+// }
 
 // the following functions might be unnecessary and may be removed
 
 // "0.0.0.0:0" for client, SERVER_ADDRESS for server
 pub fn get_udp_socket(addr: &str) -> UdpSocket {
-    UdpSocket::bind(addr).expect("failed to bind UDP socket")
+    let sock = UdpSocket::bind(addr).expect("failed to bind UDP socket");
+    sock.set_nonblocking(true)
+        .expect("failed to set UDP socket nonblocking");
+    sock
 }
 pub fn get_tcp_stream(addr: &str) -> TcpStream {
     TcpStream::connect(addr).expect("failed to connect TCP stream")
@@ -98,52 +101,52 @@ pub fn broadcast_udp(sock: &UdpSocket, clients: &[String], msgs: &[Message]) -> 
     Ok(())
 }
 
-/// Recieve loop for the server, handles incoming messages from clients
-pub fn server_loop_batched(sock: &UdpSocket) -> io::Result<()> {
-    let mut buf = [0u8; 1500];
+// /// Recieve loop for the server, handles incoming messages from clients
+// pub fn server_loop_batched(sock: &UdpSocket) -> io::Result<()> {
+//     let mut buf = [0u8; 1500];
 
-    loop {
-        let (len, src) = sock.recv_from(&mut buf)?;
-        let decompressed = match decompress(&buf[..len]) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("decompress failed from {src}: {e}");
-                continue;
-            }
-        };
+//     loop {
+//         let (len, src) = sock.recv_from(&mut buf)?;
+//         let decompressed = match decompress(&buf[..len]) {
+//             Ok(d) => d,
+//             Err(e) => {
+//                 eprintln!("decompress failed from {src}: {e}");
+//                 continue;
+//             }
+//         };
 
-        match deserialize::<Vec<Message>>(&decompressed) {
-            Ok(vec) => {
-                for msg in vec {
-                    msg.handle_on_server(&src.to_string());
-                }
-            }
-            Err(e) => eprintln!("bad packet from {src}: {e}"),
-        }
-    }
-}
+//         match deserialize::<Vec<Message>>(&decompressed) {
+//             Ok(vec) => {
+//                 for msg in vec {
+//                     msg.handle_on_server(&src.to_string());
+//                 }
+//             }
+//             Err(e) => eprintln!("bad packet from {src}: {e}"),
+//         }
+//     }
+// }
 
-/// Receive loop for the client, handles incoming messages from the server
-pub fn client_loop_batched(sock: &UdpSocket) -> io::Result<()> {
-    let mut buf = [0u8; 1500];
+// /// Receive loop for the client, handles incoming messages from the server
+// pub fn client_loop_batched(sock: &UdpSocket) -> io::Result<()> {
+//     let mut buf = [0u8; 1500];
 
-    loop {
-        let (len, src) = sock.recv_from(&mut buf)?;
-        let decompressed = match decompress(&buf[..len]) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("client: decompress failed: {e}");
-                continue;
-            }
-        };
+//     loop {
+//         let (len, src) = sock.recv_from(&mut buf)?;
+//         let decompressed = match decompress(&buf[..len]) {
+//             Ok(d) => d,
+//             Err(e) => {
+//                 eprintln!("client: decompress failed: {e}");
+//                 continue;
+//             }
+//         };
 
-        match deserialize::<Vec<Message>>(&decompressed) {
-            Ok(vec) => {
-                for msg in vec {
-                    msg.handle_on_client();
-                }
-            }
-            Err(e) => eprintln!("client: bad packet: {e}"),
-        }
-    }
-}
+//         match deserialize::<Vec<Message>>(&decompressed) {
+//             Ok(vec) => {
+//                 for msg in vec {
+//                     msg.handle_on_client();
+//                 }
+//             }
+//             Err(e) => eprintln!("client: bad packet: {e}"),
+//         }
+//     }
+// }
