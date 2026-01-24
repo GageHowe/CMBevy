@@ -85,24 +85,18 @@ pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
     }
 }
 
-/// Send all queued messages to each client as one compressed batch
+/// Send all queued messages to each client.
+/// Each client has its own Vec of Messages to send
 fn flush_outgoing_udp(mut manager: ResMut<ServerNetManager>) {
     if manager.outgoing_udp.is_empty() {
         return;
     }
-
-    // Phase 1: drain the outgoing map into a local Vec
     let items: Vec<_> = manager.outgoing_udp.drain().collect();
-
-    // Now we can take an immutable borrow of the socket.
     let sock = &manager.udp_socket;
-
-    // Phase 2: iterate over drained items and send
     for (client, msgs) in items {
         if msgs.is_empty() {
             continue;
         }
-
         let bytes = match serialize(&msgs) {
             Ok(b) => b,
             Err(e) => {
@@ -110,7 +104,6 @@ fn flush_outgoing_udp(mut manager: ResMut<ServerNetManager>) {
                 continue;
             }
         };
-
         let compressed = match compress(&bytes) {
             Ok(c) => c,
             Err(e) => {
@@ -118,7 +111,6 @@ fn flush_outgoing_udp(mut manager: ResMut<ServerNetManager>) {
                 continue;
             }
         };
-
         if let Err(e) = sock.send_to(&compressed, client) {
             eprintln!("server: send_to {client} failed: {e}");
         }
