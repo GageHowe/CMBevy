@@ -1,11 +1,12 @@
-// use bevy::ecs::event::EventReader;
+// server executable
+
+pub mod net;
 use bevy::prelude::*;
 use bevy::render::{
     RenderPlugin,
     settings::{RenderCreation, WgpuSettings},
 };
 
-use cmbevy::core::net::resources::ServerNetworkPlugin;
 // use cmbevy::core::config::SERVER_ADDRESS;
 use cmbevy::core::{
     level::level::*,
@@ -29,7 +30,6 @@ fn main() {
     .add_plugins(PhysicsPlugin)
     .add_plugins(PlayerPlugin)
     .add_plugins(LevelPlugin)
-    .add_plugins(ServerNetworkPlugin);
 
     // :)
     app.run();
