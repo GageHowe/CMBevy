@@ -17,9 +17,8 @@ impl Default for AppSettings {
 pub struct AppSettingsPlugin;
 impl Plugin for AppSettingsPlugin {
     fn build(&self, app: &mut App) {
-        // app.init_resource()
         app.insert_resource(AppSettings::default());
-        // app.add_systems(PreStartup, init_window);
-        // app.add_systems(Update, toggle_cursor_lock);
     }
 }
+
+// TODO: integrate ui

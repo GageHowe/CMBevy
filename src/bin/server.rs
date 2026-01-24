@@ -5,15 +5,14 @@ use bevy::render::{
     settings::{RenderCreation, WgpuSettings},
 };
 
+use cmbevy::core::net::resources::ServerNetworkPlugin;
 // use cmbevy::core::config::SERVER_ADDRESS;
 use cmbevy::core::{
     level::level::*,
     physics::{/*components::*,*/ physics_world::*},
     player::player::*,
-    ui::ui::UIPlugin,
-    window::*,
 };
-use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
+// use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 
 fn main() {
     let mut app = App::new();
@@ -27,11 +26,10 @@ fn main() {
         ..default()
     }))
     .insert_resource(Time::<Fixed>::from_hz(60.0))
-    .add_plugins(WindowSettingsPlugin)
     .add_plugins(PhysicsPlugin)
     .add_plugins(PlayerPlugin)
     .add_plugins(LevelPlugin)
-    .add_plugins(UIPlugin);
+    .add_plugins(ServerNetworkPlugin);
 
     // :)
     app.run();

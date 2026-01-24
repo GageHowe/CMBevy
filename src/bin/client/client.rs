@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use cmbevy::core::config::SERVER_ADDRESS;
+use cmbevy::core::net::resources::ClientNetworkPlugin;
 use cmbevy::core::{
     level::level::*,
     physics::{components::*, physics_world::*},
@@ -29,7 +30,8 @@ fn main() {
         .add_plugins(PhysicsPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(LevelPlugin)
-        .add_plugins(UIPlugin);
+        .add_plugins(UIPlugin)
+        .add_plugins(ClientNetworkPlugin);
 
     // :)
     app.run();

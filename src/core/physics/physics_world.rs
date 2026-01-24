@@ -6,7 +6,7 @@ use bevy::math::primitives::Cuboid;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
 
-#[derive(Resource)] // means this is a singleton
+#[derive(Resource)]
 pub struct PhysicsWorld {
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
