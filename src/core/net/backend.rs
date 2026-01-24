@@ -1,16 +1,18 @@
-use crate::core::config::*;
-use serde::{Deserialize, Serialize};
+// use crate::core::config::*;
 use std::io;
+use std::io::Cursor;
 use std::net::UdpSocket;
-use wincode::*;
 use wincode::{deserialize, serialize};
 use wincode_derive::{SchemaRead, SchemaWrite};
+use zstd::{Decoder, Encoder};
+use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq)]
 enum Message {
     Ping,
     Pong,
     Data(i32),
+    MoreData(String),
 }
 
 impl Message {
@@ -19,6 +21,7 @@ impl Message {
             Message::Ping => { /* server behavior */ }
             Message::Pong => { /* server behavior */ }
             Message::Data(v) => { /* server behavior */ }
+            _ => {}
         }
     }
 
@@ -27,12 +30,14 @@ impl Message {
             Message::Ping => { /* client behavior */ }
             Message::Pong => { /* client behavior */ }
             Message::Data(v) => { /* client behavior */ }
+            _ => {}
         }
     }
 }
 
 // "0.0.0.0:0" for client, SERVER_ADDRESS for server
-fn get_client_udp_socket(addr: &str) -> io::Result<UdpSocket> {
+// actually this might be retarded
+fn get_udp_socket(addr: &str) -> io::Result<UdpSocket> {
     UdpSocket::bind(addr)
 }
 
@@ -42,8 +47,20 @@ fn send_single_pkt(sock: &UdpSocket, dst: &str, msg: Message) -> io::Result<()> 
         io::Error::new(io::ErrorKind::Other, "serialize failed")
     })?;
 
-    sock.send_to(&bytes, dst)?;
+    let compressed = compress(&bytes)?;
+
+    sock.send_to(&compressed, dst)?;
     Ok(())
+}
+
+// fn send_slice_of_pkts
+
+fn compress(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    encode_all(Cursor::new(bytes), 3)
+}
+
+fn decompress(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    decode_all(Cursor::new(bytes))
 }
 
 fn server_loop(sock: &UdpSocket) -> io::Result<()> {

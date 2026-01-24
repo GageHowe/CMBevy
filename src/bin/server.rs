@@ -5,16 +5,15 @@ use bevy::render::{
     settings::{RenderCreation, WgpuSettings},
 };
 
-use cmbevy::core::config::SERVER_ADDRESS;
+// use cmbevy::core::config::SERVER_ADDRESS;
 use cmbevy::core::{
     level::level::*,
-    physics::{components::*, physics_world::*},
+    physics::{/*components::*,*/ physics_world::*},
     player::player::*,
     ui::ui::UIPlugin,
     window::*,
 };
 use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
-// use ruzstd::decoding::*;
 
 fn main() {
     let mut app = App::new();
