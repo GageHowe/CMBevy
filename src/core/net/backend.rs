@@ -22,9 +22,10 @@ pub enum Message {
     ChatMessage(String, String),
     // Test(Vec<String>),
     Test,
+    Error(String),
 }
 
-// simple way of testing net messages in the game terminal
+/// simple way of testing net messages in the game terminal
 pub fn str_to_message(s: &str) -> Message {
     match s {
         "Ping" => Message::Ping,
