@@ -1,7 +1,7 @@
 // server/net.rs
 use bevy::prelude::*;
 use cmbevy::core::{
-    config::{MAX_UDP_SIZE, SERVER_ADDRESS},
+    config::{MAX_UDP_SIZE, SERVER_BIND_ADDRESS},
     net::backend::{Message, compress, decompress},
 };
 use std::collections::HashMap;
@@ -40,7 +40,7 @@ impl ServerNetManager {
 pub struct ServerNetManagerPlugin;
 impl Plugin for ServerNetManagerPlugin {
     fn build(&self, app: &mut App) {
-        let sock = UdpSocket::bind(SERVER_ADDRESS).expect("server: failed to bind UDP socket");
+        let sock = UdpSocket::bind(SERVER_BIND_ADDRESS).expect("server: failed to bind UDP socket");
         sock.set_nonblocking(true)
             .expect("server: failed to set UDP socket nonblocking");
 

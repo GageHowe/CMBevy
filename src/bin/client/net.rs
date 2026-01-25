@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use cmbevy::core::net::backend::{compress, decompress};
 use cmbevy::core::{
-    config::{MAX_UDP_SIZE, SERVER_ADDRESS},
+    config::{CLIENT_CONNECT_ADDRESS, MAX_UDP_SIZE},
     net::backend::Message,
 };
 // networking backend
@@ -46,7 +46,7 @@ impl Plugin for ClientNetManagerPlugin {
         let sock = UdpSocket::bind("0.0.0.0:0").expect("failed to bind UDP socket");
         sock.set_nonblocking(true)
             .expect("failed to set UDP socket nonblocking");
-        sock.connect(SERVER_ADDRESS)
+        sock.connect(CLIENT_CONNECT_ADDRESS)
             .expect("client: failed to connect socket");
 
         app.insert_resource(ClientNetManager::new(sock));
