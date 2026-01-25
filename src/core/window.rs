@@ -2,6 +2,7 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, /* WindowMode*/ WindowResolution},
 };
+use bevy_egui::input::EguiWantsInput;
 
 pub struct WindowSettingsPlugin;
 
@@ -23,14 +24,17 @@ fn toggle_cursor_lock(
     mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    egui_wants_input: Res<EguiWantsInput>,
 ) {
-    // grab and hide cursor on left click
+    if egui_wants_input.wants_any_input() {
+        return;
+    }
+
     if mouse.just_pressed(MouseButton::Left) {
         cursor_options.visible = false;
         cursor_options.grab_mode = CursorGrabMode::Locked;
     }
 
-    // release and show cursor on Escape
     if keys.just_pressed(KeyCode::Escape) {
         cursor_options.visible = true;
         cursor_options.grab_mode = CursorGrabMode::None;

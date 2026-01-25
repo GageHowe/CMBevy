@@ -14,8 +14,6 @@ impl Plugin for UIPlugin {
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left);
-
-        // app.add_systems(Startup, spawn_game_ui);
     }
 }
 
@@ -30,13 +28,18 @@ fn gui_top_left(
     // stupid api
     let mut style = (*ctx.style()).clone();
     style.visuals.window_shadow = egui::epaint::Shadow::NONE;
-    style.visuals.window_fill = egui::Color32::from_rgb(20, 0, 20);
-    // style.visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK); // border
+    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(20, 0, 20, 200);
     style.visuals.override_text_color = Some(egui::Color32::WHITE);
+    style.visuals.window_stroke = egui::Stroke {
+        width: 1.0,
+        color: egui::Color32::BLACK,
+    };
     ctx.set_style(style);
 
     egui::Window::new("")
         .title_bar(false)
+        .resizable(false)
+        .pivot(egui::Align2::LEFT_TOP)
         .show(contexts.ctx_mut()?, |ui| {
             ui.label("bevy_egui test");
             ui.label(format!("rigidbodies: {}", &world.rigid_body_set.len()));
