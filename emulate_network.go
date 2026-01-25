@@ -35,8 +35,6 @@ func main() {
 		bufferSize: *bufSize,
 	}
 
-	rand.Seed(time.Now().UnixNano())
-
 	connA, err := net.ListenPacket("udp", *addrA)
 	if err != nil {
 		log.Fatalf("listen A (%s): %v", *addrA, err)
@@ -54,67 +52,41 @@ func main() {
 
 	var lastA, lastB net.Addr
 
-	// A -> B reader
-	go func() {
-		buf := make([]byte, cfg.bufferSize)
-		for {
-			n, addr, err := connA.ReadFrom(buf)
-			if err != nil {
-				log.Printf("read A: %v", err)
-				continue
-			}
-			// capture data for this packet
-			data := make([]byte, n)
-			copy(data, buf[:n])
-
-			lastA = addr
-			if lastB == nil {
-				continue
-			}
-
-			// one goroutine per packet
-			go forwardWithImpairments(connB, lastB, data, cfg)
-		}
-	}()
-
-	// B -> A reader
-	go func() {
-		buf := make([]byte, cfg.bufferSize)
-		for {
-			n, addr, err := connB.ReadFrom(buf)
-			if err != nil {
-				log.Printf("read B: %v", err)
-				continue
-			}
-			data := make([]byte, n)
-			copy(data, buf[:n])
-
-			lastB = addr
-			if lastA == nil {
-				continue
-			}
-
-			// one goroutine per packet
-			go forwardWithImpairments(connA, lastA, data, cfg)
-		}
-	}()
+	go relay(connA, &lastA, &lastB, connB, &cfg)
+	go relay(connB, &lastB, &lastA, connA, &cfg)
 
 	select {}
 }
 
-func forwardWithImpairments(conn net.PacketConn, dst net.Addr, data []byte, cfg linkConfig) {
-	// per-packet loss
+func relay(src net.PacketConn, srcLast, dstLast *net.Addr, dstConn net.PacketConn, cfg *linkConfig) {
+	buf := make([]byte, cfg.bufferSize)
+	for {
+		n, addr, err := src.ReadFrom(buf)
+		if err != nil {
+			log.Printf("read: %v", err)
+			continue
+		}
+		*srcLast = addr
+		if *dstLast == nil {
+			continue
+		}
+
+		data := make([]byte, n)
+		copy(data, buf[:n])
+
+		go forward(dstConn, *dstLast, data, cfg)
+	}
+}
+
+func forward(conn net.PacketConn, dst net.Addr, data []byte, cfg *linkConfig) {
 	if rand.Float64() < cfg.lossProb {
 		return
 	}
 
-	// per-packet random delay in [minDelay, maxDelay]
 	jitterRange := cfg.maxDelay - cfg.minDelay
-	var delay time.Duration
-	if jitterRange <= 0 {
-		delay = cfg.minDelay
-	} else {
-		delay = cfg.minDelay + time.Duration(rand.Int63n(int64(jitterRange)))
+	delay := cfg.minDelay
+	if jitterRange > 0 {
+		delay += time.Duration(rand.Int63n(int64(jitterRange)))
 	}
 	if delay > 0 {
 		time.Sleep(delay)

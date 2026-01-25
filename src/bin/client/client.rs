@@ -1,6 +1,7 @@
 // client executable
 
 mod net;
+mod ui;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use cmbevy::core::{
@@ -8,9 +9,9 @@ use cmbevy::core::{
     physics::{components::*, physics_world::*},
     player::player::*,
     settings::settings::*,
-    ui::ui::UIPlugin,
-    window::*,
 };
+use ui::ui::UIPlugin;
+use ui::window::WindowSettingsPlugin;
 
 use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 

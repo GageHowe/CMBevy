@@ -9,6 +9,7 @@ use std::net::{TcpStream, UdpSocket};
 use wincode::serialize;
 use wincode_derive::{SchemaRead, SchemaWrite};
 // use zstd::{Decoder, Encoder};
+use std::str::FromStr;
 use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq)]
@@ -20,17 +21,18 @@ pub enum Message {
     /// address, message
     ChatMessage(String, String),
     // Test(Vec<String>),
+    Test,
 }
 
-// the following functions might be unnecessary and may be removed
-
-// "0.0.0.0:0" for client, SERVER_ADDRESS for server
-pub fn get_udp_socket(addr: &str) -> UdpSocket {
-    let sock = UdpSocket::bind(addr).expect("failed to bind UDP socket");
-    sock.set_nonblocking(true)
-        .expect("failed to set UDP socket nonblocking");
-    sock
+// simple way of testing net messages in the game terminal
+pub fn str_to_message(s: &str) -> Message {
+    match s {
+        "Ping" => Message::Ping,
+        "Pong" => Message::Pong,
+        _ => Message::Test,
+    }
 }
+
 pub fn get_tcp_stream(addr: &str) -> TcpStream {
     TcpStream::connect(addr).expect("failed to connect TCP stream")
 }
