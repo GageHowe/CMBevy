@@ -85,7 +85,7 @@ pub fn handle_udp(manager: ResMut<ClientNetManager>) {
                 break;
             }
             Err(e) => {
-                eprintln!("client: recv failed: {e}");
+                // eprintln!("client: recv failed: {e}");
                 break;
             }
         }
