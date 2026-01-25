@@ -20,9 +20,9 @@ use crate::net::ClientNetManagerPlugin;
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
     #[default]
-    MainMenu,
+    Playing,
+    // MainMenu,
     // PauseMenu,
-    // Playing,
 }
 
 fn main() {
@@ -42,7 +42,7 @@ fn main() {
     .add_plugins(ClientNetManagerPlugin);
 
     // :)
-    println!("starting server...\n");
+    println!("starting client...\n");
     app.run();
 }
 
