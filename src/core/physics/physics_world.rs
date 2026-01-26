@@ -1,10 +1,13 @@
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
-use super::components::PhysicsBodyHandle;
 use bevy::math::primitives::Cuboid;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
+
+// a way for entities to refer to their rigidbody
+#[derive(Component)]
+pub struct PhysicsBodyHandle(pub rapier3d::prelude::RigidBodyHandle);
 
 #[derive(Resource)]
 pub struct PhysicsWorld {

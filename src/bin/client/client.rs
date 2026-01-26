@@ -3,21 +3,18 @@
 mod net;
 mod settings;
 mod ui;
+use crate::net::ClientNetManagerPlugin;
+use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::log::{Level, LogPlugin};
+use bevy::prelude::Camera3d;
 use bevy::prelude::*;
-use cmbevy::core::{
-    level::level::*,
-    physics::{components::*, physics_world::*},
-    player::player::*,
-};
+use bevy::window::PresentMode;
+// use cmbevy::core::pawn::pawn::PawnPlugin;
+use cmbevy::core::{level::level::*, physics::physics_world::*};
 use settings::settings::*;
+use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
-
-use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
-
-use crate::net::ClientNetManagerPlugin;
-// use ruzstd::decoding::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -29,23 +26,46 @@ enum AppState {
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(LogPlugin {
-        level: Level::WARN,
-        ..default()
-    }))
+    app.add_plugins(
+        DefaultPlugins
+            .set(LogPlugin {
+                level: Level::WARN,
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "window".into(),
+                    present_mode: PresentMode::FifoRelaxed, // vsync off
+                    ..default()
+                }),
+                ..default()
+            }),
+    )
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .init_state::<AppState>()
     .add_plugins(AppSettingsPlugin)
     .add_plugins(WindowSettingsPlugin)
     .add_plugins(PhysicsPlugin)
-    .add_plugins(PlayerPlugin)
     .add_plugins(LevelPlugin)
     .add_plugins(UIPlugin)
-    .add_plugins(ClientNetManagerPlugin);
+    // .add_plugins(PawnPlugin)
+    .add_plugins(ClientNetManagerPlugin)
+    .add_systems(Startup, spawn_camera);
 
-    // :)
     println!("starting client...\n");
     app.run();
+}
+
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn((
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            // vertical FOV in radians
+            fov: 110.0_f32.to_radians(),
+            ..Default::default()
+        }),
+        Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
 }
 
 // handle_udp runs on FixedPreUpdate

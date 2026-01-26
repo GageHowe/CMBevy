@@ -33,7 +33,7 @@ impl ClientNetManager {
         }
     }
 
-    /// adds a message to the vector to be sent later this tick
+    /// adds a udp message to the vector to be sent later this tick
     pub fn enqueue(&mut self, msg: Message) {
         self.outgoing_udp.push(msg);
     }

@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY . .
-RUN cargo build --release --bin server
+RUN cargo build --release --bin server --features server
 
 EXPOSE 
 CMD ["./target/release/server"]

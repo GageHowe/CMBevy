@@ -8,6 +8,10 @@ impl Plugin for LevelPlugin {
     }
 }
 
+/// In the future, this will contain all information required to create a level.
+/// It will be able to be passed over the network to other players.
+pub struct LevelDescription {}
+
 fn init_level(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,

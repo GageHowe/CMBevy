@@ -8,11 +8,7 @@ use bevy::render::{
     RenderPlugin,
     settings::{RenderCreation, WgpuSettings},
 };
-use cmbevy::core::{
-    level::level::*,
-    physics::{/*components::*,*/ physics_world::*},
-    player::player::*,
-};
+use cmbevy::core::{level::level::*, physics::physics_world::*};
 // use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 
 fn main() {
@@ -35,7 +31,6 @@ fn main() {
     )
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .add_plugins(PhysicsPlugin)
-    .add_plugins(PlayerPlugin)
     .add_plugins(LevelPlugin)
     .add_plugins(ServerNetManagerPlugin);
 

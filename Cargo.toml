@@ -16,7 +16,7 @@ wincode-derive = "0.2.3"
 zstd = "0.13.3"
 
 [features]
-default = ["client", "server"]
+default = []
 
 client = [
   "bevy/3d",
