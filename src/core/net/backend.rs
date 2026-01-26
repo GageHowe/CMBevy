@@ -12,7 +12,31 @@ use wincode_derive::{SchemaRead, SchemaWrite};
 use std::str::FromStr;
 use zstd::{decode_all, encode_all};
 
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq)]
+/// wraps a Message to allow it to be reliable
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub struct MessageWrapper {
+    /// Some(id) if this needs to reliable, None if not
+    pub reliable_id: Option<u64>,
+    pub message: Message,
+}
+
+impl MessageWrapper {
+    pub fn regular(message: Message) -> Self {
+        Self {
+            reliable_id: None,
+            message,
+        }
+    }
+
+    pub fn reliable(id: u64, message: Message) -> Self {
+        Self {
+            reliable_id: Some(id),
+            message,
+        }
+    }
+}
+
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum Message {
     Ping,
     Pong,
@@ -22,7 +46,10 @@ pub enum Message {
     ChatMessage(String, String),
     // Test(Vec<String>),
     Test,
+    /// A message the recipient will display
     Error(String),
+    /// Acknowledge receipt of reliable message
+    Ack(u64),
 }
 
 /// simple way of testing net messages in the game terminal

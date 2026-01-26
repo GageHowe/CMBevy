@@ -40,12 +40,6 @@ impl PhysicsWorld {
                 num_internal_pgs_iterations: 1,
                 num_internal_stabilization_iterations: 1,
                 num_solver_iterations: 4,
-                // what is the optimal value for min_island_size?
-                // It should not be too big so that we don't end up with
-                // huge islands that don't fit in cache.
-                // However we don't want it to be too small and end up with
-                // tons of islands, reducing SIMD parallelism opportunities.
-                // TODO: benchmark
                 min_island_size: 128,
                 normalized_allowed_linear_error: 0.001,
                 normalized_max_corrective_velocity: 10.0,

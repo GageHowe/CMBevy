@@ -11,6 +11,7 @@ bevy_egui = "0.39.0"
 local-ip-address = "0.6.9"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
 serde = "1.0.228"
+# sqlx = "0.8.6" # for login etc later on
 wincode = "0.2.5"
 wincode-derive = "0.2.3"
 zstd = "0.13.3"
@@ -21,10 +22,10 @@ default = []
 client = [
   "bevy/3d",
   "bevy/ui",
-  "bevy/debug"
+#   "bevy/debug"
 ]
 
-server = []
+server = ["bevy/3d"]
 
 [[bin]]
 name = "client"
