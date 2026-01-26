@@ -1,13 +1,9 @@
-// client/net.rs
-// This file contains a client-specific NetworkManager plugin
-
 use bevy::prelude::*;
 use cmbevy::core::net::backend::{compress, decompress};
 use cmbevy::core::{
     config::{CLIENT_CONNECT_ADDRESS, MAX_UDP_SIZE},
-    net::backend::{Message, MessageWrapper /*, compress, decompress */},
+    net::backend::{Message, MessageWrapper},
 };
-// networking backend
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
@@ -20,7 +16,9 @@ pub struct ClientNetManager {
 
     // Reliable message tracking
     next_reliable_id: u64,
-    pending_reliable: HashMap<u64, (MessageWrapper, f32)>,
+    pending_reliable: HashMap<u64, (MessageWrapper, u64)>, // (message, tick_sent)
+    current_tick: u64,
+    last_received_reliable: Option<u64>,
 }
 
 impl ClientNetManager {
@@ -30,6 +28,8 @@ impl ClientNetManager {
             outgoing_udp: vec![],
             next_reliable_id: 0,
             pending_reliable: HashMap::new(),
+            current_tick: 0,
+            last_received_reliable: None,
         }
     }
 
@@ -39,7 +39,7 @@ impl ClientNetManager {
     }
 
     /// Queue a reliable message (will be resent until acked)
-    pub fn enqueue_reliable(&mut self, msg: Message, time: f32) {
+    pub fn enqueue_reliable(&mut self, msg: Message) {
         let id = self.next_reliable_id;
         self.next_reliable_id += 1;
 
@@ -48,25 +48,34 @@ impl ClientNetManager {
         // Queue for immediate send
         self.outgoing_udp.push(wrapper.clone());
 
-        // Track for resending
-        self.pending_reliable.insert(id, (wrapper, time));
+        // Track for resending (tick 0 means "send immediately")
+        self.pending_reliable.insert(id, (wrapper, 0));
     }
 
-    /// Resend unacked reliable messages
-    pub fn resend_unacked(&mut self, current_time: f32) {
-        for (_id, (wrapper, sent_time)) in self.pending_reliable.iter_mut() {
-            if current_time - *sent_time > 0.5 {
-                // Resend after 500ms
+    /// Resend unacked reliable messages. This implementation only retries once.
+    pub fn resend_unacked(&mut self) {
+        self.current_tick += 1;
+        let mut to_remove = Vec::new();
+
+        for (id, (wrapper, sent_tick)) in self.pending_reliable.iter_mut() {
+            if *sent_tick == 0 {
+                // First resend
                 self.outgoing_udp.push(wrapper.clone());
-                *sent_time = current_time;
+                *sent_tick = self.current_tick;
+            } else if self.current_tick - *sent_tick >= 30 {
+                to_remove.push(*id);
             }
+        }
+
+        for id in to_remove {
+            self.pending_reliable.remove(&id);
         }
     }
 
     /// Remove acked message from pending
     fn handle_ack(&mut self, id: u64) {
         if self.pending_reliable.remove(&id).is_some() {
-            println!("client: received ack {id}");
+            println!("CLIENT: received ack {id}");
         }
     }
 }
@@ -78,7 +87,7 @@ impl Plugin for ClientNetManagerPlugin {
         sock.set_nonblocking(true)
             .expect("failed to set UDP socket nonblocking");
         sock.connect(CLIENT_CONNECT_ADDRESS)
-            .expect("client: failed to connect socket");
+            .expect("CLIENT: failed to connect socket");
 
         app.insert_resource(ClientNetManager::new(sock));
         app.add_systems(FixedPreUpdate, handle_udp);
@@ -88,16 +97,15 @@ impl Plugin for ClientNetManagerPlugin {
         );
     }
 }
-pub fn resend_reliable_client(mut manager: ResMut<ClientNetManager>, time: Res<Time>) {
-    manager.resend_unacked(time.elapsed_secs());
+
+pub fn resend_reliable_client(mut manager: ResMut<ClientNetManager>) {
+    manager.resend_unacked();
 }
 
-/// Handle incoming messages from server
 /// Handle incoming messages from server
 pub fn handle_udp(mut manager: ResMut<ClientNetManager>) {
     let mut buf = [0u8; MAX_UDP_SIZE];
     loop {
-        // Borrow socket only for this recv call
         let recv_result = manager.udp_socket.recv(&mut buf);
 
         match recv_result {
@@ -105,26 +113,34 @@ pub fn handle_udp(mut manager: ResMut<ClientNetManager>) {
                 let decompressed = match decompress(&buf[..len]) {
                     Ok(d) => d,
                     Err(e) => {
-                        eprintln!("client: decompress failed: {e}");
+                        eprintln!("CLIENT: decompress failed: {e}");
                         continue;
                     }
                 };
                 match deserialize::<Vec<MessageWrapper>>(&decompressed) {
                     Ok(wrappers) => {
                         for wrapper in wrappers {
-                            // If this message needs an ack, send it
                             if let Some(id) = wrapper.reliable_id {
+                                // Check for duplicate
+                                if let Some(last_id) = manager.last_received_reliable {
+                                    if id <= last_id {
+                                        continue; // Skip duplicate
+                                    }
+                                }
+
+                                // New message, send ack and update
                                 manager.enqueue(Message::Ack(id));
+                                manager.last_received_reliable = Some(id);
                             }
 
                             handle(&mut manager, wrapper.message);
                         }
                     }
-                    Err(e) => eprintln!("client: bad packet: {e}"),
+                    Err(e) => eprintln!("CLIENT: bad packet: {e}"),
                 }
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-            Err(e) => break,
+            Err(_) => break,
         }
     }
 }
@@ -144,15 +160,9 @@ fn handle(manager: &mut ClientNetManager, msg: Message) {
         Message::Ack(id) => {
             manager.handle_ack(id);
         }
-        Message::Ping => {
-            println!("client: got a Ping!")
-        }
-        Message::Pong => {
-            println!("client: got a Pong!")
-        }
-        Message::Data(v) => {
-            println!("client: got a Data({v})!")
-        }
+        Message::Ping => println!("CLIENT: got a Ping!"),
+        Message::Pong => println!("CLIENT: got a Pong!"),
+        Message::Data(v) => println!("CLIENT: got a Data({v})!"),
         _ => {}
     }
 }

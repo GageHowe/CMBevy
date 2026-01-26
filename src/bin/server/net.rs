@@ -1,51 +1,53 @@
-// server/net.rs
 use bevy::prelude::*;
 use cmbevy::core::{
     config::{MAX_UDP_SIZE, SERVER_BIND_ADDRESS},
     net::backend::{Message, MessageWrapper, compress, decompress},
 };
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use wincode::{deserialize, serialize};
 
 #[derive(Resource)]
 pub struct ServerNetManager {
-    /// Shared UDP socket for all clients
     udp_socket: UdpSocket,
-    /// Known clients (could be discovered from incoming packets)
-    pub clients: Vec<SocketAddr>,
-    /// Outgoing messages per client for this tick
+    pub clients: HashSet<SocketAddr>,
+
     pub outgoing_udp: HashMap<SocketAddr, Vec<MessageWrapper>>,
 
     next_reliable_id: HashMap<SocketAddr, u64>,
-    pending_reliable: HashMap<SocketAddr, HashMap<u64, (MessageWrapper, f32)>>,
+    pending_reliable: HashMap<SocketAddr, HashMap<u64, (MessageWrapper, u64)>>, // (message, tick_sent)
+    current_tick: u64,
+    last_received_reliable: HashMap<SocketAddr, Option<u64>>,
 }
 
 impl ServerNetManager {
     pub fn new(sock: UdpSocket) -> Self {
         Self {
             udp_socket: sock,
-            clients: Vec::new(),
+            clients: HashSet::new(),
             outgoing_udp: HashMap::new(),
             next_reliable_id: HashMap::new(),
             pending_reliable: HashMap::new(),
+            current_tick: 0,
+            last_received_reliable: HashMap::new(),
         }
     }
 
-    /// queue a regular (unreliable) message
+    /// Queue a regular (unreliable) message
     pub fn enqueue(&mut self, client: SocketAddr, msg: Message) {
         self.outgoing_udp
             .entry(client)
             .or_default()
             .push(MessageWrapper::regular(msg));
         if !self.clients.contains(&client) {
-            self.clients.push(client);
+            self.clients.insert(client);
         }
     }
 
     /// Queue a reliable message (will be resent until acked)
-    pub fn enqueue_reliable(&mut self, client: SocketAddr, msg: Message, time: f32) {
+    pub fn enqueue_reliable(&mut self, client: SocketAddr, msg: Message) {
         let id = *self.next_reliable_id.entry(client).or_insert(0);
         self.next_reliable_id.insert(client, id + 1);
 
@@ -59,25 +61,36 @@ impl ServerNetManager {
         self.pending_reliable
             .entry(client)
             .or_default()
-            .insert(id, (wrapper, time));
+            .insert(id, (wrapper, 0)); // tick 0 means "send immediately"
 
         if !self.clients.contains(&client) {
-            self.clients.push(client);
+            self.clients.insert(client);
         }
     }
 
-    /// Resend unacked reliable messages (call every frame with current time)
-    pub fn resend_unacked(&mut self, current_time: f32) {
+    /// Resend unacked reliable messages
+    pub fn resend_unacked(&mut self) {
+        self.current_tick += 1;
+
         for (client, pending) in &mut self.pending_reliable {
-            for (id, (wrapper, sent_time)) in pending.iter_mut() {
-                if current_time - *sent_time > 0.5 {
-                    // Resend after 500ms
+            let mut to_remove = Vec::new();
+
+            for (id, (wrapper, sent_tick)) in pending.iter_mut() {
+                if *sent_tick == 0 {
+                    // First resend
                     self.outgoing_udp
                         .entry(*client)
                         .or_default()
                         .push(wrapper.clone());
-                    *sent_time = current_time; // Update time
+                    *sent_tick = self.current_tick;
+                } else if self.current_tick - *sent_tick >= 30 {
+                    // Been 30 ticks since resend, give up
+                    to_remove.push(*id);
                 }
+            }
+
+            for id in to_remove {
+                pending.remove(&id);
             }
         }
     }
@@ -108,11 +121,11 @@ impl Plugin for ServerNetManagerPlugin {
     }
 }
 
-pub fn resend_reliable_server(mut manager: ResMut<ServerNetManager>, time: Res<Time>) {
-    manager.resend_unacked(time.elapsed_secs());
+pub fn resend_reliable_server(mut manager: ResMut<ServerNetManager>) {
+    manager.resend_unacked();
 }
 
-/// Receive loop on the server: handles incoming Message batches from any client
+/// Receive loop on the server
 pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
     let mut buf = [0u8; MAX_UDP_SIZE];
 
@@ -137,9 +150,24 @@ pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
         match deserialize::<Vec<MessageWrapper>>(&decompressed) {
             Ok(wrappers) => {
                 for wrapper in wrappers {
-                    // If this message needs an ack, send it
                     if let Some(id) = wrapper.reliable_id {
-                        manager.enqueue(src, Message::Ack(id));
+                        // Check for duplicate (read-only check)
+                        let is_duplicate = manager
+                            .last_received_reliable
+                            .get(&src)
+                            .and_then(|&last| last)
+                            .map(|last| id <= last)
+                            .unwrap_or(false);
+
+                        if is_duplicate {
+                            continue; // Skip duplicate
+                        }
+
+                        // New message, send ack
+                        manager.enqueue_reliable(src, Message::Ack(id));
+
+                        // Update last received
+                        manager.last_received_reliable.insert(src, Some(id));
                     }
 
                     handle_from_client(&mut manager, src, wrapper.message);
@@ -150,8 +178,6 @@ pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
     }
 }
 
-/// Send all queued messages to each client.
-/// Each client has its own Vec of Messages to send
 fn flush_outgoing_udp(mut manager: ResMut<ServerNetManager>) {
     if manager.outgoing_udp.is_empty() {
         return;
@@ -182,7 +208,6 @@ fn flush_outgoing_udp(mut manager: ResMut<ServerNetManager>) {
     }
 }
 
-/// Server-side handling of one message from one client
 fn handle_from_client(manager: &mut ServerNetManager, src: SocketAddr, msg: Message) {
     match msg {
         Message::Ack(id) => {

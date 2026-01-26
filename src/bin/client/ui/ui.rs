@@ -19,8 +19,8 @@ pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_crosshair)
-            .insert_resource(GuiState::default())
+        // app.add_systems(Startup, spawn_crosshair);
+        app.insert_resource(GuiState::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
@@ -68,7 +68,6 @@ fn gui_top_left(
                 exit.write(AppExit::Success);
             }
         });
-
     Ok(())
 }
 
@@ -106,9 +105,9 @@ fn gui_bottom_left(
             );
             if resp_b.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let txt = &state.command_input;
-                println!("command was run: {}", txt);
+                println!("CLIENT:command was run: {}", txt);
                 let cmd: Message = str_to_message(txt.as_str());
-                net_man.enqueue(cmd);
+                net_man.enqueue_reliable(cmd);
 
                 state.command_input.clear();
                 resp_b.request_focus();
@@ -116,30 +115,31 @@ fn gui_bottom_left(
         });
 }
 
-#[derive(Component)] // query for this component when removing it
-pub struct Crosshair;
-pub fn spawn_crosshair(mut commands: Commands) {
-    let crosshair_size = 2.0;
-    commands
-        .spawn((
-            Crosshair,
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Node {
-                    width: Val::Px(crosshair_size),
-                    height: Val::Px(crosshair_size),
-                    ..default()
-                },
-                BackgroundColor(Color::WHITE),
-            ));
-        });
-}
+// todo: find a way to replace this
+// #[derive(Component)] // query for this component when removing it
+// pub struct Crosshair;
+// pub fn spawn_crosshair(mut commands: Commands) {
+//     let crosshair_size = 2.0;
+//     commands
+//         .spawn((
+//             Crosshair,
+//             Node {
+//                 width: Val::Percent(100.0),
+//                 height: Val::Percent(100.0),
+//                 justify_content: JustifyContent::Center,
+//                 align_items: AlignItems::Center,
+//                 ..default()
+//             },
+//             BackgroundColor(Color::NONE),
+//         ))
+//         .with_children(|parent| {
+//             parent.spawn((
+//                 Node {
+//                     width: Val::Px(crosshair_size),
+//                     height: Val::Px(crosshair_size),
+//                     ..default()
+//                 },
+//                 BackgroundColor(Color::WHITE),
+//             ));
+//         });
+// }
