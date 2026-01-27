@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
+use crate::core::net::backend::*;
 use bevy::math::primitives::Cuboid;
 use nalgebra::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::Vector3;
@@ -89,7 +90,7 @@ impl PhysicsWorld {
         );
     }
 
-    /// Insert a rigidbody-entity relationship. It's not tracked until inserted here
+    /// Insert a rigidbody with a rigidbody-entity relationship. It's not tracked until inserted here
     pub fn insert_body(&mut self, entity: Entity, body: RigidBody) -> RigidBodyHandle {
         let handle = self.rigid_body_set.insert(body);
 
@@ -120,7 +121,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::new(0.0, -9.81, 0.0)))
-            .add_systems(Startup, init_physics)
+            .add_systems(Startup, create_objects)
             .add_systems(
                 FixedUpdate,
                 (step_physics, sync_physics_to_transforms).chain(),
@@ -128,35 +129,20 @@ impl Plugin for PhysicsPlugin {
     }
 }
 
-fn init_physics(
+/// example of creating physics objects
+fn create_objects(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // make/init a physics cube
+    let cube_entity = commands.spawn_empty().id();
     let cube_rb = RigidBodyBuilder::dynamic()
-        .translation(Vec3::new(10.0, 5.0, -3.0))
+        .translation(Vector3::new(10.0, 5.0, -3.0))
         .build();
-    let cube_handle = world.rigid_body_set.insert(cube_rb);
+    let cube_handle = world.insert_body(cube_entity, cube_rb);
     let cube_collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
-
-    // plane
-    let plane_rb = RigidBodyBuilder::fixed()
-        .translation(Vec3::new(0.0, -10.0, 0.0))
-        .build();
-    let plane_handle = world.rigid_body_set.insert(plane_rb);
-    let plane_collider = ColliderBuilder::cuboid(10.0, 2.0, 10.0);
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
-    collider_set.insert_with_parent(cube_collider, cube_handle, rigid_body_set);
-    collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
-
-    // spawn visual cube
-    commands.spawn((
+    commands.entity(cube_entity).insert((
         Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.7, 0.6),
@@ -166,7 +152,13 @@ fn init_physics(
         PhysicsBodyHandle(cube_handle),
     ));
 
-    commands.spawn((
+    let plane_entity = commands.spawn_empty().id();
+    let plane_rb = RigidBodyBuilder::fixed()
+        .translation(Vector3::new(0.0, -10.0, 0.0))
+        .build();
+    let plane_handle = world.insert_body(plane_entity, plane_rb);
+    let plane_collider = ColliderBuilder::cuboid(10.0, 2.0, 10.0).build();
+    commands.entity(plane_entity).insert((
         Mesh3d(meshes.add(Mesh::from(Cuboid::new(20.0, 4.0, 20.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.0, 0.7, 0.0),
@@ -175,30 +167,19 @@ fn init_physics(
         Visibility::default(),
         PhysicsBodyHandle(plane_handle),
     ));
+
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
+    collider_set.insert_with_parent(cube_collider, cube_handle, rigid_body_set);
+    collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
 }
 
 fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
     // print!("tick ");
-}
-
-/// Component to mark entities that should be networked
-#[derive(Component)]
-pub struct NetworkId(pub u32);
-
-#[derive(Clone)]
-pub struct NetworkSnapshot {
-    pub tick: u64,
-    // Map NetworkId -> (position, rotation, velocity)
-    pub bodies: HashMap<u32, BodyState>,
-}
-
-#[derive(Clone)]
-pub struct BodyState {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub linvel: Vec3,
-    pub angvel: Vec3,
 }
 
 fn take_snapshot(
@@ -228,7 +209,7 @@ fn take_snapshot(
     }
 
     NetworkSnapshot {
-        tick: 0, // fill in actual tick
+        tick: 0, // TODO put in actual tick
         bodies,
     }
 }

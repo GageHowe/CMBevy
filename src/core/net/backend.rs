@@ -3,38 +3,45 @@
 // This file includes types and functions
 // needed by client/net.rs and server/net.rs
 
+use bevy::prelude::*;
 use std::io;
 use std::io::Cursor;
 use std::net::{TcpStream, UdpSocket};
 use wincode::serialize;
 use wincode_derive::{SchemaRead, SchemaWrite};
 // use zstd::{Decoder, Encoder};
+use std::collections::HashMap;
 use std::str::FromStr;
 use zstd::{decode_all, encode_all};
 
-/// wraps a Message to allow it to be reliable
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub struct MessageWrapper {
-    /// Some(id) if this needs to reliable, None if not
-    pub reliable_id: Option<u64>,
-    pub message: Message,
-}
+// #[derive(Resource)]
+// pub struct NetworkRegistry {
+//     net_id_to_entity: HashMap<u32, Entity>,
+// }
 
-impl MessageWrapper {
-    pub fn regular(message: Message) -> Self {
-        Self {
-            reliable_id: None,
-            message,
-        }
-    }
+// /// wraps a Message to allow it to be reliable
+// #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+// pub struct MessageWrapper {
+//     /// Some(id) if this needs to reliable, None if not
+//     pub reliable_id: Option<u64>,
+//     pub message: Message,
+// }
 
-    pub fn reliable(id: u64, message: Message) -> Self {
-        Self {
-            reliable_id: Some(id),
-            message,
-        }
-    }
-}
+// impl MessageWrapper {
+//     pub fn regular(message: Message) -> Self {
+//         Self {
+//             reliable_id: None,
+//             message,
+//         }
+//     }
+
+//     pub fn reliable(id: u64, message: Message) -> Self {
+//         Self {
+//             reliable_id: Some(id),
+//             message,
+//         }
+//     }
+// }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum Message {
@@ -50,6 +57,25 @@ pub enum Message {
     Error(String),
     /// Acknowledge receipt of reliable message
     Ack(u64),
+}
+
+/// Component to mark entities that should be networked
+#[derive(Component)]
+pub struct NetworkId(pub u32);
+
+#[derive(Clone)]
+pub struct NetworkSnapshot {
+    pub tick: u64,
+    // Map NetworkId -> (position, rotation, velocity)
+    pub bodies: HashMap<u32, BodyState>,
+}
+
+#[derive(Clone)]
+pub struct BodyState {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub linvel: Vec3,
+    pub angvel: Vec3,
 }
 
 /// simple way of testing net messages in the game terminal

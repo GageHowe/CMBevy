@@ -107,7 +107,7 @@ fn gui_bottom_left(
                 let txt = &state.command_input;
                 println!("CLIENT:command was run: {}", txt);
                 let cmd: Message = str_to_message(txt.as_str());
-                net_man.enqueue_reliable(cmd);
+                net_man.enqueue(cmd);
 
                 state.command_input.clear();
                 resp_b.request_focus();
