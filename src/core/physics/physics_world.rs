@@ -1,9 +1,13 @@
+// physics_world.rs
+// this manages the physics simulation and syncs it with clients
+
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
 use bevy::math::primitives::Cuboid;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
+use std::collections::HashMap;
 
 // a way for entities to refer to their rigidbody
 #[derive(Component)]
@@ -24,9 +28,13 @@ pub struct PhysicsWorld {
     pub ccd_solver: CCDSolver,
     pub physics_hooks: (),
     pub event_handler: (),
+
+    pub handle_to_entity: HashMap<RigidBodyHandle, Entity>,
+    pub entity_to_handle: HashMap<Entity, RigidBodyHandle>,
 }
 
 impl PhysicsWorld {
+    /// Create new PhysicsWorld with reasonable defaults, subject to tweaking
     pub fn new(gravity: Vector3) -> Self {
         Self {
             rigid_body_set: RigidBodySet::new(),
@@ -57,6 +65,9 @@ impl PhysicsWorld {
             ccd_solver: CCDSolver::new(),
             physics_hooks: (),
             event_handler: (),
+
+            handle_to_entity: HashMap::new(),
+            entity_to_handle: HashMap::new(),
         }
     }
 
@@ -75,6 +86,31 @@ impl PhysicsWorld {
             &self.physics_hooks,
             &self.event_handler,
         );
+    }
+
+    /// Insert a rigidbody-entity relationship. It's not tracked until inserted here
+    pub fn insert_body(&mut self, entity: Entity, body: RigidBody) -> RigidBodyHandle {
+        let handle = self.rigid_body_set.insert(body);
+
+        self.handle_to_entity.insert(handle, entity);
+        self.entity_to_handle.insert(entity, handle);
+
+        handle
+    }
+
+    /// Clean up the rigidbody associated with this entity.
+    pub fn remove_body(&mut self, entity: Entity) {
+        if let Some(handle) = self.entity_to_handle.remove(&entity) {
+            self.handle_to_entity.remove(&handle);
+            self.rigid_body_set.remove(
+                handle,
+                &mut self.island_manager,
+                &mut self.collider_set,
+                &mut self.impulse_joint_set,
+                &mut self.multibody_joint_set,
+                true,
+            );
+        }
     }
 }
 
@@ -145,6 +181,98 @@ fn step_physics(mut world: ResMut<PhysicsWorld>) {
     // print!("tick ");
 }
 
+/// Component to mark entities that should be networked
+#[derive(Component)]
+pub struct NetworkId(pub u32);
+
+#[derive(Clone)]
+pub struct NetworkSnapshot {
+    pub tick: u64,
+    // Map NetworkId -> (position, rotation, velocity)
+    pub bodies: HashMap<u32, BodyState>,
+}
+
+#[derive(Clone)]
+pub struct BodyState {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub linvel: Vec3,
+    pub angvel: Vec3,
+}
+
+fn take_snapshot(
+    world: Res<PhysicsWorld>,
+    query: Query<(&NetworkId, &PhysicsBodyHandle)>,
+) -> NetworkSnapshot {
+    let mut bodies = HashMap::new();
+
+    for (net_id, body_handle) in query.iter() {
+        if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
+            let pos = rb.position();
+            bodies.insert(
+                net_id.0,
+                BodyState {
+                    position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z),
+                    rotation: Quat::from_xyzw(
+                        pos.rotation.x,
+                        pos.rotation.y,
+                        pos.rotation.z,
+                        pos.rotation.w,
+                    ),
+                    linvel: Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z),
+                    angvel: Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z),
+                },
+            );
+        }
+    }
+
+    NetworkSnapshot {
+        tick: 0, // fill in actual tick
+        bodies,
+    }
+}
+
+fn restore_snapshot(
+    mut world: ResMut<PhysicsWorld>,
+    snapshot: &NetworkSnapshot,
+    query: Query<(&NetworkId, &PhysicsBodyHandle)>,
+) {
+    for (net_id, body_handle) in query.iter() {
+        if let Some(state) = snapshot.bodies.get(&net_id.0) {
+            if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
+                // Restore position
+                rb.set_translation(
+                    vector![state.position.x, state.position.y, state.position.z],
+                    true,
+                );
+                rb.set_rotation(
+                    UnitQuaternion::from_quaternion(Quaternion::new(
+                        state.rotation.w,
+                        state.rotation.x,
+                        state.rotation.y,
+                        state.rotation.z,
+                    )),
+                    true,
+                );
+
+                // Restore velocities
+                rb.set_linvel(
+                    vector![state.linvel.x, state.linvel.y, state.linvel.z],
+                    true,
+                );
+                rb.set_angvel(
+                    vector![state.angvel.x, state.angvel.y, state.angvel.z],
+                    true,
+                );
+
+                rb.wake_up(true);
+            }
+        }
+    }
+}
+
+/// handle visual sync
+/// probably could be more efficient though
 fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,
     mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
