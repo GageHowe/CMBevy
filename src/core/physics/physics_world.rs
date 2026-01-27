@@ -5,6 +5,7 @@ use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
 use bevy::math::primitives::Cuboid;
+use nalgebra::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
 use std::collections::HashMap;
@@ -240,9 +241,12 @@ fn restore_snapshot(
     for (net_id, body_handle) in query.iter() {
         if let Some(state) = snapshot.bodies.get(&net_id.0) {
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
-                // Restore position
                 rb.set_translation(
-                    vector![state.position.x, state.position.y, state.position.z],
+                    Vec3 {
+                        x: state.position.x,
+                        y: state.position.y,
+                        z: state.position.z,
+                    },
                     true,
                 );
                 rb.set_rotation(
@@ -251,17 +255,24 @@ fn restore_snapshot(
                         state.rotation.x,
                         state.rotation.y,
                         state.rotation.z,
-                    )),
+                    ))
+                    .into(),
                     true,
                 );
-
-                // Restore velocities
                 rb.set_linvel(
-                    vector![state.linvel.x, state.linvel.y, state.linvel.z],
+                    Vec3 {
+                        x: state.linvel.x,
+                        y: state.linvel.y,
+                        z: state.linvel.z,
+                    },
                     true,
                 );
                 rb.set_angvel(
-                    vector![state.angvel.x, state.angvel.y, state.angvel.z],
+                    Vec3 {
+                        x: state.angvel.x,
+                        y: state.angvel.y,
+                        z: state.angvel.z,
+                    },
                     true,
                 );
 
