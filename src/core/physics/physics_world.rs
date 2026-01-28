@@ -182,6 +182,7 @@ fn step_physics(mut world: ResMut<PhysicsWorld>) {
     // print!("tick ");
 }
 
+/// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
 fn take_snapshot(
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkId, &PhysicsBodyHandle)>,

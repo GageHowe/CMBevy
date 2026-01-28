@@ -8,10 +8,16 @@ use std::io;
 use std::io::Cursor;
 use std::net::{TcpStream, UdpSocket};
 use wincode::serialize;
+// use wincode::{SchemaRead, SchemaWrite};
+use super::glamwrappers::*;
+use std::mem::MaybeUninit;
+use wincode::{ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult};
+use wincode::{io::Reader, io::Writer};
 use wincode_derive::{SchemaRead, SchemaWrite};
+
 // use zstd::{Decoder, Encoder};
 use std::collections::HashMap;
-use std::str::FromStr;
+// use std::str::FromStr;
 use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
@@ -28,28 +34,29 @@ pub enum Message {
     Error(String),
     /// Acknowledge receipt of reliable message
     Ack(u64),
+    State(SimulationState),
 }
 
 /// Component to mark entities that should be networked
 #[derive(Component)]
 pub struct NetworkId(pub u32);
 
-#[derive(Clone)]
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub struct BodyState {
+    pub position: MyVec3,
+    pub rotation: MyQuat,
+    pub linvel: MyVec3,
+    pub angvel: MyVec3,
+}
+
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct SimulationState {
     pub tick: u64,
     // Map NetworkId -> (position, rotation, velocity)
     pub bodies: HashMap<u32, BodyState>,
 }
 
-#[derive(Clone)]
-pub struct BodyState {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub linvel: Vec3,
-    pub angvel: Vec3,
-}
-
-/// simple way of testing net messages in the game terminal
+/// simple parsing function
 pub fn str_to_message(s: &str) -> Message {
     match s {
         "Ping" => Message::Ping,
