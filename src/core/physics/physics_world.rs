@@ -185,7 +185,7 @@ fn step_physics(mut world: ResMut<PhysicsWorld>) {
 fn take_snapshot(
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkId, &PhysicsBodyHandle)>,
-) -> NetworkSnapshot {
+) -> SimulationState {
     let mut bodies = HashMap::new();
 
     for (net_id, body_handle) in query.iter() {
@@ -208,7 +208,7 @@ fn take_snapshot(
         }
     }
 
-    NetworkSnapshot {
+    SimulationState {
         tick: 0, // TODO put in actual tick
         bodies,
     }
@@ -216,7 +216,7 @@ fn take_snapshot(
 
 fn restore_snapshot(
     mut world: ResMut<PhysicsWorld>,
-    snapshot: &NetworkSnapshot,
+    snapshot: &SimulationState,
     query: Query<(&NetworkId, &PhysicsBodyHandle)>,
 ) {
     for (net_id, body_handle) in query.iter() {

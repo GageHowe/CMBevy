@@ -14,35 +14,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use zstd::{decode_all, encode_all};
 
-// #[derive(Resource)]
-// pub struct NetworkRegistry {
-//     net_id_to_entity: HashMap<u32, Entity>,
-// }
-
-// /// wraps a Message to allow it to be reliable
-// #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-// pub struct MessageWrapper {
-//     /// Some(id) if this needs to reliable, None if not
-//     pub reliable_id: Option<u64>,
-//     pub message: Message,
-// }
-
-// impl MessageWrapper {
-//     pub fn regular(message: Message) -> Self {
-//         Self {
-//             reliable_id: None,
-//             message,
-//         }
-//     }
-
-//     pub fn reliable(id: u64, message: Message) -> Self {
-//         Self {
-//             reliable_id: Some(id),
-//             message,
-//         }
-//     }
-// }
-
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum Message {
     Ping,
@@ -64,7 +35,7 @@ pub enum Message {
 pub struct NetworkId(pub u32);
 
 #[derive(Clone)]
-pub struct NetworkSnapshot {
+pub struct SimulationState {
     pub tick: u64,
     // Map NetworkId -> (position, rotation, velocity)
     pub bodies: HashMap<u32, BodyState>,

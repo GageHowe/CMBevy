@@ -46,9 +46,15 @@ impl Plugin for ServerNetManagerPlugin {
 
         app.insert_resource(ServerNetManager::new(sock));
         app.add_systems(FixedPreUpdate, handle_udp_server);
-        app.add_systems(FixedPostUpdate, flush_outgoing_udp);
+        app.add_systems(
+            FixedPostUpdate,
+            (send_physics_state, flush_outgoing_udp).chain(),
+        );
     }
 }
+
+/// gather the current simulation state and queue it for sending
+pub fn send_physics_state() {}
 
 /// Receive loop on the server
 pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
