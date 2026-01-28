@@ -21,6 +21,11 @@ use std::collections::HashMap;
 use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub struct Packet {
+    msgs: Vec<Message>,
+}
+
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum Message {
     Ping,
     Pong,

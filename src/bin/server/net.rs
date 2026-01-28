@@ -59,7 +59,6 @@ pub fn send_physics_state() {}
 /// Receive loop on the server
 pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
     let mut buf = [0u8; MAX_UDP_SIZE];
-
     loop {
         let (len, src) = match manager.udp_socket.recv_from(&mut buf) {
             Ok(v) => v,
@@ -69,7 +68,6 @@ pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
                 break;
             }
         };
-
         let decompressed = match decompress(&buf[..len]) {
             Ok(d) => d,
             Err(e) => {
@@ -77,7 +75,6 @@ pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
                 continue;
             }
         };
-
         match deserialize::<Vec<Message>>(&decompressed) {
             Ok(msgs) => {
                 for msg in msgs {

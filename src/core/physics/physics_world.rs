@@ -183,38 +183,31 @@ fn step_physics(mut world: ResMut<PhysicsWorld>) {
 }
 
 /// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
+/// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
+#[rustfmt::skip]
 fn take_snapshot(
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkId, &PhysicsBodyHandle)>,
 ) -> SimulationState {
     let mut bodies = HashMap::new();
-
     for (net_id, body_handle) in query.iter() {
         if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
             let pos = rb.position();
             bodies.insert(
                 net_id.0,
                 BodyState {
-                    position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z),
-                    rotation: Quat::from_xyzw(
-                        pos.rotation.x,
-                        pos.rotation.y,
-                        pos.rotation.z,
-                        pos.rotation.w,
-                    ),
-                    linvel: Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z),
-                    angvel: Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z),
-                },
-            );
-        }
-    }
-
+                    position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z).into(),
+                    rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w).into(),
+                    linvel: Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z).into(),
+                    angvel: Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z).into(),
+        },);}}
     SimulationState {
         tick: 0, // TODO put in actual tick
         bodies,
     }
 }
 
+/// accept the recieved state, performed on client. Remember to fast-forward with inputs after doing this
 fn restore_snapshot(
     mut world: ResMut<PhysicsWorld>,
     snapshot: &SimulationState,
