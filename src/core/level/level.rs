@@ -14,8 +14,8 @@ pub struct LevelDescription {}
 
 fn init_level(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    // mut meshes: ResMut<Assets<Mesh>>,
+    // mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // let level_material = materials.add(StandardMaterial {
     //     base_color: Color::WHITE,

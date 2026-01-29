@@ -17,7 +17,7 @@ pub struct ServerNetManager {
     pub clients: HashSet<SocketAddr>,
 
     pub outgoing_udp: HashMap<SocketAddr, Vec<Message>>,
-    current_tick: u64,
+    pub current_tick: u64,
 }
 
 impl ServerNetManager {
@@ -47,13 +47,18 @@ impl Plugin for ServerNetManagerPlugin {
             .expect("server: failed to set UDP socket nonblocking");
 
         app.insert_resource(ServerNetManager::new(sock));
-        app.add_systems(FixedPreUpdate, handle_udp_server);
-        println!("SERVER: test");
+        app.add_systems(FixedPreUpdate, recv_udp);
+        app.add_systems(FixedUpdate, increment_tick);
         app.add_systems(
             FixedPostUpdate,
             (send_physics_state, flush_outgoing_udp).chain(),
         );
     }
+}
+
+fn increment_tick(mut man: ResMut<ServerNetManager>) {
+    man.current_tick += 1;
+    // println!("tick: {}", man.current_tick)
 }
 
 /// gather the current simulation state and queue it for sending
@@ -62,9 +67,12 @@ pub fn send_physics_state(
     query: Query<(&NetworkId, &PhysicsBodyHandle)>,
     mut manager: ResMut<ServerNetManager>,
 ) {
-    let data = Message::State(take_snapshot(world, query));
+    if manager.clients.is_empty() {
+        return;
+    };
     let clients: Vec<_> = manager.clients.iter().copied().collect();
 
+    let data = Message::State(take_snapshot(world, query));
     for client in clients {
         manager.enqueue(client, data.clone());
         println!("Sent state to client {client}")
@@ -72,7 +80,7 @@ pub fn send_physics_state(
 }
 
 /// Receive loop on the server
-pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {
+pub fn recv_udp(mut manager: ResMut<ServerNetManager>) {
     let mut buf = [0u8; MAX_UDP_SIZE];
     loop {
         let (len, src) = match manager.udp_socket.recv_from(&mut buf) {

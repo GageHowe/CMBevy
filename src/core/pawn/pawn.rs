@@ -1,9 +1,9 @@
-use crate::core::physics::physics_world::*;
-use bevy::input::mouse::MouseMotion;
+// use crate::core::physics::physics_world::*;
+// use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
-use bevy_egui::input::EguiWantsInput;
-use rapier3d::dynamics::RigidBody;
-use rapier3d::prelude::*;
+// use bevy_egui::input::EguiWantsInput;
+// use rapier3d::dynamics::RigidBody;
+// use rapier3d::prelude::*;
 
 // COMPONENTS
 

@@ -43,13 +43,19 @@ impl Plugin for ClientNetManagerPlugin {
             .expect("CLIENT: failed to connect socket");
 
         app.insert_resource(ClientNetManager::new(sock));
-        app.add_systems(FixedPreUpdate, handle_udp);
+        app.add_systems(FixedPreUpdate, handle_messages);
+        app.add_systems(FixedUpdate, increment_tick);
         app.add_systems(FixedPostUpdate, flush_outgoing_udp);
     }
 }
 
+fn increment_tick(mut man: ResMut<ClientNetManager>) {
+    man.current_tick += 1;
+    // println!("client tick: {}", man.current_tick)
+}
+
 /// Handle incoming messages from server
-pub fn handle_udp(mut manager: ResMut<ClientNetManager>) {
+pub fn handle_messages(mut manager: ResMut<ClientNetManager>) {
     let mut buf = [0u8; MAX_UDP_SIZE];
     loop {
         let recv_result = manager.udp_socket.recv(&mut buf);
