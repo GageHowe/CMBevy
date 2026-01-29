@@ -18,6 +18,7 @@ use wincode_derive::{SchemaRead, SchemaWrite};
 // use zstd::{Decoder, Encoder};
 use std::collections::HashMap;
 // use std::str::FromStr;
+use std::fmt::Display;
 use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]

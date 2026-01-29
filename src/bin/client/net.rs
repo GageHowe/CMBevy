@@ -93,6 +93,7 @@ fn handle(manager: &mut ClientNetManager, msg: Message) {
         Message::Ping => println!("CLIENT: got a Ping!"),
         Message::Pong => println!("CLIENT: got a Pong!"),
         Message::Data(v) => println!("CLIENT: got a Data({v})!"),
+        Message::State(s) => println!("CLIENT: got a State: {:?}", s),
         _ => {}
     }
 }

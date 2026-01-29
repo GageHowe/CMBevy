@@ -130,7 +130,7 @@ impl Plugin for PhysicsPlugin {
 }
 
 /// example of creating physics objects
-fn create_objects(
+pub fn create_objects(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -177,7 +177,7 @@ fn create_objects(
     collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
 }
 
-fn step_physics(mut world: ResMut<PhysicsWorld>) {
+pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
     // print!("tick ");
 }
@@ -185,7 +185,7 @@ fn step_physics(mut world: ResMut<PhysicsWorld>) {
 /// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
 /// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
 #[rustfmt::skip]
-fn take_snapshot(
+pub fn take_snapshot(
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkId, &PhysicsBodyHandle)>,
 ) -> SimulationState {

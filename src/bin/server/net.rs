@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+use cmbevy::core::net::backend::Message;
+use cmbevy::core::physics::physics_world::*;
 use cmbevy::core::{
     config::{MAX_UDP_SIZE, SERVER_BIND_ADDRESS},
-    net::backend::{Message, compress, decompress},
+    net::backend::*,
 };
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -46,6 +48,7 @@ impl Plugin for ServerNetManagerPlugin {
 
         app.insert_resource(ServerNetManager::new(sock));
         app.add_systems(FixedPreUpdate, handle_udp_server);
+        println!("SERVER: test");
         app.add_systems(
             FixedPostUpdate,
             (send_physics_state, flush_outgoing_udp).chain(),
@@ -54,7 +57,19 @@ impl Plugin for ServerNetManagerPlugin {
 }
 
 /// gather the current simulation state and queue it for sending
-pub fn send_physics_state() {}
+pub fn send_physics_state(
+    world: Res<PhysicsWorld>,
+    query: Query<(&NetworkId, &PhysicsBodyHandle)>,
+    mut manager: ResMut<ServerNetManager>,
+) {
+    let data = Message::State(take_snapshot(world, query));
+    let clients: Vec<_> = manager.clients.iter().copied().collect();
+
+    for client in clients {
+        manager.enqueue(client, data.clone());
+        println!("Sent state to client {client}")
+    }
+}
 
 /// Receive loop on the server
 pub fn handle_udp_server(mut manager: ResMut<ServerNetManager>) {

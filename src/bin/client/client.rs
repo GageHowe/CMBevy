@@ -3,13 +3,14 @@
 mod net;
 mod settings;
 mod ui;
-use crate::net::ClientNetManagerPlugin;
+use crate::net::{ClientNetManager, ClientNetManagerPlugin};
 use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 // use cmbevy::core::pawn::pawn::PawnPlugin;
+use cmbevy::core::net::backend::Message;
 use cmbevy::core::{level::level::*, physics::physics_world::*};
 use settings::settings::*;
 use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
@@ -50,10 +51,16 @@ fn main() {
     .add_plugins(UIPlugin)
     // .add_plugins(PawnPlugin)
     .add_plugins(ClientNetManagerPlugin)
-    .add_systems(Startup, spawn_camera);
+    .add_systems(Startup, spawn_camera)
+    .add_systems(Startup, connect_to_server);
 
     println!("starting client...\n");
+
     app.run();
+}
+
+fn connect_to_server(mut manager: ResMut<ClientNetManager>) {
+    manager.enqueue(Message::Ping);
 }
 
 fn spawn_camera(mut commands: Commands) {
