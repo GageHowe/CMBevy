@@ -189,12 +189,13 @@ pub fn attach_camera_to_pawn(
         return;
     };
 
-    cam_transform.translation = pawn_transform.translation + rig.offset;
+    // cam_transform.translation = pawn_transform.translation + rig.offset;
+    cam_transform.translation = pawn_transform.translation + pawn_transform.rotation * rig.offset;
+
     cam_transform.rotation = pawn_transform.rotation;
 }
 
-/// Switches possession from one pawn to another when F is pressed.
-/// This is a placeholder - actual implementation would take a target entity parameter.
+/// Switches possession from one pawn to another.
 pub fn possess_pawn(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -202,10 +203,6 @@ pub fn possess_pawn(
     current: Query<Entity, With<Possessed>>,
     target: Entity,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyF) {
-        return;
-    }
-
     let Ok(current_entity) = current.single() else {
         return;
     };
@@ -253,7 +250,7 @@ pub fn on_controlled_add_buffer(
     }
 }
 
-/// Saves memory by removing InputBuffer when a pawn is no longer Controlled.
+/// Saves memory by removing InputBuffer component when a pawn is no longer Controlled.
 pub fn clean_buffers(mut commands: Commands, mut removed: RemovedComponents<Controlled>) {
     for entity in removed.read() {
         if let Ok(mut entity_commands) = commands.get_entity(entity) {
@@ -276,11 +273,19 @@ fn spawn_test_pawn(
     commands.spawn((
         Pawn,
         PawnKind::FpsBiped,
-        CameraRig::default(),
+        CameraRig {
+            offset: Vec3 {
+                x: 0.0,
+                y: 1.0,
+                z: 3.0,
+            },
+            look_offset: Vec3::default(),
+        },
         Possessed,
         Controlled, // Triggers InputBuffer creation
-        Transform::from_xyz(0.0, 1.0, 0.0),
-        Mesh3d(meshes.add(Cuboid::new(0.5, 1.8, 0.5))),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.2, 0.2))),
+        Transform::from_xyz(0.0, 2.0, 0.0),
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(Color::srgb(1.0, 1.0, 1.0))),
+        Visibility::default(),
     ));
 }
