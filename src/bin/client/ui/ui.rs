@@ -5,7 +5,7 @@ use crate::net::ClientNetManager;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use cmbevy::core::net::backend::{Message, str_to_message};
+use cmbevy::core::net::backend::{MsgType, str_to_message};
 use cmbevy::core::physics::physics_world::*;
 
 #[derive(Resource, Debug, Default)]
@@ -106,7 +106,7 @@ fn gui_bottom_left(
             if resp_b.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let txt = &state.command_input;
                 println!("CLIENT:command was run: {}", txt);
-                let cmd: Message = str_to_message(txt.as_str());
+                let cmd: MsgType = str_to_message(txt.as_str());
                 net_man.enqueue(cmd);
 
                 state.command_input.clear();

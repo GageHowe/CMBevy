@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use cmbevy::core::net::backend::{compress, decompress};
 use cmbevy::core::{
     config::{CLIENT_CONNECT_ADDRESS, MAX_UDP_SIZE},
-    net::backend::Message,
+    net::backend::MsgType,
 };
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -12,9 +12,10 @@ use wincode::{deserialize, serialize};
 #[derive(Resource)]
 pub struct ClientNetManager {
     udp_socket: UdpSocket,
-    pub outgoing_udp: Vec<Message>,
+    pub outgoing_udp: Vec<MsgType>,
 
     current_tick: u64,
+    msg_seq: u64, // unique identifier for messages sent
 }
 
 impl ClientNetManager {
@@ -24,11 +25,12 @@ impl ClientNetManager {
             outgoing_udp: vec![],
 
             current_tick: 0,
+            msg_seq: 0,
         }
     }
 
     /// prep a unreliable message for sending
-    pub fn enqueue(&mut self, msg: Message) {
+    pub fn enqueue(&mut self, msg: MsgType) {
         self.outgoing_udp.push(msg);
     }
 }
@@ -69,7 +71,7 @@ pub fn handle_messages(mut manager: ResMut<ClientNetManager>) {
                         continue;
                     }
                 };
-                match deserialize::<Vec<Message>>(&decompressed) {
+                match deserialize::<Vec<MsgType>>(&decompressed) {
                     Ok(msgs) => {
                         for msg in msgs {
                             handle(&mut manager, msg);
@@ -94,12 +96,12 @@ fn flush_outgoing_udp(mut manager: ResMut<ClientNetManager>) {
     manager.outgoing_udp.clear();
 }
 
-fn handle(manager: &mut ClientNetManager, msg: Message) {
+fn handle(manager: &mut ClientNetManager, msg: MsgType) {
     match msg {
-        Message::Ping => println!("CLIENT: got a Ping!"),
-        Message::Pong => println!("CLIENT: got a Pong!"),
-        Message::Data(v) => println!("CLIENT: got a Data({v})!"),
-        Message::State(s) => println!("CLIENT: got a State: {:?}", s),
+        MsgType::Ping => println!("CLIENT: got a Ping!"),
+        MsgType::Pong => println!("CLIENT: got a Pong!"),
+        MsgType::Data(v) => println!("CLIENT: got a Data({v})!"),
+        // MsgType::State(s) => println!("CLIENT: got a State: {:?}", s),
         _ => {}
     }
 }

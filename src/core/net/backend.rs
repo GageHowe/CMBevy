@@ -21,13 +21,13 @@ use std::collections::HashMap;
 // use std::fmt::Display;
 use zstd::{decode_all, encode_all};
 
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub struct Packet {
-    msgs: Vec<Message>,
-}
+// #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+// pub struct Packet {
+//     msgs: Vec<MsgType>,
+// }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub enum Message {
+pub enum MsgType {
     Ping,
     Pong,
     Data(i32),
@@ -42,6 +42,13 @@ pub enum Message {
     Ack(u64),
     State(SimulationState),
 }
+
+// pub struct Message {
+//     /// The data this Message contains
+//     data: MsgType,
+//     /// The unique sequence number of this message
+//     seq: i32,
+// }
 
 /// Component to mark entities that should be networked
 #[derive(Component)]
@@ -63,11 +70,11 @@ pub struct SimulationState {
 }
 
 /// simple parsing function
-pub fn str_to_message(s: &str) -> Message {
+pub fn str_to_message(s: &str) -> MsgType {
     match s {
-        "Ping" => Message::Ping,
-        "Pong" => Message::Pong,
-        _ => Message::Test,
+        "Ping" => MsgType::Ping,
+        "Pong" => MsgType::Pong,
+        _ => MsgType::Test,
     }
 }
 
@@ -82,7 +89,7 @@ pub fn decompress(bytes: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 /// TODO: deprecate in favor of send_pkt_batch
-pub fn send_single_pkt(sock: &UdpSocket, dst: &str, msg: Message) -> io::Result<()> {
+pub fn send_single_pkt(sock: &UdpSocket, dst: &str, msg: MsgType) -> io::Result<()> {
     let bytes = serialize(&msg).map_err(|e| {
         eprintln!("serialize failed: {e}");
         io::Error::new(io::ErrorKind::Other, "serialize failed")
@@ -95,7 +102,7 @@ pub fn send_single_pkt(sock: &UdpSocket, dst: &str, msg: Message) -> io::Result<
 }
 
 /// Serialize, compress, and send a vector of Messages
-pub fn send_udp_batch(sock: &UdpSocket, dst: &str, msgs: Vec<Message>) -> io::Result<()> {
+pub fn send_udp_batch(sock: &UdpSocket, dst: &str, msgs: Vec<MsgType>) -> io::Result<()> {
     let bytes = serialize(&msgs).map_err(|e| {
         eprintln!("serialize batch failed: {e}");
         io::Error::new(io::ErrorKind::Other, "serialize batch failed")
@@ -108,7 +115,7 @@ pub fn send_udp_batch(sock: &UdpSocket, dst: &str, msgs: Vec<Message>) -> io::Re
 }
 
 /// Sends a collection of Messages to a list of clients. Typically used by the server
-pub fn broadcast_udp(sock: &UdpSocket, clients: &[String], msgs: &[Message]) -> io::Result<()> {
+pub fn broadcast_udp(sock: &UdpSocket, clients: &[String], msgs: &[MsgType]) -> io::Result<()> {
     // Serialize the whole batch once
     let bytes = serialize(msgs).map_err(|e| {
         eprintln!("serialize multicast failed: {e}");

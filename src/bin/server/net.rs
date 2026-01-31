@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use cmbevy::core::net::backend::Message;
+use cmbevy::core::net::backend::MsgType;
 use cmbevy::core::physics::physics_world::*;
 use cmbevy::core::{
     config::{MAX_UDP_SIZE, SERVER_BIND_ADDRESS},
@@ -16,7 +16,7 @@ pub struct ServerNetManager {
     udp_socket: UdpSocket,
     pub clients: HashSet<SocketAddr>,
 
-    pub outgoing_udp: HashMap<SocketAddr, Vec<Message>>,
+    pub outgoing_udp: HashMap<SocketAddr, Vec<MsgType>>,
     pub current_tick: u64,
 }
 
@@ -31,7 +31,7 @@ impl ServerNetManager {
     }
 
     /// Queue a regular (unreliable) message
-    pub fn enqueue(&mut self, client: SocketAddr, msg: Message) {
+    pub fn enqueue(&mut self, client: SocketAddr, msg: MsgType) {
         self.outgoing_udp.entry(client).or_default().push(msg);
         if !self.clients.contains(&client) {
             self.clients.insert(client);
@@ -72,10 +72,10 @@ pub fn send_physics_state(
     };
     let clients: Vec<_> = manager.clients.iter().copied().collect();
 
-    let data = Message::State(take_snapshot(world, query));
+    let data = MsgType::State(take_snapshot(world, query));
     for client in clients {
         manager.enqueue(client, data.clone());
-        println!("Sent state to client {client}")
+        // println!("Sent state to client {client}")
     }
 }
 
@@ -98,7 +98,7 @@ pub fn recv_udp(mut manager: ResMut<ServerNetManager>) {
                 continue;
             }
         };
-        match deserialize::<Vec<Message>>(&decompressed) {
+        match deserialize::<Vec<MsgType>>(&decompressed) {
             Ok(msgs) => {
                 for msg in msgs {
                     handle_from_client(&mut manager, src, msg);
@@ -140,18 +140,18 @@ fn flush_outgoing_udp(mut manager: ResMut<ServerNetManager>) {
     }
 }
 
-fn handle_from_client(manager: &mut ServerNetManager, src: SocketAddr, msg: Message) {
+fn handle_from_client(manager: &mut ServerNetManager, src: SocketAddr, msg: MsgType) {
     match msg {
-        Message::Ping => {
+        MsgType::Ping => {
             println!("server: got Ping from {src}, queuing Pong");
-            manager.enqueue(src, Message::Pong);
+            manager.enqueue(src, MsgType::Pong);
         }
-        Message::Pong => {
+        MsgType::Pong => {
             println!("server: got Pong from {src}");
         }
-        Message::Data(v) => {
+        MsgType::Data(v) => {
             println!("server: got Data({v}) from {src}");
-            manager.enqueue(src, Message::Data(v));
+            manager.enqueue(src, MsgType::Data(v));
         }
         x => {
             println!("server: got {:?} from {src}", x)
