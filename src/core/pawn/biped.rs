@@ -12,12 +12,11 @@ pub fn spawn(
 ) {
     let pawn_entity = commands
         .spawn((
-            Pawn,
-            PawnKind::FpsBiped,
-            CameraRig {
+            BipedPawnComponent, // marks this as a biped, not ship etc
+            CameraRigComponent {
                 offset: Vec3::new(0.0, 1.0, 3.0),
             },
-            Possessed,
+            PossesssionComponent,
             Controlled,
             Transform::from_translation(transform.translation),
             Mesh3d(meshes.add(bevy::prelude::Cuboid::new(
@@ -54,41 +53,17 @@ pub fn spawn(
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
 }
 
-pub fn movement(
-    mut world: ResMut<PhysicsWorld>,
-    mut pawns: Query<
-        (&mut InputBuffer, &PhysicsBodyHandle, &Transform),
-        (With<Possessed>, With<Pawn>),
-    >,
+pub fn apply_biped_movement(
+    world: &mut PhysicsWorld,
+    body_handle: &PhysicsBodyHandle,
+    input: PawnInputComponent,
 ) {
-    let Ok((mut buffer, body_handle, _)) = pawns.single_mut() else {
-        return;
-    };
-
-    // let Some(input) = buffer.inputs.pop() else {
-    let Some(input) = buffer.inputs.pop() else {
-        return;
-    };
-
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;
     };
 
-    println!("Linvel: {}", body.linvel());
-    println!("Position: {:?}", body.position());
-    println!(
-        "Current right input: {}{}{}",
-        input.forward, input.up, input.right
+    body.apply_impulse(
+        rapier3d::math::Vector3::new(input.right, input.up, input.forward),
+        true,
     );
-    let forward = input.forward;
-    let right = input.right;
-    let up = input.up;
-
-    if forward == 0.0 && right == 0.0 && up == 0.0 {
-        println!("All zero inputs, skipping");
-        return;
-    }
-
-    // body.add_force(rapier3d::math::Vector3::new(right, up, forward), true);
-    body.apply_impulse(rapier3d::math::Vector3::new(right, up, forward), true);
 }
