@@ -1,6 +1,7 @@
 // physics_world.rs
 // this manages the physics simulation and syncs it with clients
 
+use bevy::math::VectorSpace;
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
@@ -120,7 +121,8 @@ pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PhysicsWorld::new(Vector3::new(0.0, -9.81, 0.0)))
+        // app.insert_resource(PhysicsWorld::new(Vector3::new(0.0, -9.81, 0.0)))
+        app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
             .add_systems(Startup, create_objects)
             .add_systems(
                 FixedUpdate,

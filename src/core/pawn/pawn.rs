@@ -1,4 +1,4 @@
-use crate::core::ring_buffer::RingBuffer;
+use crate::core::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
 
@@ -7,14 +7,35 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(InputBufferConfig::default())
-            .add_systems(
-                FixedUpdate,
-                (gather_pawn_input, move_pawn, attach_camera_to_pawn).chain(),
+        app.add_systems(
+            FixedPreUpdate,
+            (
+                gather_pawn_input,
+                (super::biped::movement/*, super::spaceship::movement*/),
             )
-            .add_systems(Update, (on_controlled_add_buffer, clean_buffers))
-            .add_systems(Startup, spawn_test_pawn);
+                .chain(),
+        ) // grab inputs before simulation is stepped in FixedUpdate
+        .add_systems(
+            FixedPostUpdate, // before physics tick and syncing
+            (snap_camera_to_rig, on_controlled_add_buffer, clean_buffers).chain(),
+        )
+        .add_systems(Startup, spawn_test_pawn);
     }
+}
+
+fn spawn_test_pawn(
+    commands: Commands,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<StandardMaterial>>,
+    world: ResMut<PhysicsWorld>,
+) {
+    super::biped::spawn(
+        Transform::from_xyz(0.0, 2.0, 0.0),
+        commands,
+        meshes,
+        materials,
+        world,
+    );
 }
 
 // ============================================================================
@@ -42,15 +63,13 @@ pub struct PawnInput {
 /// Camera will follow the pawn at this offset.
 #[derive(Component)]
 pub struct CameraRig {
-    pub offset: Vec3,      // Offset from pawn position (e.g., eye height)
-    pub look_offset: Vec3, // Additional look offset (currently unused)
+    pub offset: Vec3,
 }
 
 impl Default for CameraRig {
     fn default() -> Self {
         Self {
-            offset: Vec3::new(0.0, 1.6, 0.0), // Default eye height
-            look_offset: Vec3::ZERO,
+            offset: Vec3::new(0.0, 1.0, 5.0), // Default eye height
         }
     }
 }
@@ -84,31 +103,11 @@ pub struct Possessed;
 #[derive(Component)]
 pub struct Controlled;
 
-/// Type of pawn, determines movement behavior
 #[derive(Component)]
 pub enum PawnKind {
     FpsBiped,
     Spaceship,
     Car,
-}
-
-// ============================================================================
-// RESOURCES
-// ============================================================================
-
-/// Global configuration for input buffer size.
-/// Buffers are only created for pawns marked as Controlled.
-#[derive(Resource)]
-pub struct InputBufferConfig {
-    pub capacity: usize,
-}
-
-impl Default for InputBufferConfig {
-    fn default() -> Self {
-        Self {
-            capacity: 60, // ~1 second at 60fps
-        }
-    }
 }
 
 // ============================================================================
@@ -132,9 +131,6 @@ pub fn gather_pawn_input(
 
     // grab all inputs
     let mut input = PawnInput::default();
-    if keyboard.pressed(KeyCode::KeyW) {
-        input.forward = 1.0;
-    }
     if keyboard.pressed(KeyCode::KeyW) {
         input.forward = 1.0;
     }
@@ -176,9 +172,8 @@ pub fn gather_pawn_input(
     buffer.inputs.push(input);
 }
 
-/// Attaches the camera to follow the currently possessed pawn.
 /// Updates camera position and rotation to match pawn + camera rig offset.
-pub fn attach_camera_to_pawn(
+pub fn snap_camera_to_rig(
     mut camera: Query<&mut Transform, (With<Camera3d>, Without<Possessed>)>,
     pawn: Query<(&Transform, &CameraRig), (With<Possessed>, Without<Camera3d>)>,
 ) {
@@ -189,7 +184,6 @@ pub fn attach_camera_to_pawn(
         return;
     };
 
-    // cam_transform.translation = pawn_transform.translation + rig.offset;
     cam_transform.translation = pawn_transform.translation + pawn_transform.rotation * rig.offset;
 
     cam_transform.rotation = pawn_transform.rotation;
@@ -198,8 +192,8 @@ pub fn attach_camera_to_pawn(
 /// Switches possession from one pawn to another.
 pub fn possess_pawn(
     mut commands: Commands,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    pawns: Query<Entity, With<Pawn>>,
+    // keyboard: Res<ButtonInput<KeyCode>>,
+    // pawns: Query<Entity, With<Pawn>>,
     current: Query<Entity, With<Possessed>>,
     target: Entity,
 ) {
@@ -211,29 +205,6 @@ pub fn possess_pawn(
     commands.entity(target).insert(Possessed);
 }
 
-/// Basic movement system for pawns. TODO: split this into different functions per pawn type.
-pub fn move_pawn(mut pawns: Query<(&InputBuffer, &mut Transform), With<Possessed>>) {
-    let Ok((buffer, mut transform)) = pawns.single_mut() else {
-        return;
-    };
-
-    let Some(input) = buffer.inputs.get_newest() else {
-        return;
-    };
-
-    let speed = 0.2;
-    let rotation_speed = 0.01;
-
-    transform.rotate_y(-input.yaw * rotation_speed);
-
-    let forward = transform.forward() * input.forward;
-    let right = transform.right() * input.right;
-    let up = Vec3::Y * input.up;
-
-    let movement_delta = (forward + right + up) * speed;
-    transform.translation += movement_delta;
-}
-
 /// Adds InputBuffer when a pawn becomes Controlled.
 /// This happens when:
 /// - Client: local player takes control of a pawn
@@ -241,12 +212,9 @@ pub fn move_pawn(mut pawns: Query<(&InputBuffer, &mut Transform), With<Possessed
 pub fn on_controlled_add_buffer(
     mut commands: Commands,
     newly_controlled: Query<Entity, Added<Controlled>>,
-    config: Res<InputBufferConfig>,
 ) {
     for entity in &newly_controlled {
-        commands
-            .entity(entity)
-            .insert(InputBuffer::new(config.capacity));
+        commands.entity(entity).insert(InputBuffer::new(60)); // 60 slots
     }
 }
 
@@ -257,35 +225,4 @@ pub fn clean_buffers(mut commands: Commands, mut removed: RemovedComponents<Cont
             entity_commands.remove::<InputBuffer>();
         }
     }
-}
-
-// ============================================================================
-// SPAWN FUNCTIONS
-// ============================================================================
-
-/// Spawns a test pawn for development.
-/// Creates a simple red capsule-shaped pawn that is immediately possessed.
-fn spawn_test_pawn(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Pawn,
-        PawnKind::FpsBiped,
-        CameraRig {
-            offset: Vec3 {
-                x: 0.0,
-                y: 1.0,
-                z: 3.0,
-            },
-            look_offset: Vec3::default(),
-        },
-        Possessed,
-        Controlled, // Triggers InputBuffer creation
-        Transform::from_xyz(0.0, 2.0, 0.0),
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(materials.add(Color::srgb(1.0, 1.0, 1.0))),
-        Visibility::default(),
-    ));
 }
