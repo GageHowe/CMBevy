@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use cmbevy::core::net::backend::MsgType;
-use cmbevy::core::physics::physics_world::*;
-use cmbevy::core::{
+use common::net::backend::MsgType;
+use common::physics::physics_world::*;
+use common::{
     config::{MAX_UDP_SIZE, SERVER_BIND_ADDRESS},
     net::backend::*,
 };

@@ -8,7 +8,7 @@ use bevy::render::{
     RenderPlugin,
     settings::{RenderCreation, WgpuSettings},
 };
-use cmbevy::core::{level::level::*, physics::physics_world::*};
+use common::{level::level::*, physics::physics_world::*};
 // use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 
 fn main() {
