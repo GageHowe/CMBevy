@@ -1,8 +1,8 @@
 use bevy::prelude::*;
-use common::net::backend::{compress, decompress};
+use common::net::net::{compress, decompress};
 use common::{
     config::{CLIENT_CONNECT_ADDRESS, MAX_UDP_SIZE},
-    net::backend::MsgType,
+    net::net::MsgType,
 };
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -98,9 +98,9 @@ fn flush_outgoing_udp(mut manager: ResMut<ClientNetManager>) {
 
 fn handle(manager: &mut ClientNetManager, msg: MsgType) {
     match msg {
-        MsgType::Ping => println!("CLIENT: got a Ping!"),
-        MsgType::Pong => println!("CLIENT: got a Pong!"),
-        MsgType::Data(v) => println!("CLIENT: got a Data({v})!"),
+        // MsgType::Ping => println!("CLIENT: got a Ping!"),
+        // MsgType::Pong => println!("CLIENT: got a Pong!"),
+        // MsgType::Data(v) => println!("CLIENT: got a Data({v})!"),
         // MsgType::State(s) => println!("CLIENT: got a State: {:?}", s),
         _ => {}
     }

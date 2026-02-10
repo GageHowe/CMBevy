@@ -1,24 +1,14 @@
-// Backend.rs
-
 // This file includes types and functions
-// needed by client/net.rs and server/net.rs
+// needed net/client.rs and net/server.rs
 
+use crate::types::{CMQuat, CMVec3};
 use bevy::prelude::*;
+use std::collections::HashMap;
 use std::io;
 use std::io::Cursor;
 use std::net::{TcpStream, UdpSocket};
 use wincode::serialize;
-// use wincode::{SchemaRead, SchemaWrite};
-use super::glamwrappers::*;
-// use std::mem::MaybeUninit;
-// use wincode::{ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult};
-// use wincode::{io::Reader, io::Writer};
 use wincode_derive::{SchemaRead, SchemaWrite};
-
-// use zstd::{Decoder, Encoder};
-use std::collections::HashMap;
-// use std::str::FromStr;
-// use std::fmt::Display;
 use zstd::{decode_all, encode_all};
 
 // #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
@@ -28,18 +18,14 @@ use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum MsgType {
-    Ping,
-    Pong,
-    Data(i32),
-    MoreData(String),
     /// address, message
     ChatMessage(String, String),
+    // HitReport()
     // Test(Vec<String>),
-    Test,
-    /// A message the recipient will display
+    /// A message the recipient will display in messagebar
     Error(String),
-    /// Acknowledge receipt of reliable message
-    Ack(u64),
+
+    BodyState(BodyState),
     State(SimulationState),
 }
 
@@ -56,10 +42,10 @@ pub struct NetworkId(pub u32);
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct BodyState {
-    pub position: MyVec3,
-    pub rotation: MyQuat,
-    pub linvel: MyVec3,
-    pub angvel: MyVec3,
+    pub position: CMVec3,
+    pub rotation: CMQuat,
+    pub linvel: CMVec3,
+    pub angvel: CMVec3,
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
@@ -72,9 +58,9 @@ pub struct SimulationState {
 /// simple parsing function
 pub fn str_to_message(s: &str) -> MsgType {
     match s {
-        "Ping" => MsgType::Ping,
-        "Pong" => MsgType::Pong,
-        _ => MsgType::Test,
+        // "Ping" => MsgType::Ping,
+        // "Pong" => MsgType::Pong,
+        _ => MsgType::Error("unimplemented".to_string()),
     }
 }
 

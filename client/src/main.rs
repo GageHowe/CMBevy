@@ -8,7 +8,7 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-use common::net::backend::MsgType;
+use common::net::net::MsgType;
 use common::pawn::pawn::PawnPlugin;
 use common::{level::level::*, physics::physics_world::*};
 // use settings::settings::*;
@@ -23,7 +23,6 @@ enum AppState {
     // MainMenu,
     // PauseMenu,
 }
-
 fn main() {
     let mut app = App::new();
     app.add_plugins(
@@ -59,7 +58,7 @@ fn main() {
 }
 
 fn connect_to_server(mut manager: ResMut<ClientNetManager>) {
-    manager.enqueue(MsgType::Ping);
+    manager.enqueue(MsgType::Error("HELLO".to_string()));
 }
 
 fn spawn_camera(mut commands: Commands) {
