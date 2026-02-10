@@ -24,10 +24,12 @@ fn toggle_cursor_lock(
     mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    egui_wants_input: Res<EguiWantsInput>,
+    egui_wants_input: Option<Res<EguiWantsInput>>,
 ) {
-    if egui_wants_input.wants_any_input() {
-        return;
+    if let Some(egui_wants_input) = egui_wants_input {
+        if egui_wants_input.wants_any_input() {
+            return;
+        }
     }
 
     if mouse.just_pressed(MouseButton::Left) {

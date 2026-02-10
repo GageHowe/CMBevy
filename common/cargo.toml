@@ -16,3 +16,8 @@ quinn = "0.11"
 anyhow = "1"
 rustls = { version = "0.23", default-features = false }
 rustls-pemfile = "2"
+rapier3d = "0.32.0"
+bevy_egui = "0.39.1"
+wincode = "0.4.1"
+wincode-derive = "0.4.0"
+zstd = "0.13.3"

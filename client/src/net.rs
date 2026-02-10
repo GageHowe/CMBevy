@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use cmbevy::core::net::backend::{compress, decompress};
-use cmbevy::core::{
+use common::net::backend::{compress, decompress};
+use common::{
     config::{CLIENT_CONNECT_ADDRESS, MAX_UDP_SIZE},
     net::backend::MsgType,
 };

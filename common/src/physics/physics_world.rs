@@ -5,7 +5,7 @@ use bevy::math::VectorSpace;
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
-use crate::core::net::backend::*;
+use crate::net::backend::*;
 use bevy::math::primitives::Cuboid;
 use nalgebra::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::Vector3;

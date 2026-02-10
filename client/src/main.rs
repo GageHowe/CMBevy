@@ -1,7 +1,6 @@
 // client executable
 
 mod net;
-mod settings;
 mod ui;
 use crate::net::{ClientNetManager, ClientNetManagerPlugin};
 use bevy::camera::{PerspectiveProjection, Projection};
@@ -9,10 +8,10 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-use cmbevy::core::net::backend::MsgType;
-use cmbevy::core::pawn::pawn::PawnPlugin;
-use cmbevy::core::{level::level::*, physics::physics_world::*};
-use settings::settings::*;
+use common::net::backend::MsgType;
+use common::pawn::pawn::PawnPlugin;
+use common::{level::level::*, physics::physics_world::*};
+// use settings::settings::*;
 use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
@@ -44,7 +43,7 @@ fn main() {
     )
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .init_state::<AppState>()
-    .add_plugins(AppSettingsPlugin)
+    // .add_plugins(AppSettingsPlugin)
     .add_plugins(WindowSettingsPlugin)
     .add_plugins(PhysicsPlugin)
     .add_plugins(LevelPlugin)

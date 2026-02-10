@@ -16,3 +16,4 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 bevy = { version = "0.18", default-features = false, features = ["bevy_core_pipeline"] }
 rand = "0.9"
+wincode = "0.4.1"

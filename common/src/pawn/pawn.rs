@@ -1,5 +1,5 @@
-use crate::core::physics::physics_world::*;
-use crate::core::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
+use crate::physics::physics_world::*;
+use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
 

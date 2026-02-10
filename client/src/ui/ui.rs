@@ -5,8 +5,9 @@ use crate::net::ClientNetManager;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use cmbevy::core::net::backend::{MsgType, str_to_message};
-use cmbevy::core::physics::physics_world::*;
+use common::net::backend::{MsgType, str_to_message};
+use common::physics::physics_world::*;
+// use common::
 
 #[derive(Resource, Debug, Default)]
 /// Data that needs to persist inside the GUI (text etc)
@@ -19,8 +20,8 @@ pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_systems(Startup, spawn_crosshair);
-        app.insert_resource(GuiState::default())
+        app.add_systems(Startup, spawn_crosshair)
+            .insert_resource(GuiState::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
@@ -116,30 +117,30 @@ fn gui_bottom_left(
 }
 
 // todo: find a way to replace this
-// #[derive(Component)] // query for this component when removing it
-// pub struct Crosshair;
-// pub fn spawn_crosshair(mut commands: Commands) {
-//     let crosshair_size = 2.0;
-//     commands
-//         .spawn((
-//             Crosshair,
-//             Node {
-//                 width: Val::Percent(100.0),
-//                 height: Val::Percent(100.0),
-//                 justify_content: JustifyContent::Center,
-//                 align_items: AlignItems::Center,
-//                 ..default()
-//             },
-//             BackgroundColor(Color::NONE),
-//         ))
-//         .with_children(|parent| {
-//             parent.spawn((
-//                 Node {
-//                     width: Val::Px(crosshair_size),
-//                     height: Val::Px(crosshair_size),
-//                     ..default()
-//                 },
-//                 BackgroundColor(Color::WHITE),
-//             ));
-//         });
-// }
+#[derive(Component)] // query for this component when removing it
+pub struct Crosshair;
+pub fn spawn_crosshair(mut commands: Commands) {
+    let crosshair_size = 2.0;
+    commands
+        .spawn((
+            Crosshair,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Node {
+                    width: Val::Px(crosshair_size),
+                    height: Val::Px(crosshair_size),
+                    ..default()
+                },
+                BackgroundColor(Color::WHITE),
+            ));
+        });
+}
