@@ -1,7 +1,7 @@
 // server executable
 
-pub mod net;
-use crate::net::ServerNetManagerPlugin;
+// pub mod net;
+// use crate::net::ServerNetManagerPlugin;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::render::{
@@ -32,8 +32,8 @@ fn main() {
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .add_plugins(PhysicsPlugin)
     .add_plugins(LevelPlugin)
-    .add_plugins(ServerNetManagerPlugin);
-
+    // .add_plugins(ServerNetManagerPlugin);
+;
     // :)
     println!("starting server...\n");
     app.run();

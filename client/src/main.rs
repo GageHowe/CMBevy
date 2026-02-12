@@ -1,14 +1,15 @@
 // client executable
 
-mod net;
+// mod client;
 mod ui;
-use crate::net::{ClientNetManager, ClientNetManagerPlugin};
+// use crate::client::{ClientNetManager, ClientNetManagerPlugin};
 use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use common::net::net::MsgType;
+use common::net::runtime::TokioRuntimePlugin;
 use common::pawn::pawn::PawnPlugin;
 use common::{level::level::*, physics::physics_world::*};
 // use settings::settings::*;
@@ -47,19 +48,20 @@ fn main() {
     .add_plugins(PhysicsPlugin)
     .add_plugins(LevelPlugin)
     .add_plugins(UIPlugin)
-    .add_plugins(ClientNetManagerPlugin)
+    // .add_plugins(ClientNetManagerPlugin)
     .add_plugins(PawnPlugin)
+    .add_plugins(TokioRuntimePlugin)
     .add_systems(Startup, spawn_camera)
-    .add_systems(Startup, connect_to_server);
-
+    // .add_systems(Startup, connect_to_server);
+;
     println!("starting client...\n");
 
     app.run();
 }
 
-fn connect_to_server(mut manager: ResMut<ClientNetManager>) {
-    manager.enqueue(MsgType::Error("HELLO".to_string()));
-}
+// fn connect_to_server(mut manager: ResMut<ClientNetManager>) {
+//     manager.enqueue(MsgType::Error("HELLO".to_string()));
+// }
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((

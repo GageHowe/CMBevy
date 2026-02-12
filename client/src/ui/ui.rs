@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 // use bevy::ui::
 // use bevy::window::*;
-use crate::net::ClientNetManager;
+// use crate::client::ClientNetManager;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use common::net::net::{MsgType, str_to_message};
+use common::net::runtime::TokioRuntimePlugin;
 use common::physics::physics_world::*;
 // use common::
 
@@ -25,7 +26,8 @@ impl Plugin for UIPlugin {
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
-            .add_systems(EguiPrimaryContextPass, gui_bottom_left);
+            // .add_systems(EguiPrimaryContextPass, gui_bottom_left)
+            ;
     }
 }
 
@@ -72,49 +74,49 @@ fn gui_top_left(
     Ok(())
 }
 
-fn gui_bottom_left(
-    mut contexts: EguiContexts,
-    mut state: ResMut<GuiState>,
-    mut net_man: ResMut<ClientNetManager>,
-) {
-    let ctx = contexts.ctx_mut().unwrap();
+// fn gui_bottom_left(
+//     mut contexts: EguiContexts,
+//     mut state: ResMut<GuiState>,
+//     mut net_man: ResMut<ClientNetManager>,
+// ) {
+//     let ctx = contexts.ctx_mut().unwrap();
 
-    // Anchor bottom-left, a bit from the edge
-    egui::Window::new("messagebar")
-        .title_bar(false)
-        .resizable(false)
-        .collapsible(false)
-        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
-        .show(ctx, |ui| {
-            // message input
-            let resp_a = ui.add(
-                egui::TextEdit::singleline(&mut state.text_input)
-                    .hint_text("...")
-                    .desired_width(200.0),
-            );
-            if resp_a.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                println!("text message was sent: {}", state.command_input);
+//     // Anchor bottom-left, a bit from the edge
+//     egui::Window::new("messagebar")
+//         .title_bar(false)
+//         .resizable(false)
+//         .collapsible(false)
+//         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+//         .show(ctx, |ui| {
+//             // message input
+//             let resp_a = ui.add(
+//                 egui::TextEdit::singleline(&mut state.text_input)
+//                     .hint_text("...")
+//                     .desired_width(200.0),
+//             );
+//             if resp_a.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+//                 println!("text message was sent: {}", state.command_input);
 
-                state.text_input.clear();
-                resp_a.request_focus();
-            }
-            // cmd input
-            let resp_b = ui.add(
-                egui::TextEdit::singleline(&mut state.command_input)
-                    .hint_text("_>")
-                    .desired_width(200.0),
-            );
-            if resp_b.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                let txt = &state.command_input;
-                println!("CLIENT:command was run: {}", txt);
-                let cmd: MsgType = str_to_message(txt.as_str());
-                net_man.enqueue(cmd);
+//                 state.text_input.clear();
+//                 resp_a.request_focus();
+//             }
+//             // cmd input
+//             let resp_b = ui.add(
+//                 egui::TextEdit::singleline(&mut state.command_input)
+//                     .hint_text("_>")
+//                     .desired_width(200.0),
+//             );
+//             if resp_b.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+//                 let txt = &state.command_input;
+//                 println!("CLIENT:command was run: {}", txt);
+//                 let cmd: MsgType = str_to_message(txt.as_str());
+//                 net_man.enqueue(cmd);
 
-                state.command_input.clear();
-                resp_b.request_focus();
-            }
-        });
-}
+//                 state.command_input.clear();
+//                 resp_b.request_focus();
+//             }
+//         });
+// }
 
 // todo: find a way to replace this
 #[derive(Component)] // query for this component when removing it
