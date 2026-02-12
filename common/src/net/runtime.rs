@@ -33,21 +33,6 @@ impl TokioRuntime {
     }
 }
 
-// Example usage in a Bevy system:
-// fn my_system(runtime: Res<TokioRuntime>) {
-//     runtime.spawn(async {
-//         // Your async code here (Quinn/QUIC calls, etc.)
-//     });
-// }
-
-// fn main() {
-//     App::new()
-//         .add_plugins(DefaultPlugins)
-//         .add_plugins(TokioRuntimePlugin)
-//         .add_systems(Startup, spawn_async_task)
-//         .run();
-// }
-
 fn spawn_async_task(runtime: Res<TokioRuntime>) {
     // Example: spawn an async task
     runtime.spawn(async {
@@ -56,11 +41,3 @@ fn spawn_async_task(runtime: Res<TokioRuntime>) {
         println!("Async task completed");
     });
 }
-
-// When you add Quinn later, you might do something like:
-// fn setup_quic_endpoint(runtime: Res<TokioRuntime>) {
-//     runtime.spawn(async {
-//         let endpoint = quinn::Endpoint::client(/* ... */);
-//         // Your QUIC code here
-//     });
-// }

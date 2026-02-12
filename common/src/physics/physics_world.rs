@@ -5,7 +5,7 @@ use bevy::math::VectorSpace;
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
-use crate::net::net::*;
+use crate::net::message::{BodyState, NetworkID, SimulationState};
 use bevy::math::primitives::Cuboid;
 use nalgebra::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::Vector3;
@@ -185,18 +185,17 @@ pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
 }
 
 /// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
-/// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
 #[rustfmt::skip]
 pub fn take_snapshot(
     world: Res<PhysicsWorld>,
-    query: Query<(&NetworkId, &PhysicsBodyHandle)>,
+    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
 ) -> SimulationState {
     let mut bodies = HashMap::new();
     for (net_id, body_handle) in query.iter() {
         if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
             let pos = rb.position();
             bodies.insert(
-                net_id.0,
+                net_id.clone(),
                 BodyState {
                     position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z).into(),
                     rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w).into(),
@@ -209,14 +208,15 @@ pub fn take_snapshot(
     }
 }
 
-/// accept the recieved state, performed on client. Remember to fast-forward with inputs after doing this
+/// accept the received state, performed on client. Remember to fast-forward with inputs after doing this
 fn restore_snapshot(
     mut world: ResMut<PhysicsWorld>,
     snapshot: &SimulationState,
-    query: Query<(&NetworkId, &PhysicsBodyHandle)>,
+    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
 ) {
     for (net_id, body_handle) in query.iter() {
-        if let Some(state) = snapshot.bodies.get(&net_id.0) {
+        if let Some(state) = snapshot.bodies.get(net_id) {
+            // Changed from &net_id.0 to net_id
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.set_translation(
                     Vec3 {

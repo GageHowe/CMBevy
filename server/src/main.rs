@@ -1,7 +1,5 @@
 // server executable
 
-// pub mod net;
-// use crate::net::ServerNetManagerPlugin;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::render::{

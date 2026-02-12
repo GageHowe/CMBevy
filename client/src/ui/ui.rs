@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use common::net::net::{MsgType, str_to_message};
+// use common::net::net::{MsgType, str_to_message};
 use common::net::runtime::TokioRuntimePlugin;
 use common::physics::physics_world::*;
 // use common::

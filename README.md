@@ -9,3 +9,6 @@ To run:
 This is a list of design decisions that I've committed to.
 * Server is completely headless. Therefore UI and windowing will be kept in the client binary only.
 
+## implementation inspiration
+* https://github.com/Henauxg/bevy_quinnet/
+* https://github.com/floco2025/cuboid-wars/
