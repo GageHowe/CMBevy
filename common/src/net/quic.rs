@@ -1,6 +1,6 @@
 use super::runtime::TokioRuntime;
 use bevy::prelude::*;
-use quinn::{Connection, Endpoint};
+use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
@@ -16,12 +16,13 @@ impl Plugin for QuicPlugin {
         app.init_resource::<QuicManager>()
             .add_message::<OutboundMessage>()
             .add_message::<InboundMessage>()
+            .add_message::<ConnectionEstablished>()
+            .add_message::<ConnectionLost>()
             .add_systems(
                 Update,
                 (
-                    register_new_connections,
+                    process_internal_events,
                     flush_outbound_messages,
-                    collect_inbound_messages,
                 )
                     .chain(),
             );
@@ -29,56 +30,83 @@ impl Plugin for QuicPlugin {
 }
 
 // ---------------------------------------------------------------------------
-// Public types
+// Public API types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct ConnectionId(pub u64);
 
-/// Write this message from any system to send data to a peer.
+#[derive(Debug, Clone, Copy)]
+pub enum Channel {
+    /// Reliable, ordered. Persistent stream with length-prefix framing.
+    /// Use for: chat, game events, state transitions.
+    Ordered,
+    /// Reliable, unordered. One stream per message.
+    /// Use for: spawn/despawn, one-shot reliable messages where order doesn't matter.
+    Unordered,
+    /// Unreliable, unordered. QUIC datagrams. Max ~1200 bytes.
+    /// Use for: position, rotation, anything high-frequency.
+    Unreliable,
+}
+
 #[derive(Message, Clone)]
 pub struct OutboundMessage {
     pub target: SendTarget,
+    pub channel: Channel,
     pub payload: Vec<u8>,
-    pub reliability: Reliability,
+}
+
+#[derive(Message, Clone, Debug)]
+pub struct InboundMessage {
+    pub conn_id: ConnectionId,
+    pub channel: Channel,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Message, Clone, Debug)]
+pub struct ConnectionEstablished {
+    pub conn_id: ConnectionId,
+}
+
+#[derive(Message, Clone, Debug)]
+pub struct ConnectionLost {
+    pub conn_id: ConnectionId,
 }
 
 #[derive(Debug, Clone)]
 pub enum SendTarget {
-    /// Send to one specific peer.
     One(ConnectionId),
-    /// Send to every connected peer.
     All,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Reliability {
-    /// Uses a Quinn bidirectional stream. Guaranteed, ordered delivery.
-    Reliable,
-    /// Uses a Quinn datagram. No guarantee, no order. Max ~1200 bytes.
-    Unreliable,
-}
-
-/// Read this message from any system to receive data from a peer.
-#[derive(Message, Debug, Clone)]
-pub struct InboundMessage {
-    pub conn_id: ConnectionId,
-    pub reliability: Reliability,
-    pub payload: Vec<u8>,
-}
-
 // ---------------------------------------------------------------------------
-// Internal channel messages
+// Internal types
 // ---------------------------------------------------------------------------
 
-enum InternalInbound {
-    Reliable { conn_id: ConnectionId, data: Vec<u8> },
-    Unreliable { conn_id: ConnectionId, data: Vec<u8> },
+struct OrderedSender {
+    tx: mpsc::Sender<Vec<u8>>,
 }
 
-struct NewConnection {
-    conn_id: ConnectionId,
+struct PeerState {
     connection: Connection,
+    ordered: OrderedSender,
+}
+
+enum InternalEvent {
+    NewConnection {
+        conn_id: ConnectionId,
+        connection: Connection,
+        ordered_recv: RecvStream,
+        ordered_send: SendStream,
+    },
+    Disconnected {
+        conn_id: ConnectionId,
+    },
+    Inbound {
+        conn_id: ConnectionId,
+        channel: Channel,
+        data: Vec<u8>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -87,194 +115,332 @@ struct NewConnection {
 
 #[derive(Resource)]
 pub struct QuicManager {
-    connections: HashMap<ConnectionId, Connection>,
+    peers: HashMap<ConnectionId, PeerState>,
     next_id: u64,
-
-    // Tokio → Bevy: newly accepted/established connections
-    new_conn_tx: mpsc::UnboundedSender<NewConnection>,
-    new_conn_rx: mpsc::UnboundedReceiver<NewConnection>,
-
-    // Tokio → Bevy: inbound data
-    inbound_tx: mpsc::UnboundedSender<InternalInbound>,
-    inbound_rx: mpsc::UnboundedReceiver<InternalInbound>,
+    event_tx: mpsc::UnboundedSender<InternalEvent>,
+    event_rx: mpsc::UnboundedReceiver<InternalEvent>,
 }
 
 impl Default for QuicManager {
     fn default() -> Self {
-        let (new_conn_tx, new_conn_rx) = mpsc::unbounded_channel();
-        let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
         Self {
-            connections: HashMap::new(),
+            peers: HashMap::new(),
             next_id: 0,
-            new_conn_tx,
-            new_conn_rx,
-            inbound_tx,
-            inbound_rx,
+            event_tx,
+            event_rx,
         }
     }
 }
 
 impl QuicManager {
-    // -----------------------------------------------------------------------
-    // Setup
-    // -----------------------------------------------------------------------
-
-    /// Start a QUIC server. Accepts connections from any peer.
     pub fn start_server(&mut self, runtime: &TokioRuntime, addr: SocketAddr) {
-        let new_conn_tx = self.new_conn_tx.clone();
-        let inbound_tx = self.inbound_tx.clone();
+        let event_tx = self.event_tx.clone();
 
-        // We hand out IDs from inside the async task. Use an atomic so we
-        // don't need a mutex.
         use std::sync::atomic::{AtomicU64, Ordering};
         let counter = std::sync::Arc::new(AtomicU64::new(self.next_id));
 
         runtime.spawn(async move {
-            let cert =
-                rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-            let key = rustls::pki_types::PrivateKeyDer::Pkcs8(
-                cert.signing_key.serialize_der().into(),
-            );
-            let cert_der =
-                rustls::pki_types::CertificateDer::from(cert.cert.der().to_vec());
-
-            let mut server_config =
-                quinn::ServerConfig::with_single_cert(vec![cert_der], key).unwrap();
-
-            // Enable datagrams on the server side.
-            let mut transport = quinn::TransportConfig::default();
-            transport.datagram_receive_buffer_size(Some(1024 * 1024));
-            server_config.transport_config(std::sync::Arc::new(transport));
-
-            let endpoint = Endpoint::server(server_config, addr).unwrap();
+            let endpoint = match make_server_endpoint(addr) {
+                Ok(e) => e,
+                Err(e) => { eprintln!("Failed to start server: {e}"); return; }
+            };
             println!("QUIC server listening on {addr}");
 
             while let Some(incoming) = endpoint.accept().await {
                 let connection = match incoming.await {
                     Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Connection failed: {e}");
-                        continue;
-                    }
+                    Err(e) => { eprintln!("Incoming connection failed: {e}"); continue; }
                 };
 
                 let conn_id = ConnectionId(counter.fetch_add(1, Ordering::SeqCst));
-                println!("Peer connected: {conn_id:?}");
+                let event_tx = event_tx.clone();
 
-                // Register the connection back on the Bevy side.
-                let _ = new_conn_tx.send(NewConnection {
-                    conn_id,
-                    connection: connection.clone(),
+                tokio::spawn(async move {
+                    handle_new_connection(conn_id, connection, event_tx).await;
                 });
-
-                // Spawn tasks to read streams and datagrams for this peer.
-                spawn_reader_tasks(conn_id, connection, inbound_tx.clone());
             }
         });
     }
 
-    /// Connect to a remote QUIC server.
     pub fn connect(&mut self, runtime: &TokioRuntime, server_addr: SocketAddr) {
-        let new_conn_tx = self.new_conn_tx.clone();
-        let inbound_tx = self.inbound_tx.clone();
+        let event_tx = self.event_tx.clone();
         let conn_id = ConnectionId(self.next_id);
         self.next_id += 1;
 
         runtime.spawn(async move {
-            let crypto = rustls::ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(SkipServerVerification::new())
-                .with_no_client_auth();
-
-            let mut transport = quinn::TransportConfig::default();
-            transport.datagram_receive_buffer_size(Some(1024 * 1024));
-
-            let mut client_config = quinn::ClientConfig::new(std::sync::Arc::new(
-                quinn::crypto::rustls::QuicClientConfig::try_from(crypto).unwrap(),
-            ));
-            client_config.transport_config(std::sync::Arc::new(transport));
-
-            let mut endpoint =
-                Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap();
-            endpoint.set_default_client_config(client_config);
+            let endpoint = match make_client_endpoint() {
+                Ok(e) => e,
+                Err(e) => { eprintln!("Failed to create client endpoint: {e}"); return; }
+            };
 
             let connection = match endpoint.connect(server_addr, "localhost") {
                 Ok(c) => match c.await {
                     Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Connection error: {e}");
-                        return;
-                    }
+                    Err(e) => { eprintln!("Connection failed: {e}"); return; }
                 },
-                Err(e) => {
-                    eprintln!("Connect failed: {e}");
-                    return;
-                }
+                Err(e) => { eprintln!("Connect error: {e}"); return; }
             };
 
-            println!("Connected to server as {conn_id:?}");
-
-            let _ = new_conn_tx.send(NewConnection {
-                conn_id,
-                connection: connection.clone(),
-            });
-
-            spawn_reader_tasks(conn_id, connection, inbound_tx);
+            handle_new_connection(conn_id, connection, event_tx).await;
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Connection setup
+// ---------------------------------------------------------------------------
+
+/// Both sides call this. Each side opens one ordered bi-stream toward the
+/// other (for sending), and accepts one from the other (for receiving).
+/// open_bi and accept_bi must be called in the right order on both sides —
+/// both open first, then both accept, so neither side deadlocks waiting.
+async fn handle_new_connection(
+    conn_id: ConnectionId,
+    connection: Connection,
+    event_tx: mpsc::UnboundedSender<InternalEvent>,
+) {
+    // Open our ordered stream toward the peer.
+    let (ordered_send, _unused_recv) = match connection.open_bi().await {
+        Ok(s) => s,
+        Err(e) => { eprintln!("[{conn_id:?}] open_bi failed: {e}"); return; }
+    };
+
+    // Accept the ordered stream the peer opened toward us.
+    let (_unused_send, ordered_recv) = match connection.accept_bi().await {
+        Ok(s) => s,
+        Err(e) => { eprintln!("[{conn_id:?}] accept_bi failed: {e}"); return; }
+    };
+
+    println!("Connection established: {conn_id:?}");
+
+    spawn_unordered_reader(conn_id, connection.clone(), event_tx.clone());
+    spawn_datagram_reader(conn_id, connection.clone(), event_tx.clone());
+
+    // Monitor for connection close.
+    let event_tx_clone = event_tx.clone();
+    let connection_clone = connection.clone();
+    tokio::spawn(async move {
+        let reason = connection_clone.closed().await;
+        eprintln!("[{conn_id:?}] Closed: {reason}");
+        let _ = event_tx_clone.send(InternalEvent::Disconnected { conn_id });
+    });
+
+    let _ = event_tx.send(InternalEvent::NewConnection {
+        conn_id,
+        connection,
+        ordered_recv,
+        ordered_send,
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Reader tasks
+// ---------------------------------------------------------------------------
+
+fn spawn_ordered_reader(
+    conn_id: ConnectionId,
+    mut recv: RecvStream,
+    event_tx: mpsc::UnboundedSender<InternalEvent>,
+) {
+    tokio::spawn(async move {
+        loop {
+            // Read 4-byte little-endian length prefix.
+            let mut len_buf = [0u8; 4];
+            if let Err(e) = recv.read_exact(&mut len_buf).await {
+                eprintln!("[{conn_id:?}] Ordered read closed: {e}");
+                break;
+            }
+            let len = u32::from_le_bytes(len_buf) as usize;
+
+            if len == 0 || len > 4 * 1024 * 1024 {
+                eprintln!("[{conn_id:?}] Bad ordered frame length: {len}");
+                break;
+            }
+
+            let mut buf = vec![0u8; len];
+            if let Err(e) = recv.read_exact(&mut buf).await {
+                eprintln!("[{conn_id:?}] Ordered frame read error: {e}");
+                break;
+            }
+
+            let _ = event_tx.send(InternalEvent::Inbound {
+                conn_id,
+                channel: Channel::Ordered,
+                data: buf,
+            });
+        }
+    });
+}
+
+fn spawn_unordered_reader(
+    conn_id: ConnectionId,
+    connection: Connection,
+    event_tx: mpsc::UnboundedSender<InternalEvent>,
+) {
+    tokio::spawn(async move {
+        loop {
+            match connection.accept_uni().await {
+                Ok(mut recv) => {
+                    let tx = event_tx.clone();
+                    tokio::spawn(async move {
+                        match recv.read_to_end(1024 * 1024).await {
+                            Ok(data) => {
+                                let _ = tx.send(InternalEvent::Inbound {
+                                    conn_id,
+                                    channel: Channel::Unordered,
+                                    data,
+                                });
+                            }
+                            Err(e) => eprintln!("[{conn_id:?}] Unordered read error: {e}"),
+                        }
+                    });
+                }
+                Err(e) => { eprintln!("[{conn_id:?}] accept_uni closed: {e}"); break; }
+            }
+        }
+    });
+}
+
+fn spawn_datagram_reader(
+    conn_id: ConnectionId,
+    connection: Connection,
+    event_tx: mpsc::UnboundedSender<InternalEvent>,
+) {
+    tokio::spawn(async move {
+        loop {
+            match connection.read_datagram().await {
+                Ok(data) => {
+                    let _ = event_tx.send(InternalEvent::Inbound {
+                        conn_id,
+                        channel: Channel::Unreliable,
+                        data: data.to_vec(),
+                    });
+                }
+                Err(e) => { eprintln!("[{conn_id:?}] Datagram read closed: {e}"); break; }
+            }
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Ordered writer task
+// ---------------------------------------------------------------------------
+
+/// Owns the ordered SendStream. Receives payloads via channel and writes
+/// length-prefixed frames. Keeping the stream alive preserves ordering.
+fn spawn_ordered_writer(mut send: SendStream) -> OrderedSender {
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
+
+    tokio::spawn(async move {
+        while let Some(data) = rx.recv().await {
+            // Write 4-byte little-endian length prefix.
+            let len = (data.len() as u32).to_le_bytes();
+            if let Err(e) = send.write_all(&len).await {
+                eprintln!("Ordered writer error (len): {e}");
+                break;
+            }
+            if let Err(e) = send.write_all(&data).await {
+                eprintln!("Ordered writer error (data): {e}");
+                break;
+            }
+        }
+        let _ = send.finish();
+    });
+
+    OrderedSender { tx }
 }
 
 // ---------------------------------------------------------------------------
 // Bevy systems
 // ---------------------------------------------------------------------------
 
-/// Drains the new-connection channel and stores connections in the map.
-fn register_new_connections(mut manager: ResMut<QuicManager>) {
-    while let Ok(NewConnection { conn_id, connection }) =
-        manager.new_conn_rx.try_recv()
-    {
-        manager.connections.insert(conn_id, connection);
+fn process_internal_events(
+    mut manager: ResMut<QuicManager>,
+    mut established: MessageWriter<ConnectionEstablished>,
+    mut lost: MessageWriter<ConnectionLost>,
+    mut inbound: MessageWriter<InboundMessage>,
+) {
+    while let Ok(event) = manager.event_rx.try_recv() {
+        match event {
+            InternalEvent::NewConnection {
+                conn_id,
+                connection,
+                ordered_recv,
+                ordered_send,
+            } => {
+                let ordered_writer = spawn_ordered_writer(ordered_send);
+                spawn_ordered_reader(conn_id, ordered_recv, manager.event_tx.clone());
+
+                manager.peers.insert(conn_id, PeerState {
+                    connection,
+                    ordered: ordered_writer,
+                });
+
+                established.write(ConnectionEstablished { conn_id });
+            }
+
+            InternalEvent::Disconnected { conn_id } => {
+                manager.peers.remove(&conn_id);
+                lost.write(ConnectionLost { conn_id });
+            }
+
+            InternalEvent::Inbound { conn_id, channel, data } => {
+                inbound.write(InboundMessage {
+                    conn_id,
+                    channel,
+                    payload: data,
+                });
+            }
+        }
     }
 }
 
-/// Drains the `OutboundMessage` queue and sends via Tokio.
 fn flush_outbound_messages(
     mut messages: MessageReader<OutboundMessage>,
     manager: Res<QuicManager>,
     runtime: Res<TokioRuntime>,
 ) {
     for msg in messages.read() {
-        let targets: Vec<Connection> = match &msg.target {
+        let peers: Vec<(ConnectionId, &PeerState)> = match &msg.target {
             SendTarget::One(id) => manager
-                .connections
+                .peers
                 .get(id)
-                .map(|c| vec![c.clone()])
+                .map(|p| vec![(*id, p)])
                 .unwrap_or_default(),
-            SendTarget::All => manager.connections.values().cloned().collect(),
+            SendTarget::All => manager.peers.iter().map(|(id, p)| (*id, p)).collect(),
         };
 
-        for conn in targets {
+        for (conn_id, peer) in peers {
             let data = msg.payload.clone();
-            match msg.reliability {
-                Reliability::Reliable => {
+            match msg.channel {
+                Channel::Ordered => {
+                    if let Err(e) = peer.ordered.tx.try_send(data) {
+                        eprintln!("[{conn_id:?}] Ordered queue full or closed: {e}");
+                    }
+                }
+                Channel::Unordered => {
+                    let conn = peer.connection.clone();
                     runtime.spawn(async move {
-                        match conn.open_bi().await {
-                            Ok((mut send, _recv)) => {
+                        match conn.open_uni().await {
+                            Ok(mut send) => {
                                 if let Err(e) = send.write_all(&data).await {
-                                    eprintln!("Write error: {e}");
+                                    eprintln!("[{conn_id:?}] Unordered write error: {e}");
+                                    return;
                                 }
                                 if let Err(e) = send.finish() {
-                                    eprintln!("Stream finish error: {e}");
+                                    eprintln!("[{conn_id:?}] Unordered finish error: {e}");
                                 }
                             }
-                            Err(e) => eprintln!("open_bi error: {e}"),
+                            Err(e) => eprintln!("[{conn_id:?}] open_uni error: {e}"),
                         }
                     });
                 }
-                Reliability::Unreliable => {
+                Channel::Unreliable => {
+                    let conn = peer.connection.clone();
                     runtime.spawn(async move {
                         if let Err(e) = conn.send_datagram(data.into()) {
-                            eprintln!("Datagram send error: {e}");
+                            eprintln!("[{conn_id:?}] Datagram error: {e}");
                         }
                     });
                 }
@@ -283,99 +449,53 @@ fn flush_outbound_messages(
     }
 }
 
-/// Drains the inbound channel and writes `InboundMessage` Bevy messages.
-fn collect_inbound_messages(
-    mut manager: ResMut<QuicManager>,
-    mut writer: MessageWriter<InboundMessage>,
-) {
-    while let Ok(msg) = manager.inbound_rx.try_recv() {
-        let (conn_id, reliability, payload) = match msg {
-            InternalInbound::Reliable { conn_id, data } => {
-                (conn_id, Reliability::Reliable, data)
-            }
-            InternalInbound::Unreliable { conn_id, data } => {
-                (conn_id, Reliability::Unreliable, data)
-            }
-        };
-        writer.write(InboundMessage {
-            conn_id,
-            reliability,
-            payload,
-        });
-    }
+// ---------------------------------------------------------------------------
+// Endpoint construction
+// ---------------------------------------------------------------------------
+
+fn make_server_endpoint(addr: SocketAddr) -> anyhow::Result<Endpoint> {
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let cert_der = rustls::pki_types::CertificateDer::from(cert.cert.der().to_vec());
+
+    let mut transport = quinn::TransportConfig::default();
+    transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+
+    let mut server_config = quinn::ServerConfig::with_single_cert(vec![cert_der], key)?;
+    server_config.transport_config(std::sync::Arc::new(transport));
+
+    Ok(Endpoint::server(server_config, addr)?)
+}
+
+fn make_client_endpoint() -> anyhow::Result<Endpoint> {
+    let crypto = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_no_client_auth();
+
+    let mut transport = quinn::TransportConfig::default();
+    transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+
+    let mut client_config = quinn::ClientConfig::new(std::sync::Arc::new(
+        quinn::crypto::rustls::QuicClientConfig::try_from(crypto)?,
+    ));
+    client_config.transport_config(std::sync::Arc::new(transport));
+
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
+    endpoint.set_default_client_config(client_config);
+
+    Ok(endpoint)
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Spawns two Tokio tasks per connection: one reads bi-streams (reliable),
-/// the other reads datagrams (unreliable).
-fn spawn_reader_tasks(
-    conn_id: ConnectionId,
-    connection: Connection,
-    inbound_tx: mpsc::UnboundedSender<InternalInbound>,
-) {
-    // Reliable: accept incoming bi-directional streams.
-    let conn_r = connection.clone();
-    let tx_r = inbound_tx.clone();
-    tokio::spawn(async move {
-        loop {
-            match conn_r.accept_bi().await {
-                Ok((_send, mut recv)) => {
-                    let tx = tx_r.clone();
-                    tokio::spawn(async move {
-                        match recv.read_to_end(1024 * 1024).await {
-                            Ok(data) => {
-                                let _ = tx.send(InternalInbound::Reliable {
-                                    conn_id,
-                                    data,
-                                });
-                            }
-                            Err(e) => eprintln!("Stream read error: {e}"),
-                        }
-                    });
-                }
-                Err(e) => {
-                    eprintln!("accept_bi closed for {conn_id:?}: {e}");
-                    break;
-                }
-            }
-        }
-    });
-
-    // Unreliable: receive datagrams.
-    let conn_u = connection;
-    let tx_u = inbound_tx;
-    tokio::spawn(async move {
-        loop {
-            match conn_u.read_datagram().await {
-                Ok(data) => {
-                    let _ = tx_u.send(InternalInbound::Unreliable {
-                        conn_id,
-                        data: data.to_vec(),
-                    });
-                }
-                Err(e) => {
-                    eprintln!("datagram read closed for {conn_id:?}: {e}");
-                    break;
-                }
-            }
-        }
-    });
-}
-
-// ---------------------------------------------------------------------------
-// TLS helpers
+// TLS: skip verification (dev only — replace with real certs for production)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 struct SkipServerVerification;
 
 impl SkipServerVerification {
-    fn new() -> std::sync::Arc<Self> {
-        std::sync::Arc::new(Self)
-    }
+    fn new() -> std::sync::Arc<Self> { std::sync::Arc::new(Self) }
 }
 
 impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {

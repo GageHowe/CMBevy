@@ -12,9 +12,10 @@ use bevy::window::PresentMode;
 use common::net::quic::*;
 use common::pawn::pawn::PawnPlugin;
 use common::net::{
-    quic::{QuicPlugin, QuicManager, InboundMessage},
+    quic::{QuicPlugin, QuicManager, OutboundMessage, InboundMessage,
+           ConnectionEstablished, ConnectionLost, SendTarget, Channel},
     runtime::{TokioRuntime, TokioRuntimePlugin},
-    message::{MsgType, SimulationState},
+    message::MsgType,
 };
 use common::physics::physics_world::*;
 // use settings::settings::*;
@@ -63,8 +64,9 @@ fn main() {
     .add_plugins(TokioRuntimePlugin)
     .add_plugins(QuicPlugin)
     .add_systems(Startup, connect)
-    .add_systems(Update, handle_inbound)
-;
+    .add_systems(Update, (on_connect, on_disconnect, on_message, send_chat))
+
+    ;
     println!("starting client...\n");
 
     app.run();
@@ -91,22 +93,42 @@ fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
     manager.connect(&runtime, "127.0.0.1:5000".parse().unwrap());
 }
 
-fn handle_inbound(mut reader: MessageReader<InboundMessage>) {
+fn on_connect(mut reader: MessageReader<ConnectionEstablished>) {
+    for evt in reader.read() {
+        println!("Connected to server as {:?}", evt.conn_id);
+    }
+}
+
+fn on_disconnect(mut reader: MessageReader<ConnectionLost>) {
+    for _evt in reader.read() {
+        println!("Disconnected from server");
+        // return to main menu, etc.
+    }
+}
+
+fn on_message(mut reader: MessageReader<InboundMessage>) {
     for msg in reader.read() {
         match wincode::deserialize::<MsgType>(&msg.payload) {
             Ok(MsgType::State(state)) => {
-                println!("Tick {} received", state.tick);
+                // apply world state from server
             }
-            Ok(other) => {
-                println!("Got: {other:?}");
-            }
-            Err(e) => {
-                eprintln!("Deserialize error: {e}");
-            }
+            Ok(other) => println!("Unhandled: {other:?}"),
+            Err(e) => eprintln!("Deserialize error: {e}"),
         }
     }
 }
 
-// handle_udp runs on FixedPreUpdate
-// step_physics runs on FixedUpdate
-// flush_outgoing_udp runs on FixedPostUpdate
+// Example: send a chat message reliably and in order
+fn send_chat(
+    mut writer: MessageWriter<OutboundMessage>,
+    input: Res<ButtonInput<KeyCode>>,
+) {
+    if input.just_pressed(KeyCode::Enter) {
+        let msg = MsgType::ChatMessage("player".into(), "hello!".into());
+        writer.write(OutboundMessage {
+            target: SendTarget::All,
+            channel: Channel::Ordered,   // chat must arrive in order
+            payload: wincode::serialize(&msg).unwrap(),
+        });
+    }
+}
