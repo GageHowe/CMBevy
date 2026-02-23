@@ -62,6 +62,7 @@ pub fn apply_biped_movement(
         return;
     };
 
+    // TODO: Fix this, doesn't respect local orientation
     body.apply_impulse(
         rapier3d::math::Vector3::new(input.right, input.up, input.forward),
         true,

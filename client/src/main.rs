@@ -9,13 +9,20 @@ use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 // use common::net::net::MsgType;
-use common::net::runtime::TokioRuntimePlugin;
+use common::net::quic::*;
 use common::pawn::pawn::PawnPlugin;
-use common::{level::level::*, physics::physics_world::*};
+use common::net::{
+    quic::{QuicPlugin, QuicManager, InboundMessage},
+    runtime::{TokioRuntime, TokioRuntimePlugin},
+    message::{MsgType, SimulationState},
+};
+use common::physics::physics_world::*;
 // use settings::settings::*;
 use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
+use common::level::level::*;
+
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -41,7 +48,7 @@ fn main() {
                 ..default()
             }),
     )
-    .insert_resource(Time::<Fixed>::from_hz(60.0))
+    .insert_resource(Time::<Fixed>::from_hz(64.0))
     .init_state::<AppState>()
     // .add_plugins(AppSettingsPlugin)
     .add_plugins(WindowSettingsPlugin)
@@ -50,9 +57,13 @@ fn main() {
     .add_plugins(UIPlugin)
     // .add_plugins(ClientNetManagerPlugin)
     .add_plugins(PawnPlugin)
+
+    // NETWORKING
+
     .add_plugins(TokioRuntimePlugin)
-    .add_systems(Startup, spawn_camera)
-    // .add_systems(Startup, connect_to_server);
+    .add_plugins(QuicPlugin)
+    .add_systems(Startup, connect)
+    .add_systems(Update, handle_inbound)
 ;
     println!("starting client...\n");
 
@@ -73,6 +84,27 @@ fn spawn_camera(mut commands: Commands) {
         }),
         Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+
+fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
+    manager.connect(&runtime, "127.0.0.1:5000".parse().unwrap());
+}
+
+fn handle_inbound(mut reader: MessageReader<InboundMessage>) {
+    for msg in reader.read() {
+        match wincode::deserialize::<MsgType>(&msg.payload) {
+            Ok(MsgType::State(state)) => {
+                println!("Tick {} received", state.tick);
+            }
+            Ok(other) => {
+                println!("Got: {other:?}");
+            }
+            Err(e) => {
+                eprintln!("Deserialize error: {e}");
+            }
+        }
+    }
 }
 
 // handle_udp runs on FixedPreUpdate
