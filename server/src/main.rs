@@ -2,18 +2,14 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use bevy::render::{
-    RenderPlugin,
-    settings::{RenderCreation, WgpuSettings},
-};
-use common::{level::level::*, physics::physics_world::*};
-// use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
+use common::{physics::physics_world::*};
 use common::net::{
     quic::{QuicPlugin, QuicManager, OutboundMessage, InboundMessage,
            ConnectionEstablished, ConnectionLost, SendTarget, Channel},
     runtime::{TokioRuntime, TokioRuntimePlugin},
     message::{MsgType, SimulationState},
 };
+use common::config::SERVER_BIND_ADDRESS;
 
 fn main() {
     let mut app = App::new();
@@ -23,15 +19,6 @@ fn main() {
                 level: Level::ERROR,
                 ..default()
             })
-            .set(RenderPlugin {
-                // nasty windowless workaround
-                synchronous_pipeline_compilation: true,
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    backends: None,
-                    ..default()
-                }),
-                ..default()
-            }),
     )
     .insert_resource(Time::<Fixed>::from_hz(64.0))
     .add_plugins(PhysicsPlugin)
@@ -57,7 +44,7 @@ fn main() {
 
 
 fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    manager.start_server(&runtime, "127.0.0.1:5000".parse().unwrap());
+    manager.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
 fn on_connect(mut reader: MessageReader<ConnectionEstablished>) {
@@ -80,8 +67,10 @@ fn on_message(mut reader: MessageReader<InboundMessage>) {
             Ok(MsgType::ChatMessage(addr, text)) => {
                 println!("[{addr}] {text}");
             }
-            Ok(MsgType::BodyState(state)) => {
+            Ok(MsgType::BodyState(_state)) => {
                 // apply incoming body state from this client
+                // debug_assert!(_sta);
+
             }
             Ok(other) => println!("Unhandled: {other:?}"),
             Err(e) => eprintln!("Deserialize error: {e}"),

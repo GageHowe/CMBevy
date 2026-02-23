@@ -9,7 +9,7 @@ use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 // use common::net::net::MsgType;
-use common::net::quic::*;
+// use common::net::quic::*;
 use common::pawn::pawn::PawnPlugin;
 use common::net::{
     quic::{QuicPlugin, QuicManager, OutboundMessage, InboundMessage,
@@ -23,6 +23,7 @@ use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::level::level::*;
+use common::config::SERVER_BIND_ADDRESS;
 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
@@ -66,8 +67,7 @@ fn main() {
     .add_systems(Startup, connect)
     .add_systems(Update, (on_connect, on_disconnect, on_message, send_chat))
 
-    ;
-    println!("starting client...\n");
+    ; println!("starting client...\n");
 
     app.run();
 }
@@ -88,9 +88,8 @@ fn spawn_camera(mut commands: Commands) {
     ));
 }
 
-
 fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    manager.connect(&runtime, "127.0.0.1:5000".parse().unwrap());
+    manager.connect(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
 fn on_connect(mut reader: MessageReader<ConnectionEstablished>) {
@@ -109,8 +108,11 @@ fn on_disconnect(mut reader: MessageReader<ConnectionLost>) {
 fn on_message(mut reader: MessageReader<InboundMessage>) {
     for msg in reader.read() {
         match wincode::deserialize::<MsgType>(&msg.payload) {
-            Ok(MsgType::State(state)) => {
+            Ok(MsgType::State(_state)) => {
                 // apply world state from server
+            }
+            Ok(MsgType::ChatMessage(sender, msg)) => {
+                println!("Got message: {sender}, {msg}")
             }
             Ok(other) => println!("Unhandled: {other:?}"),
             Err(e) => eprintln!("Deserialize error: {e}"),

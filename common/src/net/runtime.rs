@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use bevy::prelude::*;
+// use bevy::prelude::*;
 use tokio::runtime::Runtime;
 
 /// Plugin that adds a Tokio runtime to Bevy as a resource
@@ -33,7 +33,7 @@ impl TokioRuntime {
     }
 }
 
-fn spawn_async_task(runtime: Res<TokioRuntime>) {
+fn _spawn_async_task(runtime: Res<TokioRuntime>) {
     // Example: spawn an async task
     runtime.spawn(async {
         println!("Async task started");

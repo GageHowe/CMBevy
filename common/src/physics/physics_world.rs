@@ -1,7 +1,7 @@
 // physics_world.rs
 // this manages the physics simulation and syncs it with clients
 
-use bevy::math::VectorSpace;
+// use bevy::math::VectorSpace;
 use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
@@ -209,7 +209,7 @@ pub fn take_snapshot(
 }
 
 /// accept the received state, performed on client. Remember to fast-forward with inputs after doing this
-fn restore_snapshot(
+fn _restore_snapshot(
     mut world: ResMut<PhysicsWorld>,
     snapshot: &SimulationState,
     query: Query<(&NetworkID, &PhysicsBodyHandle)>,

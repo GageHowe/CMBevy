@@ -231,10 +231,10 @@ pub fn clean_buffers(mut commands: Commands, mut removed: RemovedComponents<Cont
 
 pub fn do_movement(
     mut world: ResMut<PhysicsWorld>,
-    mut bipeds: Query<(&mut InputBufferComponent, &PhysicsBodyHandle), (With<BipedPawnComponent>)>,
+    mut bipeds: Query<(&mut InputBufferComponent, &PhysicsBodyHandle), With<BipedPawnComponent>>,
     mut spaceships: Query<
         (&mut InputBufferComponent, &PhysicsBodyHandle),
-        (With<SpaceshipPawnComponent>, Without<BipedPawnComponent>), // jank
+        (With<SpaceshipPawnComponent>, Without<BipedPawnComponent>), // jank, why is this needed
     >,
 ) {
     // bipeds
@@ -255,13 +255,13 @@ pub fn do_movement(
 }
 
 fn apply_spaceship_movement(
-    world: &mut PhysicsWorld,
-    body_handle: &PhysicsBodyHandle,
-    input: PawnInputComponent,
+    _world: &mut PhysicsWorld,
+    _body_handle: &PhysicsBodyHandle,
+    _input: PawnInputComponent,
 ) {
-    let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
+    // let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;
-    };
+    // };
 
     // Different movement logic for spaceships
     // e.g., 6DOF movement, rotation based on pitch/yaw/roll, etc.

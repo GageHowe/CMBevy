@@ -200,14 +200,19 @@ async fn handle_new_connection(
     connection: Connection,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
 ) {
-    // Open our ordered stream toward the peer.
-    let (ordered_send, _unused_recv) = match connection.open_bi().await {
+    // Run open_bi and accept_bi concurrently — if sequenced, both sides
+    // wait for the other to open first and deadlock.
+    let (open_result, accept_result) = tokio::join!(
+        connection.open_bi(),
+        connection.accept_bi(),
+    );
+
+    let (ordered_send, _) = match open_result {
         Ok(s) => s,
         Err(e) => { eprintln!("[{conn_id:?}] open_bi failed: {e}"); return; }
     };
 
-    // Accept the ordered stream the peer opened toward us.
-    let (_unused_send, ordered_recv) = match connection.accept_bi().await {
+    let (_, ordered_recv) = match accept_result {
         Ok(s) => s,
         Err(e) => { eprintln!("[{conn_id:?}] accept_bi failed: {e}"); return; }
     };

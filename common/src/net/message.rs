@@ -1,16 +1,16 @@
 use crate::types::{CMQuat, CMVec3};
 use bevy::prelude::*;
 use std::collections::HashMap;
-use std::io;
-use std::io::Cursor;
-use std::{error::Error, net::SocketAddr, sync::Arc};
-use wincode::serialize;
+// use std::io;
+// use std::io::Cursor;
+// use std::{error::Error, net::SocketAddr, sync::Arc};
+// use wincode::serialize;
 use wincode_derive::{SchemaRead, SchemaWrite};
-use zstd::{decode_all, encode_all};
+// use zstd::{decode_all, encode_all};
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum MsgType {
-    /// address, message
+    /// sender, message
     ChatMessage(String, String),
     // HitReport()
     /// A message the recipient will display in messagebar

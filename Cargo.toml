@@ -1,49 +1,6 @@
-
-
-# [dependencies]
-# bevy = { version = "0.18.0", optional = true, default-features = false }
-# bevy_egui = "0.39.0"
-# glam = "0.31.0"
-# bevy-steamworks = "0.16.0"
-# local-ip-address = "0.6.9"
-# rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
-# serde = "1.0.228"
-# sqlx = "0.8.6" # for login etc later on
-# wincode = "0.2.5"
-# wincode-derive = "0.2.3"
-# zstd = "0.13.3"
-
-# [features]
-# default = []
-
-# client = [
-#   "bevy/3d",
-#   "bevy/ui",
-#   "bevy/debug"
-# ]
-
-# server = ["bevy/3d"]
-
-# [[bin]]
-# name = "client"
-# path = "src/bin/client/client.rs"
-# required-features = ["client"]
-
-# [[bin]]
-# name = "server"
-# path = "src/bin/server/server.rs"
-# required-features = ["server"]
-
-# [profile.dev]
-# opt-level = 0
-# [profile.dev.package."*"]
-# opt-level = 3
-
-# [package]
-# name = "cmbevy"
-# version = "0.1.0"
-# edition = "2024"
-# default-run = "client"
+cargo-features = ["codegen-backend"]
+#rustup default nightly
+#rustup component add rustc-codegen-cranelift-preview --toolchain nightly
 
 [workspace]
 members = ["common", "server", "client"]
