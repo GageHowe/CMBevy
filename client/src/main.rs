@@ -1,30 +1,22 @@
 // client executable
 
-// mod client;
-mod ui;
-// use crate::client::{ClientNetManager, ClientNetManagerPlugin};
 use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-// use common::net::net::MsgType;
-// use common::net::quic::*;
 use common::pawn::pawn::PawnPlugin;
 use common::net::{
-    quic::{QuicPlugin, QuicManager, OutboundMessage, InboundMessage,
-           ConnectionEstablished, ConnectionLost, SendTarget, Channel},
+    quic::*,
     runtime::{TokioRuntime, TokioRuntimePlugin},
     message::MsgType,
 };
-use common::physics::physics_world::*;
-// use settings::settings::*;
-use std::{collections::HashMap, net::UdpSocket, time::SystemTime};
-use ui::ui::UIPlugin;
-use ui::window::WindowSettingsPlugin;
+use common::ui::ui::UIPlugin;
+use common::ui::window::WindowSettingsPlugin;
 use common::level::level::*;
 use common::config::SERVER_BIND_ADDRESS;
-
+use common::master_plugin::MasterPlugin;
+use common::tick::increment_tick;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -50,31 +42,23 @@ fn main() {
                 ..default()
             }),
     )
-    .insert_resource(Time::<Fixed>::from_hz(64.0))
-    .init_state::<AppState>()
-    // .add_plugins(AppSettingsPlugin)
+    .add_plugins(MasterPlugin) // common required plugins
+    .init_state::<AppState>() // MainMenu, etc
     .add_plugins(WindowSettingsPlugin)
-    .add_plugins(PhysicsPlugin)
     .add_plugins(LevelPlugin)
     .add_plugins(UIPlugin)
-    // .add_plugins(ClientNetManagerPlugin)
     .add_plugins(PawnPlugin)
+    .add_systems(Startup, spawn_camera);
+    app.add_systems(FixedUpdate, increment_tick);
 
     // NETWORKING
-
-    .add_plugins(TokioRuntimePlugin)
-    .add_plugins(QuicPlugin)
-    .add_systems(Startup, connect)
-    .add_systems(Update, (on_connect, on_disconnect, on_message, send_chat))
-
+    app.add_systems(Startup, connect)
+    .add_systems(Update, (on_message, send_chat))
+        .add_systems(FixedUpdate, (on_message, send_chat))        // client
     ; println!("starting client...\n");
 
     app.run();
 }
-
-// fn connect_to_server(mut manager: ResMut<ClientNetManager>) {
-//     manager.enqueue(MsgType::Error("HELLO".to_string()));
-// }
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
@@ -92,45 +76,26 @@ fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
     manager.connect(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
-fn on_connect(mut reader: MessageReader<ConnectionEstablished>) {
-    for evt in reader.read() {
-        println!("Connected to server as {:?}", evt.conn_id);
-    }
-}
-
-fn on_disconnect(mut reader: MessageReader<ConnectionLost>) {
-    for _evt in reader.read() {
-        println!("Disconnected from server");
-        // return to main menu, etc.
-    }
-}
-
-fn on_message(mut reader: MessageReader<InboundMessage>) {
-    for msg in reader.read() {
+fn on_message(mut inbound: ResMut<InboundQueue>) {
+    while let Some(msg) = inbound.0.pop_front() {
         match wincode::deserialize::<MsgType>(&msg.payload) {
-            Ok(MsgType::State(_state)) => {
-                // apply world state from server
-            }
-            Ok(MsgType::ChatMessage(sender, msg)) => {
-                println!("Got message: {sender}, {msg}")
-            }
+            Ok(MsgType::State(state)) => { /* apply world state */ }
+            Ok(MsgType::ChatMessage(sender, text)) => println!("[{sender}] {text}"),
             Ok(other) => println!("Unhandled: {other:?}"),
             Err(e) => eprintln!("Deserialize error: {e}"),
         }
     }
 }
 
-// Example: send a chat message reliably and in order
 fn send_chat(
-    mut writer: MessageWriter<OutboundMessage>,
+    mut outbound: ResMut<OutboundQueue>,
     input: Res<ButtonInput<KeyCode>>,
 ) {
     if input.just_pressed(KeyCode::Enter) {
-        let msg = MsgType::ChatMessage("player".into(), "hello!".into());
-        writer.write(OutboundMessage {
-            target: SendTarget::All,
-            channel: Channel::Ordered,   // chat must arrive in order
-            payload: wincode::serialize(&msg).unwrap(),
-        });
+        outbound.send(
+            SendTarget::All,
+            Channel::Ordered,
+            &MsgType::ChatMessage("player".into(), "hello!".into()),
+        );
     }
 }

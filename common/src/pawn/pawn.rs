@@ -8,19 +8,16 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
+        // eventually, we'll remove this and request pawns from server
+        app.add_systems(Startup, spawn_test_pawn);
+
+        // before FixedUpdate, gather and apply inputs
+        app.add_systems(FixedPreUpdate, (gather_pawn_input, (move_bipeds, move_spaceships)).chain());
+
+        // after FixedUpdate, update camera and do cleanup
         app.add_systems(
-            FixedPreUpdate,
-            (
-                gather_pawn_input,
-                (do_movement/*, super::spaceship::movement*/),
-            )
-                .chain(),
-        ) // grab inputs before simulation is stepped in FixedUpdate
-        .add_systems(
-            FixedPostUpdate, // before physics tick and syncing
-            (snap_camera_to_rig, on_controlled_add_buffer, clean_buffers).chain(),
-        )
-        .add_systems(Startup, spawn_test_pawn);
+            FixedPostUpdate, (snap_camera_to_rig, on_controlled_add_buffer, clean_buffers).chain(),
+        );
     }
 }
 
@@ -30,7 +27,7 @@ fn spawn_test_pawn(
     materials: ResMut<Assets<StandardMaterial>>,
     world: ResMut<PhysicsWorld>,
 ) {
-    super::biped::spawn(
+    super::spaceship::spawn(
         Transform::from_xyz(0.0, 2.0, 0.0),
         commands,
         meshes,
@@ -39,26 +36,27 @@ fn spawn_test_pawn(
     );
 }
 
-// ============================================================================
 // COMPONENTS
-// ============================================================================
+// these mark the pawn types for systems to act on later
 
 #[derive(Component)]
 pub struct BipedPawnComponent;
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;
 
-/// Input state for a pawn. Gets consumed by movement systems.
-/// All values default to 0.0 or false each frame and are set by input gathering.
+// INPUT AND CONTROL
+
+/// input state used by all pawn types and which gets consumed by movement systems.
 #[derive(Component, Default, Clone, Copy)]
 pub struct PawnInputComponent {
-    pub forward: f32,  // -1.0 to 1.0
-    pub right: f32,    // -1.0 to 1.0
-    pub up: f32,       // -1.0 to 1.0
-    pub pitch: f32,    // -1.0 to 1.0
-    pub yaw: f32,      // -1.0 to 1.0
-    pub roll: f32,     // -1.0 to 1.0
-    pub ability: bool, // special ability key (shift)
+    pub forward: f32,
+    pub right: f32,
+    pub up: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub roll: f32,
+    pub ability1: bool,
+    pub ability2: bool,
 }
 
 /// Camera offset configuration for a pawn.
@@ -76,8 +74,7 @@ impl Default for CameraRigComponent {
     }
 }
 
-/// Ring buffer of inputs for rollback/prediction.
-/// Only present on pawns that need input history (controlled pawns).
+/// ring buffer of inputs for rollback/prediction.
 #[derive(Component)]
 pub struct InputBufferComponent {
     pub inputs: RingBuffer<PawnInputComponent>,
@@ -94,8 +91,8 @@ impl InputBufferComponent {
     }
 }
 
-/// Marks a pawn as currently possessed by the local player.
-/// The camera will follow this pawn and input will be gathered for it.
+/// marks a pawn as currently possessed by the local player.
+/// the camera will follow this pawn and input will be gathered for it.
 #[derive(Component)]
 pub struct PossesssionComponent;
 
@@ -165,7 +162,8 @@ pub fn gather_pawn_input(
     if keyboard.pressed(KeyCode::KeyE) {
         input.roll = 1.0;
     }
-    input.ability = keyboard.pressed(KeyCode::ShiftLeft);
+    input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
+    input.ability2 = keyboard.pressed(KeyCode::KeyE);
 
     buffer.inputs.push(input);
 }
@@ -187,11 +185,9 @@ pub fn snap_camera_to_rig(
     cam_transform.rotation = pawn_transform.rotation;
 }
 
-/// Switches possession from one pawn to another.
+/// switches possession component from one pawn to another.
 pub fn possess_pawn(
     mut commands: Commands,
-    // keyboard: Res<ButtonInput<KeyCode>>,
-    // pawns: Query<Entity, With<Pawn>>,
     current: Query<Entity, With<PossesssionComponent>>,
     target: Entity,
 ) {
@@ -205,10 +201,10 @@ pub fn possess_pawn(
     commands.entity(target).insert(PossesssionComponent);
 }
 
-/// Adds InputBuffer when a pawn becomes Controlled.
+/// adds an InputBuffer when a pawn becomes Controlled.
 /// This happens when:
-/// - Client: local player takes control of a pawn
-/// - Server: any client takes control of a pawn
+/// on client: local player takes control of a pawn
+/// on server: any client takes control of a pawn
 pub fn on_controlled_add_buffer(
     mut commands: Commands,
     newly_controlled: Query<Entity, Added<Controlled>>,
@@ -216,7 +212,7 @@ pub fn on_controlled_add_buffer(
     for entity in &newly_controlled {
         commands
             .entity(entity)
-            .insert(InputBufferComponent::new(60)); // 60 slots
+            .insert(InputBufferComponent::new(60));
     }
 }
 
@@ -229,40 +225,24 @@ pub fn clean_buffers(mut commands: Commands, mut removed: RemovedComponents<Cont
     }
 }
 
-pub fn do_movement(
+// FUNCTIONS FOR MOVING PAWN TYPES
+
+pub fn move_bipeds(
     mut world: ResMut<PhysicsWorld>,
     mut bipeds: Query<(&mut InputBufferComponent, &PhysicsBodyHandle), With<BipedPawnComponent>>,
-    mut spaceships: Query<
-        (&mut InputBufferComponent, &PhysicsBodyHandle),
-        (With<SpaceshipPawnComponent>, Without<BipedPawnComponent>), // jank, why is this needed
-    >,
 ) {
-    // bipeds
     for (mut buffer, body_handle) in bipeds.iter_mut() {
-        let Some(input) = buffer.consume() else {
-            continue;
-        };
+        let Some(input) = buffer.consume() else { continue };
         super::biped::apply_biped_movement(&mut world, body_handle, input);
-    }
-
-    // spaceships
-    for (mut buffer, body_handle) in spaceships.iter_mut() {
-        let Some(input) = buffer.consume() else {
-            continue;
-        };
-        apply_spaceship_movement(&mut world, body_handle, input);
     }
 }
 
-fn apply_spaceship_movement(
-    _world: &mut PhysicsWorld,
-    _body_handle: &PhysicsBodyHandle,
-    _input: PawnInputComponent,
+pub fn move_spaceships(
+    mut world: ResMut<PhysicsWorld>,
+    mut spaceships: Query<(&mut InputBufferComponent, &PhysicsBodyHandle), With<SpaceshipPawnComponent>>,
 ) {
-    // let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
-        return;
-    // };
-
-    // Different movement logic for spaceships
-    // e.g., 6DOF movement, rotation based on pitch/yaw/roll, etc.
+    for (mut buffer, body_handle) in spaceships.iter_mut() {
+        let Some(input) = buffer.consume() else { continue };
+        super::spaceship::apply_spaceship_movement(&mut world, body_handle, input);
+    }
 }

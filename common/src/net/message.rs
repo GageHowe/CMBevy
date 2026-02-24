@@ -1,12 +1,8 @@
 use crate::types::{CMQuat, CMVec3};
 use bevy::prelude::*;
 use std::collections::HashMap;
-// use std::io;
-// use std::io::Cursor;
-// use std::{error::Error, net::SocketAddr, sync::Arc};
-// use wincode::serialize;
 use wincode_derive::{SchemaRead, SchemaWrite};
-// use zstd::{decode_all, encode_all};
+use super::quic::*;
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum MsgType {
@@ -15,6 +11,8 @@ pub enum MsgType {
     // HitReport()
     /// A message the recipient will display in messagebar
     Error(String),
+    Ping(String),
+    Pong(String),
 
     BodyState(BodyState),
     State(SimulationState),
@@ -39,4 +37,3 @@ pub struct SimulationState {
     pub bodies: HashMap<NetworkID, BodyState>,
 }
 
-// fn request_pawn() -> pawn type, NetworkID

@@ -855,6 +855,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_enhanced_input"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4847750738c129ff8196d883493f77e7d2f07dffcdd1f33d343b2bf282b7654f"
+dependencies = [
+ "bevy",
+ "bevy_enhanced_input_macros",
+ "bitflags 2.10.0",
+ "log",
+ "smallvec",
+ "variadics_please",
+]
+
+[[package]]
+name = "bevy_enhanced_input_macros"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17ee73d4e362e2eb15ac58331c94e5076f6b5065761f008ca7dc930d446d205b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "bevy_gilrs"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1180,19 +1205,6 @@ name = "bevy_mikktspace"
 version = "0.17.0-dev"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
-
-[[package]]
-name = "bevy_mod_mipmap_generator"
-version = "0.1.0"
-source = "git+https://github.com/DGriffin91/bevy_mod_mipmap_generator#a763a0a4715268a8735878476bdbe16f77579104"
-dependencies = [
- "anyhow",
- "bevy",
- "fast_image_resize",
- "futures-lite",
- "image",
- "tracing",
-]
 
 [[package]]
 name = "bevy_pbr"
@@ -2033,7 +2045,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "bevy_egui",
- "bevy_mod_mipmap_generator",
+ "bevy_enhanced_input",
  "bincode",
  "clap",
  "common",
@@ -2088,6 +2100,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "bevy_egui",
+ "bevy_enhanced_input",
  "bytes",
  "quinn",
  "rapier3d",
@@ -2703,20 +2716,6 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
-]
-
-[[package]]
-name = "fast_image_resize"
-version = "5.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbc7fe45cf92b43817ff62a3723e862b85bd1d06288f63007f7645d1d2f7a060"
-dependencies = [
- "bytemuck",
- "cfg-if",
- "document-features",
- "image",
- "num-traits",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -5441,6 +5440,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy",
+ "bevy_enhanced_input",
  "bincode",
  "clap",
  "common",

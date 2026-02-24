@@ -7,8 +7,9 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 // use common::net::net::{MsgType, str_to_message};
 // use common::net::runtime::TokioRuntimePlugin;
-use common::physics::physics_world::*;
+// use crate::physics::physics_world::*;
 // use common::
+use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
 /// Data that needs to persist inside the GUI (text etc)

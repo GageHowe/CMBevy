@@ -1,7 +1,7 @@
 use super::runtime::TokioRuntime;
 use bevy::prelude::*;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
@@ -14,15 +14,14 @@ pub struct QuicPlugin;
 impl Plugin for QuicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuicManager>()
-            .add_message::<OutboundMessage>()
-            .add_message::<InboundMessage>()
-            .add_message::<ConnectionEstablished>()
-            .add_message::<ConnectionLost>()
+            .init_resource::<Clients>()
+            .init_resource::<InboundQueue>()
+            .init_resource::<OutboundQueue>()
             .add_systems(
                 Update,
                 (
                     process_internal_events,
-                    flush_outbound_messages,
+                    flush_outbound_queue,
                 )
                     .chain(),
             );
@@ -38,45 +37,49 @@ pub struct ConnectionId(pub u64);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Channel {
-    /// Reliable, ordered. Persistent stream with length-prefix framing.
-    /// Use for: chat, game events, state transitions.
     Ordered,
-    /// Reliable, unordered. One stream per message.
-    /// Use for: spawn/despawn, one-shot reliable messages where order doesn't matter.
     Unordered,
-    /// Unreliable, unordered. QUIC datagrams. Max ~1200 bytes.
-    /// Use for: position, rotation, anything high-frequency.
     Unreliable,
 }
 
-#[derive(Message, Clone)]
-pub struct OutboundMessage {
-    pub target: SendTarget,
-    pub channel: Channel,
-    pub payload: Vec<u8>,
-}
-
-#[derive(Message, Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct InboundMessage {
     pub conn_id: ConnectionId,
     pub channel: Channel,
     pub payload: Vec<u8>,
 }
 
-#[derive(Message, Clone, Debug)]
-pub struct ConnectionEstablished {
-    pub conn_id: ConnectionId,
-}
-
-#[derive(Message, Clone, Debug)]
-pub struct ConnectionLost {
-    pub conn_id: ConnectionId,
+#[derive(Debug, Clone)]
+pub struct OutboundMessage {
+    pub target: SendTarget,
+    pub channel: Channel,
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
 pub enum SendTarget {
     One(ConnectionId),
     All,
+}
+
+#[derive(Resource, Default)]
+pub struct Clients(pub HashSet<ConnectionId>);
+
+#[derive(Resource, Default)]
+pub struct InboundQueue(pub VecDeque<InboundMessage>);
+
+#[derive(Resource, Default)]
+pub struct OutboundQueue(pub VecDeque<OutboundMessage>);
+
+impl OutboundQueue {
+    /// This is what other modules should use to send messages
+    pub fn send(&mut self, target: SendTarget, channel: Channel, msg: &crate::net::message::MsgType) {
+        self.0.push_back(OutboundMessage {
+            target,
+            channel,
+            payload: wincode::serialize(msg).unwrap(),
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +137,12 @@ impl Default for QuicManager {
 }
 
 impl QuicManager {
+    pub fn disconnect(&mut self, conn_id: ConnectionId) {
+        if let Some(peer) = self.peers.remove(&conn_id) {
+            peer.connection.close(0u32.into(), b"disconnect");
+        }
+    }
+
     pub fn start_server(&mut self, runtime: &TokioRuntime, addr: SocketAddr) {
         let event_tx = self.event_tx.clone();
 
@@ -157,7 +166,7 @@ impl QuicManager {
                 let event_tx = event_tx.clone();
 
                 tokio::spawn(async move {
-                    handle_new_connection(conn_id, connection, event_tx).await;
+                    handle_new_connection(conn_id, connection, event_tx, false).await;
                 });
             }
         });
@@ -182,7 +191,7 @@ impl QuicManager {
                 Err(e) => { eprintln!("Connect error: {e}"); return; }
             };
 
-            handle_new_connection(conn_id, connection, event_tx).await;
+            handle_new_connection(conn_id, connection, event_tx, true).await;
         });
     }
 }
@@ -191,38 +200,24 @@ impl QuicManager {
 // Connection setup
 // ---------------------------------------------------------------------------
 
-/// Both sides call this. Each side opens one ordered bi-stream toward the
-/// other (for sending), and accepts one from the other (for receiving).
-/// open_bi and accept_bi must be called in the right order on both sides —
-/// both open first, then both accept, so neither side deadlocks waiting.
 async fn handle_new_connection(
     conn_id: ConnectionId,
     connection: Connection,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
+    is_initiator: bool,
 ) {
-    // Run open_bi and accept_bi concurrently — if sequenced, both sides
-    // wait for the other to open first and deadlock.
-    let (open_result, accept_result) = tokio::join!(
-        connection.open_bi(),
-        connection.accept_bi(),
-    );
-
-    let (ordered_send, _) = match open_result {
-        Ok(s) => s,
-        Err(e) => { eprintln!("[{conn_id:?}] open_bi failed: {e}"); return; }
+    let (ordered_send, ordered_recv) = if is_initiator {
+        match connection.open_bi().await {
+            Ok(s) => s,
+            Err(e) => { eprintln!("[{conn_id:?}] open_bi failed: {e}"); return; }
+        }
+    } else {
+        match connection.accept_bi().await {
+            Ok(s) => s,
+            Err(e) => { eprintln!("[{conn_id:?}] accept_bi failed: {e}"); return; }
+        }
     };
 
-    let (_, ordered_recv) = match accept_result {
-        Ok(s) => s,
-        Err(e) => { eprintln!("[{conn_id:?}] accept_bi failed: {e}"); return; }
-    };
-
-    println!("Connection established: {conn_id:?}");
-
-    spawn_unordered_reader(conn_id, connection.clone(), event_tx.clone());
-    spawn_datagram_reader(conn_id, connection.clone(), event_tx.clone());
-
-    // Monitor for connection close.
     let event_tx_clone = event_tx.clone();
     let connection_clone = connection.clone();
     tokio::spawn(async move {
@@ -240,17 +235,17 @@ async fn handle_new_connection(
 }
 
 // ---------------------------------------------------------------------------
-// Reader tasks
+// Reader/writer tasks
 // ---------------------------------------------------------------------------
 
 fn spawn_ordered_reader(
     conn_id: ConnectionId,
     mut recv: RecvStream,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
+    handle: tokio::runtime::Handle,
 ) {
-    tokio::spawn(async move {
+    handle.spawn(async move {
         loop {
-            // Read 4-byte little-endian length prefix.
             let mut len_buf = [0u8; 4];
             if let Err(e) = recv.read_exact(&mut len_buf).await {
                 eprintln!("[{conn_id:?}] Ordered read closed: {e}");
@@ -282,8 +277,9 @@ fn spawn_unordered_reader(
     conn_id: ConnectionId,
     connection: Connection,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
+    handle: tokio::runtime::Handle,
 ) {
-    tokio::spawn(async move {
+    handle.spawn(async move {
         loop {
             match connection.accept_uni().await {
                 Ok(mut recv) => {
@@ -311,8 +307,9 @@ fn spawn_datagram_reader(
     conn_id: ConnectionId,
     connection: Connection,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
+    handle: tokio::runtime::Handle,
 ) {
-    tokio::spawn(async move {
+    handle.spawn(async move {
         loop {
             match connection.read_datagram().await {
                 Ok(data) => {
@@ -328,18 +325,14 @@ fn spawn_datagram_reader(
     });
 }
 
-// ---------------------------------------------------------------------------
-// Ordered writer task
-// ---------------------------------------------------------------------------
-
-/// Owns the ordered SendStream. Receives payloads via channel and writes
-/// length-prefixed frames. Keeping the stream alive preserves ordering.
-fn spawn_ordered_writer(mut send: SendStream) -> OrderedSender {
+fn spawn_ordered_writer(
+    mut send: SendStream,
+    handle: tokio::runtime::Handle,
+) -> OrderedSender {
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
 
-    tokio::spawn(async move {
+    handle.spawn(async move {
         while let Some(data) = rx.recv().await {
-            // Write 4-byte little-endian length prefix.
             let len = (data.len() as u32).to_le_bytes();
             if let Err(e) = send.write_all(&len).await {
                 eprintln!("Ordered writer error (len): {e}");
@@ -362,10 +355,12 @@ fn spawn_ordered_writer(mut send: SendStream) -> OrderedSender {
 
 fn process_internal_events(
     mut manager: ResMut<QuicManager>,
-    mut established: MessageWriter<ConnectionEstablished>,
-    mut lost: MessageWriter<ConnectionLost>,
-    mut inbound: MessageWriter<InboundMessage>,
+    mut clients: ResMut<Clients>,
+    mut inbound: ResMut<InboundQueue>,
+    runtime: Res<TokioRuntime>,
 ) {
+    let handle = runtime.handle();
+
     while let Ok(event) = manager.event_rx.try_recv() {
         match event {
             InternalEvent::NewConnection {
@@ -374,39 +369,41 @@ fn process_internal_events(
                 ordered_recv,
                 ordered_send,
             } => {
-                let ordered_writer = spawn_ordered_writer(ordered_send);
-                spawn_ordered_reader(conn_id, ordered_recv, manager.event_tx.clone());
+                let ordered_writer = spawn_ordered_writer(ordered_send, handle.clone());
+                spawn_ordered_reader(conn_id, ordered_recv, manager.event_tx.clone(), handle.clone());
+                spawn_unordered_reader(conn_id, connection.clone(), manager.event_tx.clone(), handle.clone());
+                spawn_datagram_reader(conn_id, connection.clone(), manager.event_tx.clone(), handle.clone());
 
                 manager.peers.insert(conn_id, PeerState {
                     connection,
                     ordered: ordered_writer,
                 });
 
-                established.write(ConnectionEstablished { conn_id });
+                clients.0.insert(conn_id);
+                println!("Connected: {conn_id:?}");
             }
 
             InternalEvent::Disconnected { conn_id } => {
                 manager.peers.remove(&conn_id);
-                lost.write(ConnectionLost { conn_id });
+                clients.0.remove(&conn_id);
+                println!("Disconnected: {conn_id:?}");
             }
 
             InternalEvent::Inbound { conn_id, channel, data } => {
-                inbound.write(InboundMessage {
-                    conn_id,
-                    channel,
-                    payload: data,
-                });
+                inbound.0.push_back(InboundMessage { conn_id, channel, payload: data });
             }
         }
     }
 }
 
-fn flush_outbound_messages(
-    mut messages: MessageReader<OutboundMessage>,
+fn flush_outbound_queue(
+    mut queue: ResMut<OutboundQueue>,
     manager: Res<QuicManager>,
     runtime: Res<TokioRuntime>,
 ) {
-    for msg in messages.read() {
+    let handle = runtime.handle();
+
+    while let Some(msg) = queue.0.pop_front() {
         let peers: Vec<(ConnectionId, &PeerState)> = match &msg.target {
             SendTarget::One(id) => manager
                 .peers
@@ -426,7 +423,7 @@ fn flush_outbound_messages(
                 }
                 Channel::Unordered => {
                     let conn = peer.connection.clone();
-                    runtime.spawn(async move {
+                    handle.spawn(async move {
                         match conn.open_uni().await {
                             Ok(mut send) => {
                                 if let Err(e) = send.write_all(&data).await {
@@ -443,7 +440,7 @@ fn flush_outbound_messages(
                 }
                 Channel::Unreliable => {
                     let conn = peer.connection.clone();
-                    runtime.spawn(async move {
+                    handle.spawn(async move {
                         if let Err(e) = conn.send_datagram(data.into()) {
                             eprintln!("[{conn_id:?}] Datagram error: {e}");
                         }

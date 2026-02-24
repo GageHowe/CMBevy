@@ -18,3 +18,4 @@ anyhow = "1"
 bevy = { version = "0.18", default-features = false, features = ["bevy_core_pipeline"] }
 rand = "0.9"
 wincode = "0.4.1"
+bevy_enhanced_input = "0.24.0"

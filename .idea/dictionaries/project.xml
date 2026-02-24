@@ -3,6 +3,7 @@
     <words>
       <w>angvel</w>
       <w>linvel</w>
+      <w>rigidbody</w>
     </words>
   </dictionary>
 </component>
