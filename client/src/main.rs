@@ -17,7 +17,7 @@ use common::level::level::*;
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
 use common::ui::ui::GuiState;
-// use bevy::asset::embedded_asset;
+use bevy::asset::embedded_asset;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -58,19 +58,19 @@ fn main() {
     // app.add_systems(FixedUpdate, increment_tick);
 
     // NETWORKING
-    app.add_systems(Startup, connect)
-    .add_systems(Update, (on_message, send_chat))
-        .add_systems(FixedUpdate, (on_message, send_chat))        // client
-    ; println!("starting client...\n");
+    app.add_systems(Startup, connect);
+    app.add_systems(Update, (on_message, send_chat));
+    app.add_systems(FixedUpdate, (on_message, send_chat));
 
+    println!("starting client...\n");
     app.run();
-
 }
 
 // https://docs.rs/bevy/latest/bevy/asset/macro.embedded_asset.html
 fn test_init_client(/* mut commands: Commands, */ asset_server: Res<AssetServer>) {
     // let shader = embedded_asset!(&asset_server, "../common/assets/companion_cube.glb");
-    let gltf_handle = asset_server.load::<Gltf>("embedded://../common/assets/companion_cube.glb");
+    // embedded_asset!(app, "../common/assets/companion_cube.glb");
+    let gltf_handle = asset_server.load::<Gltf>("embedded://../assets/models/companion_cube.glb");
 }
 
 fn spawn_camera(mut commands: Commands) {

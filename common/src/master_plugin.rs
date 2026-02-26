@@ -6,11 +6,13 @@ use crate::net::quic::QuicPlugin;
 use crate::net::runtime::TokioRuntimePlugin;
 use crate::physics::physics_world::*;
 use crate::tick::*;
+use crate::assets::*;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(64.0));
+        app.add_plugins(CMAssetPlugin);
         app.insert_resource(Ticker {
             tick: 0
         });

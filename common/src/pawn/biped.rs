@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use rapier3d::prelude::*;
 
 pub fn spawn(
-    transform: bevy::prelude::Transform,
+    transform: Transform,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -12,14 +12,13 @@ pub fn spawn(
 ) {
     let pawn_entity = commands
         .spawn((
-            BipedPawnComponent, // marks this as a biped, not ship etc
+            BipedPawnComponent,
             CameraRigComponent {
                 offset: Vec3::new(0.0, 1.0, 3.0),
             },
-            PossesssionComponent,
-            Controlled,
+            Possessed::new(60),
             Transform::from_translation(transform.translation),
-            Mesh3d(meshes.add(bevy::prelude::Cuboid::new(
+            Mesh3d(meshes.add(Cuboid::new(
                 transform.scale.x,
                 transform.scale.y,
                 transform.scale.z,
@@ -39,17 +38,13 @@ pub fn spawn(
         transform.scale.y * 0.5,
         transform.scale.z * 0.5,
     )
-    .build();
+        .build();
 
     commands
         .entity(pawn_entity)
         .insert(PhysicsBodyHandle(rb_handle));
 
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
 }
 
@@ -62,9 +57,15 @@ pub fn apply_biped_movement(
         return;
     };
 
-    // TODO: Fix this, doesn't respect local orientation
-    body.apply_impulse(
-        rapier3d::math::Vector3::new(input.right, input.up, input.forward),
-        true,
-    );
+    // get the pawn's current orientation from rapier
+    let rotation = body.rotation();
+    let local_right   = rotation * Vector3::new(1.0, 0.0, 0.0);
+    let local_up      = rotation * Vector3::new(0.0, 1.0, 0.0);
+    let local_forward = rotation * Vector3::new(0.0, 0.0, 1.0);
+
+    let impulse = local_right   * input.right
+        + local_up      * input.up
+        + local_forward * input.forward;
+
+    body.apply_impulse(impulse, true);
 }

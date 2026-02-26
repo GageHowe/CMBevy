@@ -31,14 +31,9 @@ fn main() {
     .add_systems(FixedUpdate, on_message);
     app.add_systems(FixedUpdate, (increment_tick, broadcast_tick).chain());
 
-
-
-
     println!("starting server...\n");
     app.run();
 }
-
-
 
 fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
     manager.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
