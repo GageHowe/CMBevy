@@ -8,7 +8,7 @@ use common::net::{
     runtime::{TokioRuntime, TokioRuntimePlugin},
     message::{MsgType, SimulationState},
 };
-use common::tick::{increment_tick, Tick};
+use common::tick::{increment_tick, Ticker};
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
 
@@ -81,7 +81,7 @@ fn on_message(
 
 fn broadcast_tick(
     mut outbound: ResMut<OutboundQueue>,
-    tick: Res<Tick>
+    tick: Res<Ticker>
 ) {
     let msg = MsgType::State(SimulationState { tick: tick.tick, bodies: Default::default() });
     outbound.send(SendTarget::All, Channel::Unreliable, &msg);

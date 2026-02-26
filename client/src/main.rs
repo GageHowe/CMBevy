@@ -52,7 +52,7 @@ fn main() {
     .add_plugins(UIPlugin)
     .add_plugins(PawnPlugin)
     .add_systems(Startup, spawn_camera);
-    app.add_systems(FixedUpdate, increment_tick);
+    // app.add_systems(FixedUpdate, increment_tick);
 
     // NETWORKING
     app.add_systems(Startup, connect)
