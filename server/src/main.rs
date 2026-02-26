@@ -58,17 +58,21 @@ fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
 //     }
 // }
 
-
-
-fn on_message(mut inbound: ResMut<InboundQueue>) {
+fn on_message(
+    mut inbound: ResMut<InboundQueue>,
+    mut outbound: ResMut<OutboundQueue>,
+) {
     while let Some(msg) = inbound.0.pop_front() {
         match wincode::deserialize::<MsgType>(&msg.payload) {
-            Ok(MsgType::ChatMessage(sender, text)) => println!("[{sender}] {text}"),
-            Ok(MsgType::State(_state)) => { /* apply rigidbody states */ },
-            Ok(MsgType::Ping(_str)) => {
-                let reply = format!("Got a Ping: {}", _str);
-                // TODO: send
+            Ok(MsgType::Ping(text)) => {
+                println!("Got ping: {text}");
+                outbound.send(
+                    SendTarget::One(msg.conn_id),
+                    Channel::Ordered,
+                    &MsgType::Pong(text),
+                );
             }
+            Ok(MsgType::ChatMessage(sender, text)) => println!("[{sender}] {text}"),
             Ok(other) => println!("Unhandled: {other:?}"),
             Err(e) => eprintln!("Deserialize error: {e}"),
         }

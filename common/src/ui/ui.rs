@@ -9,6 +9,8 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 // use common::net::runtime::TokioRuntimePlugin;
 // use crate::physics::physics_world::*;
 // use common::
+use crate::net::quic::*;
+use crate::net::message::*;
 use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
@@ -16,6 +18,35 @@ use crate::physics::physics_world::PhysicsWorld;
 pub struct GuiState {
     pub text_input: String,
     pub command_input: String,
+    pub log: Vec<String>,
+}
+impl GuiState {
+    pub fn push_log(&mut self, msg: impl Into<String>) {
+        self.log.push(msg.into());
+        if self.log.len() > 200 {
+            self.log.remove(0);
+        }
+    }
+}
+fn gui_log(
+    mut contexts: EguiContexts,
+    state: Res<GuiState>,
+) {
+    egui::Window::new("log")
+        .title_bar(false)
+        .resizable(false)
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(10.0, -10.0))
+        .fixed_size([400.0, 150.0])
+        .show(contexts.ctx_mut().unwrap(), |ui| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for line in &state.log {
+                        ui.label(line);
+                    }
+                });
+        });
 }
 
 pub struct UIPlugin;
@@ -27,7 +58,8 @@ impl Plugin for UIPlugin {
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
-            // .add_systems(EguiPrimaryContextPass, gui_bottom_left)
+            .add_systems(EguiPrimaryContextPass, gui_bottom_left)
+            .add_systems(EguiPrimaryContextPass, gui_log)
             ;
     }
 }
@@ -40,7 +72,6 @@ fn gui_top_left(
 ) -> Result {
     let ctx = contexts.ctx_mut().unwrap();
 
-    // stupid api
     let mut style = (*ctx.style()).clone();
     style.visuals.window_shadow = egui::epaint::Shadow::NONE;
     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(20, 0, 20, 200);
@@ -75,49 +106,38 @@ fn gui_top_left(
     Ok(())
 }
 
-// fn gui_bottom_left(
-//     mut contexts: EguiContexts,
-//     mut state: ResMut<GuiState>,
-//     mut net_man: ResMut<ClientNetManager>,
-// ) {
-//     let ctx = contexts.ctx_mut().unwrap();
+fn gui_bottom_left(
+    mut contexts: EguiContexts,
+    mut state: ResMut<GuiState>,
+    mut outbound: ResMut<OutboundQueue>,
+) {
+    let ctx = contexts.ctx_mut().unwrap();
 
-//     // Anchor bottom-left, a bit from the edge
-//     egui::Window::new("messagebar")
-//         .title_bar(false)
-//         .resizable(false)
-//         .collapsible(false)
-//         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
-//         .show(ctx, |ui| {
-//             // message input
-//             let resp_a = ui.add(
-//                 egui::TextEdit::singleline(&mut state.text_input)
-//                     .hint_text("...")
-//                     .desired_width(200.0),
-//             );
-//             if resp_a.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-//                 println!("text message was sent: {}", state.command_input);
-
-//                 state.text_input.clear();
-//                 resp_a.request_focus();
-//             }
-//             // cmd input
-//             let resp_b = ui.add(
-//                 egui::TextEdit::singleline(&mut state.command_input)
-//                     .hint_text("_>")
-//                     .desired_width(200.0),
-//             );
-//             if resp_b.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-//                 let txt = &state.command_input;
-//                 println!("CLIENT:command was run: {}", txt);
-//                 let cmd: MsgType = str_to_message(txt.as_str());
-//                 net_man.enqueue(cmd);
-
-//                 state.command_input.clear();
-//                 resp_b.request_focus();
-//             }
-//         });
-// }
+    egui::Window::new("messagebar")
+        .title_bar(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+        .show(ctx, |ui| {
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut state.command_input)
+                    .hint_text("_>")
+                    .desired_width(200.0),
+            );
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let txt = state.command_input.trim().to_string();
+                if !txt.is_empty() {
+                    outbound.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &MsgType::Ping(txt),
+                    );
+                }
+                state.command_input.clear();
+                resp.request_focus();
+            }
+        });
+}
 
 // todo: find a way to replace this
 #[derive(Component)] // query for this component when removing it

@@ -17,6 +17,7 @@ use common::level::level::*;
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
 use common::tick::increment_tick;
+use common::ui::ui::GuiState;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -27,7 +28,9 @@ enum AppState {
 }
 fn main() {
     let mut app = App::new();
+
     app.add_plugins(
+        // defaultplugins includes asset plugin
         DefaultPlugins
             .set(LogPlugin {
                 level: Level::WARN,
@@ -58,6 +61,7 @@ fn main() {
     ; println!("starting client...\n");
 
     app.run();
+
 }
 
 fn spawn_camera(mut commands: Commands) {
@@ -76,11 +80,22 @@ fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
     manager.connect(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
-fn on_message(mut inbound: ResMut<InboundQueue>) {
+fn on_message(
+    mut inbound: ResMut<InboundQueue>,
+    mut gui: ResMut<GuiState>,
+) {
     while let Some(msg) = inbound.0.pop_front() {
         match wincode::deserialize::<MsgType>(&msg.payload) {
-            Ok(MsgType::State(state)) => { /* apply world state */ }
-            Ok(MsgType::ChatMessage(sender, text)) => println!("[{sender}] {text}"),
+            Ok(MsgType::Pong(text)) => {
+                println!("PONG {text}");
+                gui.push_log(format!("pong: {text}"));
+            }
+            Ok(MsgType::ChatMessage(sender, text)) => {
+                gui.push_log(format!("[{sender}] {text}"));
+            }
+            Ok(MsgType::State(_st)) => {
+            //
+            }
             Ok(other) => println!("Unhandled: {other:?}"),
             Err(e) => eprintln!("Deserialize error: {e}"),
         }
