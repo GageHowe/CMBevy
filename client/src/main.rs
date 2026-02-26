@@ -8,7 +8,7 @@ use bevy::window::PresentMode;
 use common::pawn::pawn::PawnPlugin;
 use common::net::{
     quic::*,
-    runtime::{TokioRuntime, TokioRuntimePlugin},
+    runtime::{TokioRuntime},
     message::MsgType,
 };
 use common::ui::ui::UIPlugin;
@@ -16,8 +16,8 @@ use common::ui::window::WindowSettingsPlugin;
 use common::level::level::*;
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
-use common::tick::increment_tick;
 use common::ui::ui::GuiState;
+// use bevy::asset::embedded_asset;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -44,8 +44,11 @@ fn main() {
                 }),
                 ..default()
             }),
-    )
-    .add_plugins(MasterPlugin) // common required plugins
+    );
+
+    app.add_systems(Startup, test_init_client);
+
+    app.add_plugins(MasterPlugin) // common required plugins
     .init_state::<AppState>() // MainMenu, etc
     .add_plugins(WindowSettingsPlugin)
     .add_plugins(LevelPlugin)
@@ -62,6 +65,12 @@ fn main() {
 
     app.run();
 
+}
+
+// https://docs.rs/bevy/latest/bevy/asset/macro.embedded_asset.html
+fn test_init_client(/* mut commands: Commands, */ asset_server: Res<AssetServer>) {
+    // let shader = embedded_asset!(&asset_server, "../common/assets/companion_cube.glb");
+    let gltf_handle = asset_server.load::<Gltf>("embedded://../common/assets/companion_cube.glb");
 }
 
 fn spawn_camera(mut commands: Commands) {

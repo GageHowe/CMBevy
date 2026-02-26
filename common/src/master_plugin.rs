@@ -11,9 +11,14 @@ pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(64.0));
-        app.add_plugins(TickPlugin);
-        app.add_systems(FixedUpdate, increment_tick.before(step_physics)); // should execute before physics
-        app.add_plugins(PhysicsPlugin); // internal system always executes on FixedUpdate
+        app.insert_resource(Ticker {
+            tick: 0
+        });
+        // step executes on FixedUpdate
+        app.add_plugins(PhysicsPlugin);
+
+        // tick should increment after everything else in FixedUpdate
+        app.add_systems(FixedPostUpdate, increment_tick);
 
         app.add_plugins(TokioRuntimePlugin);
         app.add_plugins(QuicPlugin);

@@ -5,10 +5,19 @@ To run:
 * Server: `cargo run --bin server`
 * Client: `cargo run --bin client`
 
-## Decisions
+## Commitments
 This is a list of design decisions that I've committed to.
-* Server is completely headless. Therefore UI and windowing will be kept in the client binary only.
+* 
 
-## implementation inspiration
+## Implementation inspiration
+
+Codebases to reference as a sanity check
+
 * https://github.com/Henauxg/bevy_quinnet/
 * https://github.com/floco2025/cuboid-wars/
+
+## Notes
+* Investigate using claude / CLAUDE.md
+* TODO: with very few exceptions, make client never spawn its own objects. Client should receive instructions to spawn objects from the server. Should look something like:
+  * SpawnCommand( ObjectType (an enum), )
+* Hitscan weapons: 

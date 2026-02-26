@@ -4,6 +4,29 @@ use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
 use std::str::FromStr;
 
+/// TODO: use when the server tells clients to spawn an object
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub enum ObjectType {
+    Biped,
+    Spaceship,
+    Projectile1,
+    Projectile2,
+    // BulletCasing, // local-only projectile, probably should not be networked
+    Bergentruck, // like a warthog from halo
+}
+
+/// TODO: use when the server tells clients to spawn an object
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub struct SpawnCommand {
+    kind: ObjectType,
+    location: Option<CMVec3>,
+    /// velocity to start at
+    velocity: Option<CMVec3>,
+    /// should we add the parent's velocity when spawning?
+    /// not sure if we should do this, or simply add velocity on server side
+    inherit_velocity: bool,
+    rotation: Option<CMQuat>,
+}
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum MsgType {
@@ -17,6 +40,7 @@ pub enum MsgType {
 
     BodyState(BodyState),
     State(SimulationState),
+    SpawnCommand(SpawnCommand)
 }
 impl FromStr for MsgType {
     type Err = String;

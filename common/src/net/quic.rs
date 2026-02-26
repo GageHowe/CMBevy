@@ -451,9 +451,7 @@ fn flush_outbound_queue(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Endpoint construction
-// ---------------------------------------------------------------------------
+// ENDPOINT CONSTRUCTION
 
 fn make_server_endpoint(addr: SocketAddr) -> anyhow::Result<Endpoint> {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
