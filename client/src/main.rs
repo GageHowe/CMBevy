@@ -142,8 +142,9 @@ fn handle_spawn_commands(
 
         match cmd.kind {
             ObjectType::Biped => {
+                // spawn functions take ownership of system params; process one per frame
                 common::pawn::biped::spawn(transform, commands, meshes, materials, world);
-                return; // these system params are moved, handle one per frame
+                return;
             }
             ObjectType::Spaceship => {
                 common::pawn::spaceship::spawn(transform, commands, meshes, materials, world);
