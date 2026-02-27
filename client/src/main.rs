@@ -5,6 +5,7 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+use std::collections::VecDeque;
 use common::pawn::pawn::PawnPlugin;
 use common::net::{
     quic::*,
@@ -18,9 +19,9 @@ use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
 use common::ui::ui::GuiState;
 
-/// Bevy message for spawn commands received from the server.
-#[derive(Message, Debug, Clone)]
-struct ServerSpawnCommand(SpawnCommand);
+/// Queue of spawn commands received from the server, drained by the spawn handler.
+#[derive(Resource, Default)]
+struct SpawnCommandQueue(VecDeque<SpawnCommand>);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -61,14 +62,14 @@ fn main() {
     .add_plugins(LevelPlugin)
     .add_plugins(UIPlugin)
     .add_plugins(PawnPlugin)
-    .add_message::<ServerSpawnCommand>()
+    .insert_resource(SpawnCommandQueue::default())
     .add_systems(Startup, (spawn_camera, spawn_scene));
     // app.add_systems(FixedUpdate, increment_tick);
 
     // NETWORKING
     app.add_systems(Startup, connect);
-    app.add_systems(Update, (on_message, handle_spawn_commands, send_chat));
-    app.add_systems(FixedUpdate, (on_message, send_chat));
+    app.add_systems(Update, (on_message, send_chat));
+    app.add_systems(FixedUpdate, (on_message, handle_spawn_commands, send_chat));
 
     println!("starting client...\n");
     app.run();
@@ -103,7 +104,7 @@ fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
 fn on_message(
     mut inbound: ResMut<InboundQueue>,
     mut gui: ResMut<GuiState>,
-    mut spawn_events: MessageWriter<ServerSpawnCommand>,
+    mut spawn_queue: ResMut<SpawnCommandQueue>,
 ) {
     while let Some(msg) = inbound.0.pop_front() {
         match wincode::deserialize::<MsgType>(&msg.payload) {
@@ -120,7 +121,7 @@ fn on_message(
             Ok(MsgType::SpawnCommand(cmd)) => {
                 println!("Received spawn command: {cmd:?}");
                 gui.push_log(format!("Spawning {:?}", cmd.kind));
-                spawn_events.write(ServerSpawnCommand(cmd));
+                spawn_queue.0.push_back(cmd);
             }
             Ok(other) => println!("Unhandled: {other:?}"),
             Err(e) => eprintln!("Deserialize error: {e}"),
@@ -129,27 +130,23 @@ fn on_message(
 }
 
 fn handle_spawn_commands(
-    mut events: MessageReader<ServerSpawnCommand>,
+    mut spawn_queue: ResMut<SpawnCommandQueue>,
     commands: Commands,
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<StandardMaterial>>,
     world: ResMut<common::physics::physics_world::PhysicsWorld>,
 ) {
-    for evt in events.read() {
-        let cmd = &evt.0;
+    if let Some(cmd) = spawn_queue.0.pop_front() {
         let net_id = cmd.net_id.clone();
         let location = cmd.location.map(Vec3::from).unwrap_or(Vec3::ZERO);
         let transform = Transform::from_translation(location);
 
         match cmd.kind {
             ObjectType::Biped => {
-                // spawn functions take ownership of system params; process one per frame
                 common::pawn::biped::spawn(net_id, transform, commands, meshes, materials, world);
-                return;
             }
             ObjectType::Spaceship => {
                 common::pawn::spaceship::spawn(net_id, transform, commands, meshes, materials, world);
-                return;
             }
             _ => {
                 println!("Unhandled spawn type: {:?}", cmd.kind);

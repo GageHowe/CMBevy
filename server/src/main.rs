@@ -48,14 +48,14 @@ fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
 }
 
 fn on_connect(
-    mut events: MessageReader<ConnectionEvent>,
+    mut conn_events: ResMut<ConnectionEvents>,
     mut outbound: ResMut<OutboundQueue>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut pawn_map: ResMut<ClientPawnMap>,
     mut commands: Commands,
 ) {
-    for evt in events.read() {
-        println!("Client connected: {:?}", evt.0);
+    while let Some(conn_id) = conn_events.0.pop_front() {
+        println!("Client connected: {:?}", conn_id);
 
         // assign a networked biped pawn to the new client
         let net_id = NetworkID(net_ids.get_next_id());
@@ -69,11 +69,11 @@ fn on_connect(
 
         // spawn a server-side entity to track the pawn
         let entity = commands.spawn(net_id).id();
-        pawn_map.0.insert(evt.0, entity);
-        println!("Assigned pawn entity {:?} to client {:?}", entity, evt.0);
+        pawn_map.0.insert(conn_id, entity);
+        println!("Assigned pawn entity {:?} to client {:?}", entity, conn_id);
 
         outbound.send(
-            SendTarget::One(evt.0),
+            SendTarget::One(conn_id),
             Channel::Ordered,
             &MsgType::SpawnCommand(cmd),
         );
@@ -81,13 +81,13 @@ fn on_connect(
 }
 
 fn on_disconnect(
-    mut events: MessageReader<DisconnectionEvent>,
+    mut disconn_events: ResMut<DisconnectionEvents>,
     mut pawn_map: ResMut<ClientPawnMap>,
     mut commands: Commands,
 ) {
-    for evt in events.read() {
-        println!("Client disconnected: {:?}", evt.0);
-        if let Some(entity) = pawn_map.0.remove(&evt.0) {
+    while let Some(conn_id) = disconn_events.0.pop_front() {
+        println!("Client disconnected: {:?}", conn_id);
+        if let Some(entity) = pawn_map.0.remove(&conn_id) {
             println!("Despawning pawn entity {:?}", entity);
             commands.entity(entity).despawn();
         }

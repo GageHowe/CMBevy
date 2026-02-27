@@ -17,8 +17,8 @@ impl Plugin for QuicPlugin {
             .init_resource::<Clients>()
             .init_resource::<InboundQueue>()
             .init_resource::<OutboundQueue>()
-            .add_message::<ConnectionEvent>()
-            .add_message::<DisconnectionEvent>()
+            .init_resource::<ConnectionEvents>()
+            .init_resource::<DisconnectionEvents>()
             .add_systems(
                 Update,
                 (
@@ -64,13 +64,13 @@ pub enum SendTarget {
     All,
 }
 
-/// Bevy message fired when a new peer connects.
-#[derive(Message, Debug, Clone)]
-pub struct ConnectionEvent(pub ConnectionId);
+/// Queue of connection events, drained by game systems each tick.
+#[derive(Resource, Default)]
+pub struct ConnectionEvents(pub VecDeque<ConnectionId>);
 
-/// Bevy message fired when a peer disconnects.
-#[derive(Message, Debug, Clone)]
-pub struct DisconnectionEvent(pub ConnectionId);
+/// Queue of disconnection events, drained by game systems each tick.
+#[derive(Resource, Default)]
+pub struct DisconnectionEvents(pub VecDeque<ConnectionId>);
 
 #[derive(Resource, Default)]
 pub struct Clients(pub HashSet<ConnectionId>);
@@ -367,8 +367,8 @@ fn process_internal_events(
     mut manager: ResMut<QuicManager>,
     mut clients: ResMut<Clients>,
     mut inbound: ResMut<InboundQueue>,
-    mut conn_events: MessageWriter<ConnectionEvent>,
-    mut disconn_events: MessageWriter<DisconnectionEvent>,
+    mut conn_events: ResMut<ConnectionEvents>,
+    mut disconn_events: ResMut<DisconnectionEvents>,
     runtime: Res<TokioRuntime>,
 ) {
     let handle = runtime.handle();
@@ -392,14 +392,14 @@ fn process_internal_events(
                 });
 
                 clients.0.insert(conn_id);
-                conn_events.write(ConnectionEvent(conn_id));
+                conn_events.0.push_back(conn_id);
                 println!("Connected: {conn_id:?}");
             }
 
             InternalEvent::Disconnected { conn_id } => {
                 manager.peers.remove(&conn_id);
                 clients.0.remove(&conn_id);
-                disconn_events.write(DisconnectionEvent(conn_id));
+                disconn_events.0.push_back(conn_id);
                 println!("Disconnected: {conn_id:?}");
             }
 
