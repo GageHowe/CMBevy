@@ -7,12 +7,13 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_test_pawn);
+        // app.add_systems(Startup, spawn_test_pawn);
         app.add_systems(FixedPreUpdate, (gather_pawn_input, (move_bipeds, move_spaceships)).chain());
         app.add_systems(FixedPostUpdate, snap_camera_to_rig);
     }
 }
 
+/// example of spawning a pawn locally, deprecated
 fn spawn_test_pawn(
     commands: Commands,
     meshes: ResMut<Assets<Mesh>>,

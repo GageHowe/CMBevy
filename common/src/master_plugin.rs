@@ -7,6 +7,7 @@ use crate::net::runtime::TokioRuntimePlugin;
 use crate::physics::physics_world::*;
 use crate::tick::*;
 use crate::assets::*;
+use crate::net::message::NetworkIDResource;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {

@@ -1,5 +1,5 @@
 # docker run --rm -p 42069:42069/udp imagename
-# use with a service that supports udp
+# use with a service that supports udp, so not render.com
 
 FROM rustlang/rust:nightly-slim
 

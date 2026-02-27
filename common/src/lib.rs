@@ -10,3 +10,4 @@ pub mod tick;
 pub mod master_plugin;
 pub mod ui;
 pub mod assets;
+mod gameapi;

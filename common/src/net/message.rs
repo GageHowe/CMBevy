@@ -4,6 +4,23 @@ use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
 use std::str::FromStr;
 
+/// Component to mark entities that should be networked.
+/// NetworkID is managed by the server.
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Eq, Clone, Component, Hash)]
+pub struct NetworkID(pub u64);
+
+#[derive(Resource, Default)]
+pub struct NetworkIDResource {
+    pub last_id: u64
+}
+impl NetworkIDResource {
+    /// Should be used when spawning a new networked entity
+    pub fn get_next_id(&mut self) -> u64 {
+        self.last_id += 1;
+        self.last_id
+    }
+}
+
 /// TODO: use when the server tells clients to spawn an object
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum ObjectType {
@@ -12,19 +29,18 @@ pub enum ObjectType {
     Projectile1,
     Projectile2,
     // BulletCasing, // local-only projectile, probably should not be networked
-    Bergentruck, // like a warthog from halo
+    Bergentruck, // beer!
 }
 
 /// TODO: use when the server tells clients to spawn an object
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
+    net_id: NetworkID,
     kind: ObjectType,
     location: Option<CMVec3>,
     /// velocity to start at
     velocity: Option<CMVec3>,
-    /// should we add the parent's velocity when spawning?
-    /// not sure if we should do this, or simply add velocity on server side
-    inherit_velocity: bool,
+    // inherit_velocity: bool, // nvm, simply add velocity on server side
     rotation: Option<CMQuat>,
 }
 
@@ -67,11 +83,6 @@ impl FromStr for MsgType {
          */
     }
 }
-
-/// Component to mark entities that should be networked.
-/// NetworkID is managed by the server.
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Eq, Clone, Component, Hash)]
-pub struct NetworkID(pub u32);
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct BodyState {

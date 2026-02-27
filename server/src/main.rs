@@ -11,6 +11,7 @@ use common::net::{
 use common::tick::{increment_tick, Ticker};
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
+use common::net::message::NetworkIDResource;
 
 fn main() {
     let mut app = App::new();
@@ -20,13 +21,18 @@ fn main() {
                 level: Level::ERROR,
                 ..default()
             })
-    )
+    );
     // .add_plugins(LevelPlugin)
+
+    app.add_plugins(MasterPlugin);
+
 
     // NETWORKING
 
-    .add_plugins(MasterPlugin)
-    .add_systems(Startup, start_server)
+    // keeps track of current incrementing NetworkID number
+    app.insert_resource(NetworkIDResource::default());
+
+    app.add_systems(Startup, start_server)
     .add_systems(Update, on_message)
     .add_systems(FixedUpdate, on_message);
     app.add_systems(FixedUpdate, (increment_tick, broadcast_tick).chain());

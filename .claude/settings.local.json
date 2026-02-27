@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "list",
+      "read",
+      "mcp__*"
+    ],
+    "deny": [
+      "bash:rm",
+      "bash:sudo"
+    ]
+  }
+}
