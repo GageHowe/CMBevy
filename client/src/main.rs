@@ -69,6 +69,7 @@ fn main() {
     app.run();
 }
 
+// test function, delete this when done
 fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         SceneRoot(asset_server.load("models/companion_cube.glb#Scene0")),
