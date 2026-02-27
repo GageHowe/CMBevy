@@ -137,17 +137,18 @@ fn handle_spawn_commands(
 ) {
     for evt in events.read() {
         let cmd = &evt.0;
+        let net_id = cmd.net_id.clone();
         let location = cmd.location.map(Vec3::from).unwrap_or(Vec3::ZERO);
         let transform = Transform::from_translation(location);
 
         match cmd.kind {
             ObjectType::Biped => {
                 // spawn functions take ownership of system params; process one per frame
-                common::pawn::biped::spawn(transform, commands, meshes, materials, world);
+                common::pawn::biped::spawn(net_id, transform, commands, meshes, materials, world);
                 return;
             }
             ObjectType::Spaceship => {
-                common::pawn::spaceship::spawn(transform, commands, meshes, materials, world);
+                common::pawn::spaceship::spawn(net_id, transform, commands, meshes, materials, world);
                 return;
             }
             _ => {

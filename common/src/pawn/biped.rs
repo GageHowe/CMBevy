@@ -1,9 +1,11 @@
 use super::super::physics::physics_world::*;
 use super::pawn::*;
+use crate::net::message::NetworkID;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 
 pub fn spawn(
+    net_id: NetworkID,
     transform: Transform,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -12,6 +14,7 @@ pub fn spawn(
 ) {
     let pawn_entity = commands
         .spawn((
+            net_id,
             BipedPawnComponent,
             CameraRigComponent {
                 offset: Vec3::new(0.0, 1.0, 3.0),

@@ -20,7 +20,9 @@ fn spawn_test_pawn(
     materials: ResMut<Assets<StandardMaterial>>,
     world: ResMut<PhysicsWorld>,
 ) {
+    use crate::net::message::NetworkID;
     super::spaceship::spawn(
+        NetworkID(0),
         Transform::from_xyz(0.0, 2.0, 0.0),
         commands, meshes, materials, world,
     );

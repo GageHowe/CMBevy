@@ -2,6 +2,7 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use std::collections::HashMap;
 use common::net::{
     quic::*,
     runtime::TokioRuntime,
@@ -10,6 +11,10 @@ use common::net::{
 use common::tick::{increment_tick, Ticker};
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
+
+/// Tracks which connection owns which pawn entity on the server.
+#[derive(Resource, Default)]
+struct ClientPawnMap(HashMap<ConnectionId, Entity>);
 
 fn main() {
     let mut app = App::new();
@@ -27,9 +32,10 @@ fn main() {
 
     // keeps track of current incrementing NetworkID number
     app.insert_resource(NetworkIDResource::default());
+    app.insert_resource(ClientPawnMap::default());
 
     app.add_systems(Startup, start_server)
-    .add_systems(Update, (on_connect, on_message))
+    .add_systems(Update, (on_connect, on_disconnect, on_message))
     .add_systems(FixedUpdate, on_message);
     app.add_systems(FixedUpdate, (increment_tick, broadcast_tick).chain());
 
@@ -45,6 +51,8 @@ fn on_connect(
     mut events: MessageReader<ConnectionEvent>,
     mut outbound: ResMut<OutboundQueue>,
     mut net_ids: ResMut<NetworkIDResource>,
+    mut pawn_map: ResMut<ClientPawnMap>,
+    mut commands: Commands,
 ) {
     for evt in events.read() {
         println!("Client connected: {:?}", evt.0);
@@ -52,17 +60,37 @@ fn on_connect(
         // assign a networked biped pawn to the new client
         let net_id = NetworkID(net_ids.get_next_id());
         let cmd = SpawnCommand {
-            net_id,
+            net_id: net_id.clone(),
             kind: ObjectType::Biped,
             location: Some(bevy::math::Vec3::new(0.0, 2.0, 0.0).into()),
             velocity: None,
             rotation: None,
         };
+
+        // spawn a server-side entity to track the pawn
+        let entity = commands.spawn(net_id).id();
+        pawn_map.0.insert(evt.0, entity);
+        println!("Assigned pawn entity {:?} to client {:?}", entity, evt.0);
+
         outbound.send(
             SendTarget::One(evt.0),
             Channel::Ordered,
             &MsgType::SpawnCommand(cmd),
         );
+    }
+}
+
+fn on_disconnect(
+    mut events: MessageReader<DisconnectionEvent>,
+    mut pawn_map: ResMut<ClientPawnMap>,
+    mut commands: Commands,
+) {
+    for evt in events.read() {
+        println!("Client disconnected: {:?}", evt.0);
+        if let Some(entity) = pawn_map.0.remove(&evt.0) {
+            println!("Despawning pawn entity {:?}", entity);
+            commands.entity(entity).despawn();
+        }
     }
 }
 
