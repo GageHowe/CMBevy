@@ -21,7 +21,7 @@ impl NetworkIDResource {
     }
 }
 
-/// TODO: use when the server tells clients to spawn an object
+/// Object types the server can tell clients to spawn
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum ObjectType {
     Biped,
@@ -32,16 +32,16 @@ pub enum ObjectType {
     Bergentruck, // beer!
 }
 
-/// TODO: use when the server tells clients to spawn an object
+/// Server tells clients to spawn an object
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
-    net_id: NetworkID,
-    kind: ObjectType,
-    location: Option<CMVec3>,
+    pub net_id: NetworkID,
+    pub kind: ObjectType,
+    pub location: Option<CMVec3>,
     /// velocity to start at
-    velocity: Option<CMVec3>,
+    pub velocity: Option<CMVec3>,
     // inherit_velocity: bool, // nvm, simply add velocity on server side
-    rotation: Option<CMQuat>,
+    pub rotation: Option<CMQuat>,
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]

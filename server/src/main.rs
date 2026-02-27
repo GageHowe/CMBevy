@@ -2,16 +2,14 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use common::{physics::physics_world::*};
 use common::net::{
     quic::*,
-    runtime::{TokioRuntime, TokioRuntimePlugin},
-    message::{MsgType, SimulationState},
+    runtime::TokioRuntime,
+    message::{MsgType, NetworkID, NetworkIDResource, ObjectType, SimulationState, SpawnCommand},
 };
 use common::tick::{increment_tick, Ticker};
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
-use common::net::message::NetworkIDResource;
 
 fn main() {
     let mut app = App::new();
@@ -22,10 +20,8 @@ fn main() {
                 ..default()
             })
     );
-    // .add_plugins(LevelPlugin)
 
     app.add_plugins(MasterPlugin);
-
 
     // NETWORKING
 
@@ -33,7 +29,7 @@ fn main() {
     app.insert_resource(NetworkIDResource::default());
 
     app.add_systems(Startup, start_server)
-    .add_systems(Update, on_message)
+    .add_systems(Update, (on_connect, on_message))
     .add_systems(FixedUpdate, on_message);
     app.add_systems(FixedUpdate, (increment_tick, broadcast_tick).chain());
 
@@ -44,20 +40,31 @@ fn main() {
 fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
     manager.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
-//
-// fn on_connect(mut reader: MessageReader<ConnectionEstablished>) {
-//     for evt in reader.read() {
-//         println!("Client connected: {:?}", evt.conn_id);
-//         // spawn player entity, assign NetworkID, etc.
-//     }
-// }
-//
-// fn on_disconnect(mut reader: MessageReader<ConnectionLost>) {
-//     for evt in reader.read() {
-//         println!("Client disconnected: {:?}", evt.conn_id);
-//         // despawn player entity, etc.
-//     }
-// }
+
+fn on_connect(
+    mut events: MessageReader<ConnectionEvent>,
+    mut outbound: ResMut<OutboundQueue>,
+    mut net_ids: ResMut<NetworkIDResource>,
+) {
+    for evt in events.read() {
+        println!("Client connected: {:?}", evt.0);
+
+        // assign a networked biped pawn to the new client
+        let net_id = NetworkID(net_ids.get_next_id());
+        let cmd = SpawnCommand {
+            net_id,
+            kind: ObjectType::Biped,
+            location: Some(bevy::math::Vec3::new(0.0, 2.0, 0.0).into()),
+            velocity: None,
+            rotation: None,
+        };
+        outbound.send(
+            SendTarget::One(evt.0),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(cmd),
+        );
+    }
+}
 
 fn on_message(
     mut inbound: ResMut<InboundQueue>,

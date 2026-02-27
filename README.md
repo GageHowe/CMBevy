@@ -12,6 +12,5 @@ Codebases to reference as a sanity check
 * https://github.com/floco2025/cuboid-wars/
 
 ## Notes
-* TODO: with very few exceptions, make client never spawn its own objects. Client should receive instructions to spawn objects from the server. Should look something like:
-  * SpawnCommand( ObjectType (an enum), )
+* Server sends `SpawnCommand` messages to clients to instruct them what objects to create. The client no longer spawns its own dynamic objects directly.
 * Hitscan weapons: 
