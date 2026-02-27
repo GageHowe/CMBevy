@@ -2,13 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(cargo check:*)",
-      "list",
-      "read",
-      "mcp__*"
+      "mcp__*",
+      "Bash(git log:*)",
+      "Bash(xargs grep:*)",
+      "Bash(ls:*)"
     ],
-    "deny": [
-      "bash:rm",
-      "bash:sudo"
-    ]
+    "deny": []
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

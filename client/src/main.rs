@@ -17,7 +17,6 @@ use common::level::level::*;
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
 use common::ui::ui::GuiState;
-use bevy::asset::embedded_asset;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -70,7 +69,7 @@ fn main() {
 fn test_init_client(/* mut commands: Commands, */ asset_server: Res<AssetServer>) {
     // let shader = embedded_asset!(&asset_server, "../common/assets/companion_cube.glb");
     // embedded_asset!(app, "../common/assets/companion_cube.glb");
-    let gltf_handle = asset_server.load::<Gltf>("embedded://../assets/models/companion_cube.glb");
+    let _gltf_handle = asset_server.load::<Gltf>("embedded://common/assets/models/companion_cube.glb");
 }
 
 fn spawn_camera(mut commands: Commands) {
