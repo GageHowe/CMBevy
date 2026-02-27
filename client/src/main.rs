@@ -31,13 +31,19 @@ fn main() {
     app.add_plugins(
         // defaultplugins includes asset plugin
         DefaultPlugins
+            .set(AssetPlugin {
+                // dev: cargo sets CWD to client/, so go up to workspace root
+                // release: assets/ sits next to the exe, default path works
+                file_path: if cfg!(debug_assertions) { "../assets" } else { "assets" }.to_string(),
+                ..default()
+            })
             .set(LogPlugin {
                 level: Level::WARN,
                 ..default()
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "window".into(),
+                    title: "client".into(),
                     present_mode: PresentMode::FifoRelaxed, // vsync off
                     ..default()
                 }),
@@ -45,15 +51,13 @@ fn main() {
             }),
     );
 
-    app.add_systems(Startup, test_init_client);
-
     app.add_plugins(MasterPlugin) // common required plugins
     .init_state::<AppState>() // MainMenu, etc
     .add_plugins(WindowSettingsPlugin)
     .add_plugins(LevelPlugin)
     .add_plugins(UIPlugin)
     .add_plugins(PawnPlugin)
-    .add_systems(Startup, spawn_camera);
+    .add_systems(Startup, (spawn_camera, spawn_scene));
     // app.add_systems(FixedUpdate, increment_tick);
 
     // NETWORKING
@@ -65,11 +69,18 @@ fn main() {
     app.run();
 }
 
-// https://docs.rs/bevy/latest/bevy/asset/macro.embedded_asset.html
-fn test_init_client(/* mut commands: Commands, */ asset_server: Res<AssetServer>) {
-    // let shader = embedded_asset!(&asset_server, "../common/assets/companion_cube.glb");
-    // embedded_asset!(app, "../common/assets/companion_cube.glb");
-    let _gltf_handle = asset_server.load::<Gltf>("embedded://common/assets/models/companion_cube.glb");
+fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        SceneRoot(asset_server.load("models/companion_cube.glb#Scene0")),
+        Transform::default(),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
 }
 
 fn spawn_camera(mut commands: Commands) {

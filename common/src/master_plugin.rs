@@ -6,7 +6,7 @@ use crate::net::quic::QuicPlugin;
 use crate::net::runtime::TokioRuntimePlugin;
 use crate::physics::physics_world::*;
 use crate::tick::*;
-use crate::assets::*;
+use crate::assets::CMAssetPlugin;
 use crate::net::message::NetworkIDResource;
 
 pub struct MasterPlugin;
