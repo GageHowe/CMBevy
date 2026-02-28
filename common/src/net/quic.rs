@@ -14,7 +14,6 @@ pub struct QuicPlugin;
 impl Plugin for QuicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuicManager>()
-            .init_resource::<Clients>()
             .init_resource::<InboundQueue>()
             .init_resource::<OutboundQueue>()
             .add_systems(
@@ -50,35 +49,21 @@ pub struct InboundMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct OutboundMessage {
-    pub target: SendTarget,
-    pub channel: Channel,
-    pub payload: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
 pub enum SendTarget {
     One(ConnectionId),
     All,
 }
 
 #[derive(Resource, Default)]
-pub struct Clients(pub HashSet<ConnectionId>);
-
-#[derive(Resource, Default)]
 pub struct InboundQueue(pub VecDeque<InboundMessage>);
 
 #[derive(Resource, Default)]
-pub struct OutboundQueue(pub VecDeque<OutboundMessage>);
+pub struct OutboundQueue(VecDeque<(SendTarget, Channel, Vec<u8>)>);
 
 impl OutboundQueue {
     /// This is what other modules should use to send messages
     pub fn send(&mut self, target: SendTarget, channel: Channel, msg: &crate::net::message::MsgType) {
-        self.0.push_back(OutboundMessage {
-            target,
-            channel,
-            payload: wincode::serialize(msg).unwrap(),
-        });
+        self.0.push_back((target, channel, wincode::serialize(msg).unwrap()));
     }
 }
 
@@ -86,13 +71,9 @@ impl OutboundQueue {
 // Internal types
 // ---------------------------------------------------------------------------
 
-struct OrderedSender {
-    tx: mpsc::Sender<Vec<u8>>,
-}
-
 struct PeerState {
     connection: Connection,
-    ordered: OrderedSender,
+    ordered_tx: mpsc::Sender<Vec<u8>>,
 }
 
 enum InternalEvent {
@@ -118,6 +99,7 @@ enum InternalEvent {
 
 #[derive(Resource)]
 pub struct QuicManager {
+    pub clients: HashSet<ConnectionId>,
     peers: HashMap<ConnectionId, PeerState>,
     next_id: u64,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
@@ -128,6 +110,7 @@ impl Default for QuicManager {
     fn default() -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         Self {
+            clients: HashSet::new(),
             peers: HashMap::new(),
             next_id: 0,
             event_tx,
@@ -328,7 +311,7 @@ fn spawn_datagram_reader(
 fn spawn_ordered_writer(
     mut send: SendStream,
     handle: tokio::runtime::Handle,
-) -> OrderedSender {
+) -> mpsc::Sender<Vec<u8>> {
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
 
     handle.spawn(async move {
@@ -346,7 +329,7 @@ fn spawn_ordered_writer(
         let _ = send.finish();
     });
 
-    OrderedSender { tx }
+    tx
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +338,6 @@ fn spawn_ordered_writer(
 
 fn process_internal_events(
     mut manager: ResMut<QuicManager>,
-    mut clients: ResMut<Clients>,
     mut inbound: ResMut<InboundQueue>,
     runtime: Res<TokioRuntime>,
 ) {
@@ -369,23 +351,23 @@ fn process_internal_events(
                 ordered_recv,
                 ordered_send,
             } => {
-                let ordered_writer = spawn_ordered_writer(ordered_send, handle.clone());
+                let ordered_tx = spawn_ordered_writer(ordered_send, handle.clone());
                 spawn_ordered_reader(conn_id, ordered_recv, manager.event_tx.clone(), handle.clone());
                 spawn_unordered_reader(conn_id, connection.clone(), manager.event_tx.clone(), handle.clone());
                 spawn_datagram_reader(conn_id, connection.clone(), manager.event_tx.clone(), handle.clone());
 
                 manager.peers.insert(conn_id, PeerState {
                     connection,
-                    ordered: ordered_writer,
+                    ordered_tx,
                 });
 
-                clients.0.insert(conn_id);
+                manager.clients.insert(conn_id);
                 println!("Connected: {conn_id:?}");
             }
 
             InternalEvent::Disconnected { conn_id } => {
                 manager.peers.remove(&conn_id);
-                clients.0.remove(&conn_id);
+                manager.clients.remove(&conn_id);
                 println!("Disconnected: {conn_id:?}");
             }
 
@@ -403,8 +385,8 @@ fn flush_outbound_queue(
 ) {
     let handle = runtime.handle();
 
-    while let Some(msg) = queue.0.pop_front() {
-        let peers: Vec<(ConnectionId, &PeerState)> = match &msg.target {
+    while let Some((target, channel, payload)) = queue.0.pop_front() {
+        let peers: Vec<(ConnectionId, &PeerState)> = match &target {
             SendTarget::One(id) => manager
                 .peers
                 .get(id)
@@ -414,10 +396,10 @@ fn flush_outbound_queue(
         };
 
         for (conn_id, peer) in peers {
-            let data = msg.payload.clone();
-            match msg.channel {
+            let data = payload.clone();
+            match channel {
                 Channel::Ordered => {
-                    if let Err(e) = peer.ordered.tx.try_send(data) {
+                    if let Err(e) = peer.ordered_tx.try_send(data) {
                         eprintln!("[{conn_id:?}] Ordered queue full or closed: {e}");
                     }
                 }
