@@ -99,7 +99,7 @@ enum InternalEvent {
 
 #[derive(Resource)]
 pub struct QuicManager {
-    pub clients: HashSet<ConnectionId>,
+    clients: HashSet<ConnectionId>,
     peers: HashMap<ConnectionId, PeerState>,
     next_id: u64,
     event_tx: mpsc::UnboundedSender<InternalEvent>,
@@ -120,6 +120,10 @@ impl Default for QuicManager {
 }
 
 impl QuicManager {
+    pub fn clients(&self) -> &HashSet<ConnectionId> {
+        &self.clients
+    }
+
     pub fn disconnect(&mut self, conn_id: ConnectionId) {
         if let Some(peer) = self.peers.remove(&conn_id) {
             peer.connection.close(0u32.into(), b"disconnect");
