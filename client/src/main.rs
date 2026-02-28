@@ -3,8 +3,18 @@
 use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::Camera3d;
+use bevy::camera::ClearColor;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+// use bevy::post_process::
+use bevy::anti_alias::smaa::Smaa;
+use bevy::post_process::{
+    bloom::*,
+    // dof::DepthOfField,
+    auto_exposure::AutoExposure
+};
+use common::camera::spawn_camera;
+
 use common::pawn::pawn::PawnPlugin;
 use common::net::{
     quic::*,
@@ -81,18 +91,6 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
         Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-}
-
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn((
-        Camera3d::default(),
-        Projection::Perspective(PerspectiveProjection {
-            // vertical FOV in radians
-            fov: 90.0_f32.to_radians(),
-            ..Default::default()
-        }),
-        Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 

@@ -4,6 +4,7 @@ use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
+use crate::config::*;
 
 // ---------------------------------------------------------------------------
 // Plugin
@@ -353,6 +354,7 @@ fn spawn_ordered_writer(
 // Bevy systems
 // ---------------------------------------------------------------------------
 
+/// processes events we've had since last tick
 fn process_internal_events(
     mut manager: ResMut<QuicManager>,
     mut clients: ResMut<Clients>,
@@ -460,6 +462,8 @@ fn make_server_endpoint(addr: SocketAddr) -> anyhow::Result<Endpoint> {
 
     let mut transport = quinn::TransportConfig::default();
     transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+    transport.max_idle_timeout(Some(std::time::Duration::from_secs(SERVER_CONNECTION_TIMEOUT).try_into()?));
+
 
     let mut server_config = quinn::ServerConfig::with_single_cert(vec![cert_der], key)?;
     server_config.transport_config(std::sync::Arc::new(transport));
@@ -475,6 +479,8 @@ fn make_client_endpoint() -> anyhow::Result<Endpoint> {
 
     let mut transport = quinn::TransportConfig::default();
     transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+    transport.keep_alive_interval(Some(std::time::Duration::from_secs(CLIENT_KEEPALIVE_INTERVAL)));
+
 
     let mut client_config = quinn::ClientConfig::new(std::sync::Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto)?,

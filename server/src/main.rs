@@ -44,20 +44,6 @@ fn main() {
 fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
     manager.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
-//
-// fn on_connect(mut reader: MessageReader<ConnectionEstablished>) {
-//     for evt in reader.read() {
-//         println!("Client connected: {:?}", evt.conn_id);
-//         // spawn player entity, assign NetworkID, etc.
-//     }
-// }
-//
-// fn on_disconnect(mut reader: MessageReader<ConnectionLost>) {
-//     for evt in reader.read() {
-//         println!("Client disconnected: {:?}", evt.conn_id);
-//         // despawn player entity, etc.
-//     }
-// }
 
 fn on_message(
     mut inbound: ResMut<InboundQueue>,

@@ -10,4 +10,5 @@ pub mod tick;
 pub mod assets;
 pub mod master_plugin;
 pub mod ui;
-mod gameapi;
+pub mod gameapi;
+pub mod camera;
