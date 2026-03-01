@@ -12,7 +12,11 @@
       "Bash(echo:*)",
       "Bash(cat:*)",
       "Bash(sed:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(wc:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo test:*)",
+      "Bash(xargs head:*)"
     ],
     "deny": []
   }

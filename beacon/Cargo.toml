@@ -8,3 +8,4 @@ axum = "0.8.8"
 rusqlite = { version = "0.38.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.49.0", features = ["rt-multi-thread"] }
+http_common = { path = "../http_common" }

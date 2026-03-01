@@ -12,7 +12,7 @@ use crate::net::message::NetworkIDResource;
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Time::<Fixed>::from_hz(64.0));
+        app.insert_resource(Time::<Fixed>::from_hz(60.0));
         app.add_plugins(CMAssetPlugin);
         app.insert_resource(Ticker {
             tick: 0

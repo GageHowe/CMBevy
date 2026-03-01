@@ -492,6 +492,7 @@ name = "beacon"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "http_common",
  "rusqlite",
  "serde",
  "tokio",
@@ -3510,6 +3511,9 @@ dependencies = [
 [[package]]
 name = "http_common"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "httparse"
