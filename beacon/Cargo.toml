@@ -3,9 +3,6 @@ name = "beacon"
 version = "0.1.0"
 edition = "2024"
 
-[lints]
-workspace = true
-
 [dependencies]
 axum = "0.8.8"
 rusqlite = { version = "0.38.0", features = ["bundled"] }
