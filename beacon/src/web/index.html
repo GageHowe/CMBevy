@@ -25,7 +25,7 @@
     <section class="controls">
         <input type="text" placeholder="Search lobbies..." id="search"
                oninput="filterLobbies(this.value)" />
-        <button hx-get="/lobbies"
+        <button hx-get="/lobbies/partial"
                 hx-target="#lobby-grid"
                 hx-trigger="click"
                 hx-indicator="#spinner">
