@@ -1,5 +1,5 @@
 pub mod config;
-pub mod is_server;
+pub mod helpers;
 pub mod level;
 pub mod net;
 pub mod pawn;

@@ -9,6 +9,9 @@
       "Bash(git log:*)",
       "Bash(xargs grep:*)",
       "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(sed:*)",
       "Bash(cargo build:*)"
     ],
     "deny": []

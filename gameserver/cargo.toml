@@ -1,6 +1,6 @@
 
 [package]
-name = "server"
+name = "gameserver"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,7 +8,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-common = { path = "../common" }
+game_common = { path = "../game_common" }
 bevy = { version = "0.18", default-features = false, features = ["bevy_core_pipeline"] }
 wincode = "0.4.1"
 rapier3d = "0.32.0"

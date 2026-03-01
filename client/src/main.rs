@@ -3,22 +3,23 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-use common::camera::spawn_camera;
+use game_common::camera::spawn_camera;
 
-use common::pawn::pawn::{PawnPlugin, Possessed};
-use common::pawn::biped;
-use common::physics::physics_world::PhysicsWorld;
-use common::net::{
+use game_common::pawn::pawn::{PawnPlugin, Possessed};
+use game_common::pawn::biped;
+use game_common::physics::physics_world::PhysicsWorld;
+use game_common::net::{
     quic::*,
     runtime::TokioRuntime,
     message::{MsgType, SpawnCommand},
 };
-use common::ui::ui::UIPlugin;
-use common::ui::window::WindowSettingsPlugin;
-use common::level::level::*;
-use common::config::SERVER_BIND_ADDRESS;
-use common::master_plugin::MasterPlugin;
-use common::ui::ui::GuiState;
+use game_common::ui::ui::UIPlugin;
+use game_common::ui::window::WindowSettingsPlugin;
+use game_common::level::level::*;
+use game_common::config::SERVER_BIND_ADDRESS;
+use game_common::master_plugin::MasterPlugin;
+use game_common::ui::ui::GuiState;
+use game_common::debug_println;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -61,7 +62,7 @@ fn main() {
     app.add_systems(Update, (on_message, send_chat));
     app.add_systems(FixedUpdate, (on_message, send_chat));
 
-    println!("starting client...\n");
+    debug_println!("starting client...\n");
     app.run();
 }
 
@@ -92,14 +93,14 @@ fn on_message(
         match msg.msg {
             MsgType::SpawnCommand(cmd) => spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world),
             MsgType::Pong(text) => {
-                println!("PONG {text}");
+                debug_println!("Client: Got PONG \"{text}\"");
                 gui.push_log(format!("pong: {text}"));
             }
             MsgType::ChatMessage(sender, text) => {
                 gui.push_log(format!("[{sender}] {text}"));
             }
             MsgType::State(_st) => {}
-            other => println!("Unhandled: {other:?}"),
+            other => debug_println!("Client: Got unhandled message: {other:?}"),
         }
     }
 }
