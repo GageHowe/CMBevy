@@ -13,18 +13,6 @@ impl Plugin for PawnPlugin {
     }
 }
 
-/// example of spawning a pawn locally, deprecated
-fn spawn_test_pawn(
-    commands: Commands,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<StandardMaterial>>,
-    world: ResMut<PhysicsWorld>,
-) {
-    super::spaceship::spawn(
-        Transform::from_xyz(0.0, 2.0, 0.0),
-        commands, meshes, materials, world,
-    );
-}
 
 // ============================================================================
 // COMPONENTS

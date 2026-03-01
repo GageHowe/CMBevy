@@ -1,15 +1,16 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(cargo check:*)",
       "mcp__*",
       "Bash(git log:*)",
       "Bash(xargs grep:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(cargo build:*)"
     ],
     "deny": []
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

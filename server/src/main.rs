@@ -2,74 +2,107 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use common::{physics::physics_world::*};
+use std::collections::HashMap;
+use common::physics::physics_world::*;
 use common::net::{
     quic::*,
-    runtime::{TokioRuntime, TokioRuntimePlugin},
-    message::{MsgType, SimulationState},
+    runtime::TokioRuntime,
+    message::{MsgType, SimulationState, NetworkID, NetworkIDResource, SpawnCommand},
 };
 use common::tick::{increment_tick, Ticker};
 use common::config::SERVER_BIND_ADDRESS;
 use common::master_plugin::MasterPlugin;
-use common::net::message::NetworkIDResource;
+use common::pawn::pawn::BipedPawnComponent;
 
 fn main() {
     let mut app = App::new();
     app.add_plugins(
-        DefaultPlugins
-            .set(LogPlugin {
-                level: Level::ERROR,
-                ..default()
-            })
+        DefaultPlugins.set(LogPlugin { level: Level::ERROR, ..default() })
     );
-    // .add_plugins(LevelPlugin)
 
     app.add_plugins(MasterPlugin);
-
-
-    // NETWORKING
-
-    // keeps track of current incrementing NetworkID number
     app.insert_resource(NetworkIDResource::default());
+    app.init_resource::<PlayerRegistry>();
 
     app.add_systems(Startup, start_server)
-    .add_systems(Update, on_message)
-    .add_systems(FixedUpdate, on_message);
-    app.add_systems(FixedUpdate, (increment_tick, broadcast_tick).chain());
+        .add_systems(Update, on_message)
+        .add_systems(FixedUpdate, (on_message, increment_tick, broadcast_tick).chain());
 
     println!("starting server...\n");
     app.run();
 }
 
-fn start_server(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    manager.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
+/// Maps each connected client to their spawned pawn entity.
+#[derive(Resource, Default)]
+struct PlayerRegistry(HashMap<ConnectionId, Entity>);
+
+fn start_server(mut quic: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
+    quic.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
 fn on_message(
-    mut inbound: ResMut<InboundQueue>,
-    mut outbound: ResMut<OutboundQueue>,
+    mut quic: ResMut<QuicManager>,
+    mut registry: ResMut<PlayerRegistry>,
+    mut net_ids: ResMut<NetworkIDResource>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
 ) {
-    while let Some(msg) = inbound.0.pop_front() {
-        match wincode::deserialize::<MsgType>(&msg.payload) {
-            Ok(MsgType::Ping(text)) => {
-                println!("Got ping: {text}");
-                outbound.send(
+    while let Some(msg) = quic.inbound.pop_front() {
+        match msg.msg {
+            MsgType::Connected => {
+                let net_id = NetworkID(net_ids.get_next_id());
+                let pos = Vec3::new(0.0, 5.0, 0.0);
+                let entity = spawn_pawn_server(pos, net_id.clone(), &mut commands, &mut world);
+                registry.0.insert(msg.conn_id, entity);
+                quic.send(
                     SendTarget::One(msg.conn_id),
                     Channel::Ordered,
-                    &MsgType::Pong(text),
+                    &MsgType::SpawnCommand(SpawnCommand {
+                        net_id,
+                        position: pos.into(),
+                        starting_velocity: Vec3::ZERO.into(),
+                        rotation: Quat::IDENTITY.into(),
+                    }),
                 );
             }
-            Ok(MsgType::ChatMessage(sender, text)) => println!("[{sender}] {text}"),
-            Ok(other) => println!("Unhandled: {other:?}"),
-            Err(e) => eprintln!("Deserialize error: {e}"),
+            MsgType::Disconnected => {
+                if let Some(entity) = registry.0.remove(&msg.conn_id) {
+                    world.remove_body(entity);
+                    commands.entity(entity).despawn();
+                }
+            }
+            MsgType::Ping(text) => {
+                quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Pong(text));
+            }
+            MsgType::ChatMessage(sender, text) => println!("[{sender}] {text}"),
+            other => println!("Unhandled: {other:?}"),
         }
     }
 }
 
-fn broadcast_tick(
-    mut outbound: ResMut<OutboundQueue>,
-    tick: Res<Ticker>
-) {
+fn broadcast_tick(mut quic: ResMut<QuicManager>, tick: Res<Ticker>) {
     let msg = MsgType::State(SimulationState { tick: tick.tick, bodies: Default::default() });
-    outbound.send(SendTarget::All, Channel::Unreliable, &msg);
+    quic.send(SendTarget::All, Channel::Unreliable, &msg);
+}
+
+/// Spawns a physics-only pawn entity on the server (no mesh).
+fn spawn_pawn_server(
+    pos: Vec3,
+    net_id: NetworkID,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) -> Entity {
+    use rapier3d::prelude::*;
+    let entity = commands.spawn((
+        BipedPawnComponent,
+        net_id,
+        Transform::from_translation(pos),
+    )).id();
+    let rb = RigidBodyBuilder::dynamic().translation(pos.into()).build();
+    let rb_handle = world.insert_body(entity, rb);
+    let collider = ColliderBuilder::ball(0.5).build();
+    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+    entity
 }

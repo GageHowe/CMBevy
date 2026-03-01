@@ -9,8 +9,8 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 // use common::net::runtime::TokioRuntimePlugin;
 // use crate::physics::physics_world::*;
 // use common::
-use crate::net::quic::*;
-use crate::net::message::*;
+use crate::net::quic::{QuicManager, SendTarget, Channel};
+use crate::net::message::MsgType;
 use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
@@ -109,7 +109,7 @@ fn gui_top_left(
 fn gui_bottom_left(
     mut contexts: EguiContexts,
     mut state: ResMut<GuiState>,
-    mut outbound: ResMut<OutboundQueue>,
+    mut quic: ResMut<QuicManager>,
 ) {
     let ctx = contexts.ctx_mut().unwrap();
 
@@ -127,7 +127,7 @@ fn gui_bottom_left(
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let txt = state.command_input.trim().to_string();
                 if !txt.is_empty() {
-                    outbound.send(
+                    quic.send(
                         SendTarget::All,
                         Channel::Ordered,
                         &MsgType::Ping(txt),

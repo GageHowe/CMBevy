@@ -1,25 +1,17 @@
 // client executable
 
-use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::log::{Level, LogPlugin};
-use bevy::prelude::Camera3d;
-use bevy::camera::ClearColor;
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-// use bevy::post_process::
-use bevy::anti_alias::smaa::Smaa;
-use bevy::post_process::{
-    bloom::*,
-    // dof::DepthOfField,
-    auto_exposure::AutoExposure
-};
 use common::camera::spawn_camera;
 
-use common::pawn::pawn::PawnPlugin;
+use common::pawn::pawn::{PawnPlugin, Possessed};
+use common::pawn::biped;
+use common::physics::physics_world::PhysicsWorld;
 use common::net::{
     quic::*,
-    runtime::{TokioRuntime},
-    message::MsgType,
+    runtime::TokioRuntime,
+    message::{MsgType, SpawnCommand},
 };
 use common::ui::ui::UIPlugin;
 use common::ui::window::WindowSettingsPlugin;
@@ -32,18 +24,14 @@ use common::ui::ui::GuiState;
 enum AppState {
     #[default]
     Playing,
-    // MainMenu,
-    // PauseMenu,
 }
+
 fn main() {
     let mut app = App::new();
 
     app.add_plugins(
-        // defaultplugins includes asset plugin
         DefaultPlugins
             .set(AssetPlugin {
-                // dev: cargo sets CWD to client/, so go up to workspace root
-                // release: assets/ sits next to the exe, default path works
                 file_path: if cfg!(debug_assertions) { "../assets" } else { "assets" }.to_string(),
                 ..default()
             })
@@ -54,23 +42,21 @@ fn main() {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "client".into(),
-                    present_mode: PresentMode::FifoRelaxed, // vsync off
+                    present_mode: PresentMode::FifoRelaxed,
                     ..default()
                 }),
                 ..default()
             }),
     );
 
-    app.add_plugins(MasterPlugin) // common required plugins
-    .init_state::<AppState>() // MainMenu, etc
-    .add_plugins(WindowSettingsPlugin)
-    .add_plugins(LevelPlugin)
-    .add_plugins(UIPlugin)
-    .add_plugins(PawnPlugin)
-    .add_systems(Startup, (spawn_camera, spawn_scene));
-    // app.add_systems(FixedUpdate, increment_tick);
+    app.add_plugins(MasterPlugin)
+        .init_state::<AppState>()
+        .add_plugins(WindowSettingsPlugin)
+        .add_plugins(LevelPlugin)
+        .add_plugins(UIPlugin)
+        .add_plugins(PawnPlugin)
+        .add_systems(Startup, (spawn_camera, spawn_scene));
 
-    // NETWORKING
     app.add_systems(Startup, connect);
     app.add_systems(Update, (on_message, send_chat));
     app.add_systems(FixedUpdate, (on_message, send_chat));
@@ -79,53 +65,66 @@ fn main() {
     app.run();
 }
 
-// test function, delete this when done
 fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         SceneRoot(asset_server.load("models/companion_cube.glb#Scene0")),
         Transform::default(),
     ));
     commands.spawn((
-        DirectionalLight {
-            shadows_enabled: true,
-            ..default()
-        },
+        DirectionalLight { shadows_enabled: true, ..default() },
         Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 
-fn connect(mut manager: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    manager.connect(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
+fn connect(mut quic: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
+    quic.connect(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
 fn on_message(
-    mut inbound: ResMut<InboundQueue>,
+    mut quic: ResMut<QuicManager>,
     mut gui: ResMut<GuiState>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut world: ResMut<PhysicsWorld>,
 ) {
-    while let Some(msg) = inbound.0.pop_front() {
-        match wincode::deserialize::<MsgType>(&msg.payload) {
-            Ok(MsgType::Pong(text)) => {
+    while let Some(msg) = quic.inbound.pop_front() {
+        match msg.msg {
+            MsgType::SpawnCommand(cmd) => spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world),
+            MsgType::Pong(text) => {
                 println!("PONG {text}");
                 gui.push_log(format!("pong: {text}"));
             }
-            Ok(MsgType::ChatMessage(sender, text)) => {
+            MsgType::ChatMessage(sender, text) => {
                 gui.push_log(format!("[{sender}] {text}"));
             }
-            Ok(MsgType::State(_st)) => {
-            //
-            }
-            Ok(other) => println!("Unhandled: {other:?}"),
-            Err(e) => eprintln!("Deserialize error: {e}"),
+            MsgType::State(_st) => {}
+            other => println!("Unhandled: {other:?}"),
         }
     }
 }
 
-fn send_chat(
-    mut outbound: ResMut<OutboundQueue>,
-    input: Res<ButtonInput<KeyCode>>,
+/// Spawns a pawn for the local player from a server SpawnCommand.
+/// Change the pawn type here when needed.
+fn spawn_pawn_client(
+    cmd: SpawnCommand,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    world: &mut PhysicsWorld,
 ) {
+    let transform = Transform {
+        translation: cmd.position.into(),
+        rotation: cmd.rotation.into(),
+        ..default()
+    };
+    let entity = biped::spawn(transform, commands, meshes, materials, world);
+    commands.entity(entity).insert((cmd.net_id, Possessed::new(60)));
+}
+
+fn send_chat(mut quic: ResMut<QuicManager>, input: Res<ButtonInput<KeyCode>>) {
     if input.just_pressed(KeyCode::Enter) {
-        outbound.send(
+        quic.send(
             SendTarget::All,
             Channel::Ordered,
             &MsgType::ChatMessage("player".into(), "hello!".into()),

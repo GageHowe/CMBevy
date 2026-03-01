@@ -2102,6 +2102,7 @@ dependencies = [
  "bevy_egui",
  "bevy_enhanced_input",
  "bytes",
+ "crossbeam-channel",
  "quinn",
  "rapier3d",
  "rcgen",
@@ -5440,6 +5441,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "common",
+ "rapier3d",
  "wincode",
 ]
 

@@ -4,59 +4,47 @@ use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
 use std::str::FromStr;
 
-/// Component to mark entities that should be networked.
+/// component to mark entities that should be networked.
 /// NetworkID is managed by the server.
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Eq, Clone, Component, Hash)]
 pub struct NetworkID(pub u64);
 
+/// Like the Ticker resource, keeps track of the next available NetworkID to use
 #[derive(Resource, Default)]
 pub struct NetworkIDResource {
     pub last_id: u64
 }
 impl NetworkIDResource {
-    /// Should be used when spawning a new networked entity
+    /// should be used when spawning a new networked entity
     pub fn get_next_id(&mut self) -> u64 {
         self.last_id += 1;
         self.last_id
     }
 }
 
-/// TODO: use when the server tells clients to spawn an object
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub enum ObjectType {
-    Biped,
-    Spaceship,
-    Projectile1,
-    Projectile2,
-    // BulletCasing, // local-only projectile, probably should not be networked
-    Bergentruck, // beer!
-}
-
-/// TODO: use when the server tells clients to spawn an object
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
-    net_id: NetworkID,
-    kind: ObjectType,
-    location: Option<CMVec3>,
-    /// velocity to start at
-    velocity: Option<CMVec3>,
-    // inherit_velocity: bool, // nvm, simply add velocity on server side
-    rotation: Option<CMQuat>,
+    pub net_id: NetworkID,
+    pub position: CMVec3,
+    pub starting_velocity: CMVec3,
+    pub rotation: CMQuat,
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum MsgType {
-    /// sender, message
+    // --- connection lifecycle (local only, never sent over the wire) ---
+    Connected,
+    Disconnected,
+    // networked messages
     ChatMessage(String, String),
-    // HitReport()
-    /// A message the recipient will display in messagebar
+    /// probably will be displayed in the player's console / chatbox
     Error(String),
     Ping(String),
     Pong(String),
-
-    BodyState(BodyState),
+    // BodyState(BodyState),
+    /// collection of BodyStates with corresponding network ids
     State(SimulationState),
-    SpawnCommand(SpawnCommand)
+    SpawnCommand(SpawnCommand),
 }
 impl FromStr for MsgType {
     type Err = String;

@@ -5,47 +5,29 @@ use rapier3d::prelude::*;
 
 pub fn spawn(
     transform: Transform,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut world: ResMut<PhysicsWorld>,
-) {
-    let pawn_entity = commands
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    world: &mut PhysicsWorld,
+) -> Entity {
+    let entity = commands
         .spawn((
             BipedPawnComponent,
-            CameraRigComponent {
-                offset: Vec3::new(0.0, 1.0, 3.0),
-            },
-            Possessed::new(60),
-            Transform::from_translation(transform.translation),
-            Mesh3d(meshes.add(Cuboid::new(
-                transform.scale.x,
-                transform.scale.y,
-                transform.scale.z,
-            ))),
-            MeshMaterial3d(materials.add(Color::srgb(1.0, 1.0, 1.0))),
+            CameraRigComponent { offset: Vec3::new(0.0, 1.0, 3.0) },
+            Transform::from(transform),
+            Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(1.0, 1.0, 1.0))),
+            MeshMaterial3d(materials.add(Color::srgb(0.8, 0.8, 0.8))),
             Visibility::default(),
         ))
         .id();
 
-    let rb = RigidBodyBuilder::dynamic()
-        .translation(transform.translation)
-        .build();
-    let rb_handle = world.insert_body(pawn_entity, rb);
-
-    let collider = ColliderBuilder::cuboid(
-        transform.scale.x * 0.5,
-        transform.scale.y * 0.5,
-        transform.scale.z * 0.5,
-    )
-        .build();
-
-    commands
-        .entity(pawn_entity)
-        .insert(PhysicsBodyHandle(rb_handle));
-
+    let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
+    let rb_handle = world.insert_body(entity, rb);
+    let collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
+    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+    entity
 }
 
 pub fn apply_biped_movement(
