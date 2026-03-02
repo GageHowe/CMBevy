@@ -10,7 +10,6 @@ use game_common::pawn::biped;
 use game_common::physics::physics_world::PhysicsWorld;
 use game_common::net::{
     quic::*,
-    runtime::TokioRuntime,
     message::{MsgType, SpawnCommand},
 };
 use game_common::ui::ui::UIPlugin;
@@ -59,7 +58,7 @@ fn main() {
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
     app.add_systems(Startup, connect);
-    app.add_systems(Update, (on_message, send_chat));
+    // on_message and send_chat only in FixedUpdate; process_inbound (PreUpdate) fills the queue beforehand.
     app.add_systems(FixedUpdate, (on_message, send_chat));
 
     debug_println!("starting client...\n");
@@ -77,8 +76,8 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn connect(mut quic: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    quic.connect(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
+fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>) {
+    quic.connect(&mut client, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
 fn on_message(
