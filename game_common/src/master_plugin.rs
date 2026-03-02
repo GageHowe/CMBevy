@@ -2,8 +2,8 @@
 // we can do timing-dependent stuff here thanks to .before() etc
 
 use bevy::prelude::*;
-use crate::net::quic::QuicPlugin;
-use crate::net::runtime::TokioRuntimePlugin;
+use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
+use crate::net::quic::{flush_outbound, process_inbound, QuicManager};
 use crate::physics::physics_world::*;
 use crate::tick::*;
 use crate::assets::CMAssetPlugin;
@@ -23,8 +23,10 @@ impl Plugin for MasterPlugin {
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedPostUpdate, increment_tick);
 
-        app.add_plugins(TokioRuntimePlugin);
-        app.add_plugins(QuicPlugin);
+        app.add_plugins(QuinnetServerPlugin::default())
+            .add_plugins(QuinnetClientPlugin::default())
+            .init_resource::<QuicManager>()
+            .init_resource::<NetworkIDResource>()
+            .add_systems(Update, (process_inbound, flush_outbound).chain());
     }
 }
-

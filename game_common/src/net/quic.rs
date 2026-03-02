@@ -1,23 +1,56 @@
-use super::runtime::TokioRuntime;
-use bevy::prelude::*;
-use crossbeam_channel as cc;
-use quinn::{Connection, Endpoint, RecvStream, SendStream};
-use std::collections::{HashMap, HashSet, VecDeque};
+use bevy::{
+    ecs::message::MessageReader,
+    prelude::*,
+};
+use bevy_quinnet::{
+    client::{
+        certificate::CertificateVerificationMode,
+        connection::{ClientAddrConfiguration, ConnectionEvent as ClientConnectionEvent,
+            ConnectionLostEvent as ClientConnectionLostEvent},
+        ClientConnectionConfiguration, ClientConnectionConfigurationDefaultables,
+    },
+    server::{
+        certificate::CertificateRetrievalMode,
+        ConnectionEvent as ServerConnectionEvent, ConnectionLostEvent as ServerConnectionLostEvent,
+        EndpointAddrConfiguration,
+        ServerEndpointConfiguration, ServerEndpointConfigurationDefaultables,
+    },
+    shared::channels::{ChannelConfig, ChannelId, SendChannelsConfiguration},
+};
+use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
-use tokio::sync::mpsc;
-use crate::config::*;
 use crate::net::message::MsgType;
 
+// Re-export quinnet resources so callers can use them without a direct bevy_quinnet dep.
+pub use bevy_quinnet::client::QuinnetClient;
+pub use bevy_quinnet::server::QuinnetServer;
+pub use bevy_quinnet::shared::ClientId;
+
 // ---------------------------------------------------------------------------
-// Plugin
+// Channel configuration
 // ---------------------------------------------------------------------------
 
-pub struct QuicPlugin;
+/// ChannelId for ordered reliable messages (chat, commands)
+pub const ORDERED_CHANNEL: ChannelId = 0;
+/// ChannelId for unordered reliable messages (one-off events)
+pub const UNORDERED_CHANNEL: ChannelId = 1;
+/// ChannelId for unreliable datagrams (per-tick state updates)
+pub const UNRELIABLE_CHANNEL: ChannelId = 2;
 
-impl Plugin for QuicPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<QuicManager>()
-            .add_systems(Update, (process_inbound, flush_outbound).chain());
+pub(crate) fn channels_config() -> SendChannelsConfiguration {
+    SendChannelsConfiguration::from_configs(vec![
+        ChannelConfig::default_ordered_reliable(),   // id 0 → Channel::Ordered
+        ChannelConfig::default_unordered_reliable(), // id 1 → Channel::Unordered
+        ChannelConfig::default_unreliable(),         // id 2 → Channel::Unreliable
+    ])
+    .expect("channel count is within limits")
+}
+
+fn channel_from_id(id: ChannelId) -> Channel {
+    match id {
+        0 => Channel::Ordered,
+        1 => Channel::Unordered,
+        _ => Channel::Unreliable,
     }
 }
 
@@ -25,12 +58,36 @@ impl Plugin for QuicPlugin {
 // Public types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct ConnectionId(pub u64);
+/// Opaque identifier for a connected peer.
+/// On the server this equals bevy_quinnet's ClientId; on the client side
+/// SERVER_CONN_ID is used for messages received from the server.
+pub type ConnectionId = ClientId;
 
+/// A fixed ConnectionId used on the client side to represent the server.
+pub const SERVER_CONN_ID: ConnectionId = 0;
+
+/// Logical send channel with delivery guarantees.
 #[derive(Debug, Clone, Copy)]
-pub enum Channel { Ordered, Unordered, Unreliable }
+pub enum Channel {
+    /// Ordered, reliable (stream-based)
+    Ordered,
+    /// Unordered, reliable
+    Unordered,
+    /// Unreliable datagram
+    Unreliable,
+}
 
+impl From<Channel> for ChannelId {
+    fn from(c: Channel) -> Self {
+        match c {
+            Channel::Ordered => ORDERED_CHANNEL,
+            Channel::Unordered => UNORDERED_CHANNEL,
+            Channel::Unreliable => UNRELIABLE_CHANNEL,
+        }
+    }
+}
+
+/// A decoded message plus the connection it arrived on.
 #[derive(Debug, Clone)]
 pub struct InboundMessage {
     pub conn_id: ConnectionId,
@@ -38,388 +95,180 @@ pub struct InboundMessage {
     pub msg: MsgType,
 }
 
+/// Who to deliver an outbound message to.
 #[derive(Debug, Clone)]
-pub enum SendTarget { One(ConnectionId), All }
-
-// ---------------------------------------------------------------------------
-// Resource — one resource for everything QUIC-related
-// ---------------------------------------------------------------------------
-
-#[derive(Resource)]
-pub struct QuicManager {
-    // async bridge (private)
-    peers: HashMap<ConnectionId, PeerState>,
-    next_id: u64,
-    event_tx: cc::Sender<InternalEvent>,
-    event_rx: cc::Receiver<InternalEvent>,
-    outbound: VecDeque<(SendTarget, Channel, Vec<u8>)>,
-    // public queues — drain these from your systems
-    pub clients: HashSet<ConnectionId>,
-    pub inbound: VecDeque<InboundMessage>,
+pub enum SendTarget {
+    One(ConnectionId),
+    All,
 }
 
-impl Default for QuicManager {
-    fn default() -> Self {
-        let (event_tx, event_rx) = cc::unbounded();
-        Self {
-            peers: HashMap::new(),
-            next_id: 0,
-            event_tx,
-            event_rx,
-            outbound: VecDeque::new(),
-            clients: HashSet::new(),
-            inbound: VecDeque::new(),
-        }
-    }
+// ---------------------------------------------------------------------------
+// Resource
+// ---------------------------------------------------------------------------
+
+/// High-level networking manager.  Drain `inbound` each frame; call `send`
+/// to queue outbound messages; call `start_server` or `connect` once at startup.
+#[derive(Resource, Default)]
+pub struct QuicManager {
+    /// Messages received this frame — drain these in your systems.
+    pub inbound: VecDeque<InboundMessage>,
+    /// Currently connected client IDs (server side only).
+    pub clients: HashSet<ConnectionId>,
+    outbound: VecDeque<(SendTarget, Channel, Vec<u8>)>,
 }
 
 impl QuicManager {
-    pub fn send(&mut self, target: SendTarget, channel: Channel, msg: &crate::net::message::MsgType) {
+    /// Serialize and queue a message for delivery.
+    pub fn send(&mut self, target: SendTarget, channel: Channel, msg: &MsgType) {
         match wincode::serialize(msg) {
             Ok(payload) => self.outbound.push_back((target, channel, payload)),
-            Err(e) => eprintln!("Serialize error: {e}"),
+            Err(e) => eprintln!("QuicManager::send serialize error: {e}"),
         }
     }
 
-    pub fn disconnect(&mut self, conn_id: ConnectionId) {
-        if let Some(peer) = self.peers.remove(&conn_id) {
-            peer.connection.close(0u32.into(), b"disconnect");
+    /// Start a QUIC server endpoint.  Call once from a `Startup` system.
+    pub fn start_server(&mut self, server: &mut QuinnetServer, addr: SocketAddr) {
+        let result = server.start_endpoint(ServerEndpointConfiguration {
+            addr_config: EndpointAddrConfiguration::from_addr(addr),
+            cert_mode: CertificateRetrievalMode::GenerateSelfSigned {
+                server_hostname: addr.ip().to_string(),
+            },
+            defaultables: ServerEndpointConfigurationDefaultables {
+                send_channels_cfg: channels_config(),
+                ..Default::default()
+            },
+        });
+        match result {
+            Ok(_) => println!("QUIC server listening on {addr}"),
+            Err(e) => eprintln!("Failed to start QUIC server: {e}"),
         }
     }
 
-    pub fn start_server(&mut self, runtime: &TokioRuntime, addr: SocketAddr) {
-        let event_tx = self.event_tx.clone();
-
-        use std::sync::atomic::{AtomicU64, Ordering};
-        let counter = std::sync::Arc::new(AtomicU64::new(self.next_id));
-
-        runtime.spawn(async move {
-            let endpoint = match make_server_endpoint(addr) {
-                Ok(e) => e,
-                Err(e) => { eprintln!("Failed to start server: {e}"); return; }
-            };
-            println!("QUIC server listening on {addr}");
-
-            while let Some(incoming) = endpoint.accept().await {
-                let connection = match incoming.await {
-                    Ok(c) => c,
-                    Err(e) => { eprintln!("Incoming connection failed: {e}"); continue; }
-                };
-                let conn_id = ConnectionId(counter.fetch_add(1, Ordering::SeqCst));
-                let event_tx = event_tx.clone();
-                tokio::spawn(async move {
-                    handle_new_connection(conn_id, connection, event_tx, false).await;
-                });
-            }
+    /// Open a connection to a server.  Call once from a `Startup` system.
+    pub fn connect(&mut self, client: &mut QuinnetClient, server_addr: SocketAddr) {
+        let result = client.open_connection(ClientConnectionConfiguration {
+            addr_config: ClientAddrConfiguration::from_addrs(
+                server_addr,
+                "0.0.0.0:0".parse().expect("failed to parse client bind address \"0.0.0.0:0\""),
+            ),
+            cert_mode: CertificateVerificationMode::SkipVerification,
+            defaultables: ClientConnectionConfigurationDefaultables {
+                send_channels_cfg: channels_config(),
+                ..Default::default()
+            },
         });
-    }
-
-    pub fn connect(&mut self, runtime: &TokioRuntime, server_addr: SocketAddr) {
-        let event_tx = self.event_tx.clone();
-        let conn_id = ConnectionId(self.next_id);
-        self.next_id += 1;
-
-        runtime.spawn(async move {
-            let endpoint = match make_client_endpoint() {
-                Ok(e) => e,
-                Err(e) => { eprintln!("Failed to create client endpoint: {e}"); return; }
-            };
-            let connection = match endpoint.connect(server_addr, "localhost") {
-                Ok(c) => match c.await {
-                    Ok(c) => c,
-                    Err(e) => { eprintln!("Connection failed: {e}"); return; }
-                },
-                Err(e) => { eprintln!("Connect error: {e}"); return; }
-            };
-            handle_new_connection(conn_id, connection, event_tx, true).await;
-        });
+        match result {
+            Ok(_) => println!("Connecting to QUIC server at {server_addr}"),
+            Err(e) => eprintln!("Failed to open QUIC connection: {e}"),
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Internal types
+// Systems (registered directly in MasterPlugin)
 // ---------------------------------------------------------------------------
 
-struct OrderedSender { tx: mpsc::Sender<Vec<u8>> }
-struct PeerState { connection: Connection, ordered: OrderedSender }
+pub fn process_inbound(
+    mut quic: ResMut<QuicManager>,
+    mut server: ResMut<QuinnetServer>,
+    mut client: ResMut<QuinnetClient>,
+    mut server_conn_events: MessageReader<ServerConnectionEvent>,
+    mut server_lost_events: MessageReader<ServerConnectionLostEvent>,
+    mut client_conn_events: MessageReader<ClientConnectionEvent>,
+    mut client_lost_events: MessageReader<ClientConnectionLostEvent>,
+) {
+    // --- server: connection lifecycle ---
+    for event in server_conn_events.read() {
+        quic.clients.insert(event.id);
+        quic.inbound.push_back(InboundMessage {
+            conn_id: event.id,
+            channel: Channel::Ordered,
+            msg: MsgType::Connected,
+        });
+        println!("Client connected: {}", event.id);
+    }
+    for event in server_lost_events.read() {
+        quic.clients.remove(&event.id);
+        quic.inbound.push_back(InboundMessage {
+            conn_id: event.id,
+            channel: Channel::Ordered,
+            msg: MsgType::Disconnected,
+        });
+        println!("Client disconnected: {}", event.id);
+    }
 
-enum InternalEvent {
-    NewConnection {
-        conn_id: ConnectionId,
-        connection: Connection,
-        ordered_recv: RecvStream,
-        ordered_send: SendStream,
-    },
-    Disconnected { conn_id: ConnectionId },
-    Inbound { conn_id: ConnectionId, channel: Channel, data: Vec<u8> },
-}
-
-// ---------------------------------------------------------------------------
-// Systems
-// ---------------------------------------------------------------------------
-
-fn process_inbound(mut quic: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    let handle = runtime.handle();
-    // Drain channel into a local vec first to avoid split-borrow on QuicManager
-    let mut raw = Vec::new();
-    while let Ok(e) = quic.event_rx.try_recv() { raw.push(e); }
-
-    for event in raw {
-        match event {
-            InternalEvent::NewConnection { conn_id, connection, ordered_recv, ordered_send } => {
-                let ordered = spawn_ordered_writer(ordered_send, handle.clone());
-                spawn_ordered_reader(conn_id, ordered_recv, quic.event_tx.clone(), handle.clone());
-                spawn_unordered_reader(conn_id, connection.clone(), quic.event_tx.clone(), handle.clone());
-                spawn_datagram_reader(conn_id, connection.clone(), quic.event_tx.clone(), handle.clone());
-                quic.peers.insert(conn_id, PeerState { connection, ordered });
-                quic.clients.insert(conn_id);
-                quic.inbound.push_back(InboundMessage { conn_id, channel: Channel::Ordered, msg: MsgType::Connected });
-                println!("Connected: {conn_id:?}");
-            }
-            InternalEvent::Disconnected { conn_id } => {
-                quic.peers.remove(&conn_id);
-                quic.clients.remove(&conn_id);
-                quic.inbound.push_back(InboundMessage { conn_id, channel: Channel::Ordered, msg: MsgType::Disconnected });
-                println!("Disconnected: {conn_id:?}");
-            }
-            InternalEvent::Inbound { conn_id, channel, data } => {
-                match wincode::deserialize::<MsgType>(&data) {
-                    Ok(msg) => quic.inbound.push_back(InboundMessage { conn_id, channel, msg }),
-                    Err(e) => eprintln!("[{conn_id:?}] Deserialize error: {e}"),
+    // --- server: receive messages from connected clients ---
+    if let Some(endpoint) = server.get_endpoint_mut() {
+        for client_id in endpoint.clients() {
+            if let Some(conn) = endpoint.connection_mut(client_id) {
+                while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
+                    match wincode::deserialize::<MsgType>(&bytes) {
+                        Ok(msg) => quic.inbound.push_back(InboundMessage {
+                            conn_id: client_id,
+                            channel: channel_from_id(ch_id),
+                            msg,
+                        }),
+                        Err(e) => eprintln!("[client {client_id}] deserialize error: {e}"),
+                    }
                 }
             }
         }
     }
+
+    // --- client: connection lifecycle ---
+    for _ in client_conn_events.read() {
+        quic.inbound.push_back(InboundMessage {
+            conn_id: SERVER_CONN_ID,
+            channel: Channel::Ordered,
+            msg: MsgType::Connected,
+        });
+        println!("Connected to server");
+    }
+    for _ in client_lost_events.read() {
+        quic.inbound.push_back(InboundMessage {
+            conn_id: SERVER_CONN_ID,
+            channel: Channel::Ordered,
+            msg: MsgType::Disconnected,
+        });
+        println!("Disconnected from server");
+    }
+
+    // --- client: receive messages from server ---
+    if let Some(conn) = client.get_connection_mut() {
+        while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
+            match wincode::deserialize::<MsgType>(&bytes) {
+                Ok(msg) => quic.inbound.push_back(InboundMessage {
+                    conn_id: SERVER_CONN_ID,
+                    channel: channel_from_id(ch_id),
+                    msg,
+                }),
+                Err(e) => eprintln!("[server] deserialize error: {e}"),
+            }
+        }
+    }
 }
 
-fn flush_outbound(mut quic: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    let handle = runtime.handle();
+pub fn flush_outbound(
+    mut quic: ResMut<QuicManager>,
+    mut server: ResMut<QuinnetServer>,
+    mut client: ResMut<QuinnetClient>,
+) {
     let messages: Vec<_> = quic.outbound.drain(..).collect();
 
     for (target, channel, data) in messages {
-        let peer_ids: Vec<ConnectionId> = match &target {
-            SendTarget::One(id) => vec![*id],
-            SendTarget::All => quic.peers.keys().copied().collect(),
-        };
-        for conn_id in peer_ids {
-            let Some(peer) = quic.peers.get(&conn_id) else { continue };
-            let data = data.clone();
-            match channel {
-                Channel::Ordered => {
-                    if let Err(e) = peer.ordered.tx.try_send(data) {
-                        eprintln!("[{conn_id:?}] Ordered queue full or closed: {e}");
-                    }
+        let ch_id: ChannelId = channel.into();
+
+        if let Some(endpoint) = server.get_endpoint_mut() {
+            match target {
+                SendTarget::One(conn_id) => {
+                    endpoint.try_send_payload_on(conn_id, ch_id, data);
                 }
-                Channel::Unordered => {
-                    let conn = peer.connection.clone();
-                    handle.spawn(async move {
-                        match conn.open_uni().await {
-                            Ok(mut send) => {
-                                if let Err(e) = send.write_all(&data).await {
-                                    eprintln!("[{conn_id:?}] Unordered write error: {e}"); return;
-                                }
-                                if let Err(e) = send.finish() {
-                                    eprintln!("[{conn_id:?}] Unordered finish error: {e}");
-                                }
-                            }
-                            Err(e) => eprintln!("[{conn_id:?}] open_uni error: {e}"),
-                        }
-                    });
-                }
-                Channel::Unreliable => {
-                    let conn = peer.connection.clone();
-                    handle.spawn(async move {
-                        if let Err(e) = conn.send_datagram(data.into()) {
-                            eprintln!("[{conn_id:?}] Datagram error: {e}");
-                        }
-                    });
+                SendTarget::All => {
+                    endpoint.try_broadcast_payload_on(ch_id, data);
                 }
             }
+        } else if let Some(conn) = client.get_connection_mut() {
+            conn.try_send_payload_on(ch_id, data);
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Connection setup
-// ---------------------------------------------------------------------------
-
-async fn handle_new_connection(
-    conn_id: ConnectionId,
-    connection: Connection,
-    event_tx: cc::Sender<InternalEvent>,
-    is_initiator: bool,
-) {
-    let (ordered_send, ordered_recv) = if is_initiator {
-        match connection.open_bi().await {
-            Ok(s) => s,
-            Err(e) => { eprintln!("[{conn_id:?}] open_bi failed: {e}"); return; }
-        }
-    } else {
-        match connection.accept_bi().await {
-            Ok(s) => s,
-            Err(e) => { eprintln!("[{conn_id:?}] accept_bi failed: {e}"); return; }
-        }
-    };
-
-    let event_tx_clone = event_tx.clone();
-    let connection_clone = connection.clone();
-    tokio::spawn(async move {
-        let reason = connection_clone.closed().await;
-        eprintln!("[{conn_id:?}] Closed: {reason}");
-        let _ = event_tx_clone.send(InternalEvent::Disconnected { conn_id });
-    });
-
-    let _ = event_tx.send(InternalEvent::NewConnection {
-        conn_id, connection, ordered_recv, ordered_send,
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Reader/writer tasks
-// ---------------------------------------------------------------------------
-
-fn spawn_ordered_reader(
-    conn_id: ConnectionId,
-    mut recv: RecvStream,
-    event_tx: cc::Sender<InternalEvent>,
-    handle: tokio::runtime::Handle,
-) {
-    handle.spawn(async move {
-        loop {
-            let mut len_buf = [0u8; 4];
-            if let Err(e) = recv.read_exact(&mut len_buf).await {
-                eprintln!("[{conn_id:?}] Ordered read closed: {e}"); break;
-            }
-            let len = u32::from_le_bytes(len_buf) as usize;
-            if len == 0 || len > 4 * 1024 * 1024 {
-                eprintln!("[{conn_id:?}] Bad ordered frame length: {len}"); break;
-            }
-            let mut buf = vec![0u8; len];
-            if let Err(e) = recv.read_exact(&mut buf).await {
-                eprintln!("[{conn_id:?}] Ordered frame read error: {e}"); break;
-            }
-            let _ = event_tx.send(InternalEvent::Inbound { conn_id, channel: Channel::Ordered, data: buf });
-        }
-    });
-}
-
-fn spawn_unordered_reader(
-    conn_id: ConnectionId,
-    connection: Connection,
-    event_tx: cc::Sender<InternalEvent>,
-    handle: tokio::runtime::Handle,
-) {
-    handle.spawn(async move {
-        loop {
-            match connection.accept_uni().await {
-                Ok(mut recv) => {
-                    let tx = event_tx.clone();
-                    tokio::spawn(async move {
-                        match recv.read_to_end(1024 * 1024).await {
-                            Ok(data) => { let _ = tx.send(InternalEvent::Inbound { conn_id, channel: Channel::Unordered, data }); }
-                            Err(e) => eprintln!("[{conn_id:?}] Unordered read error: {e}"),
-                        }
-                    });
-                }
-                Err(e) => { eprintln!("[{conn_id:?}] accept_uni closed: {e}"); break; }
-            }
-        }
-    });
-}
-
-fn spawn_datagram_reader(
-    conn_id: ConnectionId,
-    connection: Connection,
-    event_tx: cc::Sender<InternalEvent>,
-    handle: tokio::runtime::Handle,
-) {
-    handle.spawn(async move {
-        loop {
-            match connection.read_datagram().await {
-                Ok(data) => { let _ = event_tx.send(InternalEvent::Inbound { conn_id, channel: Channel::Unreliable, data: data.to_vec() }); }
-                Err(e) => { eprintln!("[{conn_id:?}] Datagram read closed: {e}"); break; }
-            }
-        }
-    });
-}
-
-fn spawn_ordered_writer(mut send: SendStream, handle: tokio::runtime::Handle) -> OrderedSender {
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
-    handle.spawn(async move {
-        while let Some(data) = rx.recv().await {
-            let len = (data.len() as u32).to_le_bytes();
-            if let Err(e) = send.write_all(&len).await { eprintln!("Ordered writer error (len): {e}"); break; }
-            if let Err(e) = send.write_all(&data).await { eprintln!("Ordered writer error (data): {e}"); break; }
-        }
-        let _ = send.finish();
-    });
-    OrderedSender { tx }
-}
-
-// ---------------------------------------------------------------------------
-// Endpoint construction
-// ---------------------------------------------------------------------------
-
-fn make_server_endpoint(addr: SocketAddr) -> anyhow::Result<Endpoint> {
-    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
-    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
-    let cert_der = rustls::pki_types::CertificateDer::from(cert.cert.der().to_vec());
-
-    let mut transport = quinn::TransportConfig::default();
-    transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
-    transport.max_idle_timeout(Some(std::time::Duration::from_secs(SERVER_CONNECTION_TIMEOUT).try_into()?));
-
-    let mut server_config = quinn::ServerConfig::with_single_cert(vec![cert_der], key)?;
-    server_config.transport_config(std::sync::Arc::new(transport));
-    Ok(Endpoint::server(server_config, addr)?)
-}
-
-fn make_client_endpoint() -> anyhow::Result<Endpoint> {
-    let crypto = rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(SkipServerVerification::new())
-        .with_no_client_auth();
-
-    let mut transport = quinn::TransportConfig::default();
-    transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
-    transport.keep_alive_interval(Some(std::time::Duration::from_secs(CLIENT_KEEPALIVE_INTERVAL)));
-
-    let mut client_config = quinn::ClientConfig::new(std::sync::Arc::new(
-        quinn::crypto::rustls::QuicClientConfig::try_from(crypto)?,
-    ));
-    client_config.transport_config(std::sync::Arc::new(transport));
-
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
-    endpoint.set_default_client_config(client_config);
-    Ok(endpoint)
-}
-
-// ---------------------------------------------------------------------------
-// TLS: skip verification (dev only)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-struct SkipServerVerification;
-
-impl SkipServerVerification {
-    fn new() -> std::sync::Arc<Self> { std::sync::Arc::new(Self) }
-}
-
-impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(&self, _e: &rustls::pki_types::CertificateDer<'_>, _i: &[rustls::pki_types::CertificateDer<'_>], _s: &rustls::pki_types::ServerName<'_>, _o: &[u8], _n: rustls::pki_types::UnixTime) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-    fn verify_tls12_signature(&self, _m: &[u8], _c: &rustls::pki_types::CertificateDer<'_>, _d: &rustls::DigitallySignedStruct) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-    fn verify_tls13_signature(&self, _m: &[u8], _c: &rustls::pki_types::CertificateDer<'_>, _d: &rustls::DigitallySignedStruct) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ED25519,
-        ]
     }
 }

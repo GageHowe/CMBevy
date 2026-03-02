@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use game_common::physics::physics_world::*;
 use game_common::net::{
     quic::*,
-    runtime::TokioRuntime,
     message::{MsgType, SimulationState, NetworkID, NetworkIDResource, SpawnCommand},
 };
 use game_common::tick::{increment_tick, Ticker};
@@ -22,7 +21,6 @@ fn main() {
     );
 
     app.add_plugins(MasterPlugin);
-    app.insert_resource(NetworkIDResource::default());
     app.init_resource::<PlayerRegistry>();
 
     app.add_systems(Startup, start_server)
@@ -37,8 +35,8 @@ fn main() {
 #[derive(Resource, Default)]
 struct PlayerRegistry(HashMap<ConnectionId, Entity>);
 
-fn start_server(mut quic: ResMut<QuicManager>, runtime: Res<TokioRuntime>) {
-    quic.start_server(&runtime, SERVER_BIND_ADDRESS.parse().unwrap());
+fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>) {
+    quic.start_server(&mut server, SERVER_BIND_ADDRESS.parse().unwrap());
 }
 
 fn on_message(
