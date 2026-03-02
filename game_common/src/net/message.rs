@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
 use std::str::FromStr;
+use crate::pawn::pawn::PawnInputComponent;
 
 /// component to mark entities that should be networked.
 /// NetworkID is managed by the server.
@@ -29,6 +30,11 @@ pub struct SpawnCommand {
     pub starting_velocity: CMVec3,
     pub rotation: CMQuat,
 }
+#[derive(SchemaWrite, SchemaRead, Debug, Clone, PartialEq)]
+pub struct PawnInputMessage {
+    input: PawnInputComponent,
+    tick: u64,
+}
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub enum MsgType {
@@ -42,6 +48,7 @@ pub enum MsgType {
     Ping(String),
     Pong(String),
     // BodyState(BodyState),
+    Input(PawnInputMessage),
     /// collection of BodyStates with corresponding network ids
     State(SimulationState),
     SpawnCommand(SpawnCommand),

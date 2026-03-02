@@ -2,6 +2,7 @@ use crate::physics::physics_world::*;
 use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
+use wincode_derive::{SchemaRead, SchemaWrite};
 
 pub struct PawnPlugin;
 
@@ -25,7 +26,7 @@ pub struct BipedPawnComponent;
 pub struct SpaceshipPawnComponent;
 
 /// Input state consumed by movement systems each tick.
-#[derive(Component, Default, Clone, Copy)]
+#[derive(Component, Default, Clone, Copy, SchemaRead, SchemaWrite, Debug, PartialEq)]
 pub struct PawnInputComponent {
     pub forward: f32,
     pub right: f32,

@@ -12,8 +12,8 @@ use game_common::net::{
 use game_common::tick::{increment_tick, Ticker};
 use game_common::config::SERVER_BIND_ADDRESS;
 use game_common::master_plugin::MasterPlugin;
+use game_common::pawn::biped;
 use game_common::debug_println;
-// use game_common::pawn::pawn::BipedPawnComponent;
 
 fn main() {
     let mut app = App::new();
@@ -56,20 +56,21 @@ fn on_message(
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::Connected => {
-                // let net_id = NetworkID(net_ids.get_next_id());
-                // let pos = Vec3::new(0.0, 5.0, 0.0);
-                // let entity = spawn_pawn_server(pos, net_id.clone(), &mut commands, &mut world);
-                // registry.0.insert(msg.conn_id, entity);
-                // quic.send(
-                //     SendTarget::One(msg.conn_id),
-                //     Channel::Ordered,
-                //     &MsgType::SpawnCommand(SpawnCommand {
-                //         net_id,
-                //         position: pos.into(),
-                //         starting_velocity: Vec3::ZERO.into(),
-                //         rotation: Quat::IDENTITY.into(),
-                //     }),
-                // );
+                let net_id = NetworkID(net_ids.get_next_id());
+                let pos = Vec3::new(0.0, 5.0, 0.0);
+                let entity = biped::spawn_server(Transform::from_translation(pos), &mut commands, &mut world);
+                commands.entity(entity).insert(net_id.clone());
+                registry.0.insert(msg.conn_id, entity);
+                quic.send(
+                    SendTarget::One(msg.conn_id),
+                    Channel::Ordered,
+                    &MsgType::SpawnCommand(SpawnCommand {
+                        net_id,
+                        position: pos.into(),
+                        starting_velocity: Vec3::ZERO.into(),
+                        rotation: Quat::IDENTITY.into(),
+                    }),
+                );
             }
             MsgType::Disconnected => {
                 if let Some(entity) = registry.0.remove(&msg.conn_id) {
@@ -93,25 +94,3 @@ fn broadcast_tick(mut quic: ResMut<QuicManager>, tick: Res<Ticker>) {
     quic.send(SendTarget::All, Channel::Unreliable, &msg);
 }
 
-// dude this is terrible, keep meshes on server, keep it simple, use the existing spawn function
-// /// Spawns a physics-only pawn entity on the server (no mesh).
-// fn spawn_pawn_server(
-//     pos: Vec3,
-//     net_id: NetworkID,
-//     commands: &mut Commands,
-//     world: &mut PhysicsWorld,
-// ) -> Entity {
-//     use rapier3d::prelude::*;
-//     let entity = commands.spawn((
-//         BipedPawnComponent,
-//         net_id,
-//         Transform::from_translation(pos),
-//     )).id();
-//     let rb = RigidBodyBuilder::dynamic().translation(pos.into()).build();
-//     let rb_handle = world.insert_body(entity, rb);
-//     let collider = ColliderBuilder::ball(0.5).build();
-//     commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
-//     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-//     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
-//     entity
-// }

@@ -1,7 +1,27 @@
 use super::super::physics::physics_world::*;
 use super::pawn::*;
 use bevy::prelude::*;
+use bevy::prelude::{Assets, Mesh, StandardMaterial, Mesh3d, MeshMaterial3d, Visibility, Color}; // weirdly, this errors in RustRover's lsp
 use rapier3d::prelude::*;
+
+/// Spawns a physics-only biped on the server (no mesh or material).
+pub fn spawn_server(
+    transform: Transform,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) -> Entity {
+    let entity = commands.spawn((
+        BipedPawnComponent,
+        Transform::from(transform),
+    )).id();
+    let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
+    let rb_handle = world.insert_body(entity, rb);
+    let collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
+    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+    entity
+}
 
 pub fn spawn(
     transform: Transform,
