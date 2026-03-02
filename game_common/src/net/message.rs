@@ -29,11 +29,16 @@ pub struct SpawnCommand {
     pub position: CMVec3,
     pub starting_velocity: CMVec3,
     pub rotation: CMQuat,
+    /// Server tick at spawn time — client uses this to synchronize its clock.
+    pub server_tick: u64,
+    /// True when this is the local player's own pawn; false for other players' ghosts.
+    pub is_owned: bool,
 }
+
 #[derive(SchemaWrite, SchemaRead, Debug, Clone, PartialEq)]
 pub struct PawnInputMessage {
-    input: PawnInputComponent,
-    tick: u64,
+    pub input: PawnInputComponent,
+    pub tick: u64,
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
@@ -52,6 +57,7 @@ pub enum MsgType {
     /// collection of BodyStates with corresponding network ids
     State(SimulationState),
     SpawnCommand(SpawnCommand),
+    DespawnCommand(NetworkID),
 }
 impl FromStr for MsgType {
     type Err = String;

@@ -50,6 +50,34 @@ pub fn spawn(
     entity
 }
 
+/// Spawns another player's pawn on the client: physics body + visible mesh, no Possessed/camera.
+/// Participates fully in the local physics simulation so reconciliation replay is correct.
+pub fn spawn_ghost(
+    transform: Transform,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    world: &mut PhysicsWorld,
+) -> Entity {
+    let entity = commands
+        .spawn((
+            BipedPawnComponent,
+            Transform::from(transform),
+            Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(1.0, 1.0, 1.0))),
+            MeshMaterial3d(materials.add(Color::srgb(0.9, 0.4, 0.1))),
+            Visibility::default(),
+        ))
+        .id();
+
+    let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
+    let rb_handle = world.insert_body(entity, rb);
+    let collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
+    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+    entity
+}
+
 pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
     body_handle: &PhysicsBodyHandle,

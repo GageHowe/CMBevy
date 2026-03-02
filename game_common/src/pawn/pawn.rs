@@ -2,6 +2,7 @@ use crate::physics::physics_world::*;
 use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
+use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
 
 pub struct PawnPlugin;
@@ -50,19 +51,34 @@ impl Default for CameraRigComponent {
     }
 }
 
-/// Marks a pawn as possessed and owns its input buffer.
-/// Buffer lifetime is tied to possession — no manual cleanup needed.
+/// Predicted physics state recorded each tick for reconciliation.
+pub struct PawnSnapshot {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub linvel: Vec3,
+    pub angvel: Vec3,
+}
+
+/// Marks a pawn as possessed and owns its input/state history for prediction + reconciliation.
 ///
 /// - Client: added to the pawn the local player controls
 /// - Server: added to every pawn a client is controlling
 #[derive(Component)]
 pub struct Possessed {
     buffer: RingBuffer<PawnInputComponent>,
+    /// tick → input, kept for reconciliation replay
+    input_history: HashMap<u64, PawnInputComponent>,
+    /// ring of (tick, snapshot) recorded after each physics step
+    state_history: RingBuffer<(u64, PawnSnapshot)>,
 }
 
 impl Possessed {
     pub fn new(capacity: usize) -> Self {
-        Self { buffer: RingBuffer::new(capacity) }
+        Self {
+            buffer: RingBuffer::new(capacity),
+            input_history: HashMap::new(),
+            state_history: RingBuffer::new(capacity),
+        }
     }
 
     pub fn push(&mut self, input: PawnInputComponent) {
@@ -71,6 +87,36 @@ impl Possessed {
 
     pub fn consume(&mut self) -> Option<PawnInputComponent> {
         self.buffer.pop()
+    }
+
+    /// Peek at the most recently pushed input without consuming it.
+    pub fn peek_newest(&self) -> Option<&PawnInputComponent> {
+        self.buffer.get_newest()
+    }
+
+    /// Record input for the given tick (used by client for reconciliation replay).
+    pub fn record_input(&mut self, tick: u64, input: PawnInputComponent) {
+        self.input_history.insert(tick, input);
+    }
+
+    /// Look up the recorded input for a tick.
+    pub fn get_input(&self, tick: u64) -> Option<&PawnInputComponent> {
+        self.input_history.get(&tick)
+    }
+
+    /// Drop input history older than `before_tick` to bound memory.
+    pub fn prune_input_history(&mut self, before_tick: u64) {
+        self.input_history.retain(|&t, _| t >= before_tick);
+    }
+
+    /// Record a predicted physics snapshot for the given tick.
+    pub fn record_state(&mut self, tick: u64, snapshot: PawnSnapshot) {
+        self.state_history.push((tick, snapshot));
+    }
+
+    /// Look up the predicted snapshot closest to `tick` (exact match preferred).
+    pub fn get_predicted_state(&self, tick: u64) -> Option<&PawnSnapshot> {
+        self.state_history.iter().find_map(|(t, s)| if *t == tick { Some(s) } else { None })
     }
 }
 

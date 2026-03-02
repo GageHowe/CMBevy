@@ -7,9 +7,9 @@ use bevy::prelude::*;
 // use nalgebra::Vector3;
 use crate::net::message::{BodyState, NetworkID, SimulationState};
 use bevy::math::primitives::Cuboid;
-use nalgebra::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
+pub use rapier3d::prelude::RigidBodyHandle;
 use std::collections::HashMap;
 
 // a way for entities to refer to their rigidbody
@@ -184,78 +184,61 @@ pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
     // print!("tick ");
 }
 
-/// Snapshot the state of entities that have a NetworkID and a PhysicsBodyHandle
+/// Snapshot the current physics state for all networked bodies.
+/// Returns a `SimulationState` stamped with `tick`.
 #[rustfmt::skip]
-pub fn take_snapshot(
-    world: Res<PhysicsWorld>,
-    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
+pub fn snapshot_bodies<'a>(
+    world: &PhysicsWorld,
+    tick: u64,
+    pairs: impl Iterator<Item = (&'a NetworkID, &'a PhysicsBodyHandle)>,
 ) -> SimulationState {
     let mut bodies = HashMap::new();
-    for (net_id, body_handle) in query.iter() {
+    for (net_id, body_handle) in pairs {
         if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
             let pos = rb.position();
-            bodies.insert(
-                net_id.clone(),
-                BodyState {
-                    position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z).into(),
-                    rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w).into(),
-                    linvel: Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z).into(),
-                    angvel: Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z).into(),
-        },);}}
-    SimulationState {
-        tick: 0, // TODO put in actual tick
-        bodies,
+            bodies.insert(net_id.clone(), BodyState {
+                position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z).into(),
+                rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w).into(),
+                linvel:   Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z).into(),
+                angvel:   Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z).into(),
+            });
+        }
     }
+    SimulationState { tick, bodies }
 }
 
-/// accept the received state, performed on client. Remember to fast-forward with inputs after doing this
-fn _restore_snapshot(
-    mut world: ResMut<PhysicsWorld>,
+/// Apply a server snapshot to the physics world.
+/// `pairs` maps NetworkID → RigidBodyHandle for every networked entity.
+pub fn restore_snapshot(
+    world: &mut PhysicsWorld,
     snapshot: &SimulationState,
-    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
+    pairs: &[(NetworkID, RigidBodyHandle)],
 ) {
-    for (net_id, body_handle) in query.iter() {
-        if let Some(state) = snapshot.bodies.get(net_id) {
-            // Changed from &net_id.0 to net_id
-            if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
-                rb.set_translation(
-                    Vec3 {
-                        x: state.position.x,
-                        y: state.position.y,
-                        z: state.position.z,
-                    },
-                    true,
-                );
-                rb.set_rotation(
-                    UnitQuaternion::from_quaternion(Quaternion::new(
-                        state.rotation.w,
-                        state.rotation.x,
-                        state.rotation.y,
-                        state.rotation.z,
-                    ))
-                    .into(),
-                    true,
-                );
-                rb.set_linvel(
-                    Vec3 {
-                        x: state.linvel.x,
-                        y: state.linvel.y,
-                        z: state.linvel.z,
-                    },
-                    true,
-                );
-                rb.set_angvel(
-                    Vec3 {
-                        x: state.angvel.x,
-                        y: state.angvel.y,
-                        z: state.angvel.z,
-                    },
-                    true,
-                );
-
-                rb.wake_up(true);
-            }
-        }
+    for (net_id, handle) in pairs {
+        let Some(state) = snapshot.bodies.get(net_id) else { continue };
+        let Some(rb) = world.rigid_body_set.get_mut(*handle) else { continue };
+        rb.set_translation(
+            Vector3::new(state.position.x, state.position.y, state.position.z),
+            true,
+        );
+        rb.set_rotation(
+            Quat::from_xyzw(
+                state.rotation.x,
+                state.rotation.y,
+                state.rotation.z,
+                state.rotation.w,
+            ),
+            true,
+        );
+        rb.set_linvel(
+            Vector3::new(state.linvel.x, state.linvel.y, state.linvel.z),
+            true,
+        );
+        rb.set_angvel(
+            Vector3::new(state.angvel.x, state.angvel.y, state.angvel.z),
+            true,
+        );
+        rb.wake_up(true);
     }
 }
 
