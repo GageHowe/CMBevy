@@ -3,6 +3,7 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use std::collections::HashMap;
+use bevy::window::ExitCondition;
 use game_common::physics::physics_world::*;
 use game_common::net::{
     quic::*,
@@ -19,6 +20,11 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins.set(LogPlugin { level: Level::ERROR, ..default() })
+            .set(WindowPlugin{
+                primary_window: None,
+                exit_condition: ExitCondition::DontExit,
+                ..default()
+            })
     );
 
     app.add_plugins(MasterPlugin);
