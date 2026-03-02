@@ -49,7 +49,7 @@ fn main() {
             }),
     );
 
-    app.add_plugins(MasterPlugin)
+    app.add_plugins(MasterPlugin::client())
         .init_state::<AppState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(LevelPlugin)
@@ -58,8 +58,10 @@ fn main() {
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
     app.add_systems(Startup, connect);
-    app.add_systems(Update, (on_message, send_chat));
-    app.add_systems(FixedUpdate, (on_message, send_chat));
+    // on_message only in FixedUpdate so it processes the accumulated inbound queue once per tick.
+    // send_chat uses just_pressed which is frame-based, so it stays in Update.
+    app.add_systems(Update, send_chat);
+    app.add_systems(FixedUpdate, on_message);
 
     debug_println!("starting client...\n");
     app.run();

@@ -253,9 +253,7 @@ pub fn flush_outbound(
     mut server: ResMut<QuinnetServer>,
     mut client: ResMut<QuinnetClient>,
 ) {
-    let messages: Vec<_> = quic.outbound.drain(..).collect();
-
-    for (target, channel, data) in messages {
+    while let Some((target, channel, data)) = quic.outbound.pop_front() {
         let ch_id: ChannelId = channel.into();
 
         if let Some(endpoint) = server.get_endpoint_mut() {
@@ -268,6 +266,11 @@ pub fn flush_outbound(
                 }
             }
         } else if let Some(conn) = client.get_connection_mut() {
+            if let SendTarget::One(id) = target {
+                if id != SERVER_CONN_ID {
+                    eprintln!("flush_outbound: SendTarget::One({id}) on client — only SERVER_CONN_ID ({SERVER_CONN_ID}) is valid; sending to server anyway");
+                }
+            }
             conn.try_send_payload_on(ch_id, data);
         }
     }

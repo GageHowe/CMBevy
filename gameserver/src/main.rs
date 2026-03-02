@@ -20,11 +20,10 @@ fn main() {
         DefaultPlugins.set(LogPlugin { level: Level::ERROR, ..default() })
     );
 
-    app.add_plugins(MasterPlugin);
+    app.add_plugins(MasterPlugin::server());
     app.init_resource::<PlayerRegistry>();
 
     app.add_systems(Startup, start_server)
-        .add_systems(Update, on_message)
         .add_systems(FixedUpdate, (on_message, increment_tick, broadcast_tick).chain());
 
     println!("starting server...\n");
