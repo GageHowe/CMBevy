@@ -58,7 +58,7 @@ fn main() {
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
     app.add_systems(Startup, connect);
-    app.add_systems(Update, (on_message, send_chat));
+    // on_message and send_chat only in FixedUpdate; process_inbound (PreUpdate) fills the queue beforehand.
     app.add_systems(FixedUpdate, (on_message, send_chat));
 
     debug_println!("starting client...\n");

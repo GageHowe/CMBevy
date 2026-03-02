@@ -24,8 +24,9 @@ fn main() {
     app.init_resource::<PlayerRegistry>();
 
     app.add_systems(Startup, start_server)
-        .add_systems(Update, on_message)
-        .add_systems(FixedUpdate, (on_message, increment_tick, broadcast_tick).chain());
+        // on_message only in FixedUpdate; process_inbound (PreUpdate) fills the queue beforehand.
+        // increment_tick is registered by MasterPlugin in FixedPostUpdate — don't duplicate it.
+        .add_systems(FixedUpdate, (on_message, broadcast_tick).chain());
 
     println!("starting server...\n");
     app.run();

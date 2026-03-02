@@ -1,17 +1,12 @@
-use bevy::{
-    ecs::message::MessageReader,
-    prelude::*,
-};
+use bevy::prelude::*;
 use bevy_quinnet::{
     client::{
         certificate::CertificateVerificationMode,
-        connection::{ClientAddrConfiguration, ConnectionEvent as ClientConnectionEvent,
-            ConnectionLostEvent as ClientConnectionLostEvent},
+        connection::ClientAddrConfiguration,
         ClientConnectionConfiguration, ClientConnectionConfigurationDefaultables,
     },
     server::{
         certificate::CertificateRetrievalMode,
-        ConnectionEvent as ServerConnectionEvent, ConnectionLostEvent as ServerConnectionLostEvent,
         EndpointAddrConfiguration,
         ServerEndpointConfiguration, ServerEndpointConfigurationDefaultables,
     },
@@ -114,6 +109,8 @@ pub struct QuicManager {
     pub inbound: VecDeque<InboundMessage>,
     /// Currently connected client IDs (server side only).
     pub clients: HashSet<ConnectionId>,
+    /// Tracks the client connection state for edge-detection (client side only).
+    client_connected: bool,
     outbound: VecDeque<(SendTarget, Channel, Vec<u8>)>,
 }
 
@@ -172,34 +169,27 @@ pub fn process_inbound(
     mut quic: ResMut<QuicManager>,
     mut server: ResMut<QuinnetServer>,
     mut client: ResMut<QuinnetClient>,
-    mut server_conn_events: MessageReader<ServerConnectionEvent>,
-    mut server_lost_events: MessageReader<ServerConnectionLostEvent>,
-    mut client_conn_events: MessageReader<ClientConnectionEvent>,
-    mut client_lost_events: MessageReader<ClientConnectionLostEvent>,
 ) {
-    // --- server: connection lifecycle ---
-    for event in server_conn_events.read() {
-        quic.clients.insert(event.id);
-        quic.inbound.push_back(InboundMessage {
-            conn_id: event.id,
-            channel: Channel::Ordered,
-            msg: MsgType::Connected,
-        });
-        println!("Client connected: {}", event.id);
-    }
-    for event in server_lost_events.read() {
-        quic.clients.remove(&event.id);
-        quic.inbound.push_back(InboundMessage {
-            conn_id: event.id,
-            channel: Channel::Ordered,
-            msg: MsgType::Disconnected,
-        });
-        println!("Client disconnected: {}", event.id);
-    }
-
-    // --- server: receive messages from connected clients ---
+    // --- server: connection lifecycle (poll endpoint.clients() and diff against known set) ---
     if let Some(endpoint) = server.get_endpoint_mut() {
-        for client_id in endpoint.clients() {
+        let current: HashSet<ConnectionId> = endpoint.clients().into_iter().collect();
+
+        let connected: Vec<ConnectionId> = current.difference(&quic.clients).cloned().collect();
+        let disconnected: Vec<ConnectionId> = quic.clients.difference(&current).cloned().collect();
+
+        for id in connected {
+            println!("Client connected: {id}");
+            quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Connected });
+        }
+        for id in disconnected {
+            println!("Client disconnected: {id}");
+            quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Disconnected });
+        }
+
+        // --- server: receive messages from connected clients ---
+        // Iterate `current` (local var) instead of `quic.clients` to avoid holding
+        // an immutable borrow on `quic` while also pushing to `quic.inbound`.
+        for &client_id in &current {
             if let Some(conn) = endpoint.connection_mut(client_id) {
                 while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
                     match wincode::deserialize::<MsgType>(&bytes) {
@@ -213,25 +203,24 @@ pub fn process_inbound(
                 }
             }
         }
+
+        quic.clients = current;
     }
 
-    // --- client: connection lifecycle ---
-    for _ in client_conn_events.read() {
-        quic.inbound.push_back(InboundMessage {
-            conn_id: SERVER_CONN_ID,
-            channel: Channel::Ordered,
-            msg: MsgType::Connected,
-        });
-        println!("Connected to server");
+    // --- client: connection lifecycle (edge-detect is_connected()) ---
+    let now_connected = client.is_connected();
+    match (quic.client_connected, now_connected) {
+        (false, true) => {
+            println!("Connected to server");
+            quic.inbound.push_back(InboundMessage { conn_id: SERVER_CONN_ID, channel: Channel::Ordered, msg: MsgType::Connected });
+        }
+        (true, false) => {
+            println!("Disconnected from server");
+            quic.inbound.push_back(InboundMessage { conn_id: SERVER_CONN_ID, channel: Channel::Ordered, msg: MsgType::Disconnected });
+        }
+        _ => {}
     }
-    for _ in client_lost_events.read() {
-        quic.inbound.push_back(InboundMessage {
-            conn_id: SERVER_CONN_ID,
-            channel: Channel::Ordered,
-            msg: MsgType::Disconnected,
-        });
-        println!("Disconnected from server");
-    }
+    quic.client_connected = now_connected;
 
     // --- client: receive messages from server ---
     if let Some(conn) = client.get_connection_mut() {
@@ -253,9 +242,7 @@ pub fn flush_outbound(
     mut server: ResMut<QuinnetServer>,
     mut client: ResMut<QuinnetClient>,
 ) {
-    let messages: Vec<_> = quic.outbound.drain(..).collect();
-
-    for (target, channel, data) in messages {
+    while let Some((target, channel, data)) = quic.outbound.pop_front() {
         let ch_id: ChannelId = channel.into();
 
         if let Some(endpoint) = server.get_endpoint_mut() {

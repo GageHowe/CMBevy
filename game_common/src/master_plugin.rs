@@ -27,6 +27,9 @@ impl Plugin for MasterPlugin {
             .add_plugins(QuinnetClientPlugin::default())
             .init_resource::<QuicManager>()
             .init_resource::<NetworkIDResource>()
-            .add_systems(Update, (process_inbound, flush_outbound).chain());
+            // process_inbound in PreUpdate so the queue is filled before FixedUpdate systems run.
+            // flush_outbound in PostUpdate so all FixedUpdate and Update sends are flushed together.
+            .add_systems(PreUpdate, process_inbound)
+            .add_systems(PostUpdate, flush_outbound);
     }
 }
