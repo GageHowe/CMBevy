@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 const ASSETS: &[&str] = &[
     "models/companion_cube.glb",
-    "models/companion_cube_2.glb",
+    "textures/skyboxes/cubemap_rgba8.ktx2",
 ];
 
 #[derive(Resource, Default)]

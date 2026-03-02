@@ -3,6 +3,7 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+use bevy::core_pipeline::Skybox;
 use game_common::camera::spawn_camera;
 
 use game_common::pawn::pawn::{PawnPlugin, Possessed};
