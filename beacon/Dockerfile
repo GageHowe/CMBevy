@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/
 
 WORKDIR /app
 COPY . .
+# Cranelift is a local-dev speedup; use LLVM for release builds in Docker
+RUN sed -i '/codegen-backend/d' .cargo/config.toml
 RUN cargo build --release --bin beacon
 
 # Runtime

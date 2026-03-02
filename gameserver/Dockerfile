@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/
 
 WORKDIR /app
 COPY . .
+
+RUN sed -i '/codegen-backend/d' .cargo/config.toml
 RUN cargo build --release --bin gameserver
 
 # Runtime
