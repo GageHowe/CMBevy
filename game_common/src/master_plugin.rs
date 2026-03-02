@@ -6,14 +6,12 @@ use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
 use crate::net::quic::{flush_outbound, process_inbound, QuicManager};
 use crate::physics::physics_world::*;
 use crate::tick::*;
-use crate::assets::CMAssetPlugin;
 use crate::net::message::NetworkIDResource;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(60.0));
-        app.add_plugins(CMAssetPlugin);
         app.insert_resource(Ticker {
             tick: 0
         });
