@@ -13,17 +13,11 @@ bevy = { version = "0.18", default-features = false, features = ["bevy_log"] }
 #bevy_math = "0.18"
 #bevy_time = "0.18"
 #bincode = "2.0"
-quinn = "0.11"
 anyhow = "1"
-rustls = { version = "0.23", default-features = false }
-#rustls-pemfile = "2"
 rapier3d = "0.32.0"
 bevy_egui = "0.39.1"
 wincode = "0.4.1"
 wincode-derive = "0.4.0"
 zstd = "0.13.3"
-tokio = "1.49.0"
-crossbeam-channel = "0.5"
-rcgen = "0.14.7"
-bytes = "1.11.1"
+bevy_quinnet = { version = "0.20", default-features = false, features = ["client", "server"] }
 bevy_enhanced_input = "0.24.0"
