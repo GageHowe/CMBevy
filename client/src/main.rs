@@ -6,11 +6,12 @@ use bevy::window::PresentMode;
 use bevy::core_pipeline::Skybox;
 use game_common::camera::spawn_camera;
 
-use game_common::pawn::pawn::{gather_pawn_input, move_bipeds, PawnPlugin, PawnSnapshot, Possessed};
+use game_common::pawn::pawn::{gather_pawn_input, move_bipeds, PawnPlugin, Possessed};
 use game_common::pawn::biped;
 use game_common::physics::physics_world::{
-    step_physics, restore_snapshot, PhysicsBodyHandle, PhysicsWorld, RigidBodyHandle,
+    step_physics, restore_snapshot, snapshot_bodies, PhysicsBodyHandle, PhysicsWorld, RigidBodyHandle,
 };
+use game_common::ring_buffer::RingBuffer;
 use game_common::net::{
     quic::*,
     message::{MsgType, NetworkID, PawnInputMessage, SimulationState, SpawnCommand},
@@ -32,6 +33,17 @@ const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
 /// Holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
 #[derive(Resource, Default)]
 struct PendingReconciliation(Option<SimulationState>);
+
+/// Ring buffer of every local physics snapshot, one per tick, for all networked bodies.
+/// Used by reconciliation to restore bodies the server didn't mention.
+#[derive(Resource)]
+struct LocalStateHistory(RingBuffer<SimulationState>);
+
+impl Default for LocalStateHistory {
+    fn default() -> Self {
+        Self(RingBuffer::new(128))
+    }
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -69,6 +81,7 @@ fn main() {
         .add_plugins(UIPlugin)
         .add_plugins(PawnPlugin)
         .init_resource::<PendingReconciliation>()
+        .init_resource::<LocalStateHistory>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
     app.add_systems(Startup, connect);
@@ -82,8 +95,8 @@ fn main() {
     );
 
     // FixedUpdate ordering (step_physics comes from PhysicsPlugin):
-    //   step_physics → record_pawn_state → on_message/send_chat
-    app.add_systems(FixedUpdate, record_pawn_state.after(step_physics));
+    //   step_physics → record_world_state → on_message/send_chat
+    app.add_systems(FixedUpdate, record_world_state.after(step_physics));
     app.add_systems(FixedUpdate, (on_message, send_chat).after(step_physics));
 
     debug_println!("starting client...\n");
@@ -216,64 +229,59 @@ fn send_pawn_input(
     );
 }
 
-/// Runs after `step_physics`. Records the current predicted physics state for the tick so that
-/// `maybe_reconcile` can compare it against the authoritative server state later.
-fn record_pawn_state(
+/// Runs after `step_physics`. Snapshots all networked bodies into the local history so that
+/// `maybe_reconcile` can compare and restore them against the authoritative server state.
+fn record_world_state(
     world: Res<PhysicsWorld>,
     tick: Res<Ticker>,
-    mut pawns: Query<(&mut Possessed, &PhysicsBodyHandle)>,
+    mut history: ResMut<LocalStateHistory>,
+    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
 ) {
-    let Ok((mut possessed, handle)) = pawns.single_mut() else { return };
-    let Some(rb) = world.rigid_body_set.get(handle.0) else { return };
-    let pos = rb.position();
-    possessed.record_state(
-        tick.tick,
-        PawnSnapshot {
-            position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z),
-            rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w),
-            linvel:   Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z),
-            angvel:   Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z),
-        },
-    );
+    history.0.push(snapshot_bodies(&world, tick.tick, query.iter()));
 }
 
 /// Runs at the start of FixedPreUpdate, before input is gathered.
 ///
 /// If a server snapshot is pending:
-///   1. Compare it against our predicted state at that tick.
-///   2. If the error exceeds a threshold, restore the server state and replay all buffered
-///      inputs from snapshot_tick+1 up to (but not including) the current tick.  The normal
-///      tick then proceeds as usual: gather input → apply forces → step_physics.
+///   1. Compare it against our locally predicted state at that tick.
+///   2. If the error exceeds a threshold, restore physics state and replay all buffered
+///      inputs from snapshot_tick+1 up to (but not including) the current tick.
+///      Bodies in the server snapshot are restored to server-authoritative state.
+///      Networked bodies the server didn't mention are restored to local predicted state.
 fn maybe_reconcile(
     mut pending: ResMut<PendingReconciliation>,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
+    history: Res<LocalStateHistory>,
     bodies: Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>,
 ) {
     let Some(snapshot) = pending.0.take() else { return };
 
-    // Find our possessed pawn.
+    // find the locally possessed pawn, gotta find a better way to do this
     let Some((our_net_id, our_handle, possessed)) =
         bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
     else {
         return;
     };
 
-    // Compare predicted state at snapshot.tick with server state.
+    // look up local prediction at the snapshot's tick
+    let local_at_tick = history.0.iter().find(|s| s.tick == snapshot.tick);
+
+    // compare locally predicted state against the server's.
     let needs_reconcile = match (
-        possessed.get_predicted_state(snapshot.tick),
+        local_at_tick.and_then(|s| s.bodies.get(our_net_id)),
         snapshot.bodies.get(our_net_id),
     ) {
         (Some(predicted), Some(server)) => {
             let pos_err = (Vec3::new(server.position.x, server.position.y, server.position.z)
-                - predicted.position)
+                - Vec3::new(predicted.position.x, predicted.position.y, predicted.position.z))
                 .length();
             let vel_err = (Vec3::new(server.linvel.x, server.linvel.y, server.linvel.z)
-                - predicted.linvel)
+                - Vec3::new(predicted.linvel.x, predicted.linvel.y, predicted.linvel.z))
                 .length();
             pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
         }
-        // No history for this tick — always reconcile to stay correct.
+        // no history for this tick, always reconcile to stay correct.
         _ => true,
     };
 
@@ -281,14 +289,24 @@ fn maybe_reconcile(
         return;
     }
 
-    // 1. Restore all bodies to the server snapshot state.
     let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
         .iter()
         .map(|(nid, h, _)| (nid.clone(), h.0))
         .collect();
+
+    // 1. Restore server-known bodies to the authoritative server state.
     restore_snapshot(&mut world, &snapshot, &pairs);
 
-    // 2. Replay our inputs from snapshot_tick+1 up to (not including) current_tick.
+    // 2. Restore networked bodies the server didn't mention to their local predicted state.
+    if let Some(local) = local_at_tick {
+        let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
+            .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
+            .cloned()
+            .collect();
+        restore_snapshot(&mut world, local, &unmentioned);
+    }
+
+    // 3. Replay our inputs from snapshot_tick+1 up to (not including) current_tick.
     //    The current tick's input will be applied normally by move_bipeds right after.
     let current = tick.tick;
     for replay_tick in (snapshot.tick + 1)..current {

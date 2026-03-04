@@ -52,15 +52,7 @@ impl Default for CameraRigComponent {
     }
 }
 
-/// Predicted physics state recorded each tick for reconciliation.
-pub struct PawnSnapshot {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub linvel: Vec3,
-    pub angvel: Vec3,
-}
-
-/// Marks a pawn as possessed and owns its input/state history for prediction + reconciliation.
+/// Marks a pawn as possessed and owns its input history for prediction + reconciliation.
 ///
 /// - Client: added to the pawn the local player controls
 /// - Server: added to every pawn a client is controlling
@@ -69,8 +61,6 @@ pub struct Possessed {
     buffer: RingBuffer<PawnInput>,
     /// tick → input, kept for reconciliation replay
     input_history: HashMap<u64, PawnInput>,
-    /// ring of (tick, snapshot) recorded after each physics step
-    state_history: RingBuffer<(u64, PawnSnapshot)>,
 }
 
 impl Possessed {
@@ -78,7 +68,6 @@ impl Possessed {
         Self {
             buffer: RingBuffer::new(capacity),
             input_history: HashMap::new(),
-            state_history: RingBuffer::new(capacity),
         }
     }
 
@@ -110,15 +99,6 @@ impl Possessed {
         self.input_history.retain(|&t, _| t >= before_tick);
     }
 
-    /// Record a predicted physics snapshot for the given tick.
-    pub fn record_state(&mut self, tick: u64, snapshot: PawnSnapshot) {
-        self.state_history.push((tick, snapshot));
-    }
-
-    /// Look up the predicted snapshot closest to `tick` (exact match preferred).
-    pub fn get_predicted_state(&self, tick: u64) -> Option<&PawnSnapshot> {
-        self.state_history.iter().find_map(|(t, s)| if *t == tick { Some(s) } else { None })
-    }
 }
 
 // SYSTEMS

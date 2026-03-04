@@ -18,7 +18,8 @@
       "Bash(cargo test:*)",
       "Bash(xargs head:*)",
       "Bash(./target/debug/hdri-to-ktx2:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(tasklist:*)"
     ],
     "deny": []
   }

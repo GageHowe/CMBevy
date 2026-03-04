@@ -12,9 +12,14 @@ use rapier3d::prelude::*;
 pub use rapier3d::prelude::RigidBodyHandle;
 use std::collections::HashMap;
 
-// a way for entities to refer to their rigidbody
+/// a way for entities to refer to their rigidbody
 #[derive(Component)]
 pub struct PhysicsBodyHandle(pub rapier3d::prelude::RigidBodyHandle);
+
+/// new
+/// this should be used on the client to decide whether or not to resimulate, and which tick/state to target if so
+#[derive(Resource)]
+pub struct LastRecievedServerState(pub Option<SimulationState>);
 
 #[derive(Resource)]
 pub struct PhysicsWorld {
