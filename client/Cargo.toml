@@ -6,10 +6,6 @@ edition = "2024"
 [lints]
 workspace = true
 
-[[bin]]
-name = "CriticalMass-Client"
-path = "src/main.rs"
-
 [dependencies]
 common = { path = "../common" }
 bevy = { version = "0.18", features = ["vorbis", "wav", "jpeg", "bevy_gltf"] }

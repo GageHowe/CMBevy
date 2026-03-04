@@ -1,3 +1,5 @@
+#![feature(likely_unlikely)]
+
 pub mod config;
 pub mod helpers;
 pub mod level;
