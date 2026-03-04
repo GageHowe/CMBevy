@@ -5,17 +5,17 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use bevy::window::ExitCondition;
-use game_common::physics::physics_world::*;
-use game_common::net::{
+use common::physics::physics_world::*;
+use common::net::{
     quic::*,
     message::{MsgType, NetworkID, NetworkIDResource, SpawnCommand},
 };
-use game_common::tick::Ticker;
+use common::tick::Ticker;
 #[derive(Resource)]
 struct BindAddr(SocketAddr);
-use game_common::master_plugin::MasterPlugin;
-use game_common::pawn::biped;
-use game_common::debug_println;
+use common::master_plugin::MasterPlugin;
+use common::pawn::biped;
+use common::debug_println;
 
 fn parse_addr() -> SocketAddr {
     let mut args = std::env::args().skip(1);
@@ -26,7 +26,7 @@ fn parse_addr() -> SocketAddr {
             }
         }
     }
-    game_common::config::SERVER_BIND_ADDRESS.parse().unwrap()
+    common::config::SERVER_BIND_ADDRESS.parse().unwrap()
 }
 
 fn main() {

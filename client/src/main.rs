@@ -3,30 +3,29 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-use bevy::core_pipeline::Skybox;
-use game_common::camera::spawn_camera;
+use common::camera::spawn_camera;
 
-use game_common::pawn::pawn::{gather_pawn_input, move_bipeds, PawnPlugin, Possessed};
-use game_common::pawn::biped;
-use game_common::physics::physics_world::{
-    step_physics, restore_snapshot, snapshot_bodies, PhysicsBodyHandle, PhysicsWorld, RigidBodyHandle,
-};
-use game_common::ring_buffer::RingBuffer;
-use game_common::net::{
-    quic::*,
+use common::level::level::*;
+use common::net::{
     message::{MsgType, NetworkID, PawnInputMessage, SimulationState, SpawnCommand},
+    quic::*,
 };
-use game_common::tick::Ticker;
-use game_common::ui::ui::UIPlugin;
-use game_common::ui::window::WindowSettingsPlugin;
-use game_common::level::level::*;
+use common::pawn::biped;
+use common::pawn::pawn::{gather_pawn_input, move_bipeds, PawnPlugin, Possessed};
+use common::physics::physics_world::{
+    restore_snapshot, snapshot_bodies, step_physics, PhysicsBodyHandle, PhysicsWorld, RigidBodyHandle,
+};
+use common::ring_buffer::RingBuffer;
+use common::tick::Ticker;
+use common::ui::ui::UIPlugin;
+use common::ui::window::WindowSettingsPlugin;
 use std::net::SocketAddr;
 
 #[derive(Resource)]
 struct ServerAddr(SocketAddr);
-use game_common::master_plugin::MasterPlugin;
-use game_common::ui::ui::GuiState;
-use game_common::debug_println;
+use common::debug_println;
+use common::master_plugin::MasterPlugin;
+use common::ui::ui::GuiState;
 
 /// How far our predicted position may drift from the server before we reconcile.
 const RECONCILE_POS_THRESHOLD: f32 = 0.2;
@@ -63,7 +62,7 @@ fn parse_server_addr() -> SocketAddr {
             }
         }
     }
-    game_common::config::SERVER_BIND_ADDRESS.parse().unwrap()
+    common::config::SERVER_BIND_ADDRESS.parse().unwrap()
 }
 
 fn main() {
