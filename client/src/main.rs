@@ -20,7 +20,10 @@ use game_common::tick::Ticker;
 use game_common::ui::ui::UIPlugin;
 use game_common::ui::window::WindowSettingsPlugin;
 use game_common::level::level::*;
-use game_common::config::SERVER_BIND_ADDRESS;
+use std::net::SocketAddr;
+
+#[derive(Resource)]
+struct ServerAddr(SocketAddr);
 use game_common::master_plugin::MasterPlugin;
 use game_common::ui::ui::GuiState;
 use game_common::debug_println;
@@ -51,7 +54,20 @@ enum AppState {
     Playing,
 }
 
+fn parse_server_addr() -> SocketAddr {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--server" {
+            if let Some(addr) = args.next().and_then(|a| a.parse().ok()) {
+                return addr;
+            }
+        }
+    }
+    game_common::config::SERVER_BIND_ADDRESS.parse().unwrap()
+}
+
 fn main() {
+    let server_addr = parse_server_addr();
     let mut app = App::new();
 
     app.add_plugins(
@@ -80,6 +96,7 @@ fn main() {
         .add_plugins(LevelPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(PawnPlugin)
+        .insert_resource(ServerAddr(server_addr))
         .init_resource::<PendingReconciliation>()
         .init_resource::<LocalStateHistory>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
@@ -114,8 +131,8 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>) {
-    quic.connect(&mut client, SERVER_BIND_ADDRESS.parse().unwrap());
+fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, addr: Res<ServerAddr>) {
+    quic.connect(&mut client, addr.0);
 }
 
 fn on_message(

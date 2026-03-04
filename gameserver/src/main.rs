@@ -3,6 +3,7 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use bevy::window::ExitCondition;
 use game_common::physics::physics_world::*;
 use game_common::net::{
@@ -10,12 +11,27 @@ use game_common::net::{
     message::{MsgType, NetworkID, NetworkIDResource, SpawnCommand},
 };
 use game_common::tick::Ticker;
-use game_common::config::SERVER_BIND_ADDRESS;
+#[derive(Resource)]
+struct BindAddr(SocketAddr);
 use game_common::master_plugin::MasterPlugin;
 use game_common::pawn::biped;
 use game_common::debug_println;
 
+fn parse_addr() -> SocketAddr {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--port" {
+            if let Some(port) = args.next().and_then(|p| p.parse::<u16>().ok()) {
+                return format!("0.0.0.0:{port}").parse().unwrap();
+            }
+        }
+    }
+    game_common::config::SERVER_BIND_ADDRESS.parse().unwrap()
+}
+
 fn main() {
+    let bind_addr = parse_addr();
+    println!("binding to {bind_addr}");
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins.set(LogPlugin { level: Level::ERROR, ..default() })
@@ -27,6 +43,7 @@ fn main() {
     );
 
     app.add_plugins(MasterPlugin);
+    app.insert_resource(BindAddr(bind_addr));
     app.init_resource::<PlayerRegistry>();
 
     app.add_systems(Startup, start_server)
@@ -43,8 +60,8 @@ fn main() {
 #[derive(Resource, Default)]
 struct PlayerRegistry(HashMap<ConnectionId, (Entity, NetworkID)>);
 
-fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>) {
-    quic.start_server(&mut server, SERVER_BIND_ADDRESS.parse().unwrap());
+fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>, addr: Res<BindAddr>) {
+    quic.start_server(&mut server, addr.0);
 }
 
 fn on_message(
