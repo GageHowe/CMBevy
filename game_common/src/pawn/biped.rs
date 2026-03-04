@@ -81,7 +81,7 @@ pub fn spawn_ghost(
 pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
     body_handle: &PhysicsBodyHandle,
-    input: PawnInputComponent,
+    input: PawnInput,
 ) {
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;

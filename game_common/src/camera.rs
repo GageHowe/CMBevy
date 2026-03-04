@@ -10,13 +10,10 @@ use bevy::prelude::{default, Commands, Transform};
 use bevy::core_pipeline::Skybox;
 
 pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let skybox_handle = asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2");
-    // let skybox_handle = asset_server.load("textures/skyboxes/cubemap_rgba8.ktx2");
     commands.spawn((
         Camera3d::default(),
-        // Camera::default(),
         Camera {
-            // clear_color: ClearColorConfig::Custom(Color::BLACK),
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..Default::default()
         },
         Smaa::default(),
@@ -27,13 +24,12 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
 
         Projection::Perspective(PerspectiveProjection {
-            // vertical FOV in radians
             fov: 90.0_f32.to_radians(),
             ..Default::default()
         }),
         Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         Skybox {
-            image: skybox_handle,
+            image: asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2"),
             brightness: 1000.0,
             ..default()
         },

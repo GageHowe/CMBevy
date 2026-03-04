@@ -27,8 +27,9 @@ pub struct BipedPawnComponent;
 pub struct SpaceshipPawnComponent;
 
 /// Input state consumed by movement systems each tick.
+/// does this really need to be Component?
 #[derive(Component, Default, Clone, Copy, SchemaRead, SchemaWrite, Debug, PartialEq)]
-pub struct PawnInputComponent {
+pub struct PawnInput {
     pub forward: f32,
     pub right: f32,
     pub up: f32,
@@ -65,9 +66,9 @@ pub struct PawnSnapshot {
 /// - Server: added to every pawn a client is controlling
 #[derive(Component)]
 pub struct Possessed {
-    buffer: RingBuffer<PawnInputComponent>,
+    buffer: RingBuffer<PawnInput>,
     /// tick → input, kept for reconciliation replay
-    input_history: HashMap<u64, PawnInputComponent>,
+    input_history: HashMap<u64, PawnInput>,
     /// ring of (tick, snapshot) recorded after each physics step
     state_history: RingBuffer<(u64, PawnSnapshot)>,
 }
@@ -81,26 +82,26 @@ impl Possessed {
         }
     }
 
-    pub fn push(&mut self, input: PawnInputComponent) {
+    pub fn push(&mut self, input: PawnInput) {
         self.buffer.push(input);
     }
 
-    pub fn consume(&mut self) -> Option<PawnInputComponent> {
+    pub fn consume(&mut self) -> Option<PawnInput> {
         self.buffer.pop()
     }
 
     /// Peek at the most recently pushed input without consuming it.
-    pub fn peek_newest(&self) -> Option<&PawnInputComponent> {
+    pub fn peek_newest(&self) -> Option<&PawnInput> {
         self.buffer.get_newest()
     }
 
     /// Record input for the given tick (used by client for reconciliation replay).
-    pub fn record_input(&mut self, tick: u64, input: PawnInputComponent) {
+    pub fn record_input(&mut self, tick: u64, input: PawnInput) {
         self.input_history.insert(tick, input);
     }
 
     /// Look up the recorded input for a tick.
-    pub fn get_input(&self, tick: u64) -> Option<&PawnInputComponent> {
+    pub fn get_input(&self, tick: u64) -> Option<&PawnInput> {
         self.input_history.get(&tick)
     }
 
@@ -122,6 +123,7 @@ impl Possessed {
 
 // SYSTEMS
 
+/// STABLE, DO NOT CHANGE
 /// gathers keyboard input for the locally possessed pawn(s)
 pub fn gather_pawn_input(
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -131,19 +133,19 @@ pub fn gather_pawn_input(
     if egui_wants_input.wants_any_input() { return; }
     let Ok(mut possessed) = pawns.single_mut() else { return };
 
-    let mut input = PawnInputComponent::default();
-    if keyboard.pressed(KeyCode::KeyW)        { input.forward =  -1.0; }
-    if keyboard.pressed(KeyCode::KeyS)        { input.forward =   1.0; }
-    if keyboard.pressed(KeyCode::KeyD)        { input.right   =   1.0; }
-    if keyboard.pressed(KeyCode::KeyA)        { input.right   =  -1.0; }
-    if keyboard.pressed(KeyCode::Space)       { input.up      =   1.0; }
-    if keyboard.pressed(KeyCode::ControlLeft) { input.up      =  -1.0; }
-    if keyboard.pressed(KeyCode::ArrowUp)     { input.pitch   =   1.0; }
-    if keyboard.pressed(KeyCode::ArrowDown)   { input.pitch   =  -1.0; }
-    if keyboard.pressed(KeyCode::ArrowRight)  { input.yaw     =   1.0; }
-    if keyboard.pressed(KeyCode::ArrowLeft)   { input.yaw     =  -1.0; }
-    if keyboard.pressed(KeyCode::KeyQ)        { input.roll    =  -1.0; }
-    if keyboard.pressed(KeyCode::KeyE)        { input.roll    =   1.0; }
+    let mut input = PawnInput::default();
+    if keyboard.pressed(KeyCode::KeyW) { input.forward -= 1.0; }
+    if keyboard.pressed(KeyCode::KeyS) { input.forward += 1.0; }
+    if keyboard.pressed(KeyCode::KeyD) { input.right += 1.0; }
+    if keyboard.pressed(KeyCode::KeyA) { input.right -= 1.0; }
+    if keyboard.pressed(KeyCode::Space) { input.up += 1.0; }
+    if keyboard.pressed(KeyCode::ControlLeft) { input.up -= 1.0; }
+    if keyboard.pressed(KeyCode::ArrowUp) { input.pitch += 1.0; }
+    if keyboard.pressed(KeyCode::ArrowDown) { input.pitch -= 1.0; }
+    if keyboard.pressed(KeyCode::ArrowRight) { input.yaw += 1.0; }
+    if keyboard.pressed(KeyCode::ArrowLeft) { input.yaw -= 1.0; }
+    if keyboard.pressed(KeyCode::KeyQ) { input.roll -= 1.0; }
+    if keyboard.pressed(KeyCode::KeyE) { input.roll += 1.0; }
     input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
     input.ability2 = keyboard.pressed(KeyCode::KeyE);
 

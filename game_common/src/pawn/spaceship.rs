@@ -2,6 +2,7 @@ use super::super::physics::physics_world::*;
 use super::pawn::*;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
+use bevy::prelude::Cuboid;
 
 pub fn spawn(
     transform: Transform,
@@ -51,7 +52,7 @@ pub fn spawn(
 pub fn apply_spaceship_movement(
     world: &mut PhysicsWorld,
     body_handle: &PhysicsBodyHandle,
-    input: PawnInputComponent,
+    input: PawnInput,
 ) {
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;
