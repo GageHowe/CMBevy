@@ -2,3 +2,4 @@ target/
 *.db
 *.DS_Store
 *.exe
+*.sqlite
