@@ -11,7 +11,9 @@ use common::net::{
     quic::*,
 };
 use common::pawn::biped;
-use common::pawn::pawn::{gather_pawn_input, move_bipeds, PawnPlugin, Possessed};
+use common::pawn::pawn::{gather_pawn_input, move_pawns, PawnPlugin, Possessed};
+use common::pawn::biped::apply_biped_movement;
+use common::pawn::pawn::BipedPawnComponent;
 use common::physics::physics_world::{
     restore_snapshot, snapshot_bodies, step_physics, PhysicsBodyHandle, PhysicsWorld, RigidBodyHandle,
 };
@@ -27,12 +29,11 @@ use common::debug_println;
 use common::master_plugin::MasterPlugin;
 use common::ui::ui::GuiState;
 
-/// How far our predicted position may drift from the server before we reconcile.
+// these measure max tolerance for how much error we allow before reconciling
 const RECONCILE_POS_THRESHOLD: f32 = 0.2;
-/// How far our predicted velocity may drift from the server before we reconcile.
 const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
 
-/// Holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
+/// holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
 #[derive(Resource, Default)]
 struct PendingReconciliation(Option<SimulationState>);
 
@@ -40,7 +41,6 @@ struct PendingReconciliation(Option<SimulationState>);
 /// Used by reconciliation to restore bodies the server didn't mention.
 #[derive(Resource)]
 struct LocalStateHistory(RingBuffer<SimulationState>);
-
 impl Default for LocalStateHistory {
     fn default() -> Self {
         Self(RingBuffer::new(128))
@@ -107,7 +107,7 @@ fn main() {
     app.add_systems(FixedPreUpdate, maybe_reconcile.before(gather_pawn_input));
     app.add_systems(
         FixedPreUpdate,
-        send_pawn_input.after(gather_pawn_input).before(move_bipeds),
+        send_pawn_input.after(gather_pawn_input).before(move_pawns::<BipedPawnComponent>(apply_biped_movement)),
     );
 
     // FixedUpdate ordering (step_physics comes from PhysicsPlugin):
@@ -313,7 +313,7 @@ fn maybe_reconcile(
         .map(|(nid, h, _)| (nid.clone(), h.0))
         .collect();
 
-    // 1. Restore server-known bodies to the authoritative server state.
+    // restore rigidbodies mentioned by the server to the authoritative server state.
     restore_snapshot(&mut world, &snapshot, &pairs);
 
     // 2. Restore networked bodies the server didn't mention to their local predicted state.
@@ -330,7 +330,8 @@ fn maybe_reconcile(
     let current = tick.tick;
     for replay_tick in (snapshot.tick + 1)..current {
         if let Some(&input) = possessed.get_input(replay_tick) {
-            biped::apply_biped_movement(&mut world, our_handle, input);
+            // TODO: pass actual BipedPawnComponent when it holds state worth replaying
+            biped::apply_biped_movement(&mut world, our_handle, input, &mut BipedPawnComponent);
         }
         world.step();
     }

@@ -11,11 +11,16 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedPreUpdate, (gather_pawn_input, (move_bipeds, move_spaceships)).chain());
+        app.add_systems(FixedPreUpdate, (
+            gather_pawn_input,
+            (
+                move_pawns::<BipedPawnComponent>(super::biped::apply_biped_movement),
+                move_pawns::<SpaceshipPawnComponent>(super::spaceship::apply_spaceship_movement),
+            ),
+        ).chain());
         app.add_systems(PostUpdate, mouse_look.before(TransformSystems::Propagate));
     }
 }
-
 
 // ============================================================================
 // COMPONENTS
@@ -29,7 +34,9 @@ pub struct SpaceshipPawnComponent;
 
 /// Rotates around the pawn's local Y axis (yaw). Child of the pawn entity.
 #[derive(Component)]
-pub struct YawPivot;
+pub struct YawPivot {
+    pub yaw: f32,
+}
 
 /// Rotates around its local X axis (pitch). Child of YawPivot.
 #[derive(Component)]
@@ -74,31 +81,26 @@ impl Possessed {
             input_history: HashMap::new(),
         }
     }
-
     pub fn push(&mut self, input: PawnInput) {
         self.buffer.push(input);
     }
-
     pub fn consume(&mut self) -> Option<PawnInput> {
         self.buffer.pop()
     }
-
-    /// Peek at the most recently pushed input without consuming it.
+    /// peek at the most recently pushed input without consuming it.
     pub fn peek_newest(&self) -> Option<&PawnInput> {
         self.buffer.get_newest()
     }
-
-    /// Record input for the given tick (used by client for reconciliation replay).
+    /// record input for the given tick (used by client for reconciliation replay).
     pub fn record_input(&mut self, tick: u64, input: PawnInput) {
         self.input_history.insert(tick, input);
     }
-
-    /// Look up the recorded input for a tick.
+    /// look up the recorded input for a tick.
     pub fn get_input(&self, tick: u64) -> Option<&PawnInput> {
         self.input_history.get(&tick)
     }
-
-    /// Drop input history older than `before_tick` to bound memory.
+    /// drop input history older than `before_tick` to bound memory.
+    /// (what is this even for?)
     pub fn prune_input_history(&mut self, before_tick: u64) {
         self.input_history.retain(|&t, _| t >= before_tick);
     }
@@ -107,18 +109,18 @@ impl Possessed {
 
 // SYSTEMS
 
-/// Runs every frame in PostUpdate, before transform propagation.
-/// Near-zero latency: camera transforms are always current when the scene is rendered.
+/// runs every frame in PostUpdate, before transform propagation
 pub fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
-    mut yaw_q: Query<&mut Transform, (With<YawPivot>, Without<PitchPivot>)>,
+    mut yaw_q: Query<(&mut Transform, &mut YawPivot), Without<PitchPivot>>,
     mut pitch_q: Query<(&mut Transform, &mut PitchPivot)>,
 ) {
     let delta = mouse.delta;
     if delta == Vec2::ZERO { return; }
 
-    if let Ok(mut t) = yaw_q.single_mut() {
-        t.rotate_local_y(-delta.x * MOUSE_SENSITIVITY);
+    if let Ok((mut t, mut pivot)) = yaw_q.single_mut() {
+        pivot.yaw -= delta.x * MOUSE_SENSITIVITY;
+        t.rotation = Quat::from_rotation_y(pivot.yaw);
     }
     if let Ok((mut t, mut pivot)) = pitch_q.single_mut() {
         pivot.pitch = (pivot.pitch - delta.y * MOUSE_SENSITIVITY).clamp(-PITCH_MAX, PITCH_MAX);
@@ -126,15 +128,14 @@ pub fn mouse_look(
     }
 }
 
-/// STABLE, DO NOT CHANGE
 /// gathers keyboard input for the locally possessed pawn(s)
 pub fn gather_pawn_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut pawns: Query<&mut Possessed>,
-    yaw_pivot: Query<&Transform, With<YawPivot>>,
+    yaw_pivot: Query<&YawPivot>,
     egui_wants_input: Res<EguiWantsInput>,
 ) {
-    if egui_wants_input.wants_any_input() { return; }
+    if egui_wants_input.wants_any_input() { return; } // should we return here? or just push a default
     let Ok(mut possessed) = pawns.single_mut() else { return };
 
     let mut input = PawnInput::default();
@@ -153,16 +154,14 @@ pub fn gather_pawn_input(
     input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
     input.ability2 = keyboard.pressed(KeyCode::KeyE);
 
-    // Local Transform is written by mouse_look (last PostUpdate), so one frame stale.
-    // Acceptable at 64 Hz. We want local (pawn-relative) yaw, not world-space.
-    if let Ok(t) = yaw_pivot.single() {
-        input.look_yaw = t.rotation.to_euler(EulerRot::YXZ).0;
+    if let Ok(pivot) = yaw_pivot.single() {
+        input.look_yaw = pivot.yaw;
     }
 
     possessed.push(input);
 }
 
-/// Transfers possession from the current pawn to a new target.
+/// transfers possession from the current pawn to a new target
 pub fn possess_pawn(
     mut commands: Commands,
     current: Query<Entity, With<Possessed>>,
@@ -174,25 +173,14 @@ pub fn possess_pawn(
     commands.entity(target).insert(Possessed::new(60));
 }
 
-// TODO: if possible, make a better implementation to handle these
-// maybe a trait + reflection?
-
-pub fn move_bipeds(
-    mut world: ResMut<PhysicsWorld>,
-    mut bipeds: Query<(&mut Possessed, &PhysicsBodyHandle), With<BipedPawnComponent>>,
-) {
-    for (mut possessed, body_handle) in bipeds.iter_mut() {
-        let Some(input) = possessed.consume() else { continue };
-        super::biped::apply_biped_movement(&mut world, body_handle, input);
-    }
-}
-
-pub fn move_spaceships(
-    mut world: ResMut<PhysicsWorld>,
-    mut spaceships: Query<(&mut Possessed, &PhysicsBodyHandle), With<SpaceshipPawnComponent>>,
-) {
-    for (mut possessed, body_handle) in spaceships.iter_mut() {
-        let Some(input) = possessed.consume() else { continue };
-        super::spaceship::apply_spaceship_movement(&mut world, body_handle, input);
+/// generic input consumption function for all pawn types
+pub fn move_pawns<T: Component<Mutability = bevy::ecs::component::Mutable>>(
+    apply: fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
+) -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &PhysicsBodyHandle, &mut T)>) {
+    move |mut world, mut pawns| {
+        for (mut possessed, handle, mut component) in pawns.iter_mut() {
+            let Some(input) = possessed.consume() else { continue };
+            apply(&mut world, handle, input, &mut component);
+        }
     }
 }

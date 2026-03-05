@@ -15,6 +15,7 @@ use common::tick::Ticker;
 struct BindAddr(SocketAddr);
 use common::master_plugin::MasterPlugin;
 use common::pawn::biped;
+use common::pawn::pawn::BipedPawnComponent;
 use common::debug_println;
 
 fn parse_addr() -> SocketAddr {
@@ -135,7 +136,8 @@ fn on_message(
                 if let Some(&(entity, _)) = registry.0.get(&msg.conn_id) {
                     let handle_opt = world.entity_to_handle.get(&entity).copied();
                     if let Some(handle) = handle_opt {
-                        biped::apply_biped_movement(&mut world, &PhysicsBodyHandle(handle), pawn_input.input);
+                        // TODO: pass actual BipedPawnComponent when it holds state worth tracking server-side
+                        biped::apply_biped_movement(&mut world, &PhysicsBodyHandle(handle), pawn_input.input, &mut BipedPawnComponent);
                     }
                 }
             }

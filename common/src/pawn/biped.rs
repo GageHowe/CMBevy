@@ -56,7 +56,7 @@ pub fn spawn(
     }
 
     let yaw_pivot = commands.spawn((
-        YawPivot,
+        YawPivot { yaw: 0.0 },
         // Eye height in pawn-local space. Always "up" relative to the pawn surface.
         Transform::from_translation(Vec3::new(0.0, 0.4, 0.0)),
         Visibility::default(),
@@ -104,6 +104,7 @@ pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
     body_handle: &PhysicsBodyHandle,
     input: PawnInput,
+    _biped: &mut BipedPawnComponent,
 ) {
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;
