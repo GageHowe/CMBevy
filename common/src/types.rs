@@ -18,6 +18,12 @@ pub struct CMQuat {
     pub w: f32,
 }
 
+impl Default for CMQuat {
+    fn default() -> Self {
+        Self { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
+    }
+}
+
 // convert bevy types to and from Critical Mass types
 impl From<Vec3> for CMVec3 {
     fn from(v: Vec3) -> Self {

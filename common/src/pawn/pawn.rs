@@ -1,6 +1,8 @@
 use crate::physics::physics_world::*;
 use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
+use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::transform::TransformSystems;
 use bevy_egui::input::EguiWantsInput;
 use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
@@ -9,9 +11,8 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_systems(Startup, spawn_test_pawn);
         app.add_systems(FixedPreUpdate, (gather_pawn_input, (move_bipeds, move_spaceships)).chain());
-        app.add_systems(FixedPostUpdate, snap_camera_to_rig);
+        app.add_systems(PostUpdate, mouse_look.before(TransformSystems::Propagate));
     }
 }
 
@@ -26,8 +27,20 @@ pub struct BipedPawnComponent;
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;
 
+/// Rotates around the pawn's local Y axis (yaw). Child of the pawn entity.
+#[derive(Component)]
+pub struct YawPivot;
+
+/// Rotates around its local X axis (pitch). Child of YawPivot.
+#[derive(Component)]
+pub struct PitchPivot {
+    pub pitch: f32,
+}
+
+pub const MOUSE_SENSITIVITY: f32 = 0.002;
+pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
+
 /// Input state consumed by movement systems each tick.
-/// does this really need to be Component?
 #[derive(Component, Default, Clone, Copy, SchemaRead, SchemaWrite, Debug, PartialEq)]
 pub struct PawnInput {
     pub forward: f32,
@@ -38,18 +51,9 @@ pub struct PawnInput {
     pub roll: f32,
     pub ability1: bool,
     pub ability2: bool,
-}
-
-/// Camera follow configuration.
-#[derive(Component)]
-pub struct CameraRigComponent {
-    pub offset: Vec3,
-}
-
-impl Default for CameraRigComponent {
-    fn default() -> Self {
-        Self { offset: Vec3::new(0.0, 1.0, 5.0) }
-    }
+    /// Pawn-local yaw angle (radians) from the YawPivot at input time.
+    /// Server reconstructs world-space facing as: body_rotation * Quat::from_rotation_y(look_yaw).
+    pub look_yaw: f32,
 }
 
 /// Marks a pawn as possessed and owns its input history for prediction + reconciliation.
@@ -103,19 +107,39 @@ impl Possessed {
 
 // SYSTEMS
 
+/// Runs every frame in PostUpdate, before transform propagation.
+/// Near-zero latency: camera transforms are always current when the scene is rendered.
+pub fn mouse_look(
+    mouse: Res<AccumulatedMouseMotion>,
+    mut yaw_q: Query<&mut Transform, (With<YawPivot>, Without<PitchPivot>)>,
+    mut pitch_q: Query<(&mut Transform, &mut PitchPivot)>,
+) {
+    let delta = mouse.delta;
+    if delta == Vec2::ZERO { return; }
+
+    if let Ok(mut t) = yaw_q.single_mut() {
+        t.rotate_local_y(-delta.x * MOUSE_SENSITIVITY);
+    }
+    if let Ok((mut t, mut pivot)) = pitch_q.single_mut() {
+        pivot.pitch = (pivot.pitch - delta.y * MOUSE_SENSITIVITY).clamp(-PITCH_MAX, PITCH_MAX);
+        t.rotation = Quat::from_rotation_x(pivot.pitch);
+    }
+}
+
 /// STABLE, DO NOT CHANGE
 /// gathers keyboard input for the locally possessed pawn(s)
 pub fn gather_pawn_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut pawns: Query<&mut Possessed>,
+    yaw_pivot: Query<&Transform, With<YawPivot>>,
     egui_wants_input: Res<EguiWantsInput>,
 ) {
     if egui_wants_input.wants_any_input() { return; }
     let Ok(mut possessed) = pawns.single_mut() else { return };
 
     let mut input = PawnInput::default();
-    if keyboard.pressed(KeyCode::KeyW) { input.forward -= 1.0; }
-    if keyboard.pressed(KeyCode::KeyS) { input.forward += 1.0; }
+    if keyboard.pressed(KeyCode::KeyW) { input.forward += 1.0; }
+    if keyboard.pressed(KeyCode::KeyS) { input.forward -= 1.0; }
     if keyboard.pressed(KeyCode::KeyD) { input.right += 1.0; }
     if keyboard.pressed(KeyCode::KeyA) { input.right -= 1.0; }
     if keyboard.pressed(KeyCode::Space) { input.up += 1.0; }
@@ -129,18 +153,13 @@ pub fn gather_pawn_input(
     input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
     input.ability2 = keyboard.pressed(KeyCode::KeyE);
 
-    possessed.push(input);
-}
+    // Local Transform is written by mouse_look (last PostUpdate), so one frame stale.
+    // Acceptable at 64 Hz. We want local (pawn-relative) yaw, not world-space.
+    if let Ok(t) = yaw_pivot.single() {
+        input.look_yaw = t.rotation.to_euler(EulerRot::YXZ).0;
+    }
 
-/// Snaps the camera to the possessed pawn's rig offset.
-pub fn snap_camera_to_rig(
-    mut camera: Query<&mut Transform, (With<Camera3d>, Without<Possessed>)>,
-    pawn: Query<(&Transform, &CameraRigComponent), (With<Possessed>, Without<Camera3d>)>,
-) {
-    let Ok(mut cam) = camera.single_mut() else { return };
-    let Ok((pawn_t, rig)) = pawn.single() else { return };
-    cam.translation = pawn_t.translation + pawn_t.rotation * rig.offset;
-    cam.rotation = pawn_t.rotation;
+    possessed.push(input);
 }
 
 /// Transfers possession from the current pawn to a new target.
@@ -154,6 +173,9 @@ pub fn possess_pawn(
     }
     commands.entity(target).insert(Possessed::new(60));
 }
+
+// TODO: if possible, make a better implementation to handle these
+// maybe a trait + reflection?
 
 pub fn move_bipeds(
     mut world: ResMut<PhysicsWorld>,

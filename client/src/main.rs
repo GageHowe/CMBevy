@@ -144,13 +144,15 @@ fn on_message(
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
     networked: Query<(Entity, &NetworkID)>,
+    camera: Query<Entity, With<Camera3d>>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
                 if cmd.is_owned {
                     ticker.tick = cmd.server_tick;
-                    spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
+                    let cam = camera.single().ok();
+                    spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world, cam);
                 } else {
                     spawn_ghost_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
                 }
@@ -187,13 +189,14 @@ fn spawn_pawn_client(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     world: &mut PhysicsWorld,
+    camera: Option<Entity>,
 ) {
     let transform = Transform {
         translation: cmd.position.into(),
         rotation: cmd.rotation.into(),
         ..default()
     };
-    let entity = biped::spawn(transform, commands, meshes, materials, world);
+    let entity = biped::spawn(transform, commands, meshes, materials, world, camera);
     commands.entity(entity).insert((cmd.net_id, Possessed::new(128)));
 }
 
@@ -236,7 +239,7 @@ fn send_pawn_input(
     let Some(&input) = possessed.peek_newest() else { return };
     let t = tick.tick;
     possessed.record_input(t, input);
-    // Keep ~2 seconds of history at 64 Hz.
+    // Keep ~2 seconds of history
     possessed.prune_input_history(t.saturating_sub(128));
     quic.send(
         SendTarget::All,

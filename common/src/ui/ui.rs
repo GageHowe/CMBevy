@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use crate::debug_println;
+// use crate::debug_println;
 // use common::net::net::{MsgType, str_to_message};
 // use common::net::runtime::TokioRuntimePlugin;
 // use crate::physics::physics_world::*;
@@ -147,7 +147,6 @@ fn gui_log(
 #[derive(Component)] // query for this component when removing it
 pub struct Crosshair;
 pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let crosshair_size = 2.0;
     commands
         .spawn((
             Crosshair,
@@ -166,15 +165,5 @@ pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..default()
             },
             // BackgroundColor(Color::NONE),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Node {
-                    width: Val::Px(crosshair_size),
-                    height: Val::Px(crosshair_size),
-                    ..default()
-                },
-                BackgroundColor(Color::WHITE),
-            ));
-        });
+        ));
 }
