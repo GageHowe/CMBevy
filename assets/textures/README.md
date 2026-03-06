@@ -1,5 +1,3 @@
-# Textures
-
-This folder is for standalone textures, like skyboxes, or textures that need to be referenced by multiple meshes. Otherwise, probably just embed textures into their glb model
-
-https://www.spacespheremaps.com/hdr-spheremaps/
+version https://git-lfs.github.com/spec/v1
+oid sha256:c95ada17b114dfc7563e786ac53b105d8eafaddd504c385fc24640daee66d960
+size 241
