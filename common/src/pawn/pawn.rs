@@ -22,15 +22,15 @@ impl Plugin for PawnPlugin {
     }
 }
 
-// ============================================================================
 // COMPONENTS
-// ============================================================================
 
 #[derive(Component)]
 pub struct BipedPawnComponent;
 
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;
+
+// CAMERA
 
 /// Rotates around the pawn's local Y axis (yaw). Child of the pawn entity.
 #[derive(Component)]
@@ -46,6 +46,8 @@ pub struct PitchPivot {
 
 pub const MOUSE_SENSITIVITY: f32 = 0.002;
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
+
+// CORE
 
 /// Input state consumed by movement systems each tick.
 #[derive(Component, Default, Clone, Copy, SchemaRead, SchemaWrite, Debug, PartialEq)]

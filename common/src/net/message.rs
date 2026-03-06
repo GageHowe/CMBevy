@@ -23,6 +23,15 @@ impl NetworkIDResource {
     }
 }
 
+/// Discriminates what kind of entity a SpawnCommand creates.
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub enum SpawnKind {
+    /// A biped pawn. `bool` is true when this is the local player's own pawn.
+    Biped(bool),
+    Rifle,
+    // Add new weapon types here — each routes to its own spawn + add_visuals on the client.
+}
+
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
     pub net_id: NetworkID,
@@ -31,8 +40,7 @@ pub struct SpawnCommand {
     pub rotation: CMQuat,
     /// Server tick at spawn time — client uses this to synchronize its clock.
     pub server_tick: u64,
-    /// True when this is the local player's own pawn; false for other players' ghosts.
-    pub is_owned: bool,
+    pub kind: SpawnKind,
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, Clone, PartialEq)]
@@ -52,12 +60,20 @@ pub enum MsgType {
     Error(String),
     Ping(String),
     Pong(String),
-    // BodyState(BodyState),
     Input(PawnInputMessage),
     /// collection of BodyStates with corresponding network ids
     State(SimulationState),
     SpawnCommand(SpawnCommand),
     DespawnCommand(NetworkID),
+    /// Client → Server: request to interact with the entity identified by NetworkID.
+    Interact(NetworkID),
+    /// Server → All: (weapon_id, carrier_net_id). Clients remove the weapon entity;
+    /// the carrier client records it as their held weapon.
+    WeaponPickup(NetworkID, NetworkID),
+    /// Client → Server: (weapon_net_id, tick, origin, direction). Fire the held weapon.
+    Fire(NetworkID, u64, CMVec3, CMVec3),
+    /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
+    HitResult(CMVec3, CMVec3, Option<NetworkID>),
 }
 impl FromStr for MsgType {
     type Err = String;
@@ -77,11 +93,6 @@ impl FromStr for MsgType {
             "pong" => Ok(MsgType::Pong(rest.to_string())),
             _ => Err(format!("unknown command: {cmd}")),
         }
-        /*
-        usage:
-            let msg: MsgType = "ping hello".parse()?;
-            let msg = MsgType::from_str("chat alice hello world")?;
-         */
     }
 }
 

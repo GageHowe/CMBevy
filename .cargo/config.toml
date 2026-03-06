@@ -12,7 +12,6 @@ lto = false
 opt-level = 3
 #debug = true
 lto = "thin"
-codegen-backend = "cranelift"
 strip = true
 codegen-units = 1
 

@@ -20,7 +20,9 @@
       "Bash(./target/debug/hdri-to-ktx2:*)",
       "Bash(python3:*)",
       "Bash(tasklist:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(cargo doc:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

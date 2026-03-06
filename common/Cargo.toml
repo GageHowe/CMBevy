@@ -7,6 +7,11 @@ edition = "2024"
 [lints]
 workspace = true
 
+[features]
+# Enables visual/rendering spawning helpers (mesh, material, camera rig).
+# Enable this in the client crate; the server omits it.
+client = []
+
 [dependencies]
 bevy = { version = "0.18", default-features = false, features = ["bevy_log"] }
 #bevy_ecs = "0.18"

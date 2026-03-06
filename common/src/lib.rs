@@ -13,3 +13,5 @@ pub mod master_plugin;
 pub mod ui;
 pub mod gameapi;
 pub mod camera;
+pub mod interaction;
+pub mod weapon;

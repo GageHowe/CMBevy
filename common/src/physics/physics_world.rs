@@ -122,6 +122,36 @@ impl PhysicsWorld {
     }
 }
 
+impl PhysicsWorld {
+    /// Cast a ray and return the first entity hit and the distance to impact.
+    /// Optionally excludes `exclude_entity`'s colliders (e.g. the shooter).
+    pub fn cast_ray(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        exclude_entity: Option<Entity>,
+    ) -> Option<(Entity, f32)> {
+        let filter = match exclude_entity.and_then(|e| self.entity_to_handle.get(&e).copied()) {
+            Some(handle) => QueryFilter::default().exclude_rigid_body(handle),
+            None => QueryFilter::default(),
+        };
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
+        let ray = Ray::new(origin, direction);
+        qp.cast_ray(&ray, max_distance, true)
+            .and_then(|(ch, toi)| {
+                let rb_handle = self.collider_set.get(ch)?.parent()?;
+                let entity = self.handle_to_entity.get(&rb_handle)?;
+                Some((*entity, toi))
+            })
+    }
+}
+
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
@@ -143,21 +173,6 @@ pub fn create_objects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let cube_entity = commands.spawn_empty().id();
-    let cube_rb = RigidBodyBuilder::dynamic()
-        .translation(Vector3::new(10.0, 5.0, -3.0))
-        .build();
-    let cube_handle = world.insert_body(cube_entity, cube_rb);
-    let cube_collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
-    commands.entity(cube_entity).insert((
-        Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.7, 0.6),
-            ..Default::default()
-        })),
-        Visibility::default(),
-        PhysicsBodyHandle(cube_handle),
-    ));
 
     let plane_entity = commands.spawn_empty().id();
     let plane_rb = RigidBodyBuilder::fixed()
@@ -168,7 +183,10 @@ pub fn create_objects(
     commands.entity(plane_entity).insert((
         Mesh3d(meshes.add(Mesh::from(Cuboid::new(20.0, 4.0, 20.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.0, 0.7, 0.0),
+            base_color: Color::srgb(0.2, 0.2, 0.2),
+            metallic: 0.0,
+            perceptual_roughness: 0.6,
+            reflectance: 0.1,
             ..Default::default()
         })),
         Visibility::default(),
@@ -180,13 +198,12 @@ pub fn create_objects(
         rigid_body_set,
         ..
     } = &mut *world;
-    collider_set.insert_with_parent(cube_collider, cube_handle, rigid_body_set);
     collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
-    // print!("tick ");
+    // apply gravity for all planets
 }
 
 /// Snapshot the current physics state for all networked bodies.

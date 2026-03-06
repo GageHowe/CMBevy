@@ -1,7 +1,6 @@
 use super::super::physics::physics_world::*;
 use super::pawn::*;
 use bevy::prelude::*;
-use bevy::prelude::{Assets, Mesh, StandardMaterial, Mesh3d, MeshMaterial3d, Visibility, Color}; // weirdly, this errors in RustRover's lsp
 use rapier3d::prelude::*;
 
 fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Commands, world: &mut PhysicsWorld) {
@@ -16,8 +15,8 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
 }
 
-/// Spawns a physics-only biped on the server (no mesh or material).
-pub fn spawn_server(
+/// Spawns a biped with physics only. Used by both server and client.
+pub fn spawn(
     transform: Transform,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
@@ -30,19 +29,26 @@ pub fn spawn_server(
     entity
 }
 
-/// Spawns the locally-possessed biped on the client with the camera pivot hierarchy:
-///   pawn → YawPivot → PitchPivot → (existing camera entity)
-///
-/// Pass the pre-existing Camera3d entity so it gets re-parented rather than re-spawned.
-/// Its Transform is reset to identity so it sits at the pivot origin.
-pub fn spawn(
-    transform: Transform,
+/// Adds a mesh and material to an existing biped entity.
+#[cfg(feature = "client")]
+pub fn add_visuals(
+    entity: Entity,
+    color: Color,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
-    world: &mut PhysicsWorld,
-    camera: Option<Entity>,
-) -> Entity {
+) {
+    commands.entity(entity).insert((
+        Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(color)),
+        Visibility::default(),
+    ));
+}
+
+/// Sets up the YawPivot → PitchPivot → Camera hierarchy on an existing biped entity.
+/// Pass the pre-existing Camera3d entity so it gets re-parented rather than re-spawned.
+#[cfg(feature = "client")]
+pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, commands: &mut Commands) {
     let pitch_pivot = commands.spawn((
         PitchPivot { pitch: 0.0 },
         Transform::default(),
@@ -50,54 +56,17 @@ pub fn spawn(
     )).id();
 
     if let Some(cam) = camera {
-        // Reset the camera's local transform — its world position is now driven by the hierarchy.
         commands.entity(cam).insert(Transform::default());
         commands.entity(pitch_pivot).add_child(cam);
     }
 
     let yaw_pivot = commands.spawn((
         YawPivot { yaw: 0.0 },
-        // Eye height in pawn-local space. Always "up" relative to the pawn surface.
         Transform::from_translation(Vec3::new(0.0, 0.4, 0.0)),
         Visibility::default(),
     )).add_child(pitch_pivot).id();
 
-    let entity = commands
-        .spawn((
-            BipedPawnComponent,
-            Transform::from(transform),
-            Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(1.0, 1.0, 1.0))),
-            MeshMaterial3d(materials.add(Color::srgb(0.8, 0.8, 0.8))),
-            Visibility::default(),
-        ))
-        .add_child(yaw_pivot)
-        .id();
-
-    insert_biped_physics(entity, &transform, commands, world);
-    entity
-}
-
-/// Spawns another player's pawn on the client: physics body + visible mesh, no Possessed/camera.
-/// Participates fully in the local physics simulation so reconciliation replay is correct.
-pub fn spawn_ghost(
-    transform: Transform,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    world: &mut PhysicsWorld,
-) -> Entity {
-    let entity = commands
-        .spawn((
-            BipedPawnComponent,
-            Transform::from(transform),
-            Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(1.0, 1.0, 1.0))),
-            MeshMaterial3d(materials.add(Color::srgb(0.9, 0.4, 0.1))),
-            Visibility::default(),
-        ))
-        .id();
-
-    insert_biped_physics(entity, &transform, commands, world);
-    entity
+    commands.entity(entity).add_child(yaw_pivot);
 }
 
 pub fn apply_biped_movement(
@@ -110,9 +79,6 @@ pub fn apply_biped_movement(
         return;
     };
 
-    // Reconstruct world-space facing: body_rotation * local_yaw.
-    // Using body rotation from physics means the server always has consistent state
-    // without needing to trust the client's world-space transform.
     let facing = *body.rotation() * bevy::math::Quat::from_rotation_y(input.look_yaw);
     let right   = facing * bevy::math::Vec3::X;
     let up      = facing * bevy::math::Vec3::Y;

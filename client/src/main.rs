@@ -3,24 +3,23 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+use bevy_egui::input::EguiWantsInput;
 use common::camera::spawn_camera;
-
-use common::level::level::*;
 use common::net::{
-    message::{MsgType, NetworkID, PawnInputMessage, SimulationState, SpawnCommand},
+    message::*,
     quic::*,
 };
+use common::pawn::pawn::PitchPivot;
 use common::pawn::biped;
-use common::pawn::pawn::{gather_pawn_input, move_pawns, PawnPlugin, Possessed};
+use common::pawn::pawn::*;
 use common::pawn::biped::apply_biped_movement;
-use common::pawn::pawn::BipedPawnComponent;
-use common::physics::physics_world::{
-    restore_snapshot, snapshot_bodies, step_physics, PhysicsBodyHandle, PhysicsWorld, RigidBodyHandle,
-};
+use common::physics::physics_world::*;
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 use common::ui::ui::UIPlugin;
 use common::ui::window::WindowSettingsPlugin;
+use common::interaction::Interactable;
+use common::weapon::rifle;
 use std::net::SocketAddr;
 
 #[derive(Resource)]
@@ -32,6 +31,23 @@ use common::ui::ui::GuiState;
 // these measure max tolerance for how much error we allow before reconciling
 const RECONCILE_POS_THRESHOLD: f32 = 0.2;
 const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
+
+/// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
+#[derive(Resource, Default)]
+struct LocalNetworkID(Option<NetworkID>);
+
+/// The NetworkID of the weapon the local player is currently holding, if any.
+#[derive(Resource, Default)]
+struct HeldWeapon(Option<NetworkID>);
+
+/// All clients track who holds which weapon: carrier_net_id → weapon_net_id.
+/// Updated by WeaponPickup messages from the server so every client has a consistent view.
+#[derive(Resource, Default)]
+struct HeldWeapons(std::collections::HashMap<NetworkID, NetworkID>);
+
+/// Active hitscan beams to draw as gizmos. Each entry is (origin, end, seconds_remaining).
+#[derive(Resource, Default)]
+struct HitBeams(Vec<(Vec3, Vec3, f32)>);
 
 /// holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
 #[derive(Resource, Default)]
@@ -92,12 +108,15 @@ fn main() {
     app.add_plugins(MasterPlugin)
         .init_state::<AppState>()
         .add_plugins(WindowSettingsPlugin)
-        .add_plugins(LevelPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(PawnPlugin)
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<PendingReconciliation>()
         .init_resource::<LocalStateHistory>()
+        .init_resource::<LocalNetworkID>()
+        .init_resource::<HeldWeapon>()
+        .init_resource::<HeldWeapons>()
+        .init_resource::<HitBeams>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
     app.add_systems(Startup, connect);
@@ -115,6 +134,10 @@ fn main() {
     app.add_systems(FixedUpdate, record_world_state.after(step_physics));
     app.add_systems(FixedUpdate, (on_message, send_chat).after(step_physics));
 
+    app.add_systems(Update, send_interact_request);
+    app.add_systems(Update, fire_weapon);
+    app.add_systems(Update, draw_hit_beams);
+
     debug_println!("starting client...\n");
     app.run();
 }
@@ -124,10 +147,10 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         SceneRoot(asset_server.load("models/companion_cube.glb#Scene0")),
         Transform::default(),
     ));
-    commands.spawn((
-        DirectionalLight { shadows_enabled: true, ..default() },
-        Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+    // commands.spawn((
+    //     DirectionalLight { shadows_enabled: true, ..default() },
+    //     Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+    // ));
 }
 
 fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, addr: Res<ServerAddr>) {
@@ -143,18 +166,30 @@ fn on_message(
     mut world: ResMut<PhysicsWorld>,
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
+    mut local_net_id: ResMut<LocalNetworkID>,
+    mut held_weapon: ResMut<HeldWeapon>,
+    mut held_weapons: ResMut<HeldWeapons>,
+    mut hit_beams: ResMut<HitBeams>,
     networked: Query<(Entity, &NetworkID)>,
     camera: Query<Entity, With<Camera3d>>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
-                if cmd.is_owned {
-                    ticker.tick = cmd.server_tick;
-                    let cam = camera.single().ok();
-                    spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world, cam);
-                } else {
-                    spawn_ghost_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
+                match cmd.kind {
+                    SpawnKind::Biped(is_owned) => {
+                        if is_owned {
+                            ticker.tick = cmd.server_tick;
+                            local_net_id.0 = Some(cmd.net_id.clone());
+                            let cam = camera.single().ok();
+                            spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world, cam);
+                        } else {
+                            spawn_ghost_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
+                        }
+                    }
+                    SpawnKind::Rifle => {
+                        spawn_rifle(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
+                    }
                 }
             }
             MsgType::DespawnCommand(net_id) => {
@@ -165,6 +200,25 @@ fn on_message(
                         break;
                     }
                 }
+            }
+            MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
+                // Despawn the weapon entity (its physics body is gone server-side too).
+                for (entity, nid) in networked.iter() {
+                    if *nid == weapon_id {
+                        world.remove_body(entity);
+                        commands.entity(entity).despawn();
+                        break;
+                    }
+                }
+                // All clients record who holds what.
+                held_weapons.0.insert(carrier_net_id.clone(), weapon_id.clone());
+                // The carrier specifically records it for firing.
+                if local_net_id.0.as_ref() == Some(&carrier_net_id) {
+                    held_weapon.0 = Some(weapon_id);
+                }
+            }
+            MsgType::HitResult(origin, end, _hit_net_id) => {
+                hit_beams.0.push((origin.into(), end.into(), 0.3));
             }
             MsgType::Pong(text) => {
                 debug_println!("Client: Got PONG \"{text}\"");
@@ -196,7 +250,9 @@ fn spawn_pawn_client(
         rotation: cmd.rotation.into(),
         ..default()
     };
-    let entity = biped::spawn(transform, commands, meshes, materials, world, camera);
+    let entity = biped::spawn(transform, commands, world);
+    biped::add_visuals(entity, Color::srgb(0.8, 0.8, 0.8), commands, meshes, materials);
+    biped::setup_camera_rig(entity, camera, commands);
     commands.entity(entity).insert((cmd.net_id, Possessed::new(128)));
 }
 
@@ -213,7 +269,26 @@ fn spawn_ghost_client(
         rotation: cmd.rotation.into(),
         ..default()
     };
-    let entity = biped::spawn_ghost(transform, commands, meshes, materials, world);
+    let entity = biped::spawn(transform, commands, world);
+    biped::add_visuals(entity, Color::srgb(0.9, 0.4, 0.1), commands, meshes, materials);
+    commands.entity(entity).insert(cmd.net_id);
+}
+
+/// Spawns a rifle entity on the client (physics body + mesh).
+fn spawn_rifle(
+    cmd: SpawnCommand,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    world: &mut PhysicsWorld,
+) {
+    let transform = Transform {
+        translation: cmd.position.into(),
+        rotation: cmd.rotation.into(),
+        ..default()
+    };
+    let entity = rifle::spawn(transform, commands, world);
+    rifle::add_visuals(entity, commands, meshes, materials);
     commands.entity(entity).insert(cmd.net_id);
 }
 
@@ -334,5 +409,72 @@ fn maybe_reconcile(
             biped::apply_biped_movement(&mut world, our_handle, input, &mut BipedPawnComponent);
         }
         world.step();
+    }
+}
+
+/// On left-click while holding a weapon, sends a Fire message to the server.
+fn fire_weapon(
+    mouse: Res<ButtonInput<MouseButton>>,
+    egui_wants: Res<EguiWantsInput>,
+    held_weapon: Res<HeldWeapon>,
+    tick: Res<Ticker>,
+    pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
+    mut quic: ResMut<QuicManager>,
+) {
+    if egui_wants.wants_any_input() || !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(weapon_net_id) = held_weapon.0.clone() else { return };
+    let Ok(gt) = pitch_pivot.single() else { return };
+
+    let (_, rotation, origin) = gt.to_scale_rotation_translation();
+    let direction = rotation * Vec3::NEG_Z; // camera forward
+
+    quic.send(
+        SendTarget::All,
+        Channel::Unreliable,
+        &MsgType::Fire(weapon_net_id, tick.tick, origin.into(), direction.into()),
+    );
+}
+
+/// Draws active hitscan beams as gizmos and ticks down their lifetime.
+fn draw_hit_beams(
+    mut beams: ResMut<HitBeams>,
+    mut gizmos: Gizmos,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    beams.0.retain_mut(|(origin, end, remaining)| {
+        gizmos.line(*origin, *end, Color::srgb(1.0, 0.8, 0.0));
+        *remaining -= dt;
+        *remaining > 0.0
+    });
+}
+
+/// On F press, finds the nearest interactable within range and sends an Interact request.
+fn send_interact_request(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Res<EguiWantsInput>,
+    player: Query<&Transform, With<Possessed>>,
+    interactables: Query<(&Transform, &NetworkID), With<Interactable>>,
+    mut quic: ResMut<QuicManager>,
+) {
+    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) {
+        return;
+    }
+    let Ok(player_transform) = player.single() else { return };
+    let player_pos = player_transform.translation;
+
+    let nearest = interactables
+        .iter()
+        .filter(|(t, _)| t.translation.distance(player_pos) < 2.0)
+        .min_by(|(a, _), (b, _)| {
+            a.translation.distance(player_pos)
+                .partial_cmp(&b.translation.distance(player_pos))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+    if let Some((_, net_id)) = nearest {
+        quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(net_id.clone()));
     }
 }

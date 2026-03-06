@@ -7,5 +7,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-common = { path = "../common" }
+common = { path = "../common", features = ["client"] }
 bevy = { version = "0.18", features = ["vorbis", "wav", "jpeg", "bevy_gltf"] }
+bevy_egui = "0.39.1"

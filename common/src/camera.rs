@@ -22,7 +22,14 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
             intensity: 0.05,
             ..default()
         },
+        EnvironmentMapLight {
+            diffuse_map: asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2"),
+            specular_map: asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2"),
+            intensity: 1000.0,
+            // affects_lightmapped_mesh_diffuse: false,
 
+            ..default()
+        },
         Projection::Perspective(PerspectiveProjection {
             fov: 90.0_f32.to_radians(),
             ..Default::default()

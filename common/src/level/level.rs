@@ -23,16 +23,16 @@ fn init_level(
     // });
     // commands::spawn(())
     // spawn objects here
-
-    commands.spawn((
-        DirectionalLight {
-            illuminance: light_consts::lux::OVERCAST_DAY,
-            shadows_enabled: true,
-            ..Default::default()
-        },
-        Transform::from_xyz(0.0, 10.0, 0.0) // “location” of the sun
-            .looking_at(Vec3::ZERO, Vec3::Y), // points at origin
-    ));
+    // 
+    // commands.spawn((
+    //     DirectionalLight {
+    //         illuminance: light_consts::lux::OVERCAST_DAY,
+    //         shadows_enabled: true,
+    //         ..Default::default()
+    //     },
+    //     Transform::from_xyz(0.0, 10.0, 0.0) // “location” of the sun
+    //         .looking_at(Vec3::ZERO, Vec3::Y), // points at origin
+    // ));
     // commands.spawn((
     //     Mesh3d(meshes.add(Cuboid::from_size(Vec3::splat(1.0)))),
     //     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
