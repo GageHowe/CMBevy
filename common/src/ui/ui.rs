@@ -1,18 +1,12 @@
 use bevy::prelude::*;
-// use bevy::ui::
-// use bevy::window::*;
-// use crate::client::ClientNetManager;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-// use crate::debug_println;
-// use common::net::net::{MsgType, str_to_message};
-// use common::net::runtime::TokioRuntimePlugin;
-// use crate::physics::physics_world::*;
-// use common::
 use std::hint::unlikely;
+use crate::game_objects::health::Health;
 use crate::net::quic::{QuicManager, SendTarget, Channel};
 use crate::net::message::MsgType;
+use crate::pawn::pawn::Possessed;
 use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
@@ -42,6 +36,7 @@ impl Plugin for UIPlugin {
             .add_systems(EguiPrimaryContextPass, gui_top_left)
             .add_systems(EguiPrimaryContextPass, gui_bottom_left)
             .add_systems(EguiPrimaryContextPass, gui_log)
+            .add_systems(EguiPrimaryContextPass, gui_health)
             ;
     }
 }
@@ -120,6 +115,30 @@ fn gui_bottom_left(
                 state.command_input.clear();
                 resp.request_focus();
             }
+        });
+}
+
+fn gui_health(
+    mut contexts: EguiContexts,
+    health_q: Query<&Health, With<Possessed>>,
+) {
+    let Ok(health) = health_q.single() else { return };
+    let fraction = (health.current / health.max).clamp(0.0, 1.0);
+    let bar_color = if fraction > 0.5 {
+        egui::Color32::from_rgb(80, 200, 80)
+    } else if fraction > 0.25 {
+        egui::Color32::from_rgb(220, 180, 0)
+    } else {
+        egui::Color32::from_rgb(220, 60, 60)
+    };
+    egui::Window::new("health")
+        .title_bar(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
+        .show(contexts.ctx_mut().unwrap(), |ui| {
+            ui.add(egui::ProgressBar::new(fraction).fill(bar_color).desired_width(110.0));
+            ui.label(format!("HP  {:.0} / {:.0}", health.current, health.max));
         });
 }
 

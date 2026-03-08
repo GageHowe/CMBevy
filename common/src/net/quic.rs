@@ -44,13 +44,10 @@ fn channel_from_id(id: ChannelId) -> Channel {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 /// Opaque identifier for a connected peer.
 /// On the server this equals bevy_quinnet's ClientId; on the client side
 /// SERVER_CONN_ID is used for messages received from the server.
+/// does this even need to be here?
 pub type ConnectionId = ClientId;
 
 /// A fixed ConnectionId used on the client side to represent the server.
@@ -160,49 +157,53 @@ impl QuicManager {
 // Systems (registered directly in MasterPlugin)
 // ---------------------------------------------------------------------------
 
-pub fn process_inbound(
+/// Server-side inbound processing. Register in `PreUpdate` on the server binary only.
+/// Handles connection lifecycle (connect/disconnect edges) and message receipt from all clients.
+pub fn process_inbound_server(
     mut quic: ResMut<QuicManager>,
     mut server: ResMut<QuinnetServer>,
-    mut client: ResMut<QuinnetClient>,
 ) {
-    // --- server: connection lifecycle (poll endpoint.clients() and diff against known set) ---
-    if let Some(endpoint) = server.get_endpoint_mut() {
-        let current: HashSet<ConnectionId> = endpoint.clients().into_iter().collect();
+    let Some(endpoint) = server.get_endpoint_mut() else { return };
+    let current: HashSet<ConnectionId> = endpoint.clients().into_iter().collect();
 
-        let connected: Vec<ConnectionId> = current.difference(&quic.clients).cloned().collect();
-        let disconnected: Vec<ConnectionId> = quic.clients.difference(&current).cloned().collect();
+    let connected: Vec<ConnectionId> = current.difference(&quic.clients).cloned().collect();
+    let disconnected: Vec<ConnectionId> = quic.clients.difference(&current).cloned().collect();
 
-        for id in connected {
-            println!("Client connected: {id}");
-            quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Connected });
-        }
-        for id in disconnected {
-            println!("Client disconnected: {id}");
-            quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Disconnected });
-        }
+    for id in connected {
+        println!("Client connected: {id}");
+        quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Connected });
+    }
+    for id in disconnected {
+        println!("Client disconnected: {id}");
+        quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Disconnected });
+    }
 
-        // --- server: receive messages from connected clients ---
-        // Iterate `current` (local var) instead of `quic.clients` to avoid holding
-        // an immutable borrow on `quic` while also pushing to `quic.inbound`.
-        for &client_id in &current {
-            if let Some(conn) = endpoint.connection_mut(client_id) {
-                while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
-                    match wincode::deserialize::<MsgType>(&bytes) {
-                        Ok(msg) => quic.inbound.push_back(InboundMessage {
-                            conn_id: client_id,
-                            channel: channel_from_id(ch_id),
-                            msg,
-                        }),
-                        Err(e) => eprintln!("[client {client_id}] deserialize error: {e}"),
-                    }
+    // Iterate `current` (local var) to avoid holding an immutable borrow on `quic.clients`
+    // while also pushing to `quic.inbound`.
+    for &client_id in &current {
+        if let Some(conn) = endpoint.connection_mut(client_id) {
+            while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
+                match wincode::deserialize::<MsgType>(&bytes) {
+                    Ok(msg) => quic.inbound.push_back(InboundMessage {
+                        conn_id: client_id,
+                        channel: channel_from_id(ch_id),
+                        msg,
+                    }),
+                    Err(e) => eprintln!("[client {client_id}] deserialize error: {e}"),
                 }
             }
         }
-
-        quic.clients = current;
     }
 
-    // --- client: connection lifecycle (edge-detect is_connected()) ---
+    quic.clients = current;
+}
+
+/// Client-side inbound processing. Register in `PreUpdate` on the client binary only.
+/// Handles connect/disconnect edges and message receipt from the server.
+pub fn process_inbound_client(
+    mut quic: ResMut<QuicManager>,
+    mut client: ResMut<QuinnetClient>,
+) {
     let now_connected = client.is_connected();
     match (quic.client_connected, now_connected) {
         (false, true) => {
@@ -217,7 +218,6 @@ pub fn process_inbound(
     }
     quic.client_connected = now_connected;
 
-    // --- client: receive messages from server ---
     if let Some(conn) = client.get_connection_mut() {
         while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
             match wincode::deserialize::<MsgType>(&bytes) {

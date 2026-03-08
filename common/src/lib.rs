@@ -5,6 +5,7 @@ pub mod helpers;
 pub mod level;
 pub mod net;
 pub mod game_objects;
+pub use game_objects::health;
 pub use game_objects::pawn;
 pub use game_objects::weapon;
 pub mod physics;

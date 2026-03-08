@@ -23,14 +23,27 @@ impl NetworkIDResource {
     }
 }
 
-/// Discriminates what kind of entity a SpawnCommand creates.
+/// Discriminates the pawn type inside a `SpawnKind::Pawn`.
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub enum SpawnKind {
-    /// A biped pawn. `bool` is true when this is the local player's own pawn.
-    Biped(bool),
+pub enum PawnKind {
+    /// `owned`: true only for the receiving client's own pawn.
+    Biped { owned: bool },
+}
+
+/// Discriminates the weapon type inside a `SpawnKind::Weapon`.
+/// Add a new variant here when adding a weapon; the spawn match arms stay co-located.
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub enum WeaponKind {
     Rifle,
     Shotgun,
-    // Add new weapon types here — each routes to its own spawn + add_visuals on the client.
+}
+
+/// Top-level category of a spawned entity.
+/// Add a new variant for each major object class (Projectile, Vehicle, Ball, …).
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+pub enum SpawnKind {
+    Pawn(PawnKind),
+    Weapon(WeaponKind),
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
@@ -71,10 +84,12 @@ pub enum MsgType {
     /// Server → All: (weapon_id, carrier_net_id). Clients remove the weapon entity;
     /// the carrier client records it as their held weapon.
     WeaponPickup(NetworkID, NetworkID),
-    /// Client → Server: (weapon_net_id, tick, origin, direction). Fire the held weapon.
-    Fire(NetworkID, u64, CMVec3, CMVec3),
+    /// Client → Server: (weapon_net_id, origin, direction). Fire the held weapon.
+    Fire(NetworkID, CMVec3, CMVec3),
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
     HitResult(CMVec3, CMVec3, Option<NetworkID>),
+    /// Server → All: current health for the given entity.
+    HealthUpdate(NetworkID, f32),
 }
 impl FromStr for MsgType {
     type Err = String;

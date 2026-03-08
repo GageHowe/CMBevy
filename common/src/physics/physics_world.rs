@@ -16,11 +16,6 @@ use std::collections::HashMap;
 #[derive(Component)]
 pub struct PhysicsBodyHandle(pub rapier3d::prelude::RigidBodyHandle);
 
-/// new
-/// this should be used on the client to decide whether or not to resimulate, and which tick/state to target if so
-#[derive(Resource)]
-pub struct LastRecievedServerState(pub Option<SimulationState>);
-
 #[derive(Resource)]
 pub struct PhysicsWorld {
     pub rigid_body_set: RigidBodySet,
@@ -49,8 +44,8 @@ impl PhysicsWorld {
             collider_set: ColliderSet::new(),
             global_gravity: gravity,
             integration_parameters: IntegrationParameters {
-                dt: 1.0 / 60.0,
-                min_ccd_dt: 1.0 / 60.0 / 100.0,
+                dt: 1.0 / crate::config::TICK_RATE as f32,
+                min_ccd_dt: 1.0 / crate::config::TICK_RATE as f32 / 100.0,
                 contact_softness: SpringCoefficients::contact_defaults(),
                 warmstart_coefficient: 1.0,
                 num_internal_pgs_iterations: 1,

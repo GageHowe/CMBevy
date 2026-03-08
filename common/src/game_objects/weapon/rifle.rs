@@ -1,9 +1,10 @@
 use bevy::prelude::*;
 use crate::interaction::Interactable;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, WeaponComponent, WeaponInput};
+use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
 
 pub const RANGE: f32 = 500.0;
+pub const DAMAGE: f32 = 25.0;
 /// Seconds between shots (10 rounds/sec).
 pub const COOLDOWN: f32 = 0.1;
 
@@ -38,14 +39,13 @@ pub fn apply_rifle_fire(
     input: WeaponInput,
     dt: f32,
     rifle: &mut RifleComponent,
-) {
+) -> Option<FireEffect> {
     if input.fire { rifle.fire_requested = true; }
     rifle.cooldown = (rifle.cooldown - dt).max(0.0);
-    if !rifle.fire_requested || rifle.cooldown > 0.0 { return; }
+    if !rifle.fire_requested || rifle.cooldown > 0.0 { return None; }
     rifle.cooldown = COOLDOWN;
     rifle.fire_requested = false;
-    // Client-side fire effects (VFX, audio) go here.
-    // Raycasting is handled server-side in on_message.
+    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
 }
 
 /// Adds a scene (GLB model) to an existing rifle entity.

@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
-use crate::net::quic::{flush_outbound, process_inbound, QuicManager};
+use crate::net::quic::{flush_outbound, QuicManager};
 use crate::physics::physics_world::*;
 use crate::tick::*;
 use crate::net::message::NetworkIDResource;
@@ -11,7 +11,7 @@ use crate::net::message::NetworkIDResource;
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Time::<Fixed>::from_hz(60.0));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::config::TICK_RATE));
         app.insert_resource(Ticker {
             tick: 0
         });
@@ -25,9 +25,9 @@ impl Plugin for MasterPlugin {
             .add_plugins(QuinnetClientPlugin::default())
             .init_resource::<QuicManager>()
             .init_resource::<NetworkIDResource>()
-            // process_inbound in PreUpdate so the queue is filled before FixedUpdate systems run.
             // flush_outbound in PostUpdate so all FixedUpdate and Update sends are flushed together.
-            .add_systems(PreUpdate, process_inbound)
+            // process_inbound_server / process_inbound_client must be registered by each binary
+            // individually in PreUpdate, so each binary only runs the relevant path.
             .add_systems(PostUpdate, flush_outbound);
     }
 }

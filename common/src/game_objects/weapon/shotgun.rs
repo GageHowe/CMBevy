@@ -1,9 +1,11 @@
 use bevy::prelude::*;
 use crate::interaction::Interactable;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, WeaponComponent, WeaponInput};
+use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
 
 pub const RANGE: f32 = 25.0;
+/// Total damage split evenly across all pellets on a direct hit.
+pub const DAMAGE: f32 = 80.0;
 /// Seconds between shots (1 shot/sec).
 pub const COOLDOWN: f32 = 1.0;
 /// Number of pellets fired per shot (client-side spread prediction only).
@@ -54,12 +56,12 @@ pub fn apply_shotgun_fire(
     input: WeaponInput,
     dt: f32,
     shotgun: &mut ShotgunComponent,
-) {
+) -> Option<FireEffect> {
     if input.fire { shotgun.fire_requested = true; }
     shotgun.cooldown = (shotgun.cooldown - dt).max(0.0);
-    if !shotgun.fire_requested || shotgun.cooldown > 0.0 { return; }
+    if !shotgun.fire_requested || shotgun.cooldown > 0.0 { return None; }
     shotgun.cooldown = COOLDOWN;
     shotgun.fire_requested = false;
-    // Client-side: cast PELLETS rays with SPREAD for VFX.
-    // Server-side raycasting (single central ray) is handled in on_message.
+    // Client-side: caller can fan out PELLETS rays with SPREAD for VFX using the direction.
+    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
 }

@@ -4,13 +4,17 @@ pub mod weapon;
 pub mod rifle;
 pub mod shotgun;
 
+// Re-export shared types and the fire_weapons dispatcher so callers don't have to
+// reach into `weapon::weapon` directly.
+pub use weapon::{fire_weapons, FireEffect, FiredWeapons, WeaponComponent, WeaponInput, insert_weapon_physics};
+
+/// Registers shared weapon resources.
+/// Each binary registers the `fire_weapons<T>` systems itself with its own ordering
+/// (server: after on_message, before step_physics; client: before step_physics).
 pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, (
-            weapon::fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
-            weapon::fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
-        ));
+        app.init_resource::<FiredWeapons>();
     }
 }

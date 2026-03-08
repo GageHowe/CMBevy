@@ -1,3 +1,4 @@
+use crate::game_objects::health::Health;
 use crate::physics::physics_world::*;
 use super::pawn::*;
 use crate::net::message::NetworkID;
@@ -32,6 +33,7 @@ pub fn spawn(
     let entity = commands.spawn((
         BipedPawnComponent,
         WeaponSlots::default(),
+        Health::new(100.0),
         Transform::from(transform),
     )).id();
     insert_biped_physics(entity, &transform, commands, world);

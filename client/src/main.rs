@@ -7,7 +7,7 @@ use bevy::window::PresentMode;
 use bevy_egui::input::EguiWantsInput;
 use common::camera::spawn_camera;
 use common::net::{
-    message::*,
+    message::{self, *},
     quic::*,
 };
 use common::pawn::pawn::PitchPivot;
@@ -20,13 +20,14 @@ use common::tick::Ticker;
 use common::ui::ui::UIPlugin;
 use common::ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, WeaponPlugin};
+use common::weapon::{rifle, shotgun, fire_weapons, FiredWeapons, WeaponInput, WeaponPlugin};
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
 #[derive(Resource)]
 struct ServerAddr(SocketAddr);
 use common::debug_println;
+use common::health::Health;
 use common::master_plugin::MasterPlugin;
 use common::ui::ui::GuiState;
 
@@ -116,6 +117,7 @@ fn main() {
         .init_resource::<HitBeams>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
+    app.add_systems(PreUpdate, process_inbound_client);
     app.add_systems(Startup, connect);
 
     // FixedPreUpdate ordering:
@@ -126,8 +128,17 @@ fn main() {
         send_pawn_input.after(gather_pawn_input).before(move_pawns::<BipedPawnComponent>(apply_biped_movement)),
     );
 
-    // FixedUpdate ordering (step_physics comes from PhysicsPlugin):
-    //   step_physics → record_world_state → on_message/send_chat
+    // fire_weapons<T> ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
+    // drain_fired_weapons discards them (VFX system can replace it in the future).
+    // .chain() ensures rifle → shotgun → drain in order, all before step_physics.
+    app.add_systems(FixedUpdate, (
+        fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
+        fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
+        drain_fired_weapons,
+    ).chain().before(step_physics));
+
+    // FixedPostUpdate:
+    //   record_world_state → on_message/send_chat
     app.add_systems(FixedPostUpdate, record_world_state);
     app.add_systems(FixedPostUpdate, (on_message, send_chat));
 
@@ -140,6 +151,12 @@ fn main() {
 
     debug_println!("starting client...\n");
     app.run();
+}
+
+/// Discards this tick's accumulated fire effects.
+/// Replace with a real VFX/audio system when ready.
+fn drain_fired_weapons(mut fired: ResMut<FiredWeapons>) {
+    fired.0.clear();
 }
 
 fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -170,6 +187,7 @@ fn on_message(
     mut hit_beams: ResMut<HitBeams>,
     mut possessed_q: Query<(&mut WeaponSlots, &mut ViewmodelSlots), With<Possessed>>,
     networked: Query<(Entity, &NetworkID)>,
+    mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
     pitch_pivot: Query<Entity, With<PitchPivot>>,
     asset_server: Res<AssetServer>,
@@ -178,28 +196,35 @@ fn on_message(
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
                 match cmd.kind {
-                    SpawnKind::Biped(is_owned) => {
-                        if is_owned {
+                    SpawnKind::Pawn(message::PawnKind::Biped { owned }) => {
+                        if owned {
                             ticker.tick = cmd.server_tick;
                             local_net_id.0 = Some(cmd.net_id.clone());
-                            let cam = camera.single().ok();
-                            spawn_pawn_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world, cam);
-                        } else {
-                            spawn_ghost_client(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
                         }
+                        let cam = if owned { camera.single().ok() } else { None };
+                        spawn_biped_client(cmd, owned, &mut commands, &mut meshes, &mut materials, &mut world, cam);
                     }
-                    SpawnKind::Rifle => {
+                    SpawnKind::Weapon(message::WeaponKind::Rifle) => {
                         spawn_rifle(cmd, &mut commands, &mut world, &asset_server);
                     }
-                    SpawnKind::Shotgun => {
+                    SpawnKind::Weapon(message::WeaponKind::Shotgun) => {
                         spawn_shotgun(cmd, &mut commands, &mut world, &asset_server);
                     }
                 }
             }
             MsgType::DespawnCommand(net_id) => {
+                let is_local = local_net_id.0.as_ref() == Some(&net_id);
                 for (entity, nid) in networked.iter() {
                     if *nid == net_id {
                         world.remove_body(entity);
+                        if is_local {
+                            // Detach the camera before despawning so the hierarchy
+                            // doesn't take it with it. The server will re-spawn us.
+                            if let Ok(cam) = camera.single() {
+                                commands.entity(cam).remove_parent_in_place();
+                            }
+                            local_net_id.0 = None;
+                        }
                         commands.entity(entity).despawn();
                         // If this was a viewmodel in a weapon slot, clear it.
                         if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
@@ -244,6 +269,14 @@ fn on_message(
             MsgType::HitResult(origin, end, _hit_net_id) => {
                 hit_beams.0.push((origin.into(), end.into(), 0.3));
             }
+            MsgType::HealthUpdate(net_id, current) => {
+                for (nid, mut health) in health_q.iter_mut() {
+                    if *nid == net_id {
+                        health.current = current;
+                        break;
+                    }
+                }
+            }
             MsgType::Pong(text) => {
                 debug_println!("Client: Got PONG \"{text}\"");
                 gui.push_log(format!("pong: {text}"));
@@ -260,9 +293,11 @@ fn on_message(
     }
 }
 
-/// Spawns a pawn for the local player from a server SpawnCommand.
-fn spawn_pawn_client(
+/// Spawns a biped pawn from a server SpawnCommand.
+/// `owned` adds Possessed/ViewmodelSlots and attaches the camera rig.
+fn spawn_biped_client(
     cmd: SpawnCommand,
+    owned: bool,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -275,27 +310,14 @@ fn spawn_pawn_client(
         ..default()
     };
     let entity = biped::spawn(transform, commands, world);
-    biped::add_visuals(entity, Color::srgb(0.8, 0.8, 0.8), commands, meshes, materials);
-    biped::setup_camera_rig(entity, camera, commands);
-    commands.entity(entity).insert((cmd.net_id, Possessed::new(128), ViewmodelSlots::default()));
-}
-
-/// Spawns another player's pawn as a ghost (physics body + mesh, no Possessed/camera).
-fn spawn_ghost_client(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    world: &mut PhysicsWorld,
-) {
-    let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
-        ..default()
-    };
-    let entity = biped::spawn(transform, commands, world);
-    biped::add_visuals(entity, Color::srgb(0.9, 0.4, 0.1), commands, meshes, materials);
-    commands.entity(entity).insert(cmd.net_id);
+    let color = if owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
+    biped::add_visuals(entity, color, commands, meshes, materials);
+    if owned {
+        biped::setup_camera_rig(entity, camera, commands);
+        commands.entity(entity).insert((cmd.net_id, Possessed::new(128), ViewmodelSlots::default()));
+    } else {
+        commands.entity(entity).insert(cmd.net_id);
+    }
 }
 
 /// Spawns a rifle entity on the client (physics body + mesh).
@@ -451,29 +473,38 @@ fn maybe_reconcile(
     }
 }
 
-/// On left-click while holding a weapon, sends a Fire message to the server.
+/// On left-click while holding a weapon, sends a Fire message to the server and
+/// sets WeaponInput on the weapon entity so fire_weapons<T> predicts the shot locally.
 fn fire_weapon(
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Res<EguiWantsInput>,
-    pawn: Query<&WeaponSlots, With<Possessed>>,
-    tick: Res<Ticker>,
+    pawn: Query<(&WeaponSlots, &ViewmodelSlots), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     mut quic: ResMut<QuicManager>,
+    mut weapon_inputs: Query<&mut WeaponInput>,
 ) {
     if egui_wants.wants_any_input() || !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let Ok(slots) = pawn.single() else { return };
+    let Ok((slots, viewmodels)) = pawn.single() else { return };
     let Some(weapon_net_id) = slots.slots[slots.active].clone() else { return };
+    let Some(weapon_entity) = viewmodels.0[slots.active] else { return };
     let Ok(gt) = pitch_pivot.single() else { return };
 
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
-    let direction = rotation * Vec3::NEG_Z; // camera forward
+    let direction = rotation * Vec3::NEG_Z;
+
+    // Set input for client-side prediction (fire_weapons<T> reads this next FixedUpdate).
+    if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
+        w_input.fire = true;
+        w_input.origin = origin;
+        w_input.aim_dir = direction;
+    }
 
     quic.send(
         SendTarget::All,
         Channel::Unreliable,
-        &MsgType::Fire(weapon_net_id, tick.tick, origin.into(), direction.into()),
+        &MsgType::Fire(weapon_net_id, origin.into(), direction.into()),
     );
 }
 
