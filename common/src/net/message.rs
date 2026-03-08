@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
 use std::str::FromStr;
 use crate::pawn::pawn::PawnInput;
+pub use crate::game_objects::GameObjectKind;
 
 /// component to mark entities that should be networked.
 /// NetworkID is managed by the server.
@@ -23,29 +24,6 @@ impl NetworkIDResource {
     }
 }
 
-/// Discriminates the pawn type inside a `SpawnKind::Pawn`.
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub enum PawnKind {
-    /// `owned`: true only for the receiving client's own pawn.
-    Biped { owned: bool },
-}
-
-/// Discriminates the weapon type inside a `SpawnKind::Weapon`.
-/// Add a new variant here when adding a weapon; the spawn match arms stay co-located.
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub enum WeaponKind {
-    Rifle,
-    Shotgun,
-}
-
-/// Top-level category of a spawned entity.
-/// Add a new variant for each major object class (Projectile, Vehicle, Ball, …).
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
-pub enum SpawnKind {
-    Pawn(PawnKind),
-    Weapon(WeaponKind),
-}
-
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
     pub net_id: NetworkID,
@@ -54,7 +32,9 @@ pub struct SpawnCommand {
     pub rotation: CMQuat,
     /// Server tick at spawn time — client uses this to synchronize its clock.
     pub server_tick: u64,
-    pub kind: SpawnKind,
+    pub kind: GameObjectKind,
+    /// True only for the single recipient that owns/possesses this object.
+    pub owned: bool,
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, Clone, PartialEq)]
@@ -90,6 +70,10 @@ pub enum MsgType {
     HitResult(CMVec3, CMVec3, Option<NetworkID>),
     /// Server → All: current health for the given entity.
     HealthUpdate(NetworkID, f32),
+    /// Client → Server: timestamp echo request. Payload is the bits of an f64 elapsed time.
+    TimePing(u64),
+    /// Server → Client: echoes the TimePing payload unchanged.
+    TimePong(u64),
 }
 impl FromStr for MsgType {
     type Err = String;

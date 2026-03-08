@@ -4,11 +4,10 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use bevy::window::ExitCondition;
 use common::physics::physics_world::*;
 use common::net::{
     quic::*,
-    message::{MsgType, NetworkID, NetworkIDResource, PawnKind, SpawnCommand, SpawnKind, WeaponKind},
+    message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SpawnCommand},
 };
 use common::tick::Ticker;
 #[derive(Resource)]
@@ -25,6 +24,7 @@ use common::weapon::{
 use common::weapon::rifle::RifleComponent;
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
+use common::scripting::ScriptingPlugin;
 
 fn parse_addr() -> SocketAddr {
     let mut args = std::env::args().skip(1);
@@ -42,20 +42,16 @@ fn main() {
     let bind_addr = parse_addr();
     println!("binding to {bind_addr}");
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins.set(LogPlugin { level: Level::ERROR, ..default() })
-            .set(WindowPlugin{
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-    );
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     app.add_plugins(MasterPlugin);
+    app.add_plugins(ScriptingPlugin { is_server: true });
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
     app.init_resource::<PlayerRegistry>();
     app.init_resource::<WeaponRegistry>();
+    app.init_resource::<PendingRespawns>();
 
     // FixedUpdate ordering:
     //   on_message → WeaponFire (fire_weapons<T>, fills FiredWeapons)
@@ -65,6 +61,7 @@ fn main() {
     enum ServerSet { WeaponFire }
 
     app.add_systems(PreUpdate, process_inbound_server);
+    app.add_systems(Update, tick_respawns);
     app.add_systems(Startup, (start_server, spawn_initial_weapons));
     app.configure_sets(FixedUpdate, ServerSet::WeaponFire.after(on_message).before(step_physics));
     app.add_systems(FixedUpdate, on_message.before(step_physics));
@@ -82,6 +79,10 @@ fn main() {
 /// Maps each connected client to their spawned pawn entity and network id.
 #[derive(Resource, Default)]
 struct PlayerRegistry(HashMap<ConnectionId, (Entity, NetworkID)>);
+
+/// Pending respawns: conn_id → (seconds_remaining, kind).
+#[derive(Resource, Default)]
+struct PendingRespawns(HashMap<ConnectionId, (f32, GameObjectKind)>);
 
 /// Tracks weapons.
 /// `free`: net_id → entity (lying in world, has physics body).
@@ -113,18 +114,15 @@ fn spawn_initial_weapons(
     weapon_registry.free.insert(net_id, entity);
 }
 
-fn weapon_spawn_kind(rifle_q: &Query<&RifleComponent>, entity: Entity) -> SpawnKind {
-    if rifle_q.contains(entity) {
-        SpawnKind::Weapon(WeaponKind::Rifle)
-    } else {
-        SpawnKind::Weapon(WeaponKind::Shotgun)
-    }
+fn weapon_kind(rifle_q: &Query<&RifleComponent>, entity: Entity) -> GameObjectKind {
+    if rifle_q.contains(entity) { GameObjectKind::Rifle } else { GameObjectKind::Shotgun }
 }
 
 /// Spawns a new pawn for an already-connected client and notifies everyone.
 /// Call after `remove_player` (or on first connection after the initial world-state catch-up).
 fn spawn_player(
     conn_id: ConnectionId,
+    kind: GameObjectKind,
     quic: &mut QuicManager,
     registry: &mut PlayerRegistry,
     net_ids: &mut NetworkIDResource,
@@ -134,29 +132,30 @@ fn spawn_player(
 ) {
     let net_id = NetworkID(net_ids.get_next_id());
     let pos = Vec3::new(0.0, 5.0, 0.0);
-    let entity = biped::spawn(Transform::from_translation(pos), commands, world);
+    let entity = match kind {
+        GameObjectKind::Biped => biped::spawn(Transform::from_translation(pos), commands, world),
+        _ => unreachable!("spawn_player called with non-pawn kind"),
+    };
     commands.entity(entity).insert((net_id.clone(), WeaponSlots::default()));
 
-    // Tell all currently connected players about the new pawn (ghost).
-    for (&other_conn_id, _) in registry.0.iter() {
-        quic.send(SendTarget::One(other_conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
-            net_id: net_id.clone(),
-            position: pos.into(),
-            starting_velocity: Vec3::ZERO.into(),
-            rotation: Quat::IDENTITY.into(),
-            server_tick: tick,
-            kind: SpawnKind::Pawn(PawnKind::Biped { owned: false }),
-        }));
-    }
-    // Tell the client about its own pawn.
-    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
+    let spawn_cmd = |owned: bool| SpawnCommand {
         net_id: net_id.clone(),
         position: pos.into(),
         starting_velocity: Vec3::ZERO.into(),
         rotation: Quat::IDENTITY.into(),
         server_tick: tick,
-        kind: SpawnKind::Pawn(PawnKind::Biped { owned: true }),
-    }));
+        kind: kind.clone(),
+        owned,
+    };
+
+    // Tell all currently connected players about the new pawn (not owned by them).
+    for (&other_conn_id, _) in registry.0.iter() {
+        quic.send(SendTarget::One(other_conn_id), Channel::Ordered,
+            &MsgType::SpawnCommand(spawn_cmd(false)));
+    }
+    // Tell the client it owns this pawn.
+    quic.send(SendTarget::One(conn_id), Channel::Ordered,
+        &MsgType::SpawnCommand(spawn_cmd(true)));
 
     registry.0.insert(conn_id, (entity, net_id));
 }
@@ -186,7 +185,7 @@ fn remove_player(
         .collect();
     for wid in held {
         if let Some((weapon_entity, _)) = weapon_registry.held.remove(&wid) {
-            let kind = weapon_spawn_kind(rifle_q, weapon_entity);
+            let kind = weapon_kind(rifle_q, weapon_entity);
             insert_weapon_physics(weapon_entity, &Transform::from_translation(drop_pos), commands, world);
             weapon_registry.free.insert(wid.clone(), weapon_entity);
             quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
@@ -196,6 +195,7 @@ fn remove_player(
                 rotation: Quat::IDENTITY.into(),
                 server_tick: tick,
                 kind,
+                owned: false,
             }));
         }
     }
@@ -210,6 +210,7 @@ fn on_message(
     mut quic: ResMut<QuicManager>,
     mut registry: ResMut<PlayerRegistry>,
     mut weapon_registry: ResMut<WeaponRegistry>,
+    mut pending_respawns: ResMut<PendingRespawns>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
@@ -233,7 +234,8 @@ fn on_message(
                         starting_velocity: Vec3::ZERO.into(),
                         rotation: Quat::IDENTITY.into(),
                         server_tick: tick.tick,
-                        kind: SpawnKind::Pawn(PawnKind::Biped { owned: false }),
+                        kind: GameObjectKind::Biped,
+                        owned: false,
                     }));
                 }
 
@@ -249,14 +251,16 @@ fn on_message(
                         starting_velocity: Vec3::ZERO.into(),
                         rotation: Quat::IDENTITY.into(),
                         server_tick: tick.tick,
-                        kind: weapon_spawn_kind(&rifle_q, weapon_entity),
+                        kind: weapon_kind(&rifle_q, weapon_entity),
+                        owned: false,
                     }));
                 }
 
-                spawn_player(msg.conn_id, &mut quic, &mut registry, &mut net_ids,
+                spawn_player(msg.conn_id, GameObjectKind::Biped, &mut quic, &mut registry, &mut net_ids,
                     &mut commands, &mut world, tick.tick);
             }
             MsgType::Disconnected => {
+                pending_respawns.0.remove(&msg.conn_id);
                 if let Some((entity, net_id)) = registry.0.remove(&msg.conn_id) {
                     debug_println!("GameServer: Player disconnected: entity={entity} conn={:?}", msg.conn_id);
                     remove_player(entity, net_id, &mut quic, &mut registry, &mut weapon_registry,
@@ -301,7 +305,7 @@ fn on_message(
                         let drop_id = slots.slots[active].take().unwrap();
                         if let Some((drop_entity, _)) = weapon_registry.held.remove(&drop_id) {
                             let drop_pos = player_pos.map(|t| Vec3::new(t.x, t.y, t.z)).unwrap_or(Vec3::ZERO);
-                            let kind = weapon_spawn_kind(&rifle_q, drop_entity);
+                            let kind = weapon_kind(&rifle_q, drop_entity);
                             insert_weapon_physics(drop_entity, &Transform::from_translation(drop_pos), &mut commands, &mut world);
                             weapon_registry.free.insert(drop_id.clone(), drop_entity);
                             quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(drop_id.clone()));
@@ -312,6 +316,7 @@ fn on_message(
                                 rotation: Quat::IDENTITY.into(),
                                 server_tick: tick.tick,
                                 kind,
+                                owned: false,
                             }));
                         }
                     }
@@ -346,6 +351,9 @@ fn on_message(
                     w_input.shooter = Some(shooter_entity);
                 }
             }
+            MsgType::TimePing(bits) => {
+                quic.send(SendTarget::One(msg.conn_id), Channel::Unreliable, &MsgType::TimePong(bits));
+            }
             MsgType::Ping(text) => {
                 debug_println!("Got a ping from conn_id {:?} with text {}", msg.conn_id, text);
                 quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Pong(text));
@@ -366,7 +374,7 @@ fn handle_fired_weapons(
     mut commands: Commands,
     mut registry: ResMut<PlayerRegistry>,
     mut weapon_registry: ResMut<WeaponRegistry>,
-    mut net_ids: ResMut<NetworkIDResource>,
+    mut pending_respawns: ResMut<PendingRespawns>,
     rifle_q: Query<&RifleComponent>,
     tick: Res<Ticker>,
 ) {
@@ -405,8 +413,8 @@ fn handle_fired_weapons(
                                 if let Some((conn_id, player_net_id)) = player_entry {
                                     remove_player(dead_entity, player_net_id, &mut quic, &mut registry,
                                         &mut weapon_registry, &mut commands, &mut world, &rifle_q, tick.tick);
-                                    spawn_player(conn_id, &mut quic, &mut registry, &mut net_ids,
-                                        &mut commands, &mut world, tick.tick);
+                                    pending_respawns.0.insert(conn_id,
+                                        (common::config::RESPAWN_DELAY_SECS, GameObjectKind::Biped));
                                 } else {
                                     // Non-player entity with health (future: destructible props).
                                     world.remove_body(dead_entity);
@@ -420,6 +428,27 @@ fn handle_fired_weapons(
             }
             // Future: FireEffect::Projectile { ... } → spawn authoritative projectile body + SpawnCommand
         }
+    }
+}
+
+fn tick_respawns(
+    mut pending: ResMut<PendingRespawns>,
+    time: Res<Time>,
+    mut quic: ResMut<QuicManager>,
+    mut registry: ResMut<PlayerRegistry>,
+    mut net_ids: ResMut<NetworkIDResource>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    tick: Res<Ticker>,
+) {
+    let dt = time.delta_secs();
+    let ready: Vec<(ConnectionId, GameObjectKind)> = pending.0.iter_mut()
+        .filter_map(|(&id, (t, k))| { *t -= dt; (*t <= 0.0).then(|| (id, k.clone())) })
+        .collect();
+    for (conn_id, kind) in ready {
+        pending.0.remove(&conn_id);
+        spawn_player(conn_id, kind, &mut quic, &mut registry, &mut net_ids,
+            &mut commands, &mut world, tick.tick);
     }
 }
 

@@ -7,15 +7,16 @@ use bevy::window::PresentMode;
 use bevy_egui::input::EguiWantsInput;
 use common::camera::spawn_camera;
 use common::net::{
-    message::{self, *},
+    message::*,
     quic::*,
 };
+use common::game_objects::GameObjectKind;
 use common::pawn::pawn::PitchPivot;
 use common::pawn::biped;
 use common::pawn::pawn::*;
-use common::pawn::biped::apply_biped_movement;
 use common::physics::physics_world::*;
-use common::ring_buffer::RingBuffer;
+use common::net::reconciliation::{PendingReconciliation, ReconciliationPlugin};
+use common::net::tick_sync::{NetworkStats, TickSyncPlugin};
 use common::tick::Ticker;
 use common::ui::ui::UIPlugin;
 use common::ui::window::WindowSettingsPlugin;
@@ -26,14 +27,20 @@ use std::net::SocketAddr;
 
 #[derive(Resource)]
 struct ServerAddr(SocketAddr);
+
+/// Bundles spawn-related parameters to stay within Bevy's 16-param SystemParam limit.
+#[derive(bevy::ecs::system::SystemParam)]
+struct SpawnParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    asset_server: Res<'w, AssetServer>,
+}
 use common::debug_println;
+use common::scripting::ScriptingPlugin;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
 use common::ui::ui::GuiState;
-
-// these measure max tolerance for how much error we allow before reconciling
-const RECONCILE_POS_THRESHOLD: f32 = 0.2;
-const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
 
 /// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
 #[derive(Resource, Default)]
@@ -47,20 +54,6 @@ struct ViewmodelSlots([Option<Entity>; 2]);
 /// Active hitscan beams to draw as gizmos. Each entry is (origin, end, seconds_remaining).
 #[derive(Resource, Default)]
 struct HitBeams(Vec<(Vec3, Vec3, f32)>);
-
-/// holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
-#[derive(Resource, Default)]
-struct PendingReconciliation(Option<SimulationState>);
-
-/// Ring buffer of every local physics snapshot, one per tick, for all networked bodies.
-/// Used by reconciliation to restore bodies the server didn't mention.
-#[derive(Resource)]
-struct LocalStateHistory(RingBuffer<SimulationState>);
-impl Default for LocalStateHistory {
-    fn default() -> Self {
-        Self(RingBuffer::new(128))
-    }
-}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 enum AppState {
@@ -105,14 +98,15 @@ fn main() {
     );
 
     app.add_plugins(MasterPlugin)
+        .add_plugins(ScriptingPlugin { is_server: false })
         .init_state::<AppState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(PawnPlugin)
         .add_plugins(WeaponPlugin)
+        .add_plugins(ReconciliationPlugin)
+        .add_plugins(TickSyncPlugin)
         .insert_resource(ServerAddr(server_addr))
-        .init_resource::<PendingReconciliation>()
-        .init_resource::<LocalStateHistory>()
         .init_resource::<LocalNetworkID>()
         .init_resource::<HitBeams>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
@@ -122,10 +116,10 @@ fn main() {
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → gather_pawn_input → send_pawn_input → move_bipeds
-    app.add_systems(FixedPreUpdate, maybe_reconcile.before(gather_pawn_input));
+    // (maybe_reconcile registered by ReconciliationPlugin)
     app.add_systems(
         FixedPreUpdate,
-        send_pawn_input.after(gather_pawn_input).before(move_pawns::<BipedPawnComponent>(apply_biped_movement)),
+        send_pawn_input.after(gather_pawn_input).before(move_pawns::<BipedPawnComponent>(biped::apply_biped_movement)),
     );
 
     // fire_weapons<T> ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
@@ -138,8 +132,7 @@ fn main() {
     ).chain().before(step_physics));
 
     // FixedPostUpdate:
-    //   record_world_state → on_message/send_chat
-    app.add_systems(FixedPostUpdate, record_world_state);
+    //   record_world_state (ReconciliationPlugin) → on_message/send_chat
     app.add_systems(FixedPostUpdate, (on_message, send_chat));
 
     // (tick increment is FixedLast)
@@ -174,15 +167,17 @@ fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, add
     quic.connect(&mut client, addr.0);
 }
 
+/// handles messages coming in from the server
+/// called by quic on FixedPostUpdate
 fn on_message(
     mut quic: ResMut<QuicManager>,
     mut gui: ResMut<GuiState>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut sp: SpawnParams<'_, '_>,
     mut world: ResMut<PhysicsWorld>,
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
+    mut net_stats: ResMut<NetworkStats>,
+    time: Res<Time>,
     mut local_net_id: ResMut<LocalNetworkID>,
     mut hit_beams: ResMut<HitBeams>,
     mut possessed_q: Query<(&mut WeaponSlots, &mut ViewmodelSlots), With<Possessed>>,
@@ -190,25 +185,28 @@ fn on_message(
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
     pitch_pivot: Query<Entity, With<PitchPivot>>,
-    asset_server: Res<AssetServer>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
                 match cmd.kind {
-                    SpawnKind::Pawn(message::PawnKind::Biped { owned }) => {
+                    GameObjectKind::Biped => {
+                        let owned = cmd.owned;
                         if owned {
                             ticker.tick = cmd.server_tick;
                             local_net_id.0 = Some(cmd.net_id.clone());
                         }
                         let cam = if owned { camera.single().ok() } else { None };
-                        spawn_biped_client(cmd, owned, &mut commands, &mut meshes, &mut materials, &mut world, cam);
+                        spawn_biped_client(cmd, owned, &mut sp.commands, &mut sp.meshes, &mut sp.materials, &mut world, cam);
                     }
-                    SpawnKind::Weapon(message::WeaponKind::Rifle) => {
-                        spawn_rifle(cmd, &mut commands, &mut world, &asset_server);
+                    GameObjectKind::Rifle => {
+                        spawn_rifle(cmd, &mut sp.commands, &mut world, &sp.asset_server);
                     }
-                    SpawnKind::Weapon(message::WeaponKind::Shotgun) => {
-                        spawn_shotgun(cmd, &mut commands, &mut world, &asset_server);
+                    GameObjectKind::Shotgun => {
+                        spawn_shotgun(cmd, &mut sp.commands, &mut world, &sp.asset_server);
+                    }
+                    GameObjectKind::Spaceship => {
+                        warn!("Spaceship spawn not yet implemented on client");
                     }
                 }
             }
@@ -221,11 +219,11 @@ fn on_message(
                             // Detach the camera before despawning so the hierarchy
                             // doesn't take it with it. The server will re-spawn us.
                             if let Ok(cam) = camera.single() {
-                                commands.entity(cam).remove_parent_in_place();
+                                sp.commands.entity(cam).remove_parent_in_place();
                             }
                             local_net_id.0 = None;
                         }
-                        commands.entity(entity).despawn();
+                        sp.commands.entity(entity).despawn();
                         // If this was a viewmodel in a weapon slot, clear it.
                         if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
                             for i in 0..2 {
@@ -256,14 +254,14 @@ fn on_message(
                     } else { None };
                     if let (Some((slot_idx, is_active)), Ok(pivot)) = (slot_result, pitch_pivot.single()) {
                         let offset = viewmodel_offset(slot_idx);
-                        commands.entity(weapon_entity)
+                        sp.commands.entity(weapon_entity)
                             .remove::<(PhysicsBodyHandle, Interactable)>()
                             .set_parent_in_place(pivot)
                             .insert(offset)
                             .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
                     }
                 } else {
-                    commands.entity(weapon_entity).despawn();
+                    sp.commands.entity(weapon_entity).despawn();
                 }
             }
             MsgType::HitResult(origin, end, _hit_net_id) => {
@@ -284,8 +282,12 @@ fn on_message(
             MsgType::ChatMessage(sender, text) => {
                 gui.push_log(format!("[{sender}] {text}"));
             }
+            MsgType::TimePong(bits) => {
+                net_stats.record_pong(bits, time.elapsed_secs_f64());
+            }
             // Keep only the newest snapshot; reconciliation happens next FixedPreUpdate.
             MsgType::State(st) => {
+                net_stats.record_state_tick(ticker.tick, st.tick, common::config::TICK_RATE);
                 pending.0 = Some(st);
             }
             other => debug_println!("Client: Got unhandled message: {other:?}"),
@@ -382,95 +384,6 @@ fn send_pawn_input(
         Channel::Unreliable,
         &MsgType::Input(PawnInputMessage { input, tick: t }),
     );
-}
-
-/// Runs after `step_physics`. Snapshots all networked bodies into the local history so that
-/// `maybe_reconcile` can compare and restore them against the authoritative server state.
-fn record_world_state(
-    world: Res<PhysicsWorld>,
-    tick: Res<Ticker>,
-    mut history: ResMut<LocalStateHistory>,
-    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
-) {
-    history.0.push(snapshot_bodies(&world, tick.tick, query.iter()));
-}
-
-/// Runs at the start of FixedPreUpdate, before input is gathered.
-///
-/// If a server snapshot is pending:
-///   1. Compare it against our locally predicted state at that tick.
-///   2. If the error exceeds a threshold, restore physics state and replay all buffered
-///      inputs from snapshot_tick+1 up to (but not including) the current tick.
-///      Bodies in the server snapshot are restored to server-authoritative state.
-///      Networked bodies the server didn't mention are restored to local predicted state.
-fn maybe_reconcile(
-    mut pending: ResMut<PendingReconciliation>,
-    mut world: ResMut<PhysicsWorld>,
-    tick: Res<Ticker>,
-    history: Res<LocalStateHistory>,
-    bodies: Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>,
-) {
-    let Some(snapshot) = pending.0.take() else { return };
-
-    // find the locally possessed pawn, gotta find a better way to do this
-    let Some((our_net_id, our_handle, possessed)) =
-        bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
-    else {
-        return;
-    };
-
-    // look up local prediction at the snapshot's tick
-    let local_at_tick = history.0.iter().find(|s| s.tick == snapshot.tick);
-
-    // compare locally predicted state against the server's.
-    let needs_reconcile = match (
-        local_at_tick.and_then(|s| s.bodies.get(our_net_id)),
-        snapshot.bodies.get(our_net_id),
-    ) {
-        (Some(predicted), Some(server)) => {
-            let pos_err = (Vec3::new(server.position.x, server.position.y, server.position.z)
-                - Vec3::new(predicted.position.x, predicted.position.y, predicted.position.z))
-                .length();
-            let vel_err = (Vec3::new(server.linvel.x, server.linvel.y, server.linvel.z)
-                - Vec3::new(predicted.linvel.x, predicted.linvel.y, predicted.linvel.z))
-                .length();
-            pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
-        }
-        // no history for this tick, always reconcile to stay correct.
-        _ => true,
-    };
-
-    if !needs_reconcile {
-        return;
-    }
-
-    let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
-        .iter()
-        .map(|(nid, h, _)| (nid.clone(), h.0))
-        .collect();
-
-    // restore rigidbodies mentioned by the server to the authoritative server state.
-    restore_snapshot(&mut world, &snapshot, &pairs);
-
-    // 2. Restore networked bodies the server didn't mention to their local predicted state.
-    if let Some(local) = local_at_tick {
-        let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
-            .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
-            .cloned()
-            .collect();
-        restore_snapshot(&mut world, local, &unmentioned);
-    }
-
-    // 3. Replay our inputs from snapshot_tick+1 up to (not including) current_tick.
-    //    The current tick's input will be applied normally by move_bipeds right after.
-    let current = tick.tick;
-    for replay_tick in (snapshot.tick + 1)..current {
-        if let Some(&input) = possessed.get_input(replay_tick) {
-            // TODO: pass actual BipedPawnComponent when it holds state worth replaying
-            biped::apply_biped_movement(&mut world, our_handle, input, &mut BipedPawnComponent);
-        }
-        world.step();
-    }
 }
 
 /// On left-click while holding a weapon, sends a Fire message to the server and

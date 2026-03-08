@@ -6,6 +6,7 @@ use bevy::prelude::*;
 // use bevy::render::
 // use nalgebra::Vector3;
 use crate::net::message::{BodyState, NetworkID, SimulationState};
+#[cfg(feature = "client")]
 use bevy::math::primitives::Cuboid;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
@@ -158,17 +159,20 @@ impl Plugin for PhysicsPlugin {
                 FixedUpdate,
                 (step_physics, sync_physics_to_transforms).chain(),
             );
+        #[cfg(feature = "client")]
+        app.add_systems(Startup, create_object_visuals.after(create_objects));
     }
 }
 
-/// example of creating physics objects
+/// Marker for static level geometry so the client visual system can find it.
+#[derive(Component)]
+pub struct LevelFloor;
+
+/// Creates physics bodies for static level geometry. Runs on both client and server.
 pub fn create_objects(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-
     let plane_entity = commands.spawn_empty().id();
     let plane_rb = RigidBodyBuilder::fixed()
         .translation(Vector3::new(0.0, -10.0, 0.0))
@@ -176,16 +180,8 @@ pub fn create_objects(
     let plane_handle = world.insert_body(plane_entity, plane_rb);
     let plane_collider = ColliderBuilder::cuboid(10.0, 2.0, 10.0).build();
     commands.entity(plane_entity).insert((
-        Mesh3d(meshes.add(Mesh::from(Cuboid::new(20.0, 4.0, 20.0)))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.2, 0.2, 0.2),
-            metallic: 0.0,
-            perceptual_roughness: 0.6,
-            reflectance: 0.1,
-            ..Default::default()
-        })),
-        Visibility::default(),
         PhysicsBodyHandle(plane_handle),
+        LevelFloor,
     ));
 
     let PhysicsWorld {
@@ -194,6 +190,29 @@ pub fn create_objects(
         ..
     } = &mut *world;
     collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
+}
+
+/// Adds mesh/material visuals to level geometry. Client only.
+#[cfg(feature = "client")]
+pub fn create_object_visuals(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    floors: Query<Entity, With<LevelFloor>>,
+) {
+    for entity in &floors {
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Mesh::from(Cuboid::new(20.0, 4.0, 20.0)))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.2, 0.2, 0.2),
+                metallic: 0.0,
+                perceptual_roughness: 0.6,
+                reflectance: 0.1,
+                ..Default::default()
+            })),
+            Visibility::default(),
+        ));
+    }
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {

@@ -7,6 +7,7 @@ use crate::game_objects::health::Health;
 use crate::net::quic::{QuicManager, SendTarget, Channel};
 use crate::net::message::MsgType;
 use crate::pawn::pawn::Possessed;
+use crate::net::tick_sync::NetworkStats;
 use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
@@ -45,6 +46,7 @@ fn gui_top_left(
     mut contexts: EguiContexts,
     world: ResMut<PhysicsWorld>,
     diagnostics: Res<DiagnosticsStore>,
+    net_stats: Res<NetworkStats>,
     mut exit: MessageWriter<AppExit>,
     mut style_set: Local<bool>,
 ) -> Result {
@@ -78,6 +80,11 @@ fn gui_top_left(
                 ui.label("FPS: N/A");
             }
 
+            if net_stats.rtt_secs > 0.0 {
+                ui.label(format!("RTT: {:.0} ms  offset: {:+}", net_stats.rtt_secs * 1000.0, net_stats.tick_offset));
+            } else {
+                ui.label("RTT: --");
+            }
             if ui.button("Quit").clicked() {
                 exit.write(AppExit::Success);
             }

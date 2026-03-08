@@ -13,7 +13,10 @@ pub mod ring_buffer;
 pub mod types;
 pub mod tick;
 pub mod master_plugin;
+#[cfg(feature = "client")]
 pub mod ui;
 pub mod gameapi;
+#[cfg(feature = "client")]
 pub mod camera;
 pub mod interaction;
+pub mod scripting;

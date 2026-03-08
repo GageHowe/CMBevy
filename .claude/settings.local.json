@@ -22,7 +22,8 @@
       "Bash(tasklist:*)",
       "Bash(go build:*)",
       "Bash(cargo doc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cargo tree:*)"
     ],
     "deny": []
   }

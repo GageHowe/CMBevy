@@ -3,6 +3,7 @@ use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
+#[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
@@ -137,9 +138,11 @@ pub fn gather_pawn_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut pawns: Query<&mut Possessed>,
     yaw_pivot: Query<&YawPivot>,
+    #[cfg(feature = "client")]
     egui_wants_input: Res<EguiWantsInput>,
 ) {
-    if egui_wants_input.wants_any_input() { return; } // should we return here? or just push a default
+    #[cfg(feature = "client")]
+    if egui_wants_input.wants_any_input() { return; }
     let Ok(mut possessed) = pawns.single_mut() else { return };
 
     let mut input = PawnInput::default();
