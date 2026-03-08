@@ -19,7 +19,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(PhysicsPlugin);
 
         // tick should increment after everything else in FixedUpdate
-        app.add_systems(FixedPostUpdate, increment_tick);
+        app.add_systems(FixedLast, increment_tick);
 
         app.add_plugins(QuinnetServerPlugin::default())
             .add_plugins(QuinnetClientPlugin::default())

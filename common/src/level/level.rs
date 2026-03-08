@@ -13,7 +13,7 @@ impl Plugin for LevelPlugin {
 pub struct LevelDescription {}
 
 fn init_level(
-    mut commands: Commands,
+    // mut commands: Commands,
     // mut meshes: ResMut<Assets<Mesh>>,
     // mut materials: ResMut<Assets<StandardMaterial>>,
 ) {

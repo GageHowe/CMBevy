@@ -8,6 +8,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-common = { path = "../common" }
+common = { path = "../common", features = ["server"] }
 bevy = { version = "0.18", default-features = false, features = ["bevy_core_pipeline"] }
 rapier3d = "0.32.0"

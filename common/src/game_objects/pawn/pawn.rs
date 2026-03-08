@@ -33,12 +33,13 @@ pub struct SpaceshipPawnComponent;
 // CAMERA
 
 /// Rotates around the pawn's local Y axis (yaw). Child of the pawn entity.
+/// used by biped
 #[derive(Component)]
 pub struct YawPivot {
     pub yaw: f32,
 }
-
 /// Rotates around its local X axis (pitch). Child of YawPivot.
+/// used by biped
 #[derive(Component)]
 pub struct PitchPivot {
     pub pitch: f32,
@@ -72,7 +73,8 @@ pub struct PawnInput {
 #[derive(Component)]
 pub struct Possessed {
     buffer: RingBuffer<PawnInput>,
-    /// tick → input, kept for reconciliation replay
+    /// tick -> input, kept for reconciliation replay
+    /// should this be a ringbuffer?
     input_history: HashMap<u64, PawnInput>,
 }
 

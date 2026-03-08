@@ -29,6 +29,7 @@ pub enum SpawnKind {
     /// A biped pawn. `bool` is true when this is the local player's own pawn.
     Biped(bool),
     Rifle,
+    Shotgun,
     // Add new weapon types here — each routes to its own spawn + add_visuals on the client.
 }
 

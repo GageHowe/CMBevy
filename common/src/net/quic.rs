@@ -21,15 +21,10 @@ pub use bevy_quinnet::client::QuinnetClient;
 pub use bevy_quinnet::server::QuinnetServer;
 pub use bevy_quinnet::shared::ClientId;
 
-// ---------------------------------------------------------------------------
-// Channel configuration
-// ---------------------------------------------------------------------------
+// TODO: add compression with zstd
 
-/// ChannelId for ordered reliable messages (chat, commands)
 pub const ORDERED_CHANNEL: ChannelId = 0;
-/// ChannelId for unordered reliable messages (one-off events)
 pub const UNORDERED_CHANNEL: ChannelId = 1;
-/// ChannelId for unreliable datagrams (per-tick state updates)
 pub const UNRELIABLE_CHANNEL: ChannelId = 2;
 
 pub(crate) fn channels_config() -> SendChannelsConfiguration {

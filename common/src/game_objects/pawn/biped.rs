@@ -1,7 +1,15 @@
-use super::super::physics::physics_world::*;
+use crate::physics::physics_world::*;
 use super::pawn::*;
+use crate::net::message::NetworkID;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
+
+/// Two weapon slots on a biped pawn. Stored on the entity, not globally.
+#[derive(Component, Default)]
+pub struct WeaponSlots {
+    pub slots: [Option<NetworkID>; 2],
+    pub active: usize,
+}
 
 fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Commands, world: &mut PhysicsWorld) {
     let rb = RigidBodyBuilder::dynamic()
@@ -23,6 +31,7 @@ pub fn spawn(
 ) -> Entity {
     let entity = commands.spawn((
         BipedPawnComponent,
+        WeaponSlots::default(),
         Transform::from(transform),
     )).id();
     insert_biped_physics(entity, &transform, commands, world);

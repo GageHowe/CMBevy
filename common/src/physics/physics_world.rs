@@ -281,3 +281,48 @@ fn sync_physics_to_transforms(
         }
     }
 }
+
+// use bevy::transform::TransformSystems;
+//
+// fn transform_physics_tranforms_extrapolated(
+//     world: Res<PhysicsWorld>,
+//     fixed_time: Res<Time<Fixed>>,
+//     mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
+// ) {
+//     let a = fixed_time.overstep_fraction(); // 0..1 between fixed steps [web:44][web:48]
+//
+//     // duration of one physics tick (must match IntegrationParameters::dt)
+//     let dt = world.integration_parameters.dt as f32;
+//
+//     for (body_handle, mut transform) in &mut query {
+//         if let Some(body) = world.rigid_body_set.get(body_handle.0) {
+//             // current physics state
+//             let pos = body.position();
+//             let translation = pos.translation;
+//             let rotation = pos.rotation;
+//             let linvel = body.linvel();
+//             let angvel = body.angvel();
+//
+//             // predict next-tick position using velocity (simple extrapolation) [web:29]
+//             let future_translation = translation + linvel * dt;
+//             // naive angular extrapolation: axis-angle from angvel * dt
+//             let ang_speed = angvel.norm();
+//             let future_rotation = if ang_speed > 0.0001 {
+//                 let axis = angvel / ang_speed;
+//                 let angle = ang_speed * dt;
+//                 let delta = Quat::from_axis_angle(Vec3::new(axis.x, axis.y, axis.z), angle);
+//                 Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w) * delta
+//             } else {
+//                 Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w)
+//             };
+//
+//             // lerp/slerp between current and future based on overstep fraction [web:29]
+//             let current = Vec3::new(translation.x, translation.y, translation.z);
+//             let future = Vec3::new(future_translation.x, future_translation.y, future_translation.z);
+//             transform.translation = current.lerp(future, a);
+//
+//             let current_rot = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w);
+//             transform.rotation = current_rot.slerp(future_rotation, a);
+//         }
+//     }
+// }

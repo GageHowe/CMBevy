@@ -1,4 +1,4 @@
-use super::super::physics::physics_world::*;
+use crate::physics::physics_world::*;
 use super::pawn::*;
 // use bevy::prelude::*;
 use rapier3d::prelude::*;

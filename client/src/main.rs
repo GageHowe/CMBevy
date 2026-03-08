@@ -1,5 +1,6 @@
 // client executable
 
+use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
@@ -19,7 +20,8 @@ use common::tick::Ticker;
 use common::ui::ui::UIPlugin;
 use common::ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::rifle;
+use common::weapon::{rifle, shotgun, WeaponPlugin};
+use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
 #[derive(Resource)]
@@ -36,14 +38,10 @@ const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
 #[derive(Resource, Default)]
 struct LocalNetworkID(Option<NetworkID>);
 
-/// The NetworkID of the weapon the local player is currently holding, if any.
-#[derive(Resource, Default)]
-struct HeldWeapon(Option<NetworkID>);
-
-/// All clients track who holds which weapon: carrier_net_id → weapon_net_id.
-/// Updated by WeaponPickup messages from the server so every client has a consistent view.
-#[derive(Resource, Default)]
-struct HeldWeapons(std::collections::HashMap<NetworkID, NetworkID>);
+/// Tracks the entity for each weapon slot viewmodel on the local player's pawn.
+/// Slot index matches WeaponSlots::slots.
+#[derive(Component, Default)]
+struct ViewmodelSlots([Option<Entity>; 2]);
 
 /// Active hitscan beams to draw as gizmos. Each entry is (origin, end, seconds_remaining).
 #[derive(Resource, Default)]
@@ -110,12 +108,11 @@ fn main() {
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(PawnPlugin)
+        .add_plugins(WeaponPlugin)
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<PendingReconciliation>()
         .init_resource::<LocalStateHistory>()
         .init_resource::<LocalNetworkID>()
-        .init_resource::<HeldWeapon>()
-        .init_resource::<HeldWeapons>()
         .init_resource::<HitBeams>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
@@ -131,11 +128,14 @@ fn main() {
 
     // FixedUpdate ordering (step_physics comes from PhysicsPlugin):
     //   step_physics → record_world_state → on_message/send_chat
-    app.add_systems(FixedUpdate, record_world_state.after(step_physics));
-    app.add_systems(FixedUpdate, (on_message, send_chat).after(step_physics));
+    app.add_systems(FixedPostUpdate, record_world_state);
+    app.add_systems(FixedPostUpdate, (on_message, send_chat));
+
+    // (tick increment is FixedLast)
 
     app.add_systems(Update, send_interact_request);
     app.add_systems(Update, fire_weapon);
+    app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
 
     debug_println!("starting client...\n");
@@ -167,11 +167,12 @@ fn on_message(
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
     mut local_net_id: ResMut<LocalNetworkID>,
-    mut held_weapon: ResMut<HeldWeapon>,
-    mut held_weapons: ResMut<HeldWeapons>,
     mut hit_beams: ResMut<HitBeams>,
+    mut possessed_q: Query<(&mut WeaponSlots, &mut ViewmodelSlots), With<Possessed>>,
     networked: Query<(Entity, &NetworkID)>,
     camera: Query<Entity, With<Camera3d>>,
+    pitch_pivot: Query<Entity, With<PitchPivot>>,
+    asset_server: Res<AssetServer>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -188,7 +189,10 @@ fn on_message(
                         }
                     }
                     SpawnKind::Rifle => {
-                        spawn_rifle(cmd, &mut commands, &mut meshes, &mut materials, &mut world);
+                        spawn_rifle(cmd, &mut commands, &mut world, &asset_server);
+                    }
+                    SpawnKind::Shotgun => {
+                        spawn_shotgun(cmd, &mut commands, &mut world, &asset_server);
                     }
                 }
             }
@@ -197,24 +201,44 @@ fn on_message(
                     if *nid == net_id {
                         world.remove_body(entity);
                         commands.entity(entity).despawn();
+                        // If this was a viewmodel in a weapon slot, clear it.
+                        if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                            for i in 0..2 {
+                                if slots.slots[i].as_ref() == Some(&net_id) {
+                                    slots.slots[i] = None;
+                                    viewmodels.0[i] = None;
+                                }
+                            }
+                        }
                         break;
                     }
                 }
             }
             MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
-                // Despawn the weapon entity (its physics body is gone server-side too).
-                for (entity, nid) in networked.iter() {
-                    if *nid == weapon_id {
-                        world.remove_body(entity);
-                        commands.entity(entity).despawn();
-                        break;
+                let is_local = local_net_id.0.as_ref() == Some(&carrier_net_id);
+                let weapon_entity = networked.iter().find(|(_, nid)| *nid == &weapon_id).map(|(e, _)| e);
+                let Some(weapon_entity) = weapon_entity else { continue };
+                world.remove_body(weapon_entity);
+                if is_local {
+                    // Find first empty slot, assign weapon, attach as viewmodel.
+                    let slot_result = if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                        let slot_idx = slots.slots.iter().position(|s| s.is_none());
+                        if let Some(idx) = slot_idx {
+                            slots.slots[idx] = Some(weapon_id.clone());
+                            viewmodels.0[idx] = Some(weapon_entity);
+                            Some((idx, slots.active == idx))
+                        } else { None }
+                    } else { None };
+                    if let (Some((slot_idx, is_active)), Ok(pivot)) = (slot_result, pitch_pivot.single()) {
+                        let offset = viewmodel_offset(slot_idx);
+                        commands.entity(weapon_entity)
+                            .remove::<(PhysicsBodyHandle, Interactable)>()
+                            .set_parent_in_place(pivot)
+                            .insert(offset)
+                            .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
                     }
-                }
-                // All clients record who holds what.
-                held_weapons.0.insert(carrier_net_id.clone(), weapon_id.clone());
-                // The carrier specifically records it for firing.
-                if local_net_id.0.as_ref() == Some(&carrier_net_id) {
-                    held_weapon.0 = Some(weapon_id);
+                } else {
+                    commands.entity(weapon_entity).despawn();
                 }
             }
             MsgType::HitResult(origin, end, _hit_net_id) => {
@@ -253,7 +277,7 @@ fn spawn_pawn_client(
     let entity = biped::spawn(transform, commands, world);
     biped::add_visuals(entity, Color::srgb(0.8, 0.8, 0.8), commands, meshes, materials);
     biped::setup_camera_rig(entity, camera, commands);
-    commands.entity(entity).insert((cmd.net_id, Possessed::new(128)));
+    commands.entity(entity).insert((cmd.net_id, Possessed::new(128), ViewmodelSlots::default()));
 }
 
 /// Spawns another player's pawn as a ghost (physics body + mesh, no Possessed/camera).
@@ -278,9 +302,8 @@ fn spawn_ghost_client(
 fn spawn_rifle(
     cmd: SpawnCommand,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
     world: &mut PhysicsWorld,
+    asset_server: &AssetServer,
 ) {
     let transform = Transform {
         translation: cmd.position.into(),
@@ -288,7 +311,23 @@ fn spawn_rifle(
         ..default()
     };
     let entity = rifle::spawn(transform, commands, world);
-    rifle::add_visuals(entity, commands, meshes, materials);
+    rifle::add_visuals(entity, commands, asset_server);
+    commands.entity(entity).insert(cmd.net_id);
+}
+
+fn spawn_shotgun(
+    cmd: SpawnCommand,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    asset_server: &AssetServer,
+) {
+    let transform = Transform {
+        translation: cmd.position.into(),
+        rotation: cmd.rotation.into(),
+        ..default()
+    };
+    let entity = shotgun::spawn(transform, commands, world);
+    shotgun::add_visuals(entity, commands, asset_server);
     commands.entity(entity).insert(cmd.net_id);
 }
 
@@ -416,7 +455,7 @@ fn maybe_reconcile(
 fn fire_weapon(
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Res<EguiWantsInput>,
-    held_weapon: Res<HeldWeapon>,
+    pawn: Query<&WeaponSlots, With<Possessed>>,
     tick: Res<Ticker>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     mut quic: ResMut<QuicManager>,
@@ -424,7 +463,8 @@ fn fire_weapon(
     if egui_wants.wants_any_input() || !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let Some(weapon_net_id) = held_weapon.0.clone() else { return };
+    let Ok(slots) = pawn.single() else { return };
+    let Some(weapon_net_id) = slots.slots[slots.active].clone() else { return };
     let Ok(gt) = pitch_pivot.single() else { return };
 
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
@@ -476,5 +516,37 @@ fn send_interact_request(
 
     if let Some((_, net_id)) = nearest {
         quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(net_id.clone()));
+    }
+}
+
+/// Local-space transform offset for the viewmodel depending on which slot it's in.
+fn viewmodel_offset(slot_idx: usize) -> Transform {
+    match slot_idx {
+        0 => Transform::from_xyz(0.3, -0.25, -0.5),
+        _ => Transform::from_xyz(-0.3, -0.25, -0.5),
+    }
+}
+
+/// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.
+fn switch_weapon_slot(
+    scroll: Res<AccumulatedMouseScroll>,
+    mut pawn: Query<(&mut WeaponSlots, &ViewmodelSlots), With<Possessed>>,
+    mut visibility: Query<&mut Visibility>,
+) {
+    let delta: f32 = scroll.delta.y;
+    if delta == 0.0 { return; }
+    let Ok((mut slots, viewmodels)) = pawn.single_mut() else { return };
+    let prev = slots.active;
+    slots.active = if delta > 0.0 {
+        (slots.active + 1) % 2
+    } else {
+        slots.active.checked_sub(1).unwrap_or(1)
+    };
+    if slots.active == prev { return; }
+    if let Some(e) = viewmodels.0[prev] {
+        if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
+    }
+    if let Some(e) = viewmodels.0[slots.active] {
+        if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
     }
 }

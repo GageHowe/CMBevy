@@ -16,7 +16,11 @@ struct BindAddr(SocketAddr);
 use common::master_plugin::MasterPlugin;
 use common::pawn::biped;
 use common::pawn::pawn::BipedPawnComponent;
-use common::weapon::{rifle, weapon::WeaponStats};
+use common::weapon::{rifle, shotgun, WeaponPlugin};
+use common::weapon::rifle::RifleComponent;
+use common::weapon::shotgun::ShotgunComponent;
+use common::weapon::weapon::insert_weapon_physics;
+use common::pawn::biped::WeaponSlots;
 use common::debug_println;
 
 fn parse_addr() -> SocketAddr {
@@ -45,6 +49,7 @@ fn main() {
     );
 
     app.add_plugins(MasterPlugin);
+    app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
     app.init_resource::<PlayerRegistry>();
     app.init_resource::<WeaponRegistry>();
@@ -83,8 +88,12 @@ fn spawn_initial_weapons(
     mut weapon_registry: ResMut<WeaponRegistry>,
 ) {
     let net_id = NetworkID(net_ids.get_next_id());
-    let transform = Transform::from_translation(Vec3::new(3.0, 2.0, 0.0));
-    let entity = rifle::spawn(transform, &mut commands, &mut world);
+    let entity = rifle::spawn(Transform::from_translation(Vec3::new(3.0, 2.0, 0.0)), &mut commands, &mut world);
+    commands.entity(entity).insert(net_id.clone());
+    weapon_registry.free.insert(net_id, entity);
+
+    let net_id = NetworkID(net_ids.get_next_id());
+    let entity = shotgun::spawn(Transform::from_translation(Vec3::new(-3.0, 2.0, 0.0)), &mut commands, &mut world);
     commands.entity(entity).insert(net_id.clone());
     weapon_registry.free.insert(net_id, entity);
 }
@@ -98,7 +107,9 @@ fn on_message(
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
     networked: Query<(Entity, &NetworkID)>,
-    weapon_stats: Query<&WeaponStats>,
+    mut rifle_components: Query<&mut RifleComponent>,
+    mut shotgun_components: Query<&mut ShotgunComponent>,
+    mut pawn_slots: Query<&mut WeaponSlots>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -134,13 +145,18 @@ fn on_message(
                             Vec3::new(t.x, t.y, t.z)
                         } else { Vec3::ZERO }
                     } else { Vec3::ZERO };
+                    let kind = if rifle_components.contains(weapon_entity) {
+                        SpawnKind::Rifle
+                    } else {
+                        SpawnKind::Shotgun
+                    };
                     quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
                         net_id: weapon_net_id.clone(),
                         position: weapon_pos.into(),
                         starting_velocity: Vec3::ZERO.into(),
                         rotation: Quat::IDENTITY.into(),
                         server_tick: tick.tick,
-                        kind: SpawnKind::Rifle,
+                        kind,
                     }));
                 }
 
@@ -222,6 +238,34 @@ fn on_message(
                 };
 
                 if in_range {
+                    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else { continue };
+
+                    // If both slots are full, drop the active one first.
+                    if slots.slots.iter().all(|s| s.is_some()) {
+                        let active = slots.active;
+                        let drop_id = slots.slots[active].take().unwrap();
+                        if let Some((drop_entity, _)) = weapon_registry.held.remove(&drop_id) {
+                            let drop_pos = player_pos.map(|t| Vec3::new(t.x, t.y, t.z)).unwrap_or(Vec3::ZERO);
+                            insert_weapon_physics(drop_entity, &Transform::from_translation(drop_pos), &mut commands, &mut world);
+                            weapon_registry.free.insert(drop_id.clone(), drop_entity);
+                            let kind = if rifle_components.contains(drop_entity) { SpawnKind::Rifle } else { SpawnKind::Shotgun };
+                            quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(drop_id.clone()));
+                            quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
+                                net_id: drop_id,
+                                position: drop_pos.into(),
+                                starting_velocity: Vec3::ZERO.into(),
+                                rotation: Quat::IDENTITY.into(),
+                                server_tick: tick.tick,
+                                kind,
+                            }));
+                        }
+                    }
+
+                    // Assign to first empty slot.
+                    let slot_idx = slots.slots.iter().position(|s| s.is_none()).unwrap();
+                    slots.slots[slot_idx] = Some(target_net_id.clone());
+                    drop(slots); // release borrow before world/registry mutation
+
                     weapon_registry.free.remove(&target_net_id);
                     weapon_registry.held.insert(target_net_id.clone(), (weapon_entity, player_entity));
                     world.remove_body(weapon_entity);
@@ -244,9 +288,17 @@ fn on_message(
                 let dir_v = dir_v.normalize_or_zero();
                 if dir_v == Vec3::ZERO { continue; }
 
-                let range = weapon_stats.get(weapon_entity)
-                    .map(|s| s.range)
-                    .unwrap_or(500.0);
+                // Dispatch per weapon type: validate cooldown, consume it, get range.
+                let range = if let Ok(mut c) = rifle_components.get_mut(weapon_entity) {
+                    if c.cooldown > 0.0 { continue; }
+                    c.cooldown = rifle::COOLDOWN;
+                    rifle::RANGE
+                } else if let Ok(mut c) = shotgun_components.get_mut(weapon_entity) {
+                    if c.cooldown > 0.0 { continue; }
+                    c.cooldown = shotgun::COOLDOWN;
+                    shotgun::RANGE
+                } else { continue };
+
                 let hit = world.cast_ray(origin_v, dir_v, range, Some(shooter_entity));
 
                 let (end, hit_net_id) = match hit {
