@@ -2,11 +2,7 @@ use bevy::prelude::*;
 
 use crate::net::message::MsgType;
 use crate::net::quic::{Channel, QuicManager, SendTarget};
-
-// TODO: make this use slow_update schedule
-
-/// How often the client sends a TimePing to measure RTT.
-pub const PING_INTERVAL_SECS: f32 = 1.0;
+use crate::slow_update::SlowUpdate;
 
 /// Smoothed network statistics updated each time a TimePong or State arrives.
 #[derive(Resource, Default)]
@@ -47,21 +43,12 @@ pub struct TickSyncPlugin;
 impl Plugin for TickSyncPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkStats>()
-            .add_systems(Update, send_ping);
+            .add_systems(SlowUpdate, send_ping);
     }
 }
 
-/// Periodically sends a TimePing so the server can echo it back for RTT measurement.
-fn send_ping(
-    time: Res<Time>,
-    mut quic: ResMut<QuicManager>,
-    mut timer: Local<f32>,
-) {
-    *timer -= time.delta_secs();
-    if *timer > 0.0 {
-        return;
-    }
-    *timer = PING_INTERVAL_SECS;
+/// Sends a TimePing once per SlowUpdate tick (1 Hz) for RTT measurement.
+fn send_ping(time: Res<Time>, mut quic: ResMut<QuicManager>) {
     quic.send(
         SendTarget::All,
         Channel::Unreliable,
