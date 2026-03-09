@@ -3,13 +3,15 @@ use bevy::prelude::*;
 use crate::net::message::MsgType;
 use crate::net::quic::{Channel, QuicManager, SendTarget};
 
+// TODO: make this use slow_update schedule
+
 /// How often the client sends a TimePing to measure RTT.
 pub const PING_INTERVAL_SECS: f32 = 1.0;
 
 /// Smoothed network statistics updated each time a TimePong or State arrives.
 #[derive(Resource, Default)]
 pub struct NetworkStats {
-    /// Smoothed round-trip time in seconds. Zero until the first pong is received.
+    /// smoothed round-trip time in seconds. Zero until the first pong is received.
     pub rtt_secs: f32,
     /// Estimated ticks the client is running ahead of the server, corrected for one-way
     /// transit time (RTT/2). Positive = client ahead, negative = client behind.

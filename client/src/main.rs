@@ -291,7 +291,7 @@ fn on_message(
             }
             // Keep only the newest snapshot; reconciliation happens next FixedPreUpdate.
             MsgType::State(st) => {
-                net_stats.record_state_tick(ticker.tick, st.tick, common::config::TICK_RATE);
+                net_stats.record_state_tick(ticker.tick, st.tick, common::config::FIXED_TICK_RATE);
                 pending.0 = Some(st);
             }
             MsgType::FileData(name, compressed) => {

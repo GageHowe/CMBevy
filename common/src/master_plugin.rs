@@ -12,7 +12,7 @@ use crate::slow_update::SlowSchedulePlugin;
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Time::<Fixed>::from_hz(crate::config::TICK_RATE));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::config::FIXED_TICK_RATE));
         app.insert_resource(Ticker {
             tick: 0
         });

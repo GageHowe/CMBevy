@@ -5,7 +5,7 @@ pub mod pawn;
 pub mod weapon;
 
 /// update this as needed; it defines types of game objects that can be spawned
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]
+#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone, bevy::ecs::component::Component)]
 pub enum GameObjectKind {
     Biped,
     Spaceship,

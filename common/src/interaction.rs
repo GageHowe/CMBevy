@@ -7,3 +7,5 @@ use bevy::prelude::*;
 pub struct Interactable {
     pub range: f32,
 }
+
+// TODO: implement interact trait so players/objects can interact with various objects

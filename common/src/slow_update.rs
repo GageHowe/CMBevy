@@ -6,9 +6,9 @@ use bevy::{
 const FREQUENCY: f64 = 1.0; // x times / sec
 
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SlowHz;
+pub struct SlowUpdate;
 
-fn run_eighteen_hz(world: &mut World) {
+fn run_slow_update(world: &mut World) {
     let delta = world.resource::<Time<Virtual>>().delta();
 
     world.resource_scope(|world, mut state: Mut<SlowScheduleState>| {
@@ -17,7 +17,7 @@ fn run_eighteen_hz(world: &mut World) {
 
         while state.accumulator >= timestep {
             state.accumulator -= timestep;
-            world.run_schedule(SlowHz);
+            world.run_schedule(SlowUpdate);
         }
     });
 }
@@ -41,11 +41,11 @@ pub struct SlowSchedulePlugin;
 
 impl Plugin for SlowSchedulePlugin {
     fn build(&self, app: &mut App) {
-        let mut schedule = Schedule::new(SlowHz);
+        let mut schedule = Schedule::new(SlowUpdate);
         schedule.set_executor_kind(ExecutorKind::SingleThreaded);
         app.add_schedule(schedule);
 
         app.init_resource::<SlowScheduleState>();
-        app.add_systems(RunFixedMainLoop, run_eighteen_hz);
+        app.add_systems(RunFixedMainLoop, run_slow_update);
     }
 }
