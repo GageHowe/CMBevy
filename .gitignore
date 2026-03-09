@@ -1,3 +1,6 @@
 target/
 *.db
 *.DS_Store
+*.exe
+*.sqlite
+Cargo.lock

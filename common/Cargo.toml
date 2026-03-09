@@ -1,0 +1,27 @@
+
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[features]
+# Enables visual/rendering spawning helpers (mesh, material, camera rig).
+# Enable this in the client crate; the server omits it.
+client = ["bevy_egui", "bevy_quinnet/client", "dep:serde", "dep:toml", "dep:steamworks"]
+server = ["bevy_quinnet/server"]
+
+[dependencies]
+bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded"] }
+rapier3d = "0.32.0"
+bevy_egui = { version = "0.39.1", optional = true }
+wincode = "0.4.1"
+wincode-derive = "0.4.0"
+zstd = "0.13.3"
+bevy_quinnet = { version = "0.20", default-features = false }
+rhai = "1.24.0"
+serde = { version = "1", features = ["derive"], optional = true }
+toml = { version = "0.8", optional = true }
+steamworks = { version = "0.12", optional = true }

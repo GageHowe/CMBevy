@@ -8,6 +8,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-game_common = { path = "../game_common" }
-bevy = { version = "0.18", default-features = false, features = ["bevy_core_pipeline"] }
+common = { path = "../common", features = ["server"] }
+bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded"] }
 rapier3d = "0.32.0"

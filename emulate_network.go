@@ -39,80 +39,104 @@ func main() {
 
 	rand.Seed(time.Now().UnixNano())
 
-	clientSideAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", *clientPort))
+	listenAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", *clientPort))
 	if err != nil {
 		log.Fatal(err)
 	}
-	clientSide, err := net.ListenUDP("udp", clientSideAddr)
+	listener, err := net.ListenUDP("udp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer clientSide.Close()
+	defer listener.Close()
 
 	serverAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", *serverPort))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("emulating network on port %d <-> %d\n", *clientPort, *serverPort)
+	log.Printf("emulating network: clients on :%d <-> server on :%d (loss=%.0f%%, delay=%d-%dms)\n",
+		*clientPort, *serverPort, cfg.lossProb*100, *minDelayMs, *maxDelayMs)
 
-	var clientAddr *net.UDPAddr
-	var mu sync.Mutex
+	// Map from client address string to their dedicated server connection.
+	var clients sync.Map // string → *net.UDPConn
 
 	buf := make([]byte, cfg.bufSize)
 	for {
-		n, addr, err := clientSide.ReadFromUDP(buf)
+		n, clientAddr, err := listener.ReadFromUDP(buf)
 		if err != nil {
 			log.Println("read error:", err)
 			continue
 		}
-		isFromServer := addr.Port == serverAddr.Port
 
-		if isFromServer {
-			// server to client
-			mu.Lock()
-			dst := clientAddr
-			mu.Unlock()
-
-			if dst == nil {
+		key := clientAddr.String()
+		val, exists := clients.Load(key)
+		if !exists {
+			// New client — open a dedicated connection to the server.
+			conn, err := net.DialUDP("udp", nil, serverAddr)
+			if err != nil {
+				log.Println("dial error:", err)
 				continue
 			}
-
-			// packet loss
-			if rand.Float64() < cfg.lossProb {
-				continue
+			actual, loaded := clients.LoadOrStore(key, conn)
+			if loaded {
+				// Lost the race with another goroutine.
+				conn.Close()
+				val = actual
+			} else {
+				val = conn
+				log.Printf("new client: %s", key)
+				go forwardToClient(conn, listener, clientAddr, &cfg)
 			}
-
-			packet := make([]byte, n)
-			copy(packet, buf[:n])
-			go sendDelayed(clientSide, packet, dst, &cfg)
-		} else {
-			// client to server
-			mu.Lock()
-			clientAddr = addr
-			mu.Unlock()
-
-			// packet loss
-			if rand.Float64() < cfg.lossProb {
-				continue
-			}
-
-			packet := make([]byte, n)
-			copy(packet, buf[:n])
-			go sendDelayed(clientSide, packet, serverAddr, &cfg)
 		}
+
+		if rand.Float64() < cfg.lossProb {
+			continue
+		}
+		packet := make([]byte, n)
+		copy(packet, buf[:n])
+		serverConn := val.(*net.UDPConn)
+		go sendDelayedConnected(serverConn, packet, &cfg)
 	}
 }
 
-func sendDelayed(conn *net.UDPConn, data []byte, dst *net.UDPAddr, cfg *linkConfig) {
-	delay := cfg.minDelay
-	if jitter := cfg.maxDelay - cfg.minDelay; jitter > 0 {
-		delay += time.Duration(rand.Int63n(int64(jitter)))
+// forwardToClient reads server replies from conn and writes them back to the client.
+func forwardToClient(conn *net.UDPConn, listener *net.UDPConn, clientAddr *net.UDPAddr, cfg *linkConfig) {
+	buf := make([]byte, cfg.bufSize)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			log.Printf("server conn closed for %s: %v", clientAddr, err)
+			return
+		}
+		if rand.Float64() < cfg.lossProb {
+			continue
+		}
+		packet := make([]byte, n)
+		copy(packet, buf[:n])
+		go sendDelayedTo(listener, packet, clientAddr, cfg)
 	}
+}
 
-	time.Sleep(delay)
+// sendDelayedConnected delays then writes on a DialUDP connection (no dst needed).
+func sendDelayedConnected(conn *net.UDPConn, data []byte, cfg *linkConfig) {
+	time.Sleep(jitter(cfg))
+	if _, err := conn.Write(data); err != nil {
+		log.Println("write error:", err)
+	}
+}
 
+// sendDelayedTo delays then writes to dst on an unconnected listener socket.
+func sendDelayedTo(conn *net.UDPConn, data []byte, dst *net.UDPAddr, cfg *linkConfig) {
+	time.Sleep(jitter(cfg))
 	if _, err := conn.WriteToUDP(data, dst); err != nil {
 		log.Println("write error:", err)
 	}
+}
+
+func jitter(cfg *linkConfig) time.Duration {
+	d := cfg.minDelay
+	if j := cfg.maxDelay - cfg.minDelay; j > 0 {
+		d += time.Duration(rand.Int63n(int64(j)))
+	}
+	return d
 }

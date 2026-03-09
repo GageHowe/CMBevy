@@ -18,7 +18,14 @@
       "Bash(cargo test:*)",
       "Bash(xargs head:*)",
       "Bash(./target/debug/hdri-to-ktx2:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(tasklist:*)",
+      "Bash(go build:*)",
+      "Bash(cargo doc:*)",
+      "Bash(grep:*)",
+      "Bash(cargo tree:*)",
+      "Bash(cargo search:*)",
+      "Bash(rustup component:*)"
     ],
     "deny": []
   }
