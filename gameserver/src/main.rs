@@ -24,7 +24,7 @@ use common::weapon::{
 use common::weapon::rifle::RifleComponent;
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
-use common::scripting::plugin::ScriptingPlugin;
+use common::scripting::ScriptingPlugin;
 
 fn parse_addr() -> SocketAddr {
     let mut args = std::env::args().skip(1);
@@ -46,7 +46,7 @@ fn main() {
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     app.add_plugins(MasterPlugin);
-    app.add_plugins(ScriptingPlugin { is_server: true });
+    app.add_plugins(ScriptingPlugin);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
     app.init_resource::<PlayerRegistry>();

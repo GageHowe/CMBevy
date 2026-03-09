@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use steamworks::Client;
 use steamworks::FriendFlags;
-use steamworks::PersonaStateChange;
+// use steamworks::PersonaStateChange;
 use steamworks::AppId;
-use crate::slow_update::SlowHz;
+// use crate::slow_update::SlowHz;
 
 /// Wraps the Steamworks client. Available as a resource when Steam is running.
 #[derive(Resource)]
@@ -42,7 +42,9 @@ impl Plugin for SteamworksPlugin {
                 }
 
                 app.insert_resource(SteamClient(client));
-                app.add_systems(SlowHz, pump_callbacks);
+                // app.add_systems(SlowHz, pump_callbacks);
+                app.add_systems(FixedUpdate, pump_callbacks); // since api said to call every tick
+
             }
             Err(e) => {
                 warn!("Steam not available: {e}. Cloud saves disabled.");

@@ -13,15 +13,16 @@ pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedPreUpdate, (
-            gather_pawn_input,
+            gather_pawn_input.run_if(resource_exists::<ButtonInput<KeyCode>>),
             (
                 move_pawns::<BipedPawnComponent>(super::biped::apply_biped_movement),
                 move_pawns::<SpaceshipPawnComponent>(super::spaceship::apply_spaceship_movement),
             ),
         ).chain());
-        #[cfg(feature = "client")]
         app.init_resource::<MouseSensitivity>()
-            .add_systems(PostUpdate, mouse_look.before(TransformSystems::Propagate));
+            .add_systems(PostUpdate, mouse_look
+                .before(TransformSystems::Propagate)
+                .run_if(resource_exists::<AccumulatedMouseMotion>));
     }
 }
 

@@ -2,7 +2,6 @@ use crate::types::{CMQuat, CMVec3};
 use bevy::prelude::*;
 use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
-use std::str::FromStr;
 use crate::pawn::pawn::PawnInput;
 pub use crate::game_objects::GameObjectKind;
 
@@ -50,8 +49,6 @@ pub enum MsgType {
     Disconnected,
     // networked messages
     ChatMessage(String, String),
-    /// probably will be displayed in the player's console / chatbox
-    Error(String),
     Ping(String),
     Pong(String),
     Input(PawnInputMessage),
@@ -67,6 +64,8 @@ pub enum MsgType {
     /// Client → Server: (weapon_net_id, origin, direction). Fire the held weapon.
     Fire(NetworkID, CMVec3, CMVec3),
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
+    /// wtf? why vfx? this will be outdated and since clients move very fast this will not be a good solution.
+    /// instead, send the shooter entity (the gun) and the direction/magnitude vector, plus the target.
     HitResult(CMVec3, CMVec3, Option<NetworkID>),
     /// Server → All: current health for the given entity.
     HealthUpdate(NetworkID, f32),
@@ -74,26 +73,9 @@ pub enum MsgType {
     TimePing(u64),
     /// Server → Client: echoes the TimePing payload unchanged.
     TimePong(u64),
-}
-impl FromStr for MsgType {
-    type Err = String;
-
-    /// try to recognize a user-provided command for runtime debugging purposes
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (cmd, rest) = s.split_once(' ').unwrap_or((s, ""));
-
-        match cmd {
-            "chat" => {
-                let (sender, msg) = rest.split_once(' ')
-                    .ok_or("usage: chat <sender> <message>")?;
-                Ok(MsgType::ChatMessage(sender.to_string(), msg.to_string()))
-            }
-            "error" => Ok(MsgType::Error(rest.to_string())),
-            "ping" => Ok(MsgType::Ping(rest.to_string())),
-            "pong" => Ok(MsgType::Pong(rest.to_string())),
-            _ => Err(format!("unknown command: {cmd}")),
-        }
-    }
+    /// Server → Client: file transfer. `data` is zstd-compressed at level 9;
+    /// decompress with `zstd::stream::decode_all` to recover the original bytes.
+    FileData(String, Vec<u8>),
 }
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone)]

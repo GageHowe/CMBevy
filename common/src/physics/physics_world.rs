@@ -159,8 +159,8 @@ impl Plugin for PhysicsPlugin {
                 FixedUpdate,
                 (step_physics, sync_physics_to_transforms).chain(),
             );
-        #[cfg(feature = "client")]
-        app.add_systems(Startup, create_object_visuals.after(create_objects));
+        app.add_systems(Startup, create_object_visuals.after(create_objects)
+            .run_if(resource_exists::<Assets<Mesh>>));
     }
 }
 

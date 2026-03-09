@@ -3,7 +3,7 @@ use bevy::{
     prelude::*,
 };
 
-const frequency: f64 = 1.0; // x times / sec
+const FREQUENCY: f64 = 1.0; // x times / sec
 
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SlowHz;
@@ -32,7 +32,7 @@ impl Default for SlowScheduleState {
     fn default() -> Self {
         Self {
             accumulator: std::time::Duration::ZERO,
-            timestep: std::time::Duration::from_secs_f64(1.0 / frequency),
+            timestep: std::time::Duration::from_secs_f64(1.0 / FREQUENCY),
         }
     }
 }
