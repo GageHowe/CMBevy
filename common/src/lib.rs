@@ -24,3 +24,4 @@ pub mod scripting;
 pub mod steam;
 #[cfg(feature = "client")]
 pub mod settings;
+mod slow_update;

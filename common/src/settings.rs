@@ -25,45 +25,11 @@ impl Default for Settings {
     }
 }
 
-// ── Persistence (ISteamRemoteStorage) ─────────────────────────────────────────
-
-fn load_from_steam(client: &steamworks::Client) -> Settings {
-    let storage = client.remote_storage();
-    let file = storage.file(SETTINGS_FILE);
-    if !file.exists() {
-        return Settings::default();
-    }
-    let mut buf = String::new();
-    match file.read().read_to_string(&mut buf) {
-        Ok(_) => toml::from_str(&buf).unwrap_or_else(|e| {
-            warn!("Failed to parse settings from Steam cloud: {e}. Using defaults.");
-            Settings::default()
-        }),
-        Err(e) => {
-            warn!("Failed to read settings from Steam cloud: {e}");
-            Settings::default()
-        }
-    }
-}
-
-fn save_to_steam(client: &steamworks::Client, settings: &Settings) {
-    match toml::to_string_pretty(settings) {
-        Ok(src) => {
-            let storage = client.remote_storage();
-            let mut writer = storage.file(SETTINGS_FILE).write();
-            if let Err(e) = writer.write_all(src.as_bytes()) {
-                error!("Failed to write settings to Steam cloud: {e}");
-            }
-        }
-        Err(e) => error!("Failed to serialize settings: {e}"),
-    }
-}
-
-// ── Systems ───────────────────────────────────────────────────────────────────
+// to sync settings file, we'll just use Auto-Cloud, Cloud Sync or whatever it's called
 
 fn load_settings(mut commands: Commands, steam: Option<Res<SteamClient>>) {
     let settings = match steam {
-        Some(steam) => load_from_steam(&steam.0),
+        // Some(steam) => load_from_steam(&steam.0),
         None => Settings::default(),
     };
     commands.insert_resource(settings);
