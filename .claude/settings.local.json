@@ -23,7 +23,9 @@
       "Bash(go build:*)",
       "Bash(cargo doc:*)",
       "Bash(grep:*)",
-      "Bash(cargo tree:*)"
+      "Bash(cargo tree:*)",
+      "Bash(cargo search:*)",
+      "Bash(rustup component:*)"
     ],
     "deny": []
   }

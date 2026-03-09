@@ -24,7 +24,7 @@ use common::weapon::{
 use common::weapon::rifle::RifleComponent;
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
-use common::scripting::ScriptingPlugin;
+use common::scripting::plugin::ScriptingPlugin;
 
 fn parse_addr() -> SocketAddr {
     let mut args = std::env::args().skip(1);

@@ -19,7 +19,9 @@ impl Plugin for PawnPlugin {
                 move_pawns::<SpaceshipPawnComponent>(super::spaceship::apply_spaceship_movement),
             ),
         ).chain());
-        app.add_systems(PostUpdate, mouse_look.before(TransformSystems::Propagate));
+        #[cfg(feature = "client")]
+        app.init_resource::<MouseSensitivity>()
+            .add_systems(PostUpdate, mouse_look.before(TransformSystems::Propagate));
     }
 }
 
@@ -46,8 +48,18 @@ pub struct PitchPivot {
     pub pitch: f32,
 }
 
-pub const MOUSE_SENSITIVITY: f32 = 0.002;
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
+
+/// Runtime mouse sensitivity, set from the Settings resource by SettingsPlugin.
+/// Defaults to 0.002 so the server (which never sets it) doesn't need it at all.
+#[cfg(feature = "client")]
+#[derive(Resource)]
+pub struct MouseSensitivity(pub f32);
+
+#[cfg(feature = "client")]
+impl Default for MouseSensitivity {
+    fn default() -> Self { Self(0.002) }
+}
 
 // CORE
 
@@ -115,20 +127,23 @@ impl Possessed {
 // SYSTEMS
 
 /// runs every frame in PostUpdate, before transform propagation
+#[cfg(feature = "client")]
 pub fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
+    sensitivity: Res<MouseSensitivity>,
     mut yaw_q: Query<(&mut Transform, &mut YawPivot), Without<PitchPivot>>,
     mut pitch_q: Query<(&mut Transform, &mut PitchPivot)>,
 ) {
     let delta = mouse.delta;
     if delta == Vec2::ZERO { return; }
+    let s = sensitivity.0;
 
     if let Ok((mut t, mut pivot)) = yaw_q.single_mut() {
-        pivot.yaw -= delta.x * MOUSE_SENSITIVITY;
+        pivot.yaw -= delta.x * s;
         t.rotation = Quat::from_rotation_y(pivot.yaw);
     }
     if let Ok((mut t, mut pivot)) = pitch_q.single_mut() {
-        pivot.pitch = (pivot.pitch - delta.y * MOUSE_SENSITIVITY).clamp(-PITCH_MAX, PITCH_MAX);
+        pivot.pitch = (pivot.pitch - delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
         t.rotation = Quat::from_rotation_x(pivot.pitch);
     }
 }

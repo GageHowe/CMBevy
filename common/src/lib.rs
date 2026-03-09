@@ -20,3 +20,7 @@ pub mod gameapi;
 pub mod camera;
 pub mod interaction;
 pub mod scripting;
+#[cfg(feature = "client")]
+pub mod steam;
+#[cfg(feature = "client")]
+pub mod settings;

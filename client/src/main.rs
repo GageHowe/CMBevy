@@ -36,6 +36,8 @@ struct SpawnParams<'w, 's> {
     materials: ResMut<'w, Assets<StandardMaterial>>,
     asset_server: Res<'w, AssetServer>,
 }
+use common::settings::SettingsPlugin;
+use common::steam::SteamworksPlugin;
 use common::debug_println;
 use common::scripting::ScriptingPlugin;
 use common::health::Health;
@@ -98,7 +100,9 @@ fn main() {
     );
 
     app.add_plugins(MasterPlugin)
-        .add_plugins(ScriptingPlugin { is_server: false })
+        .add_plugins(ScriptingPlugin)
+        .add_plugins(SteamworksPlugin)
+        .add_plugins(SettingsPlugin)
         .init_state::<AppState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)

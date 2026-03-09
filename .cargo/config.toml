@@ -1,12 +1,10 @@
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [profile.dev]
-opt-level = 1
+opt-level = 0
 lto = false
-#codegen-backend = "cranelift"
 
 [profile.release]
 opt-level = 3
