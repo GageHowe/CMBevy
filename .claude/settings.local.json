@@ -17,7 +17,6 @@
       "Bash(cargo clippy:*)",
       "Bash(cargo test:*)",
       "Bash(xargs head:*)",
-      "Bash(./target/debug/hdri-to-ktx2:*)",
       "Bash(python3:*)",
       "Bash(tasklist:*)",
       "Bash(go build:*)",
@@ -30,7 +29,8 @@
       "WebFetch(domain:github.com)",
       "Bash(RUST_BACKTRACE=1 cargo run:*)",
       "Bash(RUST_BACKTRACE=full cargo run:*)",
-      "Bash(cd \"C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy\" && cargo run --bin client 2>&1)"
+      "Bash(cd:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }

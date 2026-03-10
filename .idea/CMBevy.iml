@@ -7,6 +7,7 @@
       <sourceFolder url="file://$MODULE_DIR$/gameserver/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/http_common/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/common/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/decomp/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/ktx2conv/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/ktx2conv/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
