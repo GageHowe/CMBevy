@@ -29,7 +29,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)",
       "Bash(RUST_BACKTRACE=1 cargo run:*)",
-      "Bash(RUST_BACKTRACE=full cargo run:*)"
+      "Bash(RUST_BACKTRACE=full cargo run:*)",
+      "Bash(cd \"C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy\" && cargo run --bin client 2>&1)"
     ],
     "deny": []
   }

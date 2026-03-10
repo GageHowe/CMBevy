@@ -26,14 +26,15 @@ impl Default for LocalStateHistory {
     }
 }
 
-pub struct ReconciliationPlugin;
+pub struct ReconciliationPlugin<S: States + Copy>(pub S);
 
-impl Plugin for ReconciliationPlugin {
+impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
+        let state = self.0;
         app.init_resource::<PendingReconciliation>()
             .init_resource::<LocalStateHistory>()
-            .add_systems(FixedPreUpdate, maybe_reconcile.before(gather_pawn_input))
-            .add_systems(FixedPostUpdate, record_world_state);
+            .add_systems(FixedPreUpdate, maybe_reconcile.before(gather_pawn_input).run_if(in_state(state)))
+            .add_systems(FixedPostUpdate, record_world_state.run_if(in_state(state)));
     }
 }
 

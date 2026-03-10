@@ -25,10 +25,14 @@ use common::weapon::{rifle, shotgun, fire_weapons, FiredWeapons, WeaponInput, We
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
+mod menu;
+use menu::MenuPlugin;
+
 #[derive(Resource)]
 struct ServerAddr(SocketAddr);
 
 /// Bundles spawn-related parameters to stay within Bevy's 16-param SystemParam limit.
+/// ... bad job claude
 #[derive(bevy::ecs::system::SystemParam)]
 struct SpawnParams<'w, 's> {
     commands: Commands<'w, 's>,
@@ -58,9 +62,12 @@ struct ViewmodelSlots([Option<Entity>; 2]);
 struct HitBeams(Vec<(Vec3, Vec3, f32)>);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
-enum AppState {
+pub(crate) enum GameState {
+    /// the game starts into this. has Quit
     #[default]
-    Playing,
+    MainMenu,
+    SinglePlayer,
+    Multiplayer,
 }
 
 fn parse_server_addr() -> SocketAddr {
@@ -103,27 +110,34 @@ fn main() {
         .add_plugins(ScriptingPlugin)
         .add_plugins(SteamworksPlugin)
         .add_plugins(SettingsPlugin)
-        .init_state::<AppState>()
+        .init_state::<GameState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
+        .add_plugins(MenuPlugin)
         .add_plugins(PawnPlugin)
         .add_plugins(WeaponPlugin)
-        .add_plugins(ReconciliationPlugin)
-        .add_plugins(TickSyncPlugin)
+        .add_plugins(ReconciliationPlugin(GameState::Multiplayer))
+        .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
         .init_resource::<HitBeams>()
         .add_systems(Startup, (spawn_camera, spawn_scene));
 
-    app.add_systems(PreUpdate, process_inbound_client);
-    app.add_systems(Startup, connect);
+    app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
+
+    app.add_systems(OnEnter(GameState::Multiplayer), connect);
+    app.add_systems(OnExit(GameState::Multiplayer), disconnect);
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → gather_pawn_input → send_pawn_input → move_bipeds
     // (maybe_reconcile registered by ReconciliationPlugin)
     app.add_systems(
         FixedPreUpdate,
-        send_pawn_input.after(gather_pawn_input).before(move_pawns::<BipedPawnComponent>(biped::apply_biped_movement)),
+        send_pawn_input
+            .after(gather_pawn_input)
+            .before(move_pawns::<BipedPawnComponent>(biped::apply_biped_movement))
+            .run_if(in_state(GameState::Multiplayer)),
     );
 
     // fire_weapons<T> ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
@@ -137,12 +151,12 @@ fn main() {
 
     // FixedPostUpdate:
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
-    app.add_systems(FixedPostUpdate, (on_message, send_chat));
+    app.add_systems(FixedPostUpdate, (on_message, send_chat).run_if(in_state(GameState::Multiplayer)));
 
     // (tick increment is FixedLast)
 
-    app.add_systems(Update, send_interact_request);
-    app.add_systems(Update, fire_weapon);
+    app.add_systems(Update, send_interact_request.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
 
@@ -169,6 +183,31 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, addr: Res<ServerAddr>) {
     quic.connect(&mut client, addr.0);
+}
+
+fn disconnect(
+    mut commands: Commands,
+    mut quic: ResMut<QuicManager>,
+    mut client: ResMut<QuinnetClient>,
+    mut local_net_id: ResMut<LocalNetworkID>,
+    mut pending: ResMut<PendingReconciliation>,
+    networked: Query<Entity, With<NetworkID>>,
+    mut world: ResMut<PhysicsWorld>,
+    camera: Query<Entity, With<Camera3d>>,
+) {
+    if let Some(conn) = client.get_connection_mut() {
+        let _ = conn.disconnect();
+    }
+    quic.inbound.clear();
+    local_net_id.0 = None;
+    pending.0 = None;
+    if let Ok(cam) = camera.single() {
+        commands.entity(cam).remove_parent_in_place();
+    }
+    for entity in networked.iter() {
+        world.remove_body(entity);
+        commands.entity(entity).despawn();
+    }
 }
 
 /// handles messages coming in from the server

@@ -38,12 +38,13 @@ impl NetworkStats {
     }
 }
 
-pub struct TickSyncPlugin;
+pub struct TickSyncPlugin<S: States + Copy>(pub S);
 
-impl Plugin for TickSyncPlugin {
+impl<S: States + Copy> Plugin for TickSyncPlugin<S> {
     fn build(&self, app: &mut App) {
+        let state = self.0;
         app.init_resource::<NetworkStats>()
-            .add_systems(SlowUpdate, send_ping);
+            .add_systems(SlowUpdate, send_ping.run_if(in_state(state)));
     }
 }
 

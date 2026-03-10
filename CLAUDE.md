@@ -1,15 +1,17 @@
 # CLAUDE
 
 ## Design
-* Everything should be minimal and efficient where possible.
-* Feel free to read as many files as you want to understand the codebase.
+* Everything should be clean and minimal. Every line of code counts against you.
+* Read as many files as you need to understand the codebase.
 * If you don't understand something I ask, look it up.
-* When possible, put all resources and logic in the common package. we want to keep client and gameserver small. If we need to add custom functions to the client/server, put them in files adjacent to main file.
-* Also see: README.md for project description
+* When possible, put all resources and logic in the common package. We want to keep client and gameserver small. If we need to add custom functions to the client/server, put them in files adjacent to main file.
 * No hacks. This is for an enterprise-quality game; everything needs to be scalable. Write once, use forever.
 * Duplication is ok if it means we keep game code flexible and modular.
 * DO NOT rewrite my comments, or add comments to code that's already commented
 * Avoid pulling in new dependencies unless they're both absolutely needed and recently updated
+* Please DO NOT create new structs, enums, components, etc if not absolutely necessary.
+
+Also see: README.md for project description
 
 ## Permissions
 * DO NOT git push --force, git reset --hard, rm -rf, etc.
@@ -19,7 +21,6 @@
   * common::tick
   * common::slow_update
   * common::macros
-  * 
 
 ## random other info
 * We use wincode for encoding, since bincode is dead.

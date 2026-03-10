@@ -3,7 +3,9 @@
 
 use bevy::prelude::*;
 use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
-use crate::net::quic::{flush_outbound, QuicManager};
+#[cfg(not(feature = "client"))]
+use crate::net::quic::flush_outbound;
+use crate::net::quic::QuicManager;
 use crate::physics::physics_world::*;
 use crate::tick::*;
 use crate::net::message::NetworkIDResource;
@@ -25,11 +27,14 @@ impl Plugin for MasterPlugin {
         app.add_plugins(QuinnetServerPlugin::default())
             .add_plugins(QuinnetClientPlugin::default())
             .init_resource::<QuicManager>()
-            .init_resource::<NetworkIDResource>()
-            // flush_outbound in PostUpdate so all FixedUpdate and Update sends are flushed together.
-            // process_inbound_server / process_inbound_client must be registered by each binary
-            // individually in PreUpdate, so each binary only runs the relevant path.
-            .add_systems(PostUpdate, flush_outbound);
+            .init_resource::<NetworkIDResource>();
+
+        // flush_outbound in PostUpdate so all FixedUpdate and Update sends are flushed together.
+        // process_inbound_server / process_inbound_client must be registered by each binary
+        // individually in PreUpdate, so each binary only runs the relevant path.
+        // Client registers flush_outbound itself, gated to multiplayer state.
+        #[cfg(not(feature = "client"))]
+        app.add_systems(PostUpdate, flush_outbound);
 
         app.add_plugins(SlowSchedulePlugin);
     }
