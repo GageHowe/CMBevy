@@ -1,0 +1,18 @@
+[package]
+name = "ktx2conv"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "ktx2conv"
+path = "src/main.rs"
+
+[dependencies]
+image = { version = "0.25", features = ["hdr", "exr"] }
+clap = { version = "4", features = ["derive"] }
+byteorder = "1"
+
+#common = { path = "../common" }
