@@ -1,24 +1,24 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
+use serde::{Deserialize, Serialize};
 use crate::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld};
 use crate::game_objects::GameObjectKind;
-// use rapier3d::prelude::r
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ColliderShape {
     Cuboid(Vec3),
     Ball(f32),
     Capsule { half_height: f32, radius: f32 },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StaticCollider {
     pub position: Vec3,
     pub rotation: Quat,
     pub shape: ColliderShape,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LevelSpawnRequest {
     pub kind: GameObjectKind,
     pub position: Vec3,
@@ -26,43 +26,36 @@ pub struct LevelSpawnRequest {
 }
 
 /// Describes everything needed to load a level.
-/// In the future this will be serializable and sent over the network.
-#[derive(Resource, Clone)]
+/// Serializable — can be loaded from JSON and in the future sent over the network.
+#[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct LevelDescription {
     /// Path to the GLB scene file loaded on the client for visuals.
-    pub scene_path: &'static str,
+    pub scene_path: String,
     /// Static (fixed) physics bodies. Spawned on both client and server.
     pub static_colliders: Vec<StaticCollider>,
     /// Objects to spawn at level start. The server processes these on startup.
     pub spawn_requests: Vec<LevelSpawnRequest>,
 }
 
-pub fn default_level() -> LevelDescription {
-    LevelDescription {
-        scene_path: "models/companion_cube.glb#Scene0",
-        static_colliders: vec![
-            StaticCollider {
-                position: Vec3::new(0.0, -10.0, 0.0),
-                rotation: Quat::IDENTITY,
-                shape: ColliderShape::Cuboid(Vec3::new(10.0, 2.0, 10.0)),
-            },
-        ],
-        spawn_requests: vec![
-            LevelSpawnRequest {
-                kind: GameObjectKind::Rifle,
-                position: Vec3::new(3.0, 2.0, 0.0),
-                rotation: Quat::IDENTITY,
-            },
-            LevelSpawnRequest {
-                kind: GameObjectKind::Shotgun,
-                position: Vec3::new(-3.0, 2.0, 0.0),
-                rotation: Quat::IDENTITY,
-            },
-        ],
+impl LevelDescription {
+    pub fn from_json(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&content)?)
     }
 }
 
 pub struct LevelPlugin(pub LevelDescription);
+
+impl LevelPlugin {
+    /// Load from a JSON file, falling back to `default_level()` on error.
+    pub fn load(path: &str) -> Self {
+        let level = LevelDescription::from_json(path).unwrap_or_else(|e| {
+            eprintln!("Failed to load level from \"{path}\": {e}. Using default.");
+            default_level()
+        });
+        LevelPlugin(level)
+    }
+}
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
@@ -107,7 +100,32 @@ fn load_level_scene(
     level: Res<LevelDescription>,
 ) {
     commands.spawn((
-        SceneRoot(asset_server.load(level.scene_path)),
+        SceneRoot(asset_server.load(level.scene_path.clone())),
         Transform::default(),
     ));
+}
+
+pub fn default_level() -> LevelDescription {
+    LevelDescription {
+        scene_path: "models/companion_cube.glb#Scene0".into(),
+        static_colliders: vec![
+            StaticCollider {
+                position: Vec3::new(0.0, -10.0, 0.0),
+                rotation: Quat::IDENTITY,
+                shape: ColliderShape::Cuboid(Vec3::new(10.0, 2.0, 10.0)),
+            },
+        ],
+        spawn_requests: vec![
+            LevelSpawnRequest {
+                kind: GameObjectKind::Rifle,
+                position: Vec3::new(3.0, 2.0, 0.0),
+                rotation: Quat::IDENTITY,
+            },
+            LevelSpawnRequest {
+                kind: GameObjectKind::Shotgun,
+                position: Vec3::new(-3.0, 2.0, 0.0),
+                rotation: Quat::IDENTITY,
+            },
+        ],
+    }
 }

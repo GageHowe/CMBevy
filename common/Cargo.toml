@@ -8,19 +8,21 @@ edition = "2024"
 workspace = true
 
 [features]
-client = ["bevy_egui", "bevy_quinnet/client", "dep:serde", "dep:toml", "dep:steamworks", "bevy/default"]
+client = ["bevy_egui", "bevy_quinnet/client", "dep:toml", "dep:steamworks", "bevy/default"]
 server = ["bevy_quinnet/server"]
 
 [dependencies]
-bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded"] }
-rapier3d = "0.32.0"
+bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded", "serialize"] }
+#rapier3d = "0.32.0"
+rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
 bevy_egui = { version = "0.39.1", optional = true }
 wincode = "0.4.1"
 wincode-derive = "0.4.0"
 zstd = "0.13.3"
 bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false }
 rhai = "1.24.0"
-serde = { version = "1", features = ["derive"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = { version = "1.0.6", optional = true, features = ["preserve_order"] }
 steamworks = { version = "0.12", optional = true }
 dirs = "6.0.0"

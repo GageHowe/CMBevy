@@ -2,10 +2,25 @@
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
 
+#[build]
+#rustc-wrapper = "sccache" # this actually slows down my builds on windows
+
 [profile.dev]
 opt-level = 0
 lto = false
-#codegen-units = 1024
+strip = "debuginfo" # speeds up linker
+#codegen-backend = "cranelift" # broken on Windows with Bevy (SSE intrinsics not supported)
+
+[profile.dev.package."*"]
+opt-level = 3 # compile dependencies optimized; keeps your code debuggable
+
+# disable debug optimizations for packages in active development
+[profile.dev.package.common]
+opt-level = 0
+[profile.dev.package.client]
+opt-level = 0
+[profile.dev.package.gameserver]
+opt-level = 0
 
 [profile.release]
 opt-level = 3
@@ -13,5 +28,6 @@ opt-level = 3
 lto = "thin"
 strip = true
 codegen-units = 1
+panic = "abort"
 
 # https://doc.rust-lang.org/beta/unstable-book/compiler-flags/debug_info_for_profiling.html
