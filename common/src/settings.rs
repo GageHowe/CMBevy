@@ -1,15 +1,13 @@
-use std::io::{Read, Write};
-
+use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
+use std::fs;
+// use serde::
 
 use crate::pawn::pawn::MouseSensitivity;
-use crate::steam::SteamClient;
 
 const SETTINGS_FILE: &str = "settings.toml";
-
-// ── Data ─────────────────────────────────────────────────────────────────────
 
 #[derive(Resource, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Resource)]
@@ -25,61 +23,40 @@ impl Default for Settings {
     }
 }
 
-// ── Persistence (ISteamRemoteStorage) ─────────────────────────────────────────
+// to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called
 
-fn load_from_steam(client: &steamworks::Client) -> Settings {
-    let storage = client.remote_storage();
-    let file = storage.file(SETTINGS_FILE);
-    if !file.exists() {
-        return Settings::default();
-    }
-    let mut buf = String::new();
-    match file.read().read_to_string(&mut buf) {
-        Ok(_) => toml::from_str(&buf).unwrap_or_else(|e| {
-            warn!("Failed to parse settings from Steam cloud: {e}. Using defaults.");
-            Settings::default()
-        }),
-        Err(e) => {
-            warn!("Failed to read settings from Steam cloud: {e}");
-            Settings::default()
+fn load_settings(mut commands: Commands) {
+    let path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("CMBevy")
+        .join(SETTINGS_FILE);
+
+    let settings = if path.exists() {
+        let contents = fs::read_to_string(&path).unwrap_or_default();
+        toml::from_str(&contents).unwrap_or_default()
+    } else {
+        let default = Settings::default();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
         }
-    }
-}
-
-fn save_to_steam(client: &steamworks::Client, settings: &Settings) {
-    match toml::to_string_pretty(settings) {
-        Ok(src) => {
-            let storage = client.remote_storage();
-            let mut writer = storage.file(SETTINGS_FILE).write();
-            if let Err(e) = writer.write_all(src.as_bytes()) {
-                error!("Failed to write settings to Steam cloud: {e}");
-            }
-        }
-        Err(e) => error!("Failed to serialize settings: {e}"),
-    }
-}
-
-// ── Systems ───────────────────────────────────────────────────────────────────
-
-fn load_settings(mut commands: Commands, steam: Option<Res<SteamClient>>) {
-    let settings = match steam {
-        Some(steam) => load_from_steam(&steam.0),
-        None => Settings::default(),
+        fs::write(&path, toml::to_string_pretty(&default).unwrap_or_default()).ok();
+        default
     };
+
     commands.insert_resource(settings);
 }
 
-fn save_settings_on_change(
+/// TODO: split this up into separate save functions for efficiency, if possible
+fn change_settings (
     settings: Res<Settings>,
     mut sensitivity: ResMut<MouseSensitivity>,
-    steam: Option<Res<SteamClient>>,
 ) {
     if settings.is_changed() {
         sensitivity.0 = settings.mouse_sensitivity;
         if !settings.is_added() {
-            if let Some(steam) = steam {
-                save_to_steam(&steam.0, &settings);
-            }
+            // if let Some(steam) = steam {
+            //     save_to_steam(&steam.0, &settings);
+            // }
         }
     }
 }
@@ -109,6 +86,6 @@ impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Settings>()
             .add_systems(Startup, load_settings)
-            .add_systems(PostUpdate, save_settings_on_change);
+            .add_systems(PostUpdate, change_settings);
     }
 }

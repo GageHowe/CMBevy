@@ -2,7 +2,8 @@ use bevy::math::{Quat, Vec3};
 use wincode_derive::{SchemaRead, SchemaWrite};
 
 // MATH WRAPPERS
-// Critical Mass uses its own types to allow serialization and implementation of more functions/traits. Use these when possible.
+// Critical Mass uses its own types to allow serialization and implementation of more functions/traits.
+// we have to use these for net serialization because of the orphan rule
 
 #[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone, Copy)]
 pub struct CMVec3 {

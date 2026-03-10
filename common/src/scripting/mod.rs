@@ -89,7 +89,7 @@ fn eval_script_fixed_update(world: &mut World) {
         .map(|c| c.is_server)
         .unwrap_or(false);
 
-    let mut runtime = world.remove_non_send_resource::<ScriptRuntime>().unwrap();
+    let runtime = world.remove_non_send_resource::<ScriptRuntime>().unwrap();
 
     let Some(ast) = runtime.ast.clone() else {
         world.insert_non_send_resource(runtime);

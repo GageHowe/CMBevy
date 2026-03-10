@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use zstd::bulk::compress;
+use zstd::stream::{decode_all, encode_all};
 use bevy_quinnet::{
     client::{
         certificate::CertificateVerificationMode,
@@ -12,26 +14,31 @@ use bevy_quinnet::{
     },
     shared::channels::{ChannelConfig, ChannelId, SendChannelsConfiguration},
 };
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use crate::net::message::MsgType;
 
-// Re-export quinnet resources so callers can use them without a direct bevy_quinnet dep.
 pub use bevy_quinnet::client::QuinnetClient;
 pub use bevy_quinnet::server::QuinnetServer;
 pub use bevy_quinnet::shared::ClientId;
 
-// TODO: add compression with zstd
+const ZSTD_LEVEL: i32 = 3;
+const ZSTD_FILE_LEVEL: i32 = 9;
 
-pub const ORDERED_CHANNEL: ChannelId = 0;
-pub const UNORDERED_CHANNEL: ChannelId = 1;
-pub const UNRELIABLE_CHANNEL: ChannelId = 2;
+/// Leave headroom for QUIC/UDP framing (~200 bytes).
+const MTU_THRESHOLD: usize = 1000;
+/// seq(4) + fragment_index(1) + total_fragments(1)
+const FRAG_HEADER: usize = 6;
+
+pub(crate) const ORDERED_CHANNEL: ChannelId = 0;
+pub(crate) const UNORDERED_CHANNEL: ChannelId = 1;
+pub(crate) const UNRELIABLE_CHANNEL: ChannelId = 2;
 
 pub(crate) fn channels_config() -> SendChannelsConfiguration {
     SendChannelsConfiguration::from_configs(vec![
-        ChannelConfig::default_ordered_reliable(),   // id 0 → Channel::Ordered
-        ChannelConfig::default_unordered_reliable(), // id 1 → Channel::Unordered
-        ChannelConfig::default_unreliable(),         // id 2 → Channel::Unreliable
+        ChannelConfig::default_ordered_reliable(),
+        ChannelConfig::default_unordered_reliable(),
+        ChannelConfig::default_unreliable(),
     ])
     .expect("channel count is within limits")
 }
@@ -44,23 +51,13 @@ fn channel_from_id(id: ChannelId) -> Channel {
     }
 }
 
-/// Opaque identifier for a connected peer.
-/// On the server this equals bevy_quinnet's ClientId; on the client side
-/// SERVER_CONN_ID is used for messages received from the server.
-/// does this even need to be here?
 pub type ConnectionId = ClientId;
-
-/// A fixed ConnectionId used on the client side to represent the server.
 pub const SERVER_CONN_ID: ConnectionId = 0;
 
-/// Logical send channel with delivery guarantees.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Channel {
-    /// Ordered, reliable (stream-based)
     Ordered,
-    /// Unordered, reliable
     Unordered,
-    /// Unreliable datagram
     Unreliable,
 }
 
@@ -74,7 +71,6 @@ impl From<Channel> for ChannelId {
     }
 }
 
-/// A decoded message plus the connection it arrived on.
 #[derive(Debug, Clone)]
 pub struct InboundMessage {
     pub conn_id: ConnectionId,
@@ -82,7 +78,6 @@ pub struct InboundMessage {
     pub msg: MsgType,
 }
 
-/// Who to deliver an outbound message to.
 #[derive(Debug, Clone)]
 pub enum SendTarget {
     One(ConnectionId),
@@ -90,32 +85,70 @@ pub enum SendTarget {
 }
 
 // ---------------------------------------------------------------------------
+// Reassembly
+// ---------------------------------------------------------------------------
+
+/// Holds in-progress fragment reassembly for one unreliable sequence.
+struct ReassemblySlot {
+    seq: u32,
+    total: u8,
+    fragments: Vec<Option<Vec<u8>>>,
+    received: u8,
+}
+
+impl ReassemblySlot {
+    fn new(seq: u32, total: u8) -> Self {
+        Self { seq, total, fragments: vec![None; total as usize], received: 0 }
+    }
+
+    /// Insert a fragment. Returns the reassembled payload if complete.
+    fn insert(&mut self, index: u8, data: Vec<u8>) -> Option<Vec<u8>> {
+        if index as usize >= self.fragments.len() || self.fragments[index as usize].is_some() {
+            return None;
+        }
+        self.fragments[index as usize] = Some(data);
+        self.received += 1;
+        if self.received == self.total {
+            Some(self.fragments.iter().flat_map(|f| f.as_deref().unwrap_or(&[])).cloned().collect())
+        } else {
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Resource
 // ---------------------------------------------------------------------------
 
-/// High-level networking manager.  Drain `inbound` each frame; call `send`
-/// to queue outbound messages; call `start_server` or `connect` once at startup.
 #[derive(Resource, Default)]
 pub struct QuicManager {
-    /// Messages received this frame — drain these in your systems.
     pub inbound: VecDeque<InboundMessage>,
-    /// Currently connected client IDs (server side only).
-    pub clients: HashSet<ConnectionId>,
-    /// Tracks the client connection state for edge-detection (client side only).
+    pub(crate) clients: HashSet<ConnectionId>,
     client_connected: bool,
-    outbound: VecDeque<(SendTarget, Channel, Vec<u8>)>,
+    outbound: VecDeque<(SendTarget, Channel, MsgType)>,
+    /// Sequence counter for outbound unreliable fragments.
+    unreliable_seq: u32,
+    /// Per-connection reassembly slot for inbound unreliable fragments.
+    /// Client side uses SERVER_CONN_ID as the key.
+    reassembly: HashMap<ConnectionId, ReassemblySlot>,
 }
 
 impl QuicManager {
-    /// Serialize and queue a message for delivery.
+    /// Queue a message for delivery. Messages sharing the same (target, channel)
+    /// within a tick are batched into one compressed packet at flush time.
     pub fn send(&mut self, target: SendTarget, channel: Channel, msg: &MsgType) {
-        match wincode::serialize(msg) {
-            Ok(payload) => self.outbound.push_back((target, channel, payload)),
-            Err(e) => eprintln!("QuicManager::send serialize error: {e}"),
+        self.outbound.push_back((target, channel, msg.clone()));
+    }
+
+    /// Queue a file for delivery over the ordered channel.
+    /// The file bytes are stream-compressed at level 9 before sending.
+    pub fn send_file(&mut self, target: SendTarget, name: String, data: Vec<u8>) {
+        match encode_all(data.as_slice(), ZSTD_FILE_LEVEL) {
+            Ok(compressed) => self.outbound.push_back((target, Channel::Ordered, MsgType::FileData(name, compressed))),
+            Err(e) => eprintln!("QuicManager::send_file compress error: {e}"),
         }
     }
 
-    /// Start a QUIC server endpoint.  Call once from a `Startup` system.
     pub fn start_server(&mut self, server: &mut QuinnetServer, addr: SocketAddr) {
         let result = server.start_endpoint(ServerEndpointConfiguration {
             addr_config: EndpointAddrConfiguration::from_addr(addr),
@@ -133,7 +166,6 @@ impl QuicManager {
         }
     }
 
-    /// Open a connection to a server.  Call once from a `Startup` system.
     pub fn connect(&mut self, client: &mut QuinnetClient, server_addr: SocketAddr) {
         let result = client.open_connection(ClientConnectionConfiguration {
             addr_config: ClientAddrConfiguration::from_addrs(
@@ -154,11 +186,79 @@ impl QuicManager {
 }
 
 // ---------------------------------------------------------------------------
-// Systems (registered directly in MasterPlugin)
+// Encode / decode helpers
 // ---------------------------------------------------------------------------
 
-/// Server-side inbound processing. Register in `PreUpdate` on the server binary only.
-/// Handles connection lifecycle (connect/disconnect edges) and message receipt from all clients.
+fn encode_batch(msgs: &[MsgType]) -> Result<Vec<u8>, String> {
+    let payload = wincode::serialize(msgs).map_err(|e| format!("serialize: {e}"))?;
+    compress(&payload, ZSTD_LEVEL).map_err(|e| format!("compress: {e}"))
+}
+
+fn decode_batch(bytes: &[u8]) -> Result<Vec<MsgType>, String> {
+    let decompressed = decode_all(bytes).map_err(|e| format!("decompress: {e}"))?;
+    wincode::deserialize::<Vec<MsgType>>(&decompressed).map_err(|e| format!("deserialize: {e}"))
+}
+
+/// Split `data` into MTU-sized fragments with a 6-byte header each.
+fn make_fragments(data: Vec<u8>, seq: u32) -> Vec<Vec<u8>> {
+    let chunk_size = MTU_THRESHOLD - FRAG_HEADER;
+    let chunks: Vec<&[u8]> = data.chunks(chunk_size).collect();
+    let total = chunks.len() as u8;
+    chunks.into_iter().enumerate().map(|(i, chunk)| {
+        let mut frag = Vec::with_capacity(FRAG_HEADER + chunk.len());
+        frag.extend_from_slice(&seq.to_le_bytes());
+        frag.push(i as u8);
+        frag.push(total);
+        frag.extend_from_slice(chunk);
+        frag
+    }).collect()
+}
+
+/// Parse a fragment header and return (seq, index, total, payload).
+fn parse_fragment(bytes: &[u8]) -> Option<(u32, u8, u8, &[u8])> {
+    if bytes.len() < FRAG_HEADER { return None; }
+    let seq = u32::from_le_bytes(bytes[0..4].try_into().ok()?);
+    Some((seq, bytes[4], bytes[5], &bytes[FRAG_HEADER..]))
+}
+
+/// Feed a fragment into the reassembly table. Returns decoded messages if complete.
+fn try_reassemble(
+    reassembly: &mut HashMap<ConnectionId, ReassemblySlot>,
+    conn_id: ConnectionId,
+    bytes: &[u8],
+) -> Option<Vec<MsgType>> {
+    let (seq, index, total, payload) = parse_fragment(bytes)?;
+
+    // Fast path: single-fragment packet.
+    if total == 1 {
+        return match decode_batch(payload) {
+            Ok(msgs) => Some(msgs),
+            Err(e) => { eprintln!("[conn {conn_id}] decode error: {e}"); None }
+        };
+    }
+
+    let slot = reassembly.entry(conn_id).or_insert_with(|| ReassemblySlot::new(seq, total));
+
+    // Newer sequence arrived — discard the old reassembly.
+    if seq > slot.seq {
+        *slot = ReassemblySlot::new(seq, total);
+    } else if seq < slot.seq {
+        return None; // stale fragment, drop
+    }
+
+    let complete = slot.insert(index, payload.to_vec())?;
+    reassembly.remove(&conn_id);
+
+    match decode_batch(&complete) {
+        Ok(msgs) => Some(msgs),
+        Err(e) => { eprintln!("[conn {conn_id}] reassemble decode error: {e}"); None }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Systems
+// ---------------------------------------------------------------------------
+
 pub fn process_inbound_server(
     mut quic: ResMut<QuicManager>,
     mut server: ResMut<QuinnetServer>,
@@ -176,20 +276,25 @@ pub fn process_inbound_server(
     for id in disconnected {
         println!("Client disconnected: {id}");
         quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Disconnected });
+        quic.reassembly.remove(&id);
     }
 
-    // Iterate `current` (local var) to avoid holding an immutable borrow on `quic.clients`
-    // while also pushing to `quic.inbound`.
     for &client_id in &current {
         if let Some(conn) = endpoint.connection_mut(client_id) {
             while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
-                match wincode::deserialize::<MsgType>(&bytes) {
-                    Ok(msg) => quic.inbound.push_back(InboundMessage {
-                        conn_id: client_id,
-                        channel: channel_from_id(ch_id),
-                        msg,
-                    }),
-                    Err(e) => eprintln!("[client {client_id}] deserialize error: {e}"),
+                let channel = channel_from_id(ch_id);
+                let msgs = if channel == Channel::Unreliable {
+                    try_reassemble(&mut quic.reassembly, client_id, &bytes)
+                } else {
+                    match decode_batch(&bytes) {
+                        Ok(m) => Some(m),
+                        Err(e) => { eprintln!("[client {client_id}] decode error: {e}"); None }
+                    }
+                };
+                if let Some(msgs) = msgs {
+                    for msg in msgs {
+                        quic.inbound.push_back(InboundMessage { conn_id: client_id, channel, msg });
+                    }
                 }
             }
         }
@@ -198,8 +303,6 @@ pub fn process_inbound_server(
     quic.clients = current;
 }
 
-/// Client-side inbound processing. Register in `PreUpdate` on the client binary only.
-/// Handles connect/disconnect edges and message receipt from the server.
 pub fn process_inbound_client(
     mut quic: ResMut<QuicManager>,
     mut client: ResMut<QuinnetClient>,
@@ -213,6 +316,7 @@ pub fn process_inbound_client(
         (true, false) => {
             println!("Disconnected from server");
             quic.inbound.push_back(InboundMessage { conn_id: SERVER_CONN_ID, channel: Channel::Ordered, msg: MsgType::Disconnected });
+            quic.reassembly.remove(&SERVER_CONN_ID);
         }
         _ => {}
     }
@@ -220,13 +324,19 @@ pub fn process_inbound_client(
 
     if let Some(conn) = client.get_connection_mut() {
         while let Ok((ch_id, bytes)) = conn.dequeue_undispatched_bytes_from_peer() {
-            match wincode::deserialize::<MsgType>(&bytes) {
-                Ok(msg) => quic.inbound.push_back(InboundMessage {
-                    conn_id: SERVER_CONN_ID,
-                    channel: channel_from_id(ch_id),
-                    msg,
-                }),
-                Err(e) => eprintln!("[server] deserialize error: {e}"),
+            let channel = channel_from_id(ch_id);
+            let msgs = if channel == Channel::Unreliable {
+                try_reassemble(&mut quic.reassembly, SERVER_CONN_ID, &bytes)
+            } else {
+                match decode_batch(&bytes) {
+                    Ok(m) => Some(m),
+                    Err(e) => { eprintln!("[server] decode error: {e}"); None }
+                }
+            };
+            if let Some(msgs) = msgs {
+                for msg in msgs {
+                    quic.inbound.push_back(InboundMessage { conn_id: SERVER_CONN_ID, channel, msg });
+                }
             }
         }
     }
@@ -237,20 +347,55 @@ pub fn flush_outbound(
     mut server: ResMut<QuinnetServer>,
     mut client: ResMut<QuinnetClient>,
 ) {
-    while let Some((target, channel, data)) = quic.outbound.pop_front() {
-        let ch_id: ChannelId = channel.into();
+    // Group by (target, channel).
+    let mut batches: HashMap<(Option<ConnectionId>, ChannelId), Vec<MsgType>> = HashMap::new();
+    while let Some((target, channel, msg)) = quic.outbound.pop_front() {
+        let key = (
+            match target { SendTarget::All => None, SendTarget::One(id) => Some(id) },
+            ChannelId::from(channel),
+        );
+        batches.entry(key).or_default().push(msg);
+    }
 
-        if let Some(endpoint) = server.get_endpoint_mut() {
-            match target {
-                SendTarget::One(conn_id) => {
-                    endpoint.try_send_payload_on(conn_id, ch_id, data);
+    if let Some(endpoint) = server.get_endpoint_mut() {
+        for ((target_id, ch_id), msgs) in batches {
+            let data = match encode_batch(&msgs) {
+                Ok(d) => d,
+                Err(e) => { eprintln!("flush_outbound encode error: {e}"); continue; }
+            };
+
+            if ch_id == UNRELIABLE_CHANNEL {
+                let seq = quic.unreliable_seq;
+                quic.unreliable_seq = quic.unreliable_seq.wrapping_add(1);
+                for frag in make_fragments(data, seq) {
+                    match target_id {
+                        None => { endpoint.try_broadcast_payload_on(ch_id, frag); }
+                        Some(id) => { endpoint.try_send_payload_on(id, ch_id, frag); }
+                    }
                 }
-                SendTarget::All => {
-                    endpoint.try_broadcast_payload_on(ch_id, data);
+            } else {
+                match target_id {
+                    None => { endpoint.try_broadcast_payload_on(ch_id, data); }
+                    Some(id) => { endpoint.try_send_payload_on(id, ch_id, data); }
                 }
             }
-        } else if let Some(conn) = client.get_connection_mut() {
-            conn.try_send_payload_on(ch_id, data);
+        }
+    } else if let Some(conn) = client.get_connection_mut() {
+        for ((_, ch_id), msgs) in batches {
+            let data = match encode_batch(&msgs) {
+                Ok(d) => d,
+                Err(e) => { eprintln!("flush_outbound encode error: {e}"); continue; }
+            };
+
+            if ch_id == UNRELIABLE_CHANNEL {
+                let seq = quic.unreliable_seq;
+                quic.unreliable_seq = quic.unreliable_seq.wrapping_add(1);
+                for frag in make_fragments(data, seq) {
+                    conn.try_send_payload_on(ch_id, frag);
+                }
+            } else {
+                conn.try_send_payload_on(ch_id, data);
+            }
         }
     }
 }

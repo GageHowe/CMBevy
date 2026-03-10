@@ -291,8 +291,20 @@ fn on_message(
             }
             // Keep only the newest snapshot; reconciliation happens next FixedPreUpdate.
             MsgType::State(st) => {
-                net_stats.record_state_tick(ticker.tick, st.tick, common::config::TICK_RATE);
+                net_stats.record_state_tick(ticker.tick, st.tick, common::config::FIXED_TICK_RATE);
                 pending.0 = Some(st);
+            }
+            MsgType::FileData(name, compressed) => {
+                match zstd::stream::decode_all(compressed.as_slice()) {
+                    Ok(data) => {
+                        let path = std::path::PathBuf::from(&name);
+                        match std::fs::write(&path, &data) {
+                            Ok(_) => gui.push_log(format!("received file: {name} ({} bytes)", data.len())),
+                            Err(e) => eprintln!("FileData: write {name} failed: {e}"),
+                        }
+                    }
+                    Err(e) => eprintln!("FileData: decompress failed: {e}"),
+                }
             }
             other => debug_println!("Client: Got unhandled message: {other:?}"),
         }

@@ -1,3 +1,4 @@
+cargo-features = ["codegen-backend"]
 
 [workspace]
 members = ["common", "http_common", "gameserver", "client", "beacon"]

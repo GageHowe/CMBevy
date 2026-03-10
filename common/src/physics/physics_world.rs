@@ -1,13 +1,8 @@
 // physics_world.rs
 // this manages the physics simulation and syncs it with clients
 
-// use bevy::math::VectorSpace;
 use bevy::prelude::*;
-// use bevy::render::
-// use nalgebra::Vector3;
 use crate::net::message::{BodyState, NetworkID, SimulationState};
-#[cfg(feature = "client")]
-use bevy::math::primitives::Cuboid;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
 pub use rapier3d::prelude::RigidBodyHandle;
@@ -45,8 +40,8 @@ impl PhysicsWorld {
             collider_set: ColliderSet::new(),
             global_gravity: gravity,
             integration_parameters: IntegrationParameters {
-                dt: 1.0 / crate::config::TICK_RATE as f32,
-                min_ccd_dt: 1.0 / crate::config::TICK_RATE as f32 / 100.0,
+                dt: 1.0 / crate::config::FIXED_TICK_RATE as f32,
+                min_ccd_dt: 1.0 / crate::config::FIXED_TICK_RATE as f32 / 100.0,
                 contact_softness: SpringCoefficients::contact_defaults(),
                 warmstart_coefficient: 1.0,
                 num_internal_pgs_iterations: 1,
@@ -152,72 +147,13 @@ pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        // app.insert_resource(PhysicsWorld::new(Vector3::new(0.0, -9.81, 0.0)))
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
-            .add_systems(Startup, create_objects)
-            .add_systems(
-                FixedUpdate,
-                (step_physics, sync_physics_to_transforms).chain(),
-            );
-        #[cfg(feature = "client")]
-        app.add_systems(Startup, create_object_visuals.after(create_objects));
-    }
-}
-
-/// Marker for static level geometry so the client visual system can find it.
-#[derive(Component)]
-pub struct LevelFloor;
-
-/// Creates physics bodies for static level geometry. Runs on both client and server.
-pub fn create_objects(
-    mut world: ResMut<PhysicsWorld>,
-    mut commands: Commands,
-) {
-    let plane_entity = commands.spawn_empty().id();
-    let plane_rb = RigidBodyBuilder::fixed()
-        .translation(Vector3::new(0.0, -10.0, 0.0))
-        .build();
-    let plane_handle = world.insert_body(plane_entity, plane_rb);
-    let plane_collider = ColliderBuilder::cuboid(10.0, 2.0, 10.0).build();
-    commands.entity(plane_entity).insert((
-        PhysicsBodyHandle(plane_handle),
-        LevelFloor,
-    ));
-
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
-    collider_set.insert_with_parent(plane_collider, plane_handle, rigid_body_set);
-}
-
-/// Adds mesh/material visuals to level geometry. Client only.
-#[cfg(feature = "client")]
-pub fn create_object_visuals(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    floors: Query<Entity, With<LevelFloor>>,
-) {
-    for entity in &floors {
-        commands.entity(entity).insert((
-            Mesh3d(meshes.add(Mesh::from(Cuboid::new(20.0, 4.0, 20.0)))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.2, 0.2, 0.2),
-                metallic: 0.0,
-                perceptual_roughness: 0.6,
-                reflectance: 0.1,
-                ..Default::default()
-            })),
-            Visibility::default(),
-        ));
+            .add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     }
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
-    // apply gravity for all planets
 }
 
 /// Snapshot the current physics state for all networked bodies.
@@ -279,7 +215,6 @@ pub fn restore_snapshot(
 }
 
 /// handle visual sync
-/// probably could be more efficient though
 fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,
     mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
@@ -295,48 +230,3 @@ fn sync_physics_to_transforms(
         }
     }
 }
-
-// use bevy::transform::TransformSystems;
-//
-// fn transform_physics_tranforms_extrapolated(
-//     world: Res<PhysicsWorld>,
-//     fixed_time: Res<Time<Fixed>>,
-//     mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
-// ) {
-//     let a = fixed_time.overstep_fraction(); // 0..1 between fixed steps [web:44][web:48]
-//
-//     // duration of one physics tick (must match IntegrationParameters::dt)
-//     let dt = world.integration_parameters.dt as f32;
-//
-//     for (body_handle, mut transform) in &mut query {
-//         if let Some(body) = world.rigid_body_set.get(body_handle.0) {
-//             // current physics state
-//             let pos = body.position();
-//             let translation = pos.translation;
-//             let rotation = pos.rotation;
-//             let linvel = body.linvel();
-//             let angvel = body.angvel();
-//
-//             // predict next-tick position using velocity (simple extrapolation) [web:29]
-//             let future_translation = translation + linvel * dt;
-//             // naive angular extrapolation: axis-angle from angvel * dt
-//             let ang_speed = angvel.norm();
-//             let future_rotation = if ang_speed > 0.0001 {
-//                 let axis = angvel / ang_speed;
-//                 let angle = ang_speed * dt;
-//                 let delta = Quat::from_axis_angle(Vec3::new(axis.x, axis.y, axis.z), angle);
-//                 Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w) * delta
-//             } else {
-//                 Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w)
-//             };
-//
-//             // lerp/slerp between current and future based on overstep fraction [web:29]
-//             let current = Vec3::new(translation.x, translation.y, translation.z);
-//             let future = Vec3::new(future_translation.x, future_translation.y, future_translation.z);
-//             transform.translation = current.lerp(future, a);
-//
-//             let current_rot = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w);
-//             transform.rotation = current_rot.slerp(future_rotation, a);
-//         }
-//     }
-// }

@@ -8,5 +8,6 @@ workspace = true
 
 [dependencies]
 common = { path = "../common", features = ["client"] }
-bevy = { version = "0.18", features = ["jpeg", "dynamic_linking"] }
+bevy = { version = "0.18", default-features = false, features = ["jpeg"] }
 bevy_egui = "0.39.1"
+zstd = "0.13.3"

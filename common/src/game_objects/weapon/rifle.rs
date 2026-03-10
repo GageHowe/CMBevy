@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::game_objects::GameObjectKind;
 use crate::interaction::Interactable;
 use crate::physics::physics_world::*;
 use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
@@ -27,6 +28,7 @@ pub fn spawn(
         WeaponComponent,
         RifleComponent::default(),
         WeaponInput::default(),
+        GameObjectKind::Rifle,
         Interactable { range: 2.0 },
         Transform::from(transform),
     )).id();
