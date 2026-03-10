@@ -3,8 +3,8 @@ use rapier3d::prelude::RigidBodyHandle;
 
 use crate::net::message::{NetworkID, SimulationState};
 use crate::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies};
-use crate::pawn::biped;
-use crate::pawn::pawn::{gather_pawn_input, BipedPawnComponent, Possessed};
+use crate::game_objects::pawn::biped;
+use crate::game_objects::pawn::pawn::{gather_pawn_input, BipedPawnComponent, Possessed};
 use crate::ring_buffer::RingBuffer;
 use crate::tick::Ticker;
 

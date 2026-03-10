@@ -6,7 +6,7 @@ use std::hint::unlikely;
 use crate::game_objects::health::Health;
 use crate::net::quic::{QuicManager, SendTarget, Channel};
 use crate::net::message::MsgType;
-use crate::pawn::pawn::Possessed;
+use crate::game_objects::pawn::pawn::Possessed;
 use crate::net::tick_sync::NetworkStats;
 use crate::physics::physics_world::PhysicsWorld;
 

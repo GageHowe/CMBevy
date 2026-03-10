@@ -5,7 +5,7 @@ use steamworks::FriendFlags;
 use steamworks::AppId;
 // use crate::slow_update::SlowHz;
 
-/// Wraps the Steamworks client. Available as a resource when Steam is running.
+/// wraps the Steamworks client. Available as a resource when Steam is running.
 #[derive(Resource)]
 pub struct SteamClient(pub Client);
 
@@ -17,7 +17,6 @@ impl Plugin for SteamworksPlugin {
             Ok(client) => {
 
                 let utils = client.utils();
-                println!("Utils:");
                 println!("AppId: {:?}", utils.app_id());
 
                 println!("UI Language: {}", utils.ui_language());
@@ -28,26 +27,24 @@ impl Plugin for SteamworksPlugin {
                 println!("InstallDir(480): {}", apps.app_install_dir(AppId(480)));
                 println!("BuildId: {}", apps.app_build_id());
                 println!("AppOwner: {:?}", apps.app_owner());
-                println!("Langs: {:?}", apps.available_game_languages());
-                println!("Lang: {}", apps.current_game_language());
                 println!("Beta: {:?}", apps.current_beta_name());
 
                 let friends = client.friends();
                 println!("Friends");
                 let list = friends.get_friends(FriendFlags::IMMEDIATE);
-                println!("{:?}", list);
                 for f in &list {
                     println!("Friend: {:?} - {}({:?})", f.id(), f.name(), f.state());
                     friends.request_user_information(f.id(), true);
                 }
 
+                // api good, register self
+
                 app.insert_resource(SteamClient(client));
-                // app.add_systems(SlowHz, pump_callbacks);
-                app.add_systems(FixedUpdate, pump_callbacks); // since api said to call every tick
+                app.add_systems(FixedUpdate, pump_callbacks);
 
             }
             Err(e) => {
-                warn!("Steam not available: {e}. Cloud saves disabled.");
+                warn!("Steam not available: {e}");
             }
         }
     }

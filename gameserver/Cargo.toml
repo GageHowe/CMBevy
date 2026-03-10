@@ -8,5 +8,5 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-common = { path = "../common", features = ["server"] }
+common = { path = "../common" }
 bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded"] }

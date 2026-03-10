@@ -3,10 +3,13 @@
     <words>
       <w>angvel</w>
       <w>bergentruck</w>
+      <w>bincode</w>
+      <w>gameserver</w>
       <w>linvel</w>
       <w>rhai</w>
       <w>rigidbody</w>
       <w>skyboxes</w>
+      <w>wincode</w>
     </words>
   </dictionary>
 </component>

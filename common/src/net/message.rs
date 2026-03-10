@@ -2,7 +2,7 @@ use crate::types::{CMQuat, CMVec3};
 use bevy::prelude::*;
 use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
-use crate::pawn::pawn::PawnInput;
+use crate::game_objects::pawn::pawn::PawnInput;
 pub use crate::game_objects::GameObjectKind;
 
 /// component to mark entities that should be networked.
@@ -17,7 +17,7 @@ pub struct NetworkIDResource {
 }
 impl NetworkIDResource {
     /// should be used when spawning a new networked entity
-    pub fn get_next_id(&mut self) -> u64 {
+    pub fn get_next_free_id(&mut self) -> u64 {
         self.last_id += 1;
         self.last_id
     }
@@ -29,7 +29,8 @@ pub struct SpawnCommand {
     pub position: CMVec3,
     pub starting_velocity: CMVec3,
     pub rotation: CMQuat,
-    /// Server tick at spawn time — client uses this to synchronize its clock.
+    /// server tick at spawn time; client uses this to synchronize its clock.
+    /// do we actually need this?
     pub server_tick: u64,
     pub kind: GameObjectKind,
     /// True only for the single recipient that owns/possesses this object.

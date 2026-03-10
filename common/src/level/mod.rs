@@ -61,8 +61,7 @@ impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.0.clone());
         app.add_systems(Startup, spawn_static_colliders);
-        #[cfg(feature = "client")]
-        app.add_systems(Startup, load_level_scene);
+        app.add_systems(Startup, load_level_scene.run_if(resource_exists::<AssetServer>));
     }
 }
 
@@ -93,7 +92,6 @@ fn spawn_static_colliders(
     }
 }
 
-#[cfg(feature = "client")]
 fn load_level_scene(
     mut commands: Commands,
     asset_server: Res<AssetServer>,

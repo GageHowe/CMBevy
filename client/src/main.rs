@@ -240,7 +240,10 @@ fn on_message(
                             local_net_id.0 = Some(cmd.net_id.clone());
                         }
                         let cam = if owned { camera.single().ok() } else { None };
-                        spawn_biped_client(cmd, owned, &mut sp.commands, &mut sp.meshes, &mut sp.materials, &mut world, cam);
+                        let entity = biped::spawn_from_command(&cmd, owned, &mut sp.commands, &mut sp.meshes, &mut sp.materials, &mut world, cam);
+                        if owned {
+                            sp.commands.entity(entity).insert((Possessed::new(128), ViewmodelSlots::default()));
+                        }
                     }
                     GameObjectKind::Rifle => {
                         spawn_rifle(cmd, &mut sp.commands, &mut world, &sp.asset_server);
@@ -347,33 +350,6 @@ fn on_message(
             }
             other => debug_println!("Client: Got unhandled message: {other:?}"),
         }
-    }
-}
-
-/// Spawns a biped pawn from a server SpawnCommand.
-/// `owned` adds Possessed/ViewmodelSlots and attaches the camera rig.
-fn spawn_biped_client(
-    cmd: SpawnCommand,
-    owned: bool,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    world: &mut PhysicsWorld,
-    camera: Option<Entity>,
-) {
-    let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
-        ..default()
-    };
-    let entity = biped::spawn(transform, commands, world);
-    let color = if owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
-    biped::add_visuals(entity, color, commands, meshes, materials);
-    if owned {
-        biped::setup_camera_rig(entity, camera, commands);
-        commands.entity(entity).insert((cmd.net_id, Possessed::new(128), ViewmodelSlots::default()));
-    } else {
-        commands.entity(entity).insert(cmd.net_id);
     }
 }
 

@@ -1,5 +1,8 @@
 use std::collections::VecDeque;
 
+// note: using VedDeque is actually efficient, no conversion to array needed
+// vecdeque is implemented as a circular buffer internally, no allocation happens after initialization
+
 /// A simple fixed-capacity ring buffer
 pub struct RingBuffer<T> {
     buffer: VecDeque<T>,
@@ -46,7 +49,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Get item by position where 0 is the most recent.
-    /// Out-of-range positions clamp to the newest item (matching the C++ behaviour).
+    /// Out-of-range positions clamp to the newest item.
     /// Returns None only when the buffer is empty.
     pub fn get(&self, position: usize) -> Option<&T> {
         if self.buffer.is_empty() {
@@ -65,11 +68,13 @@ impl<T> RingBuffer<T> {
     }
 
     /// Get a reference to the newest (most recently pushed) item
+    #[must_use]
     pub fn get_newest(&self) -> Option<&T> {
         self.buffer.back()
     }
 
     /// Get a reference to the oldest item
+    #[must_use]
     pub fn get_oldest(&self) -> Option<&T> {
         self.buffer.front()
     }

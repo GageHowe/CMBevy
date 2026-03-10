@@ -46,6 +46,7 @@ fn main() {
 
     app.add_plugins(MasterPlugin);
     app.add_plugins(ScriptingPlugin);
+    app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
     app.init_resource::<PlayerRegistry>();
@@ -102,12 +103,12 @@ fn spawn_initial_weapons(
     mut net_ids: ResMut<NetworkIDResource>,
     mut weapon_registry: ResMut<WeaponRegistry>,
 ) {
-    let net_id = NetworkID(net_ids.get_next_id());
+    let net_id = NetworkID(net_ids.get_next_free_id());
     let entity = rifle::spawn(Transform::from_translation(Vec3::new(3.0, 2.0, 0.0)), &mut commands, &mut world);
     commands.entity(entity).insert(net_id.clone());
     weapon_registry.free.insert(net_id, entity);
 
-    let net_id = NetworkID(net_ids.get_next_id());
+    let net_id = NetworkID(net_ids.get_next_free_id());
     let entity = shotgun::spawn(Transform::from_translation(Vec3::new(-3.0, 2.0, 0.0)), &mut commands, &mut world);
     commands.entity(entity).insert(net_id.clone());
     weapon_registry.free.insert(net_id, entity);
@@ -126,13 +127,13 @@ fn spawn_player(
     world: &mut PhysicsWorld,
     tick: u64,
 ) {
-    let net_id = NetworkID(net_ids.get_next_id());
+    let net_id = NetworkID(net_ids.get_next_free_id());
     let pos = Vec3::new(0.0, 5.0, 0.0);
     let entity = match kind {
         GameObjectKind::Biped => biped::spawn(Transform::from_translation(pos), commands, world),
         _ => unreachable!("spawn_player called with non-pawn kind"),
     };
-    commands.entity(entity).insert((net_id.clone(), WeaponSlots::default()));
+    commands.entity(entity).insert(net_id.clone());
 
     let spawn_cmd = |owned: bool| SpawnCommand {
         net_id: net_id.clone(),

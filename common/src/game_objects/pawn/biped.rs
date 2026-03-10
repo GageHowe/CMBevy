@@ -4,6 +4,7 @@ use super::pawn::*;
 use crate::net::message::NetworkID;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
+use crate::net::message::SpawnCommand;
 
 /// Two weapon slots on a biped pawn. Stored on the entity, not globally.
 #[derive(Component, Default)]
@@ -41,7 +42,6 @@ pub fn spawn(
 }
 
 /// Adds a mesh and material to an existing biped entity.
-#[cfg(feature = "client")]
 pub fn add_visuals(
     entity: Entity,
     color: Color,
@@ -58,7 +58,6 @@ pub fn add_visuals(
 
 /// Sets up the YawPivot → PitchPivot → Camera hierarchy on an existing biped entity.
 /// Pass the pre-existing Camera3d entity so it gets re-parented rather than re-spawned.
-#[cfg(feature = "client")]
 pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, commands: &mut Commands) {
     let pitch_pivot = commands.spawn((
         PitchPivot { pitch: 0.0 },
@@ -78,6 +77,32 @@ pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, commands: &mut C
     )).add_child(pitch_pivot).id();
 
     commands.entity(entity).add_child(yaw_pivot);
+}
+
+/// Spawns a biped from a server SpawnCommand, adds visuals, and optionally attaches the camera rig.
+/// Returns the entity. Caller is responsible for inserting any local-only components (e.g. Possessed).
+pub fn spawn_from_command(
+    cmd: &SpawnCommand,
+    owned: bool,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    world: &mut PhysicsWorld,
+    camera: Option<Entity>,
+) -> Entity {
+    let transform = Transform {
+        translation: cmd.position.into(),
+        rotation: cmd.rotation.into(),
+        ..default()
+    };
+    let entity = spawn(transform, commands, world);
+    let color = if owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
+    add_visuals(entity, color, commands, meshes, materials);
+    if owned {
+        setup_camera_rig(entity, camera, commands);
+    }
+    commands.entity(entity).insert(cmd.net_id.clone());
+    entity
 }
 
 pub fn apply_biped_movement(

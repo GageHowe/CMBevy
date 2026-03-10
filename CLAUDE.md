@@ -4,7 +4,6 @@
 * Everything should be clean and minimal. Every line of code counts against you.
 * Read as many files as you need to understand the codebase.
 * If you don't understand something I ask, look it up.
-* When possible, put all resources and logic in the common package. We want to keep client and gameserver small. If we need to add custom functions to the client/server, put them in files adjacent to main file.
 * No hacks. This is for an enterprise-quality game; everything needs to be scalable. Write once, use forever.
 * Duplication is ok if it means we keep game code flexible and modular.
 * DO NOT rewrite my comments, or add comments to code that's already commented
@@ -21,6 +20,11 @@ Also see: README.md for project description
   * common::tick
   * common::slow_update
   * common::macros
+  * common::ring_buffer
+  * any Cargo.toml or config.toml
 
 ## random other info
 * We use wincode for encoding, since bincode is dead.
+* I'm done trying to minimize gameserver binary size - simplicity is more important.
+* Also, it's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver.
+* 

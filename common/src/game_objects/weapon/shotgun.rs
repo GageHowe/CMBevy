@@ -41,7 +41,6 @@ pub fn spawn(
 }
 
 /// Adds a scene (GLB model) to an existing shotgun entity.
-#[cfg(feature = "client")]
 pub fn add_visuals(
     entity: Entity,
     commands: &mut Commands,

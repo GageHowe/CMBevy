@@ -3,7 +3,6 @@ use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
-#[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 use std::collections::HashMap;
 use wincode_derive::{SchemaRead, SchemaWrite};
@@ -53,11 +52,9 @@ pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
 /// Runtime mouse sensitivity, set from the Settings resource by SettingsPlugin.
 /// Defaults to 0.002 so the server (which never sets it) doesn't need it at all.
-#[cfg(feature = "client")]
 #[derive(Resource)]
 pub struct MouseSensitivity(pub f32);
 
-#[cfg(feature = "client")]
 impl Default for MouseSensitivity {
     fn default() -> Self { Self(0.002) }
 }
@@ -128,7 +125,6 @@ impl Possessed {
 // SYSTEMS
 
 /// runs every frame in PostUpdate, before transform propagation
-#[cfg(feature = "client")]
 pub fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
@@ -154,11 +150,9 @@ pub fn gather_pawn_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut pawns: Query<&mut Possessed>,
     yaw_pivot: Query<&YawPivot>,
-    #[cfg(feature = "client")]
-    egui_wants_input: Res<EguiWantsInput>,
+    egui_wants_input: Option<Res<EguiWantsInput>>,
 ) {
-    #[cfg(feature = "client")]
-    if egui_wants_input.wants_any_input() { return; }
+    if egui_wants_input.map_or(false, |e| e.wants_any_input()) { return; }
     let Ok(mut possessed) = pawns.single_mut() else { return };
 
     let mut input = PawnInput::default();

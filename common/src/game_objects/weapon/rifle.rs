@@ -51,7 +51,6 @@ pub fn apply_rifle_fire(
 }
 
 /// Adds a scene (GLB model) to an existing rifle entity.
-#[cfg(feature = "client")]
 pub fn add_visuals(
     entity: Entity,
     commands: &mut Commands,
