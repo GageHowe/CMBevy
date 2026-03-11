@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use bevy_egui::input::EguiWantsInput;
 use common::health::Health;
 use common::net::quic::{QuicManager, SendTarget, Channel};
 use common::net::message::MsgType;
@@ -32,7 +31,7 @@ pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_crosshair)
+        app.add_systems(Startup, (spawn_crosshair, set_style))
             .insert_resource(GuiState::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -42,27 +41,34 @@ impl Plugin for UIPlugin {
     }
 }
 
+fn set_style(mut contexts: EguiContexts) {
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "JetBrainsMono-Light".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../../assets/fonts/JetBrainsMono-Light.ttf")).into(),
+    );
+    fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "JetBrainsMono-Light".to_owned());
+    fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap().insert(0, "JetBrainsMono-Light".to_owned());
+    ctx.set_fonts(fonts);
+
+    let mut style = (*ctx.style()).clone();
+    // style.visuals.window_shadow = egui::epaint::Shadow::NONE;
+    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 200);
+    style.visuals.override_text_color = Some(egui::Color32::WHITE);
+    style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;
+    style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
+    ctx.set_style(style);
+}
+
 fn gui_top_left(
     mut contexts: EguiContexts,
     world: ResMut<PhysicsWorld>,
     diagnostics: Res<DiagnosticsStore>,
     net_stats: Res<NetworkStats>,
     mut exit: MessageWriter<AppExit>,
-    mut style_set: Local<bool>,
 ) -> Result {
-    let ctx = contexts.ctx_mut()?;
-
-    if !*style_set {
-        let mut style = (*ctx.style()).clone();
-        // style.visuals.window_shadow = egui::epaint::Shadow::NONE;
-        style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 200);
-        style.visuals.override_text_color = Some(egui::Color32::WHITE);
-        style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;
-        style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
-        ctx.set_style(style);
-        *style_set = true;
-    }
-
     egui::Window::new("info")
         .title_bar(false)
         .resizable(false)
