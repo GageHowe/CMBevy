@@ -79,8 +79,8 @@ pub fn maybe_reconcile(
         snapshot.bodies.get(our_net_id),
     ) {
         (Some(predicted), Some(server)) => {
-            let pos_err = (Vec3::from(server.position) - Vec3::from(predicted.position)).length();
-            let vel_err = (Vec3::from(server.linvel) - Vec3::from(predicted.linvel)).length();
+            let pos_err = (server.position - predicted.position).length();
+            let vel_err = (server.linvel - predicted.linvel).length();
             pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
         }
         // No history for this tick — always reconcile to stay correct.

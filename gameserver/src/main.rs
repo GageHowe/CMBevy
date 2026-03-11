@@ -137,9 +137,9 @@ fn spawn_player(
 
     let spawn_cmd = |owned: bool| SpawnCommand {
         net_id: net_id.clone(),
-        position: pos.into(),
-        starting_velocity: Vec3::ZERO.into(),
-        rotation: Quat::IDENTITY.into(),
+        position: pos,
+        starting_velocity: Vec3::ZERO,
+        rotation: Quat::IDENTITY,
         server_tick: tick,
         kind: kind.clone(),
         owned,
@@ -188,9 +188,9 @@ fn remove_player(
             weapon_registry.free.insert(wid.clone(), weapon_entity);
             quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
                 net_id: wid,
-                position: drop_pos.into(),
-                starting_velocity: Vec3::ZERO.into(),
-                rotation: Quat::IDENTITY.into(),
+                position: drop_pos,
+                starting_velocity: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
                 server_tick: tick,
                 kind,
                 owned: false,
@@ -228,9 +228,9 @@ fn on_message(
                         .unwrap_or(Vec3::ZERO);
                     quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
                         net_id: existing_net_id.clone(),
-                        position: existing_pos.into(),
-                        starting_velocity: Vec3::ZERO.into(),
-                        rotation: Quat::IDENTITY.into(),
+                        position: existing_pos,
+                        starting_velocity: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
                         server_tick: tick.tick,
                         kind: GameObjectKind::Biped,
                         owned: false,
@@ -245,9 +245,9 @@ fn on_message(
                         .unwrap_or(Vec3::ZERO);
                     quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
                         net_id: weapon_net_id.clone(),
-                        position: weapon_pos.into(),
-                        starting_velocity: Vec3::ZERO.into(),
-                        rotation: Quat::IDENTITY.into(),
+                        position: weapon_pos,
+                        starting_velocity: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
                         server_tick: tick.tick,
                         kind: weapon_kinds.get(weapon_entity).cloned().unwrap_or(GameObjectKind::Rifle),
                         owned: false,
@@ -310,9 +310,9 @@ fn on_message(
                             quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(drop_id.clone()));
                             quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
                                 net_id: drop_id,
-                                position: drop_pos.into(),
-                                starting_velocity: Vec3::ZERO.into(),
-                                rotation: Quat::IDENTITY.into(),
+                                position: drop_pos,
+                                starting_velocity: Vec3::ZERO,
+                                rotation: Quat::IDENTITY,
                                 server_tick: tick.tick,
                                 kind,
                                 owned: false,
@@ -339,8 +339,8 @@ fn on_message(
                     _ => continue,
                 };
 
-                let origin_v: Vec3 = origin.into();
-                let dir_v = Vec3::from(direction).normalize_or_zero();
+                let origin_v = origin;
+                let dir_v = direction.normalize_or_zero();
                 if dir_v == Vec3::ZERO { continue; }
 
                 if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
@@ -396,7 +396,7 @@ fn handle_fired_weapons(
                 };
 
                 quic.send(SendTarget::All, Channel::Unreliable,
-                    &MsgType::HitResult(origin.into(), end.into(), hit_net_id.clone()));
+                    &MsgType::HitResult(origin, end, hit_net_id.clone()));
 
                 // Apply damage and handle death.
                 if let Some(hit_nid) = hit_net_id {

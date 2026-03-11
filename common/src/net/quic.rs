@@ -190,13 +190,13 @@ impl QuicManager {
 // ---------------------------------------------------------------------------
 
 fn encode_batch(msgs: &[MsgType]) -> Result<Vec<u8>, String> {
-    let payload = wincode::serialize(msgs).map_err(|e| format!("serialize: {e}"))?;
+    let payload = postcard::to_allocvec(msgs).map_err(|e| format!("serialize: {e}"))?;
     compress(&payload, ZSTD_LEVEL).map_err(|e| format!("compress: {e}"))
 }
 
 fn decode_batch(bytes: &[u8]) -> Result<Vec<MsgType>, String> {
     let decompressed = decode_all(bytes).map_err(|e| format!("decompress: {e}"))?;
-    wincode::deserialize::<Vec<MsgType>>(&decompressed).map_err(|e| format!("deserialize: {e}"))
+    postcard::from_bytes::<Vec<MsgType>>(&decompressed).map_err(|e| format!("deserialize: {e}"))
 }
 
 /// Split `data` into MTU-sized fragments with a 6-byte header each.

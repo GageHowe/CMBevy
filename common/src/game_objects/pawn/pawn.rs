@@ -1,11 +1,11 @@
-use crate::physics::physics_world::*;
-use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy_egui::input::EguiWantsInput;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use wincode_derive::{SchemaRead, SchemaWrite};
+use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
+use crate::physics::physics_world::*;
 
 pub struct PawnPlugin;
 
@@ -62,7 +62,7 @@ impl Default for MouseSensitivity {
 // CORE
 
 /// Input state consumed by movement systems each tick.
-#[derive(Component, Default, Clone, Copy, SchemaRead, SchemaWrite, Debug, PartialEq)]
+#[derive(Component, Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct PawnInput {
     pub forward: f32,
     pub right: f32,

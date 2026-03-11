@@ -311,7 +311,7 @@ fn on_message(
                 }
             }
             MsgType::HitResult(origin, end, _hit_net_id) => {
-                hit_beams.0.push((origin.into(), end.into(), 0.3));
+                hit_beams.0.push((origin, end, 0.3));
             }
             MsgType::HealthUpdate(net_id, current) => {
                 for (nid, mut health) in health_q.iter_mut() {
@@ -361,8 +361,8 @@ fn spawn_rifle(
     asset_server: &AssetServer,
 ) {
     let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
+        translation: cmd.position,
+        rotation: cmd.rotation,
         ..default()
     };
     let entity = rifle::spawn(transform, commands, world);
@@ -377,8 +377,8 @@ fn spawn_shotgun(
     asset_server: &AssetServer,
 ) {
     let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
+        translation: cmd.position,
+        rotation: cmd.rotation,
         ..default()
     };
     let entity = shotgun::spawn(transform, commands, world);
@@ -448,7 +448,7 @@ fn fire_weapon(
     quic.send(
         SendTarget::All,
         Channel::Unreliable,
-        &MsgType::Fire(weapon_net_id, origin.into(), direction.into()),
+        &MsgType::Fire(weapon_net_id, origin, direction),
     );
 }
 

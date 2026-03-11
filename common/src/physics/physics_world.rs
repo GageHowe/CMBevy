@@ -169,10 +169,10 @@ pub fn snapshot_bodies<'a>(
         if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
             let pos = rb.position();
             bodies.insert(net_id.clone(), BodyState {
-                position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z).into(),
-                rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w).into(),
-                linvel:   Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z).into(),
-                angvel:   Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z).into(),
+                position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z),
+                rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w),
+                linvel:   Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z),
+                angvel:   Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z),
             });
         }
     }
