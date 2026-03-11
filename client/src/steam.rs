@@ -13,7 +13,8 @@ pub struct SteamworksPlugin;
 
 impl Plugin for SteamworksPlugin {
     fn build(&self, app: &mut App) {
-        match Client::init_app(3526510u32) {
+        let appid = 3526510u32;
+        match Client::init_app(appid) {
             Ok(client) => {
 
                 let utils = client.utils();
@@ -22,9 +23,8 @@ impl Plugin for SteamworksPlugin {
                 println!("UI Language: {}", utils.ui_language());
 
                 let apps = client.apps();
-                println!("Apps");
-                println!("IsInstalled(480): {}", apps.is_app_installed(AppId(480)));
-                println!("InstallDir(480): {}", apps.app_install_dir(AppId(480)));
+                println!("IsInstalled: {}", apps.is_app_installed(AppId(appid)));
+                println!("InstallDir: {}", apps.app_install_dir(AppId(appid)));
                 println!("BuildId: {}", apps.app_build_id());
                 println!("AppOwner: {:?}", apps.app_owner());
                 println!("Beta: {:?}", apps.current_beta_name());

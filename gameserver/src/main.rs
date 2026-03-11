@@ -46,6 +46,7 @@ fn main() {
 
     app.add_plugins(MasterPlugin);
     app.add_plugins(ScriptingPlugin);
+    app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));

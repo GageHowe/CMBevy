@@ -46,18 +46,22 @@ fn load_settings(mut commands: Commands) {
     commands.insert_resource(settings);
 }
 
-/// TODO: split this up into separate save functions for efficiency, if possible
-fn change_settings (
-    settings: Res<Settings>,
-    mut sensitivity: ResMut<MouseSensitivity>,
-) {
+fn change_settings(settings: Res<Settings>, mut sensitivity: ResMut<MouseSensitivity>) {
     if settings.is_changed() {
         sensitivity.0 = settings.mouse_sensitivity;
         if !settings.is_added() {
-            // if let Some(steam) = steam {
-            //     save_to_steam(&steam.0, &settings);
-            // }
+            save_settings(&settings);
         }
+    }
+}
+
+fn save_settings(settings: &Settings) {
+    let path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("CMBevy")
+        .join(SETTINGS_FILE);
+    if let Ok(s) = toml::to_string_pretty(settings) {
+        fs::write(path, s).ok();
     }
 }
 

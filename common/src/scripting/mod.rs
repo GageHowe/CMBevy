@@ -1,6 +1,11 @@
+use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use rhai::{Engine, AST, Scope};
 use std::cell::Cell;
+use crate::game_objects::pawn::biped;
+use crate::game_objects::weapon::{rifle, shotgun};
+use crate::net::message::{NetworkID, NetworkIDResource};
+use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Clone)]
 pub struct RhaiScriptConfig {
@@ -77,6 +82,24 @@ fn register_script_functions(world: &mut World) {
         if let Some(mut health) = world.get_mut::<Health>(entity) {
             health.0 = amount;
         }
+    });
+
+    // spawn(name, x, y, z) → entity_id
+    runtime.engine.register_fn("spawn", move |name: &str, x: f64, y: f64, z: f64| -> i64 {
+        let world = unsafe { &mut *(*world_ptr).get() };
+        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
+        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().get_next_free_id());
+        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
+        let (mut commands, mut physics) = state.get_mut(world);
+        let entity = match name {
+            "biped"   => biped::spawn(transform, &mut commands, &mut physics),
+            "rifle"   => rifle::spawn(transform, &mut commands, &mut physics),
+            "shotgun" => shotgun::spawn(transform, &mut commands, &mut physics),
+            other => { error!("spawn: unknown entity '{other}'"); return -1; }
+        };
+        commands.entity(entity).insert(net_id);
+        state.apply(world);
+        entity.to_bits() as i64
     });
 
     world.insert_non_send_resource(runtime);

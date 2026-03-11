@@ -137,11 +137,15 @@ fn main() {
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
         .init_resource::<HitBeams>()
-        .add_systems(Startup, (spawn_camera));
+        .add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain()
+            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
+        .add_systems(Startup, spawn_camera);
 
     app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
 
+    app.add_systems(OnEnter(GameState::SinglePlayer), spawn_local_player);
+    app.add_systems(OnExit(GameState::SinglePlayer), despawn_local_player);
     app.add_systems(OnEnter(GameState::Multiplayer), connect);
     app.add_systems(OnExit(GameState::Multiplayer), disconnect);
 
@@ -163,7 +167,7 @@ fn main() {
         fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
         local_hitscan_vfx,
-    ).chain().before(step_physics));
+    ).chain().before(step_physics).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
     // FixedPostUpdate:
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
@@ -203,6 +207,44 @@ fn local_hitscan_vfx(
             .map(|(_, hit)| hit.point)
             .unwrap_or(origin + direction * range);
         hit_beams.0.push((origin, end, 0.3));
+    }
+}
+
+// PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
+fn spawn_local_player(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut world: ResMut<PhysicsWorld>,
+    mut net_ids: ResMut<NetworkIDResource>,
+    camera: Query<Entity, With<Camera3d>>,
+) {
+    let cmd = SpawnCommand {
+        net_id: NetworkID(net_ids.get_next_free_id()),
+        position: Vec3::new(0.0, 5.0, 0.0),
+        rotation: Quat::IDENTITY,
+        starting_velocity: Vec3::ZERO,
+        server_tick: 0,
+        kind: GameObjectKind::Biped,
+        owned: true,
+    };
+    let entity = biped::spawn_from_command(&cmd, true, &mut commands, &mut meshes, &mut materials, &mut world, camera.single().ok());
+    commands.entity(entity).insert((Possessed::new(128), ViewmodelSlots::default()));
+}
+
+// PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
+fn despawn_local_player(
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    camera: Query<Entity, With<Camera3d>>,
+    pawns: Query<Entity, With<BipedPawnComponent>>,
+) {
+    if let Ok(cam) = camera.single() {
+        commands.entity(cam).remove_parent_in_place();
+    }
+    for entity in pawns.iter() {
+        world.remove_body(entity);
+        commands.entity(entity).despawn();
     }
 }
 

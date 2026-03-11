@@ -2,6 +2,7 @@
   <dictionary name="project">
     <words>
       <w>angvel</w>
+      <w>appid</w>
       <w>bergentruck</w>
       <w>bincode</w>
       <w>gameserver</w>

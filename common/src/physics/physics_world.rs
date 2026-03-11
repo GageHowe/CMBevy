@@ -147,8 +147,7 @@ pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
-            .add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
+        app.insert_resource(PhysicsWorld::new(Vector3::ZERO));
     }
 }
 
@@ -215,7 +214,7 @@ pub fn restore_snapshot(
 }
 
 /// handle visual sync
-fn sync_physics_to_transforms(
+pub fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,
     mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
 ) {
