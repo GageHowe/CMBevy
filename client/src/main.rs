@@ -171,7 +171,7 @@ fn main() {
 
     // FixedPostUpdate:
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
-    app.add_systems(FixedPostUpdate, (on_message, send_chat).run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(FixedPostUpdate, on_message.run_if(in_state(GameState::Multiplayer)));
 
     // (tick increment is FixedLast)
 
@@ -424,15 +424,6 @@ fn on_message(
 }
 
 
-fn send_chat(mut quic: ResMut<QuicManager>, input: Res<ButtonInput<KeyCode>>) {
-    if input.just_pressed(KeyCode::Enter) {
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::ChatMessage("player".into(), "hello!".into()),
-        );
-    }
-}
 
 /// Runs after `gather_pawn_input` (which pushed the input into Possessed.buffer) but before
 /// `move_bipeds` (which consumes it). Peeks at the newest buffered input, stamps it with the

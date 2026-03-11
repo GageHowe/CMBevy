@@ -33,15 +33,18 @@ fn toggle_ui_state(
     let in_game = matches!(game_state.get(), GameState::SinglePlayer | GameState::Multiplayer);
     if !in_game { return; }
 
-    if keys.just_pressed(KeyCode::Escape) {
+    let egui_wants_keyboard = egui_wants_input.as_ref().map_or(false, |e| e.wants_keyboard_input());
+
+    // Don't open the pause menu if the chat input has keyboard focus.
+    if keys.just_pressed(KeyCode::Escape) && !egui_wants_keyboard {
         match ui_state.get() {
             UiState::Playing => next_ui.set(UiState::Paused),
             _ => next_ui.set(UiState::Playing),
         }
     }
 
-    let egui_active = egui_wants_input.map_or(false, |e| e.wants_any_input());
-    if mouse.just_pressed(MouseButton::Left) && !egui_active {
+    let egui_wants_pointer = egui_wants_input.map_or(false, |e| e.wants_any_input());
+    if mouse.just_pressed(MouseButton::Left) && !egui_wants_pointer {
         next_ui.set(UiState::Playing);
     }
 }
@@ -50,10 +53,13 @@ fn toggle_ui_state(
 fn sync_cursor_lock(
     game_state: Res<State<GameState>>,
     ui_state: Res<State<UiState>>,
+    egui_wants_input: Option<Res<EguiWantsInput>>,
     mut cursor_options: Single<&mut CursorOptions>,
 ) {
+    let egui_wants_keyboard = egui_wants_input.map_or(false, |e| e.wants_keyboard_input());
     let should_lock = matches!(game_state.get(), GameState::SinglePlayer | GameState::Multiplayer)
-        && *ui_state.get() == UiState::Playing;
+        && *ui_state.get() == UiState::Playing
+        && !egui_wants_keyboard;
     cursor_options.visible = !should_lock;
     cursor_options.grab_mode = if should_lock { CursorGrabMode::Locked } else { CursorGrabMode::None };
 }

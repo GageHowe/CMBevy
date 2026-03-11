@@ -358,7 +358,10 @@ fn on_message(
                 debug_println!("Got a ping from conn_id {:?} with text {}", msg.conn_id, text);
                 quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Pong(text));
             }
-            MsgType::ChatMessage(sender, text) => debug_println!("GameServer: Got ChatMessage: [{sender}] {text}"),
+            MsgType::ChatMessage(sender, text) => {
+                debug_println!("GameServer: Got ChatMessage: [{sender}] {text}");
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(sender, text));
+            }
             other => debug_println!("Unhandled: {other:?}"),
         }
     }

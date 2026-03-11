@@ -2,10 +2,13 @@ use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy_egui::input::EguiWantsInput;
 use common::health::Health;
 use common::net::quic::{QuicManager, SendTarget, Channel};
 use common::net::message::MsgType;
 use common::pawn::pawn::Possessed;
+use crate::GameState;
+use crate::steam::SteamClient;
 use crate::tick_sync::NetworkStats;
 use common::physics::physics_world::PhysicsWorld;
 
@@ -34,10 +37,8 @@ impl Plugin for UIPlugin {
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
-            .add_systems(EguiPrimaryContextPass, gui_bottom_left)
-            .add_systems(EguiPrimaryContextPass, gui_log)
-            .add_systems(EguiPrimaryContextPass, gui_health)
-            ;
+            .add_systems(EguiPrimaryContextPass, gui_chat.run_if(in_state(GameState::Multiplayer)))
+            .add_systems(EguiPrimaryContextPass, gui_health);
     }
 }
 
@@ -60,7 +61,6 @@ fn gui_top_left(
         style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
         ctx.set_style(style);
         *style_set = true;
-        // debug_println!("set style")
     }
 
     egui::Window::new("info")
@@ -68,7 +68,6 @@ fn gui_top_left(
         .resizable(false)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
         .show(contexts.ctx_mut()?, |ui| {
-            // ui.label("bevy_egui test");
             ui.label(format!("rigidbodies: {}", &world.rigid_body_set.len()));
             if let Some(fps) = diagnostics
                 .get(&FrameTimeDiagnosticsPlugin::FPS)
@@ -91,35 +90,54 @@ fn gui_top_left(
     Ok(())
 }
 
-fn gui_bottom_left(
+fn gui_chat(
     mut contexts: EguiContexts,
     mut state: ResMut<GuiState>,
     mut quic: ResMut<QuicManager>,
+    steam: Option<Res<SteamClient>>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
     let ctx = contexts.ctx_mut().unwrap();
-
-    egui::Window::new("messagebar")
+    egui::Window::new("chat")
         .title_bar(false)
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+        .min_width(400.0)
         .show(ctx, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(150.0)
+                .auto_shrink([false, true])
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for line in &state.log { ui.label(line); }
+                });
+
+            ui.separator();
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut state.command_input)
-                    // .hint_text("")
-                    .desired_width(200.0),
+                    .hint_text("press T to chat")
+                    .desired_width(f32::INFINITY),
             );
+
+            if keys.just_pressed(KeyCode::KeyT) { resp.request_focus(); }
+
+            // TextEdit surrenders focus on Enter internally, so check lost_focus.
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let txt = state.command_input.trim().to_string();
                 if !txt.is_empty() {
-                    quic.send(
-                        SendTarget::All,
-                        Channel::Ordered,
-                        &MsgType::ChatMessage("".to_string(), txt),
-                    );
+                    let name = steam.as_ref()
+                        .map(|s| s.0.friends().name())
+                        .unwrap_or_else(|| "Player".to_string());
+                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(name, txt));
                 }
                 state.command_input.clear();
-                resp.request_focus();
+            }
+
+            // Escape is not handled by TextEdit, so surrender focus manually.
+            if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                state.command_input.clear();
+                resp.surrender_focus();
             }
         });
 }
@@ -144,30 +162,10 @@ fn gui_health(
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
         .show(contexts.ctx_mut().unwrap(), |ui| {
             ui.add(egui::ProgressBar::new(fraction).fill(bar_color).desired_width(110.0));
-            ui.label(format!("HP  {:.0} / {:.0}", health.current, health.max));
+            ui.label(format!("{:.0} / {:.0}", health.current, health.max));
         });
 }
 
-fn gui_log(
-    mut contexts: EguiContexts,
-    state: Res<GuiState>,
-) {
-    egui::Window::new("log")
-        .title_bar(false)
-        .resizable(false)
-        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(10.0, -10.0))
-        .fixed_size([400.0, 150.0])
-        .show(contexts.ctx_mut().unwrap(), |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for line in &state.log {
-                        ui.label(line);
-                    }
-                });
-        });
-}
 
 #[derive(Component)] // query for this component when removing it
 pub struct Crosshair;

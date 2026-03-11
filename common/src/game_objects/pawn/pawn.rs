@@ -3,6 +3,7 @@ use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use bevy_egui::input::EguiWantsInput;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -128,9 +129,11 @@ impl Possessed {
 pub fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
+    cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     mut yaw_q: Query<(&mut Transform, &mut YawPivot), Without<PitchPivot>>,
     mut pitch_q: Query<(&mut Transform, &mut PitchPivot)>,
 ) {
+    if cursor_q.grab_mode == CursorGrabMode::None { return; }
     let delta = mouse.delta;
     if delta == Vec2::ZERO { return; }
     let s = sensitivity.0;
