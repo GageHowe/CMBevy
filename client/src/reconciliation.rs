@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 use rapier3d::prelude::RigidBodyHandle;
 
-use crate::net::message::{NetworkID, SimulationState};
-use crate::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies};
-use crate::game_objects::pawn::biped;
-use crate::game_objects::pawn::pawn::{gather_pawn_input, BipedPawnComponent, Possessed};
-use crate::ring_buffer::RingBuffer;
-use crate::tick::Ticker;
+use common::net::message::{NetworkID, SimulationState};
+use common::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies};
+use common::pawn::biped;
+use common::pawn::pawn::{gather_pawn_input, BipedPawnComponent, Possessed};
+use common::ring_buffer::RingBuffer;
+use common::tick::Ticker;
 
 pub const RECONCILE_POS_THRESHOLD: f32 = 0.2;
 pub const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
@@ -79,8 +79,8 @@ pub fn maybe_reconcile(
         snapshot.bodies.get(our_net_id),
     ) {
         (Some(predicted), Some(server)) => {
-            let pos_err = (Vec3::from(server.position) - Vec3::from(predicted.position)).length();
-            let vel_err = (Vec3::from(server.linvel) - Vec3::from(predicted.linvel)).length();
+            let pos_err = (server.position - predicted.position).length();
+            let vel_err = (server.linvel - predicted.linvel).length();
             pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
         }
         // No history for this tick — always reconcile to stay correct.

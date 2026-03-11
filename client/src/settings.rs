@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 // use serde::
 
-use crate::game_objects::pawn::pawn::MouseSensitivity;
+use common::pawn::pawn::MouseSensitivity;
 
 const SETTINGS_FILE: &str = "settings.toml";
 

@@ -5,7 +5,7 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::input::EguiWantsInput;
-use common::camera::spawn_camera;
+use camera::spawn_camera;
 use common::net::{
     message::*,
     quic::*,
@@ -15,16 +15,20 @@ use common::pawn::pawn::PitchPivot;
 use common::pawn::biped;
 use common::pawn::pawn::*;
 use common::physics::physics_world::*;
-use common::net::reconciliation::{PendingReconciliation, ReconciliationPlugin};
-use common::net::tick_sync::{NetworkStats, TickSyncPlugin};
+use reconciliation::{PendingReconciliation, ReconciliationPlugin};
+use tick_sync::{NetworkStats, TickSyncPlugin};
 use common::tick::Ticker;
-use common::ui::ui::UIPlugin;
-use common::ui::window::WindowSettingsPlugin;
+use ui::ui::UIPlugin;
+use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
 use common::weapon::{rifle, shotgun, fire_weapons, FiredWeapons, WeaponInput, WeaponPlugin};
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
+mod camera;
+mod ui;
+mod reconciliation;
+mod tick_sync;
 mod menu;
 use menu::MenuPlugin;
 
@@ -40,13 +44,15 @@ struct SpawnParams<'w, 's> {
     materials: ResMut<'w, Assets<StandardMaterial>>,
     asset_server: Res<'w, AssetServer>,
 }
-use common::settings::SettingsPlugin;
-use common::steam::SteamworksPlugin;
+use settings::SettingsPlugin;
+use steam::SteamworksPlugin;
 use common::debug_println;
 use common::scripting::ScriptingPlugin;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
-use common::ui::ui::GuiState;
+use ui::ui::GuiState;
+mod settings;
+mod steam;
 
 /// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
 #[derive(Resource, Default)]
@@ -121,7 +127,7 @@ fn main() {
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
         .init_resource::<HitBeams>()
-        .add_systems(Startup, (spawn_camera, spawn_scene));
+        .add_systems(Startup, (spawn_camera));
 
     app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
@@ -166,19 +172,9 @@ fn main() {
 
 /// Discards this tick's accumulated fire effects.
 /// Replace with a real VFX/audio system when ready.
+/// todo: remove and cleanup
 fn drain_fired_weapons(mut fired: ResMut<FiredWeapons>) {
     fired.0.clear();
-}
-
-fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((
-        SceneRoot(asset_server.load("models/companion_cube.glb#Scene0")),
-        Transform::default(),
-    ));
-    // commands.spawn((
-    //     DirectionalLight { shadows_enabled: true, ..default() },
-    //     Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-    // ));
 }
 
 fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, addr: Res<ServerAddr>) {
@@ -253,6 +249,9 @@ fn on_message(
                     }
                     GameObjectKind::Spaceship => {
                         warn!("Spaceship spawn not yet implemented on client");
+                    }
+                    _ => {
+                        warn!("client: type not implemented");
                     }
                 }
             }

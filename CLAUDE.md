@@ -24,7 +24,6 @@ Also see: README.md for project description
   * any Cargo.toml or config.toml
 
 ## random other info
-* We use wincode for encoding, since bincode is dead.
-* I'm done trying to minimize gameserver binary size - simplicity is more important.
-* Also, it's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver.
+* We use postcard for encoding, since bincode is dead.
+  * It's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver. But as a default, put things in common
 * 

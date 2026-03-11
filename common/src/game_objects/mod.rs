@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use wincode_derive::{SchemaRead, SchemaWrite};
 
 pub mod health;
 pub mod pawn;
@@ -7,7 +6,7 @@ pub mod weapon;
 mod planet;
 
 /// update this as needed; it defines types of game objects that can be spawned
-#[derive(SchemaWrite, SchemaRead, Debug, PartialEq, Clone, bevy::ecs::component::Component, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, bevy::ecs::component::Component, Serialize, Deserialize)]
 pub enum GameObjectKind {
     Biped,
     Spaceship,
@@ -16,3 +15,7 @@ pub enum GameObjectKind {
     Planet,
 }
 
+/// A component holding "tags", labels that can be applied
+/// currently unused
+#[derive(Debug, PartialEq, Clone, bevy::ecs::component::Component, Serialize, Deserialize)]
+pub struct Tags(Vec<String>);

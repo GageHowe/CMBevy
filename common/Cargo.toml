@@ -11,13 +11,9 @@ workspace = true
 bevy = { version = "0.18", features = ["serialize", "jpeg"] }
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
 bevy_egui = "0.39.1"
-wincode = "0.4.1"
-wincode-derive = "0.4.0"
+postcard = { version = "1", features = ["alloc"] }
 zstd = "0.13.3"
 bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false, features = ["client", "server"] }
 rhai = "1.24.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = { version = "1.0.6", features = ["preserve_order"] }
-steamworks = "0.12"
-dirs = "6.0.0"

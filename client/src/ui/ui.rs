@@ -2,13 +2,12 @@ use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use std::hint::unlikely;
-use crate::game_objects::health::Health;
-use crate::net::quic::{QuicManager, SendTarget, Channel};
-use crate::net::message::MsgType;
-use crate::game_objects::pawn::pawn::Possessed;
-use crate::net::tick_sync::NetworkStats;
-use crate::physics::physics_world::PhysicsWorld;
+use common::health::Health;
+use common::net::quic::{QuicManager, SendTarget, Channel};
+use common::net::message::MsgType;
+use common::pawn::pawn::Possessed;
+use crate::tick_sync::NetworkStats;
+use common::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
 /// Data that needs to persist inside the GUI (text etc)
@@ -52,7 +51,7 @@ fn gui_top_left(
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
-    if unlikely(!*style_set) {
+    if !*style_set {
         let mut style = (*ctx.style()).clone();
         // style.visuals.window_shadow = egui::epaint::Shadow::NONE;
         style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 200);

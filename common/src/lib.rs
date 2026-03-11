@@ -14,11 +14,6 @@ pub mod slow_update;
 pub mod interaction;
 pub mod scripting;
 
-pub mod steam;
-pub mod settings;
-pub mod ui;
-pub mod camera;
-
 pub use game_objects::pawn;
 pub use game_objects::weapon;
 pub use game_objects::health;

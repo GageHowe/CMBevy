@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
-use crate::net::message::MsgType;
-use crate::net::quic::{Channel, QuicManager, SendTarget};
-use crate::slow_update::SlowUpdate;
+use common::net::message::MsgType;
+use common::net::quic::{Channel, QuicManager, SendTarget};
+use common::slow_update::SlowUpdate;
 
 /// Smoothed network statistics updated each time a TimePong or State arrives.
 #[derive(Resource, Default)]
