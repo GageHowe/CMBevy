@@ -3,13 +3,14 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, /* WindowMode*/ WindowResolution},
 };
 use bevy_egui::input::EguiWantsInput;
+use crate::{GameState, UiState};
 
 pub struct WindowSettingsPlugin;
 
 impl Plugin for WindowSettingsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreStartup, init_window);
-        app.add_systems(Update, toggle_cursor_lock);
+        app.add_systems(Update, (toggle_ui_state, sync_cursor_lock).chain());
     }
 }
 
@@ -20,25 +21,39 @@ fn init_window(mut window_query: Query<&mut Window, With<PrimaryWindow>>) {
     }
 }
 
-fn toggle_cursor_lock(
-    mut cursor_options: Single<&mut CursorOptions>,
-    mouse: Res<ButtonInput<MouseButton>>,
+/// Handles Escape (open/close pause menu) and click (resume).
+fn toggle_ui_state(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
+    game_state: Res<State<GameState>>,
+    ui_state: Res<State<UiState>>,
+    mut next_ui: ResMut<NextState<UiState>>,
 ) {
-    if let Some(egui_wants_input) = egui_wants_input {
-        if egui_wants_input.wants_any_input() {
-            return;
+    let in_game = matches!(game_state.get(), GameState::SinglePlayer | GameState::Multiplayer);
+    if !in_game { return; }
+
+    if keys.just_pressed(KeyCode::Escape) {
+        match ui_state.get() {
+            UiState::Playing => next_ui.set(UiState::Paused),
+            _ => next_ui.set(UiState::Playing),
         }
     }
 
-    if mouse.just_pressed(MouseButton::Left) {
-        cursor_options.visible = false;
-        cursor_options.grab_mode = CursorGrabMode::Locked;
+    let egui_active = egui_wants_input.map_or(false, |e| e.wants_any_input());
+    if mouse.just_pressed(MouseButton::Left) && !egui_active {
+        next_ui.set(UiState::Playing);
     }
+}
 
-    if keys.just_pressed(KeyCode::Escape) {
-        cursor_options.visible = true;
-        cursor_options.grab_mode = CursorGrabMode::None;
-    }
+/// Locks or unlocks the cursor based on the current game and UI state.
+fn sync_cursor_lock(
+    game_state: Res<State<GameState>>,
+    ui_state: Res<State<UiState>>,
+    mut cursor_options: Single<&mut CursorOptions>,
+) {
+    let should_lock = matches!(game_state.get(), GameState::SinglePlayer | GameState::Multiplayer)
+        && *ui_state.get() == UiState::Playing;
+    cursor_options.visible = !should_lock;
+    cursor_options.grab_mode = if should_lock { CursorGrabMode::Locked } else { CursorGrabMode::None };
 }

@@ -68,7 +68,7 @@ fn gui_top_left(
         .resizable(false)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
         .show(contexts.ctx_mut()?, |ui| {
-            ui.label("bevy_egui test");
+            // ui.label("bevy_egui test");
             ui.label(format!("rigidbodies: {}", &world.rigid_body_set.len()));
             if let Some(fps) = diagnostics
                 .get(&FrameTimeDiagnosticsPlugin::FPS)

@@ -77,6 +77,14 @@ pub(crate) enum GameState {
     Multiplayer,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
+pub(crate) enum UiState {
+    #[default]
+    Playing,
+    Paused,
+    Settings,
+}
+
 fn parse_server_addr() -> SocketAddr {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -118,6 +126,7 @@ fn main() {
         .add_plugins(SteamworksPlugin)
         .add_plugins(SettingsPlugin)
         .init_state::<GameState>()
+        .init_state::<UiState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MenuPlugin)
