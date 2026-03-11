@@ -2,6 +2,7 @@
 
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::log::{Level, LogPlugin};
+use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::input::EguiWantsInput;
@@ -21,7 +22,7 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, fire_weapons, FiredWeapons, WeaponInput, WeaponPlugin};
+use common::weapon::{rifle, shotgun, fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin};
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -147,12 +148,12 @@ fn main() {
     );
 
     // fire_weapons<T> ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
-    // drain_fired_weapons discards them (VFX system can replace it in the future).
-    // .chain() ensures rifle → shotgun → drain in order, all before step_physics.
+    // local_hitscan_vfx raycasts against the scene mesh for immediate client-side beam VFX.
+    // .chain() ensures rifle → shotgun → vfx in order, all before step_physics.
     app.add_systems(FixedUpdate, (
         fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
-        drain_fired_weapons,
+        local_hitscan_vfx,
     ).chain().before(step_physics));
 
     // FixedPostUpdate:
@@ -170,11 +171,30 @@ fn main() {
     app.run();
 }
 
-/// Discards this tick's accumulated fire effects.
-/// Replace with a real VFX/audio system when ready.
-/// todo: remove and cleanup
-fn drain_fired_weapons(mut fired: ResMut<FiredWeapons>) {
-    fired.0.clear();
+/// Drains FiredWeapons and raycasts against the scene mesh for immediate client-side beam VFX.
+/// Viewmodel entities (held weapons) are excluded so the gun doesn't block its own shot.
+fn local_hitscan_vfx(
+    mut fired: ResMut<FiredWeapons>,
+    mut hit_beams: ResMut<HitBeams>,
+    mut ray_cast: MeshRayCast,
+    viewmodels: Query<&ViewmodelSlots>,
+) {
+    let excluded: Vec<Entity> = viewmodels.iter()
+        .flat_map(|slots| slots.0.iter().filter_map(|e| *e))
+        .collect();
+    for (_, effect) in fired.0.drain(..) {
+        let FireEffect::Hitscan { origin, direction, range, .. } = effect;
+        let Ok(dir) = Dir3::new(direction) else { continue };
+        let hits = ray_cast.cast_ray(
+            Ray3d::new(origin, dir),
+            &MeshRayCastSettings { filter: &|e| !excluded.contains(&e), ..default() },
+        );
+        let end = hits.iter()
+            .find(|(_, hit)| hit.distance <= range)
+            .map(|(_, hit)| hit.point)
+            .unwrap_or(origin + direction * range);
+        hit_beams.0.push((origin, end, 0.3));
+    }
 }
 
 fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, addr: Res<ServerAddr>) {
@@ -242,10 +262,10 @@ fn on_message(
                         }
                     }
                     GameObjectKind::Rifle => {
-                        spawn_rifle(cmd, &mut sp.commands, &mut world, &sp.asset_server);
+                        rifle::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server);
                     }
                     GameObjectKind::Shotgun => {
-                        spawn_shotgun(cmd, &mut sp.commands, &mut world, &sp.asset_server);
+                        shotgun::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server);
                     }
                     GameObjectKind::Spaceship => {
                         warn!("Spaceship spawn not yet implemented on client");
@@ -352,38 +372,6 @@ fn on_message(
     }
 }
 
-/// Spawns a rifle entity on the client (physics body + mesh).
-fn spawn_rifle(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    asset_server: &AssetServer,
-) {
-    let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
-        ..default()
-    };
-    let entity = rifle::spawn(transform, commands, world);
-    rifle::add_visuals(entity, commands, asset_server);
-    commands.entity(entity).insert(cmd.net_id);
-}
-
-fn spawn_shotgun(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    asset_server: &AssetServer,
-) {
-    let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
-        ..default()
-    };
-    let entity = shotgun::spawn(transform, commands, world);
-    shotgun::add_visuals(entity, commands, asset_server);
-    commands.entity(entity).insert(cmd.net_id);
-}
 
 fn send_chat(mut quic: ResMut<QuicManager>, input: Res<ButtonInput<KeyCode>>) {
     if input.just_pressed(KeyCode::Enter) {
