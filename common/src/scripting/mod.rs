@@ -102,6 +102,16 @@ fn register_script_functions(world: &mut World) {
         entity.to_bits() as i64
     });
 
+    // despawn(entity_id)
+    runtime.engine.register_fn("despawn", move |entity_id: i64| {
+        let world = unsafe { &mut *(*world_ptr).get() };
+        let entity = Entity::from_bits(entity_id as u64);
+        let mut state: SystemState<Commands> = SystemState::new(world);
+        let mut commands = state.get_mut(world);
+        commands.entity(entity).despawn();
+        state.apply(world);
+    });
+
     world.insert_non_send_resource(runtime);
 }
 

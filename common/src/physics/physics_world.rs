@@ -147,8 +147,13 @@ pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PhysicsWorld::new(Vector3::ZERO));
+        app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
+            .add_observer(on_remove_physics_body);
     }
+}
+
+fn on_remove_physics_body(event: On<Remove, PhysicsBodyHandle>, mut world: ResMut<PhysicsWorld>) {
+    world.remove_body(event.entity);
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {

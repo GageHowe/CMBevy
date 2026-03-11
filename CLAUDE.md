@@ -9,6 +9,7 @@
 * DO NOT rewrite my comments, or add comments to code that's already commented
 * Avoid pulling in new dependencies unless they're both absolutely needed and recently updated
 * Please DO NOT create new structs, enums, components, etc if not absolutely necessary.
+* Decouple unrelated systems.
 
 Also see: README.md for project description
 
