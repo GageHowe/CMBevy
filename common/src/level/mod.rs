@@ -31,8 +31,15 @@ pub struct LevelSpawnRequest {
     pub rotation: Quat,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SpawnPoint {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub team: u8,
+}
+
 /// Describes everything needed to load a level.
-/// Serializable — can be loaded from JSON and in the future sent over the network.
+/// Serializable — can be loaded from RON and in the future sent over the network.
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct LevelDescription {
     /// Path to the GLB scene file loaded on the client for visuals.
@@ -40,22 +47,24 @@ pub struct LevelDescription {
     /// Static (fixed) physics bodies. Spawned on both client and server.
     pub static_colliders: Vec<StaticCollider>,
     /// Objects to spawn at level start. The server processes these on startup.
-    pub spawn_requests: Vec<LevelSpawnRequest>,
+    pub initial_spawns: Vec<LevelSpawnRequest>,
+    /// Player spawn points, grouped by team id.
+    pub spawn_points: Vec<SpawnPoint>,
 }
 
 impl LevelDescription {
-    pub fn from_json(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_ron(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&content)?)
+        Ok(ron::from_str(&content)?)
     }
 }
 
 pub struct LevelPlugin(pub LevelDescription);
 
 impl LevelPlugin {
-    /// Load from a JSON file, falling back to `default_level()` on error.
+    /// Load from a RON file, falling back to `default_level()` on error.
     pub fn load(path: &str) -> Self {
-        let level = LevelDescription::from_json(path).unwrap_or_else(|e| {
+        let level = LevelDescription::from_ron(path).unwrap_or_else(|e| {
             eprintln!("Failed to load level from \"{path}\": {e}. Using default.");
             default_level()
         });
@@ -153,7 +162,7 @@ pub fn default_level() -> LevelDescription {
                 shape: ColliderShape::Cuboid(Vec3::new(10.0, 2.0, 10.0)),
             },
         ],
-        spawn_requests: vec![
+        initial_spawns: vec![
             LevelSpawnRequest {
                 kind: GameObjectKind::Rifle,
                 position: Vec3::new(3.0, 2.0, 0.0),
@@ -164,6 +173,9 @@ pub fn default_level() -> LevelDescription {
                 position: Vec3::new(-3.0, 2.0, 0.0),
                 rotation: Quat::IDENTITY,
             },
+        ],
+        spawn_points: vec![
+            SpawnPoint { position: Vec3::new(0.0, 5.0, 0.0), rotation: Quat::IDENTITY, team: 0 },
         ],
     }
 }

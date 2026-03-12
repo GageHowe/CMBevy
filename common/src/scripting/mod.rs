@@ -115,6 +115,23 @@ fn register_script_functions(world: &mut World) {
     world.insert_non_send_resource(runtime);
 }
 
+/// Call a named function in the loaded Rhai script, returning `None` if the script isn't
+/// loaded or the function doesn't exist. Requires exclusive world access.
+pub fn call_script_fn<T: Clone + 'static>(
+    world: &mut World,
+    fn_name: &str,
+    args: impl rhai::FuncArgs,
+) -> Option<T> {
+    let runtime = world.remove_non_send_resource::<ScriptRuntime>()?;
+    let ast = runtime.ast.clone()?;
+    runtime.world_ptr.set(world as *mut World);
+    let mut scope = Scope::new();
+    let result = runtime.engine.call_fn::<T>(&mut scope, &ast, fn_name, args).ok();
+    runtime.world_ptr.set(std::ptr::null_mut());
+    world.insert_non_send_resource(runtime);
+    result
+}
+
 fn eval_script_fixed_update(world: &mut World) {
     let dt = world.resource::<Time>().delta_secs();
     let is_server = world
