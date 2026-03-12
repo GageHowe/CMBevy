@@ -63,6 +63,7 @@ impl PhysicsWorld {
             multibody_joint_set: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
             physics_hooks: (),
+
             event_handler: (),
 
             handle_to_entity: HashMap::new(),

@@ -23,7 +23,6 @@ use common::weapon::{
 };
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
-use common::scripting::ScriptingPlugin;
 
 fn parse_addr() -> SocketAddr {
     let mut args = std::env::args().skip(1);
@@ -45,7 +44,6 @@ fn main() {
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     app.add_plugins(MasterPlugin);
-    app.add_plugins(ScriptingPlugin);
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);

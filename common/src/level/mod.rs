@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 use crate::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld};
-use crate::physics::convex_hull_asset::{ConvexHullAsset, ConvexHullPlugin};
+use crate::physics::convex_hull_asset::ConvexHullAsset;
 use crate::game_objects::GameObjectKind;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -65,7 +65,6 @@ impl LevelPlugin {
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ConvexHullPlugin);
         app.insert_resource(self.0.clone());
         app.init_resource::<PendingHullColliders>();
         app.add_systems(Startup, spawn_static_colliders);

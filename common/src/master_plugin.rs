@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
 use crate::net::quic::QuicManager;
 use crate::physics::physics_world::*;
+use crate::physics::convex_hull_asset::ConvexHullPlugin;
+use crate::scripting::ScriptingPlugin;
 use crate::tick::*;
 use crate::net::message::NetworkIDResource;
 use crate::slow_update::SlowSchedulePlugin;
@@ -18,6 +20,8 @@ impl Plugin for MasterPlugin {
         });
         // step executes on FixedUpdate
         app.add_plugins(PhysicsPlugin);
+        app.add_plugins(ConvexHullPlugin);
+        app.add_plugins(ScriptingPlugin);
 
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedLast, increment_tick);

@@ -48,7 +48,6 @@ struct SpawnParams<'w, 's> {
 use settings::SettingsPlugin;
 use steam::SteamworksPlugin;
 use common::debug_println;
-use common::scripting::ScriptingPlugin;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
 use ui::ui::GuiState;
@@ -122,7 +121,6 @@ fn main() {
     );
 
     app.add_plugins(MasterPlugin)
-        .add_plugins(ScriptingPlugin)
         .add_plugins(SteamworksPlugin)
         .add_plugins(SettingsPlugin)
         .init_state::<GameState>()
