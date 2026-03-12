@@ -10,6 +10,7 @@
 * Avoid pulling in new dependencies unless they're both absolutely needed and recently updated
 * Please DO NOT create new structs, enums, components, etc if not absolutely necessary.
 * Decouple unrelated systems.
+* Don't use bevy's events/messages.
 
 Also see: README.md for project description
 
@@ -26,5 +27,5 @@ Also see: README.md for project description
 
 ## random other info
 * We use postcard for encoding, since bincode is dead.
-  * It's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver. But as a default, put things in common
+* It's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver. But as a default, put things in common
 * 
