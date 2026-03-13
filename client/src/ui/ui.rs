@@ -126,7 +126,7 @@ fn gui_chat(
                     .desired_width(f32::INFINITY),
             );
 
-            if keys.just_pressed(KeyCode::KeyT) { resp.request_focus(); }
+            if keys.just_pressed(KeyCode::KeyT) && !ctx.wants_keyboard_input() { resp.request_focus(); }
 
             // TextEdit surrenders focus on Enter internally, so check lost_focus.
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {

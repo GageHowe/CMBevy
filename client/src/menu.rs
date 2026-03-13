@@ -186,10 +186,13 @@ fn main_menu(
                             let gametype = format!("{base}/gametypes/{}.rhai", host.gametypes[host.gametype_idx]);
                             match std::process::Command::new(gameserver_exe())
                                 .args(["--port", &port.to_string(), "--map", &map, "--gametype", &gametype])
+                                .stdin(std::process::Stdio::piped())
                                 .spawn()
                             {
-                                Ok(child) => {
-                                    hosted.0 = Some(child);
+                                Ok(mut child) => {
+                                    let stdin = child.stdin.take().map(std::io::BufWriter::new);
+                                    hosted.child = Some(child);
+                                    hosted.stdin = stdin;
                                     server_addr.0 = format!("127.0.0.1:{port}").parse().unwrap();
                                     *screen = Screen::Root;
                                     next_state.set(GameState::Multiplayer);
@@ -209,6 +212,8 @@ fn pause_menu(
     mut contexts: EguiContexts,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_ui: ResMut<NextState<UiState>>,
+    mut hosted: ResMut<HostedServer>,
+    mut console_input: Local<String>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let center = ctx.content_rect().center();
@@ -228,9 +233,20 @@ fn pause_menu(
                     next_ui.set(UiState::Settings);
                 }
                 ui.add_space(4.0);
-                if ui.button("Quit to Menu").clicked() {
+                if ui.button("Quit to Menu (this will kick all players)").clicked() {
                     next_game.set(GameState::MainMenu);
                     next_ui.set(UiState::Playing);
+                }
+                if hosted.child.is_some() {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.label("Server console");
+                    let response = ui.text_edit_singleline(&mut *console_input);
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        hosted.send_command(&console_input.clone());
+                        console_input.clear();
+                    }
                 }
             });
         });

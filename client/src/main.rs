@@ -38,7 +38,20 @@ pub(crate) struct ServerAddr(pub SocketAddr);
 
 /// Child process handle when we spawned a local gameserver.
 #[derive(Resource, Default)]
-pub(crate) struct HostedServer(pub Option<std::process::Child>);
+pub(crate) struct HostedServer {
+    pub child: Option<std::process::Child>,
+    pub stdin: Option<std::io::BufWriter<std::process::ChildStdin>>,
+}
+
+impl HostedServer {
+    pub fn send_command(&mut self, cmd: &str) {
+        use std::io::Write;
+        if let Some(w) = &mut self.stdin {
+            let _ = writeln!(w, "{cmd}");
+            let _ = w.flush();
+        }
+    }
+}
 
 /// Bundles spawn-related parameters to stay within Bevy's 16-param SystemParam limit.
 /// ... bad job claude
@@ -150,9 +163,9 @@ fn main() {
     app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
 
     app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player).chain());
-    app.add_systems(OnExit(GameState::SinglePlayer), (despawn_local_player, cleanup_level).chain());
+    app.add_systems(OnExit(GameState::SinglePlayer), (despawn_local_player, cleanup_level, remove_script).chain());
     app.add_systems(OnEnter(GameState::Multiplayer), connect);
-    app.add_systems(OnExit(GameState::Multiplayer), (disconnect, cleanup_level).chain());
+    app.add_systems(OnExit(GameState::Multiplayer), (disconnect, cleanup_level, remove_script).chain());
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → gather_pawn_input → send_pawn_input → move_bipeds
@@ -278,7 +291,8 @@ fn disconnect(
     if let Some(conn) = client.get_connection_mut() {
         let _ = conn.disconnect();
     }
-    if let Some(mut child) = hosted.0.take() {
+    hosted.stdin = None; // close stdin first so server gets EOF
+    if let Some(mut child) = hosted.child.take() {
         let _ = child.kill();
     }
     quic.inbound.clear();
@@ -298,6 +312,10 @@ fn disconnect(
     for entity in networked.iter() {
         commands.entity(entity).despawn();
     }
+}
+
+fn remove_script(mut commands: Commands) {
+    commands.remove_resource::<common::scripting::RhaiScriptConfig>();
 }
 
 /// handles messages coming in from the server
@@ -445,6 +463,20 @@ fn on_message(
                     match Map::from_compressed_ron(&compressed) {
                         Some(level) => { sp.commands.insert_resource(level); }
                         None => eprintln!("FileData: failed to parse map.ron"),
+                    }
+                } else if name == "gametype.rhai" {
+                    match zstd::stream::decode_all(compressed.as_slice()) {
+                        Ok(bytes) => match String::from_utf8(bytes) {
+                            Ok(src) => {
+                                sp.commands.insert_resource(common::scripting::RhaiScriptConfig {
+                                    path: String::new(),
+                                    is_server: false,
+                                    source: Some(src),
+                                });
+                            }
+                            Err(e) => eprintln!("FileData: gametype.rhai not valid utf8: {e}"),
+                        },
+                        Err(e) => eprintln!("FileData: failed to decompress gametype.rhai: {e}"),
                     }
                 }
             }

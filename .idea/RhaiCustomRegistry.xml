@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RhaiCustomRegistrySettings">
+    <option name="customFunctions" value="despawn&#10;get_health&#10;set_health&#10;spawn" />
+    <option name="customTypes" value="Settings" />
+  </component>
+</project>

@@ -12,6 +12,8 @@ use crate::physics::physics_world::PhysicsWorld;
 pub struct RhaiScriptConfig {
     pub path: String,
     pub is_server: bool,
+    /// Pre-loaded source (e.g. received from server). Takes priority over `path`.
+    pub source: Option<String>,
 }
 
 struct ScriptRuntime {
@@ -32,31 +34,48 @@ impl Plugin for ScriptingPlugin {
                 world_ptr: Cell::new(std::ptr::null_mut()),
             })
             .add_systems(Startup, (load, register_script_functions).chain())
+            .add_systems(Update, (reload_script, eval_script_update))
             .add_systems(FixedUpdate, eval_script_fixed_update);
     }
 }
 
-fn load(
-    config: Option<Res<RhaiScriptConfig>>,
-    mut runtime: NonSendMut<ScriptRuntime>,
-) {
-    let Some(config) = config else { return };
-    let src = match std::fs::read_to_string(&config.path) {
-        Ok(s) => s,
-        Err(err) => {
-            error!("Failed to read Rhai script '{}': {err}", config.path);
-            return;
+fn compile_script(config: &RhaiScriptConfig, runtime: &mut ScriptRuntime) {
+    let src = if let Some(s) = &config.source {
+        s.clone()
+    } else {
+        match std::fs::read_to_string(&config.path) {
+            Ok(s) => s,
+            Err(err) => { error!("Failed to read Rhai script '{}': {err}", config.path); return; }
         }
     };
     match runtime.engine.compile(&src) {
-        Ok(ast) => {
+        Ok(mut ast) => {
+            // Run top-level statements once now for initialization, then strip them
+            // so call_fn doesn't re-execute them on every tick.
+            let mut scope = Scope::new();
+            scope.push_constant("is_server", config.is_server);
+            if let Err(err) = runtime.engine.run_ast_with_scope(&mut scope, &ast) {
+                error!("Rhai init error in '{}': {err}", config.path);
+            }
+            ast.clear_statements();
             runtime.ast = Some(ast);
             info!("Rhai script compiled from '{}'", config.path);
         }
-        Err(err) => {
-            error!("Failed to compile Rhai script '{}': {err}", config.path);
-        }
+        Err(err) => { error!("Failed to compile Rhai script '{}': {err}", config.path); }
     }
+}
+
+fn load(config: Option<Res<RhaiScriptConfig>>, mut runtime: NonSendMut<ScriptRuntime>) {
+    let Some(config) = config else { return };
+    compile_script(&config, &mut runtime);
+}
+
+/// Recompiles the script whenever `RhaiScriptConfig` is inserted or changed at runtime
+/// (e.g. when the client receives the gametype script from the server).
+fn reload_script(config: Option<Res<RhaiScriptConfig>>, mut runtime: NonSendMut<ScriptRuntime>) {
+    let Some(config) = config else { return };
+    if !config.is_changed() { return; }
+    compile_script(&config, &mut runtime);
 }
 
 fn register_script_functions(world: &mut World) {
@@ -133,30 +152,30 @@ pub fn call_script_fn<T: Clone + 'static>(
     result
 }
 
-fn eval_script_fixed_update(world: &mut World) {
-    let dt = world.resource::<Time>().delta_secs();
-    let is_server = world
-        .get_resource::<RhaiScriptConfig>()
-        .map(|c| c.is_server)
-        .unwrap_or(false);
-
+fn call_script(world: &mut World, fn_name: &str, args: impl rhai::FuncArgs) {
+    let Some(is_server) = world.get_resource::<RhaiScriptConfig>().map(|c| c.is_server) else { return };
     let runtime = world.remove_non_send_resource::<ScriptRuntime>().unwrap();
-
     let Some(ast) = runtime.ast.clone() else {
         world.insert_non_send_resource(runtime);
         return;
     };
-
     runtime.world_ptr.set(world as *mut World);
-
     let mut scope = Scope::new();
     scope.push_constant("is_server", is_server);
-
-    if let Err(err) = runtime.engine.call_fn::<()>(&mut scope, &ast, "on_tick", (dt,)) {
-        error!("Rhai on_tick error: {err}");
+    if let Err(err) = runtime.engine.call_fn::<()>(&mut scope, &ast, fn_name, args) {
+        if !matches!(*err, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+            error!("Rhai {fn_name} error: {err}");
+        }
     }
-
     runtime.world_ptr.set(std::ptr::null_mut());
     world.insert_non_send_resource(runtime);
+}
+
+fn eval_script_update(world: &mut World) {
+    call_script(world, "on_tick", ());
+}
+
+fn eval_script_fixed_update(world: &mut World) {
+    call_script(world, "on_fixed_tick", ());
 }
 

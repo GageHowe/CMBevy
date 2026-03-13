@@ -24,8 +24,12 @@ use common::weapon::{
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
 use common::level::{Map, LevelPlugin, default_level, SpawnPoint};
+use std::sync::{mpsc, Mutex};
 use common::game_objects::planet::PlanetBehaviorComponent;
 use common::scripting::{RhaiScriptConfig, call_script_fn};
+
+#[derive(Resource)]
+struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
 
 #[derive(Resource)]
 struct ModeConfig {
@@ -64,13 +68,24 @@ fn main() {
         })
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
+    let (cmd_tx, cmd_rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::stdin().lock().lines() {
+            if let Ok(line) = line {
+                let _ = cmd_tx.send(line);
+            }
+        }
+    });
+
     app.add_plugins(MasterPlugin);
     app.add_plugins(LevelPlugin(level));
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
-    app.insert_resource(RhaiScriptConfig { path: gametype_path, is_server: true });
+    app.insert_resource(RhaiScriptConfig { path: gametype_path, is_server: true, source: None });
+    app.insert_resource(ConsoleCommands(Mutex::new(cmd_rx)));
     app.init_resource::<PlayerRegistry>();
     app.init_resource::<WeaponRegistry>();
     app.init_resource::<PendingRespawns>();
@@ -83,7 +98,7 @@ fn main() {
     enum ServerSet { WeaponFire }
 
     app.add_systems(PreUpdate, process_inbound_server);
-    app.add_systems(Update, tick_respawns);
+    app.add_systems(Update, (tick_respawns, process_console_commands));
     app.add_systems(Startup, (start_server, spawn_level_objects, init_mode_config).chain());
     app.configure_sets(FixedUpdate, ServerSet::WeaponFire.after(on_message).before(step_physics));
     app.add_systems(FixedUpdate, on_message.before(step_physics));
@@ -253,6 +268,7 @@ fn remove_player(
 
 fn on_message(
     mut quic: ResMut<QuicManager>,
+    script_config: Option<Res<RhaiScriptConfig>>,
     mut registry: ResMut<PlayerRegistry>,
     mut weapon_registry: ResMut<WeaponRegistry>,
     mut pending_respawns: ResMut<PendingRespawns>,
@@ -271,6 +287,11 @@ fn on_message(
                 if let Some(data) = level.to_compressed_ron() {
                     quic.send(SendTarget::One(msg.conn_id), Channel::Ordered,
                         &MsgType::FileData("map.ron".into(), data));
+                }
+                if let Some(cfg) = &script_config {
+                    if let Ok(src) = std::fs::read(&cfg.path) {
+                        quic.send_file(SendTarget::One(msg.conn_id), "gametype.rhai".into(), src);
+                    }
                 }
                 // Tell the new client about all existing pawns (as ghosts).
                 for (_, (existing_entity, existing_net_id)) in registry.0.iter() {
@@ -509,6 +530,45 @@ fn tick_respawns(
         let (sp, sr) = pick_spawn_point(&level.spawn_points, 0, registry.0.len());
         spawn_player(conn_id, kind, sp, sr, &mut quic, &mut registry, &mut net_ids,
             &mut commands, &mut world, tick.tick);
+    }
+}
+
+fn process_console_commands(
+    cmds: Res<ConsoleCommands>,
+    mut quic: ResMut<QuicManager>,
+    registry: Res<PlayerRegistry>,
+) {
+    while let Ok(line) = cmds.0.lock().unwrap().try_recv() {
+        let mut parts = line.trim().splitn(2, ' ');
+        match parts.next().unwrap_or("") {
+            "shutdown" | "quit" => {
+                println!("Shutting down...");
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::Disconnected);
+                std::process::exit(0);
+            }
+            "kick" => {
+                if let Some(id) = parts.next().and_then(|s| s.parse::<ConnectionId>().ok()) {
+                    quic.send(SendTarget::One(id), Channel::Ordered, &MsgType::Disconnected);
+                    quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Disconnected });
+                    println!("Kicked {id}");
+                } else {
+                    println!("Usage: kick <conn_id>");
+                }
+            }
+            "say" => {
+                let text = parts.next().unwrap_or("").to_string();
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage("[Server]".into(), text.clone()));
+                println!("[Server] {text}");
+            }
+            "status" => {
+                println!("{} player(s) connected:", registry.0.len());
+                for (conn_id, (entity, net_id)) in &registry.0 {
+                    println!("  conn={conn_id} entity={entity:?} net_id={net_id:?}");
+                }
+            }
+            "" => {}
+            other => println!("Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"),
+        }
     }
 }
 
