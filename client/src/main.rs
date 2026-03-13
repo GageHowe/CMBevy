@@ -67,7 +67,7 @@ use steam::SteamworksPlugin;
 use common::debug_println;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
-use common::level::{Map, PendingHullColliders, default_level, spawn_static_colliders, spawn_hull_colliders, load_level_scene, cleanup_level};
+use common::level::{Map, PendingHullColliders, default_level, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
 use ui::ui::GuiState;
 mod settings;
 mod steam;
@@ -197,7 +197,7 @@ fn main() {
     app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
-    app.add_systems(Update, (spawn_static_colliders, load_level_scene)
+    app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)
         .run_if(resource_added::<Map>));
     app.add_systems(Update, spawn_hull_colliders);
     app.add_systems(Update, draw_planet_radii);

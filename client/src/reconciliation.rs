@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use rapier3d::prelude::RigidBodyHandle;
 
+use common::game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
 use common::net::message::{NetworkID, SimulationState};
-use common::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies};
+use common::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
 use common::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
@@ -62,8 +63,8 @@ pub fn record_world_state(
 ///      Networked bodies the server didn't mention are restored to local predicted state.
 pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>(
     apply: fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
-) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>, Query<&mut T, With<Possessed>>) {
-    move |mut pending, mut world, tick, history, bodies, mut pawn_query| {
+) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>) {
+    move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets| {
         let Some(snapshot) = pending.0.take() else { return };
 
         let Some((our_net_id, our_handle, possessed)) =
@@ -116,7 +117,8 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
                     apply(&mut world, &handle, input, &mut component);
                 }
             }
-            world.step();
+            apply_gravity_impulses(&mut world, &planets);
+            step_world(&mut world)
         }
     }
 }

@@ -145,7 +145,6 @@ impl PhysicsWorld {
 }
 
 pub struct PhysicsPlugin;
-
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
@@ -158,6 +157,12 @@ fn on_remove_physics_body(event: On<Remove, PhysicsBodyHandle>, mut world: ResMu
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
+    step_world(&mut world);
+}
+
+/// call this when stepping and reconciling
+pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
+    // do anything that needs to be done physics-wise
     world.step();
 }
 

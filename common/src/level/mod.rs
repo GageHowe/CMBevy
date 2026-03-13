@@ -167,6 +167,21 @@ fn spawn_fixed_body(
     commands.entity(entity).insert((PhysicsBodyHandle(handle), LevelEntity));
 }
 
+/// Spawns planet entities from the map's initial_spawns. Run on the client when
+/// the Map resource is first added (both singleplayer and multiplayer).
+pub fn spawn_level_planets(
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    level: Res<Map>,
+) {
+    for req in &level.initial_spawns {
+        if req.kind != GameObjectKind::Planet { continue; }
+        let Some(params) = req.planet_params.clone() else { continue; };
+        let transform = Transform::from_translation(req.position).with_rotation(req.rotation);
+        crate::game_objects::planet::spawn(params, transform, &mut commands, &mut world);
+    }
+}
+
 pub fn load_level_scene(
     mut commands: Commands,
     asset_server: Res<AssetServer>,

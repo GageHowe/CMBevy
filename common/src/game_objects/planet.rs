@@ -38,11 +38,11 @@ pub fn spawn(planet: PlanetBehaviorComponent, transform: Transform, commands: &m
     entity
 }
 
-/// Applies planet gravity to all dynamic bodies within each planet's `gravity_radius`.
-pub fn apply_gravity(
-    mut world: ResMut<PhysicsWorld>,
-    planets: Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>,
-) {
+/// Applies a gravity impulse from each planet to all dynamic bodies within its radius.
+/// Called before every physics step, including during reconciliation replay.
+pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>) {
+    let dt = world.integration_parameters.dt;
+
     let planet_data: Vec<(Vec3, &PlanetBehaviorComponent, RigidBodyHandle)> = planets.iter()
         .filter_map(|(planet, handle)| {
             let t = world.rigid_body_set.get(handle.0)?.position().translation;
@@ -50,7 +50,6 @@ pub fn apply_gravity(
         })
         .collect();
 
-    let dt = world.integration_parameters.dt;
     let mut impulses: Vec<(RigidBodyHandle, Vector)> = Vec::new();
 
     for (planet_center, planet, planet_handle) in &planet_data {
@@ -105,6 +104,13 @@ pub fn apply_gravity(
             rb.apply_impulse(impulse, true);
         }
     }
+}
+
+pub fn apply_gravity(
+    mut world: ResMut<PhysicsWorld>,
+    planets: Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>,
+) {
+    apply_gravity_impulses(&mut world, &planets);
 }
 
 pub struct PlanetPlugin;
