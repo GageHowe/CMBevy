@@ -34,7 +34,11 @@ mod menu;
 use menu::MenuPlugin;
 
 #[derive(Resource)]
-struct ServerAddr(SocketAddr);
+pub(crate) struct ServerAddr(pub SocketAddr);
+
+/// Child process handle when we spawned a local gameserver.
+#[derive(Resource, Default)]
+pub(crate) struct HostedServer(pub Option<std::process::Child>);
 
 /// Bundles spawn-related parameters to stay within Bevy's 16-param SystemParam limit.
 /// ... bad job claude
@@ -135,6 +139,7 @@ fn main() {
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
+        .init_resource::<HostedServer>()
         .init_resource::<HitBeams>()
         .init_resource::<PendingHullColliders>()
         .add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain()
@@ -266,11 +271,15 @@ fn disconnect(
     mut client: ResMut<QuinnetClient>,
     mut local_net_id: ResMut<LocalNetworkID>,
     mut pending: ResMut<PendingReconciliation>,
+    mut hosted: ResMut<HostedServer>,
     networked: Query<Entity, With<NetworkID>>,
     camera: Query<Entity, With<Camera3d>>,
 ) {
     if let Some(conn) = client.get_connection_mut() {
         let _ = conn.disconnect();
+    }
+    if let Some(mut child) = hosted.0.take() {
+        let _ = child.kill();
     }
     quic.inbound.clear();
     quic.client_connected = false;
