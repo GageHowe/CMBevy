@@ -1,9 +1,8 @@
 use bevy::prelude::*;
 use crate::game_objects::GameObjectKind;
 use crate::interaction::Interactable;
-use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
+use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput, WeaponKind};
 
 pub const RANGE: f32 = 25.0;
 /// Total damage split evenly across all pellets on a direct hit.
@@ -14,6 +13,10 @@ pub const COOLDOWN: f32 = 1.0;
 pub const PELLETS: usize = 8;
 /// Half-angle spread in radians per pellet offset.
 pub const SPREAD: f32 = 0.08;
+
+impl WeaponKind for ShotgunComponent {
+    const MODEL_PATH: &'static str = "models/shotgun.glb#Scene0";
+}
 
 /// Per-instance state for the shotgun weapon type.
 #[derive(Component, Default)]
@@ -39,33 +42,6 @@ pub fn spawn(
     )).id();
     insert_weapon_physics(entity, &transform, commands, world);
     entity
-}
-
-/// Spawns a shotgun from a network SpawnCommand. Handles physics, visuals, and net_id insertion.
-/// Client-only: requires AssetServer for the GLB model.
-pub fn spawn_from_command(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    asset_server: &AssetServer,
-) -> Entity {
-    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, ..default() };
-    let entity = spawn(transform, commands, world);
-    add_visuals(entity, commands, asset_server);
-    commands.entity(entity).insert(cmd.net_id);
-    entity
-}
-
-/// Adds a scene (GLB model) to an existing shotgun entity.
-pub fn add_visuals(
-    entity: Entity,
-    commands: &mut Commands,
-    asset_server: &bevy::asset::AssetServer,
-) {
-    commands.entity(entity).insert((
-        SceneRoot(asset_server.load("models/shotgun.glb#Scene0")),
-        Visibility::default(),
-    ));
 }
 
 pub fn apply_shotgun_fire(

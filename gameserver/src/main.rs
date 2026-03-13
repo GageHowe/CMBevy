@@ -23,7 +23,8 @@ use common::weapon::{
 };
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
-use common::level::{LevelDescription, default_level, SpawnPoint};
+use common::level::{Map, LevelPlugin, default_level, SpawnPoint};
+use common::game_objects::planet::PlanetBehaviorComponent;
 use common::scripting::{RhaiScriptConfig, call_script_fn};
 
 #[derive(Resource)]
@@ -47,36 +48,28 @@ fn parse_args() -> (SocketAddr, String, String) {
     (addr.parse().unwrap(), map, gametype)
 }
 
-fn parse_addr() -> SocketAddr {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--port" {
-            if let Some(port) = args.next().and_then(|p| p.parse::<u16>().ok()) {
-                return format!("0.0.0.0:{port}").parse().unwrap();
-            }
-        }
-    }
-    common::config::SERVER_BIND_ADDRESS.parse().unwrap()
-}
-
 fn main() {
     let (bind_addr, map_path, gametype_path) = parse_args();
-    println!("binding to {bind_addr}  map={map_path}  gametype={gametype_path}");
-    let level = LevelDescription::from_ron(&map_path).unwrap_or_else(|e| {
+    println!("binding to {bind_addr}\nmap={map_path}\ngametype={gametype_path}");
+    let level = Map::from_ron(&map_path).unwrap_or_else(|e| {
         eprintln!("Failed to load map \"{map_path}\": {e}. Using default.");
         default_level()
     });
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
+        .add_plugins(bevy::asset::AssetPlugin {
+            file_path: if cfg!(debug_assertions) { "../assets" } else { "assets" }.to_string(),
+            ..default()
+        })
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     app.add_plugins(MasterPlugin);
+    app.add_plugins(LevelPlugin(level));
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
-    app.insert_resource(level);
     app.insert_resource(RhaiScriptConfig { path: gametype_path, is_server: true });
     app.init_resource::<PlayerRegistry>();
     app.init_resource::<WeaponRegistry>();
@@ -126,12 +119,13 @@ fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>
     quic.start_server(&mut server, addr.0);
 }
 
+/// this is fairly hard-coded, we need to make it more modular
 fn spawn_level_objects(
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut weapon_registry: ResMut<WeaponRegistry>,
-    level: Res<LevelDescription>,
+    level: Res<Map>,
 ) {
     for req in &level.initial_spawns {
         let transform = Transform::from_translation(req.position).with_rotation(req.rotation);
@@ -139,6 +133,14 @@ fn spawn_level_objects(
         let entity = match req.kind {
             GameObjectKind::Rifle   => rifle::spawn(transform, &mut commands, &mut world),
             GameObjectKind::Shotgun => shotgun::spawn(transform, &mut commands, &mut world),
+            GameObjectKind::Planet  => {
+                let params = req.planet_params.clone().unwrap_or_else(|| {
+                    eprintln!("Planet spawn request missing planet_params, using defaults");
+                    PlanetBehaviorComponent { inner_radius: 5, snap_radius: 0, gravity_radius: 0,
+                        gravity_profile: common::game_objects::planet::GravityProfile::Constant(9.81) }
+                });
+                common::game_objects::planet::spawn(params, transform, &mut commands, &mut world)
+            }
             _ => continue,
         };
         commands.entity(entity).insert(net_id.clone());
@@ -245,7 +247,6 @@ fn remove_player(
     }
 
     registry.0.retain(|_, (e, _)| *e != entity);
-    world.remove_body(entity);
     commands.entity(entity).despawn();
     quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(net_id));
 }
@@ -259,7 +260,7 @@ fn on_message(
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
-    level: Res<LevelDescription>,
+    level: Res<Map>,
     weapon_kinds: Query<&GameObjectKind>,
     mut weapon_inputs: Query<&mut WeaponInput>,
     mut pawn_slots: Query<&mut WeaponSlots>,
@@ -267,6 +268,10 @@ fn on_message(
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::Connected => {
+                if let Some(data) = level.to_compressed_ron() {
+                    quic.send(SendTarget::One(msg.conn_id), Channel::Ordered,
+                        &MsgType::FileData("map.ron".into(), data));
+                }
                 // Tell the new client about all existing pawns (as ghosts).
                 for (_, (existing_entity, existing_net_id)) in registry.0.iter() {
                     let existing_pos = world.entity_to_handle.get(existing_entity)
@@ -376,7 +381,7 @@ fn on_message(
 
                     weapon_registry.free.remove(&target_net_id);
                     weapon_registry.held.insert(target_net_id.clone(), (weapon_entity, player_entity));
-                    world.remove_body(weapon_entity);
+                    commands.entity(weapon_entity).remove::<PhysicsBodyHandle>();
                     quic.send(SendTarget::All, Channel::Ordered,
                         &MsgType::WeaponPickup(target_net_id, player_net_id));
                 }
@@ -470,7 +475,6 @@ fn handle_fired_weapons(
                                         (mode.respawn_delay, GameObjectKind::Biped));
                                 } else {
                                     // Non-player entity with health (future: destructible props).
-                                    world.remove_body(dead_entity);
                                     commands.entity(dead_entity).despawn();
                                     quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(hit_nid));
                                 }
@@ -493,7 +497,7 @@ fn tick_respawns(
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
-    level: Res<LevelDescription>,
+    level: Res<Map>,
     mode: Res<ModeConfig>,
 ) {
     let dt = time.delta_secs();

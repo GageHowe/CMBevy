@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use rhai::{Engine, AST, Scope};
 use std::cell::Cell;
 use crate::game_objects::pawn::biped;
+use crate::game_objects::health::Health;
 use crate::game_objects::weapon::{rifle, shotgun};
 use crate::net::message::{NetworkID, NetworkIDResource};
 use crate::physics::physics_world::PhysicsWorld;
@@ -69,7 +70,7 @@ fn register_script_functions(world: &mut World) {
             &mut *ptr
         };
         let entity = Entity::from_bits(entity_id as u64);
-        world.get::<Health>(entity).map(|h| h.0).unwrap_or(0)
+        world.get::<Health>(entity).map(|h| h.current as i32).unwrap_or(0)
     });
 
     runtime.engine.register_fn("set_health", move |entity_id: i64, amount: i32| {
@@ -80,7 +81,7 @@ fn register_script_functions(world: &mut World) {
         };
         let entity = Entity::from_bits(entity_id as u64);
         if let Some(mut health) = world.get_mut::<Health>(entity) {
-            health.0 = amount;
+            health.current = amount as f32;
         }
     });
 
@@ -159,6 +160,3 @@ fn eval_script_fixed_update(world: &mut World) {
     world.insert_non_send_resource(runtime);
 }
 
-// Replace with your actual component
-#[derive(Component)]
-struct Health(i32);

@@ -13,10 +13,15 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn main_menu(mut contexts: EguiContexts, mut next_state: ResMut<NextState<GameState>>) {
+fn main_menu(
+    mut contexts: EguiContexts,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut in_sp_menu: Local<bool>,
+) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let center = ctx.content_rect().center();
-    egui::Window::new("Critical Mass")
+    let title = if *in_sp_menu { "Singleplayer" } else { "Critical Mass" };
+    egui::Window::new(title)
         .default_pos(center)
         .pivot(egui::Align2::CENTER_CENTER)
         .resizable(false)
@@ -24,12 +29,32 @@ fn main_menu(mut contexts: EguiContexts, mut next_state: ResMut<NextState<GameSt
         .show(ctx, |ui| {
             ui.set_min_width(200.0);
             ui.vertical_centered(|ui| {
-                if ui.button("Singleplayer").clicked() {
-                    next_state.set(GameState::SinglePlayer);
-                }
-                ui.add_space(4.0);
-                if ui.button("Multiplayer").clicked() {
-                    next_state.set(GameState::Multiplayer);
+                if *in_sp_menu {
+                    if ui.button("Quick Start").clicked() {
+                        *in_sp_menu = false;
+                        next_state.set(GameState::SinglePlayer);
+                    }
+                    ui.add_space(4.0);
+                    if ui.button("Custom Game").clicked() {
+                        *in_sp_menu = false;
+                        next_state.set(GameState::SinglePlayer);
+                    }
+                    ui.add_space(4.0);
+                    if ui.button("Back").clicked() {
+                        *in_sp_menu = false;
+                    }
+                } else {
+                    if ui.button("Singleplayer").clicked() {
+                        *in_sp_menu = true;
+                    }
+                    ui.add_space(4.0);
+                    if ui.button("Multiplayer").clicked() {
+                        next_state.set(GameState::Multiplayer);
+                    }
+                    ui.add_space(4.0);
+                    if ui.button("Exit").clicked() {
+                        std::process::exit(0);
+                    }
                 }
             });
         });

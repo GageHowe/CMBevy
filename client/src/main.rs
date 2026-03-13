@@ -22,7 +22,7 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin};
+use common::weapon::{rifle, shotgun, fire_weapons, spawn_from_command, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin};
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -50,6 +50,7 @@ use steam::SteamworksPlugin;
 use common::debug_println;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
+use common::level::{Map, PendingHullColliders, default_level, spawn_static_colliders, spawn_hull_colliders, load_level_scene, cleanup_level};
 use ui::ui::GuiState;
 mod settings;
 mod steam;
@@ -130,11 +131,12 @@ fn main() {
         .add_plugins(MenuPlugin)
         .add_plugins(PawnPlugin)
         .add_plugins(WeaponPlugin)
-        .add_plugins(ReconciliationPlugin(GameState::Multiplayer))
+        .add_plugins(ReconciliationPlugin(GameState::Multiplayer, biped::apply_biped_movement))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
         .init_resource::<HitBeams>()
+        .init_resource::<PendingHullColliders>()
         .add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain()
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Startup, spawn_camera);
@@ -142,10 +144,10 @@ fn main() {
     app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
 
-    app.add_systems(OnEnter(GameState::SinglePlayer), spawn_local_player);
-    app.add_systems(OnExit(GameState::SinglePlayer), despawn_local_player);
+    app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player).chain());
+    app.add_systems(OnExit(GameState::SinglePlayer), (despawn_local_player, cleanup_level).chain());
     app.add_systems(OnEnter(GameState::Multiplayer), connect);
-    app.add_systems(OnExit(GameState::Multiplayer), disconnect);
+    app.add_systems(OnExit(GameState::Multiplayer), (disconnect, cleanup_level).chain());
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → gather_pawn_input → send_pawn_input → move_bipeds
@@ -177,6 +179,10 @@ fn main() {
     app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
+    app.add_systems(Update, (spawn_static_colliders, load_level_scene)
+        .run_if(resource_added::<Map>));
+    app.add_systems(Update, spawn_hull_colliders);
+    app.add_systems(Update, draw_planet_radii);
 
     debug_println!("starting client...\n");
     app.run();
@@ -208,6 +214,12 @@ fn local_hitscan_vfx(
     }
 }
 
+fn load_sp_level(mut commands: Commands) {
+    let level = Map::from_ron("assets/maps/default.ron")
+        .unwrap_or_else(|_| default_level());
+    commands.insert_resource(level);
+}
+
 // PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
 fn spawn_local_player(
     mut commands: Commands,
@@ -233,7 +245,6 @@ fn spawn_local_player(
 // PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
 fn despawn_local_player(
     mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
     camera: Query<Entity, With<Camera3d>>,
     pawns: Query<Entity, With<BipedPawnComponent>>,
 ) {
@@ -241,7 +252,6 @@ fn despawn_local_player(
         commands.entity(cam).remove_parent_in_place();
     }
     for entity in pawns.iter() {
-        world.remove_body(entity);
         commands.entity(entity).despawn();
     }
 }
@@ -257,20 +267,26 @@ fn disconnect(
     mut local_net_id: ResMut<LocalNetworkID>,
     mut pending: ResMut<PendingReconciliation>,
     networked: Query<Entity, With<NetworkID>>,
-    mut world: ResMut<PhysicsWorld>,
     camera: Query<Entity, With<Camera3d>>,
 ) {
     if let Some(conn) = client.get_connection_mut() {
         let _ = conn.disconnect();
     }
     quic.inbound.clear();
+    quic.client_connected = false;
     local_net_id.0 = None;
     pending.0 = None;
     if let Ok(cam) = camera.single() {
         commands.entity(cam).remove_parent_in_place();
     }
+    // Detach all networked entities from their parents first.
+    // Weapon viewmodels are children of PitchPivot (which is a child of the pawn).
+    // Without this, despawning the pawn recursively also despawns the weapon, then
+    // the explicit loop below tries to despawn it a second time → Bevy warning.
     for entity in networked.iter() {
-        world.remove_body(entity);
+        commands.entity(entity).remove_parent_in_place();
+    }
+    for entity in networked.iter() {
         commands.entity(entity).despawn();
     }
 }
@@ -293,6 +309,7 @@ fn on_message(
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
     pitch_pivot: Query<Entity, With<PitchPivot>>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -311,10 +328,10 @@ fn on_message(
                         }
                     }
                     GameObjectKind::Rifle => {
-                        rifle::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server);
+                        spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut sp.commands, &mut world, &sp.asset_server);
                     }
                     GameObjectKind::Shotgun => {
-                        shotgun::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server);
+                        spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut sp.commands, &mut world, &sp.asset_server);
                     }
                     GameObjectKind::Spaceship => {
                         warn!("Spaceship spawn not yet implemented on client");
@@ -328,18 +345,25 @@ fn on_message(
                 let is_local = local_net_id.0.as_ref() == Some(&net_id);
                 for (entity, nid) in networked.iter() {
                     if *nid == net_id {
-                        world.remove_body(entity);
                         if is_local {
                             // Detach the camera before despawning so the hierarchy
                             // doesn't take it with it. The server will re-spawn us.
                             if let Ok(cam) = camera.single() {
                                 sp.commands.entity(cam).remove_parent_in_place();
                             }
+                            // Despawn held weapon viewmodels explicitly so the
+                            // recursive pawn despawn doesn't hit them a second time.
+                            if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                                for i in 0..2 {
+                                    slots.slots[i] = None;
+                                    if let Some(w) = viewmodels.0[i].take() {
+                                        sp.commands.entity(w).despawn();
+                                    }
+                                }
+                            }
                             local_net_id.0 = None;
-                        }
-                        sp.commands.entity(entity).despawn();
-                        // If this was a viewmodel in a weapon slot, clear it.
-                        if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                        } else if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                            // If this was a weapon viewmodel in a slot, clear the slot.
                             for i in 0..2 {
                                 if slots.slots[i].as_ref() == Some(&net_id) {
                                     slots.slots[i] = None;
@@ -347,15 +371,18 @@ fn on_message(
                                 }
                             }
                         }
+                        sp.commands.entity(entity).despawn();
                         break;
                     }
                 }
+            }
+            MsgType::Disconnected => {
+                next_state.set(GameState::MainMenu);
             }
             MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
                 let is_local = local_net_id.0.as_ref() == Some(&carrier_net_id);
                 let weapon_entity = networked.iter().find(|(_, nid)| *nid == &weapon_id).map(|(e, _)| e);
                 let Some(weapon_entity) = weapon_entity else { continue };
-                world.remove_body(weapon_entity);
                 if is_local {
                     // Find first empty slot, assign weapon, attach as viewmodel.
                     let slot_result = if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
@@ -405,15 +432,11 @@ fn on_message(
                 pending.0 = Some(st);
             }
             MsgType::FileData(name, compressed) => {
-                match zstd::stream::decode_all(compressed.as_slice()) {
-                    Ok(data) => {
-                        let path = std::path::PathBuf::from(&name);
-                        match std::fs::write(&path, &data) {
-                            Ok(_) => gui.push_log(format!("received file: {name} ({} bytes)", data.len())),
-                            Err(e) => eprintln!("FileData: write {name} failed: {e}"),
-                        }
+                if name == "map.ron" {
+                    match Map::from_compressed_ron(&compressed) {
+                        Some(level) => { sp.commands.insert_resource(level); }
+                        None => eprintln!("FileData: failed to parse map.ron"),
                     }
-                    Err(e) => eprintln!("FileData: decompress failed: {e}"),
                 }
             }
             other => debug_println!("Client: Got unhandled message: {other:?}"),
@@ -477,6 +500,24 @@ fn fire_weapon(
         Channel::Unreliable,
         &MsgType::Fire(weapon_net_id, origin.into(), direction.into()),
     );
+}
+
+fn draw_planet_radii(
+    planets: Query<(&common::game_objects::planet::PlanetBehaviorComponent, &GlobalTransform)>,
+    mut gizmos: Gizmos,
+) {
+    for (planet, gt) in planets.iter() {
+        let pos = gt.translation();
+        if planet.inner_radius > 0 {
+            gizmos.sphere(Isometry3d::from_translation(pos), planet.inner_radius as f32, Color::srgb(0.8, 0.2, 0.2));
+        }
+        if planet.snap_radius > 0 {
+            gizmos.sphere(Isometry3d::from_translation(pos), planet.snap_radius as f32, Color::srgb(0.9, 0.8, 0.1));
+        }
+        if planet.gravity_radius > 0 {
+            gizmos.sphere(Isometry3d::from_translation(pos), planet.gravity_radius as f32, Color::srgb(0.2, 0.8, 0.2));
+        }
+    }
 }
 
 /// Draws active hitscan beams as gizmos and ticks down their lifetime.

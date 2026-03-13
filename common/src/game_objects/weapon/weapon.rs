@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 
+use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
 
 /// Marker component present on every weapon entity regardless of type.
@@ -61,6 +62,26 @@ pub fn fire_weapons<T: Component<Mutability = bevy::ecs::component::Mutable>>(
             input.shooter = None;
         }
     }
+}
+
+/// Shared interface for weapon types. Implement this to get `spawn_from_command` for free.
+pub trait WeaponKind: Component + Default {
+    const MODEL_PATH: &'static str;
+}
+
+/// Spawns a weapon from a network SpawnCommand: physics body + scene visuals + net_id.
+/// Client-only in practice (requires AssetServer for the GLB scene).
+pub fn spawn_from_command<W: WeaponKind>(
+    cmd: SpawnCommand,
+    spawn: fn(Transform, &mut Commands, &mut PhysicsWorld) -> Entity,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    asset_server: &AssetServer,
+) -> Entity {
+    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, ..default() };
+    let entity = spawn(transform, commands, world);
+    commands.entity(entity).insert((SceneRoot(asset_server.load(W::MODEL_PATH)), Visibility::default(), cmd.net_id));
+    entity
 }
 
 /// Inserts a dynamic physics body for a weapon entity.

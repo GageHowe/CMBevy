@@ -58,9 +58,12 @@ pub enum MsgType {
     SpawnCommand(SpawnCommand),
     DespawnCommand(NetworkID),
     /// Client → Server: request to interact with the entity identified by NetworkID.
+    /// Depending on the entity's implementation(s), this could be equipping a weapon,
+    /// getting into a vehicle, etc.
     Interact(NetworkID),
     /// Server → All: (weapon_id, carrier_net_id). Clients remove the weapon entity;
     /// the carrier client records it as their held weapon.
+    /// this seems bad, idk
     WeaponPickup(NetworkID, NetworkID),
     /// Client → Server: (weapon_net_id, origin, direction). Fire the held weapon.
     Fire(NetworkID, Vec3, Vec3),

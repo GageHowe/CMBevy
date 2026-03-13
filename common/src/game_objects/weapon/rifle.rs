@@ -1,14 +1,17 @@
 use bevy::prelude::*;
 use crate::game_objects::GameObjectKind;
 use crate::interaction::Interactable;
-use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
+use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput, WeaponKind};
 
 pub const RANGE: f32 = 500.0;
 pub const DAMAGE: f32 = 25.0;
 /// Seconds between shots (10 rounds/sec).
 pub const COOLDOWN: f32 = 0.1;
+
+impl WeaponKind for RifleComponent {
+    const MODEL_PATH: &'static str = "models/ar.glb#Scene0";
+}
 
 /// Per-instance state for the rifle weapon type.
 #[derive(Component, Default)]
@@ -51,29 +54,3 @@ pub fn apply_rifle_fire(
     Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
 }
 
-/// Spawns a rifle from a network SpawnCommand. Handles physics, visuals, and net_id insertion.
-/// Client-only: requires AssetServer for the GLB model.
-pub fn spawn_from_command(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    asset_server: &AssetServer,
-) -> Entity {
-    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, ..default() };
-    let entity = spawn(transform, commands, world);
-    add_visuals(entity, commands, asset_server);
-    commands.entity(entity).insert(cmd.net_id);
-    entity
-}
-
-/// Adds a scene (GLB model) to an existing rifle entity.
-pub fn add_visuals(
-    entity: Entity,
-    commands: &mut Commands,
-    asset_server: &bevy::asset::AssetServer,
-) {
-    commands.entity(entity).insert((
-        SceneRoot(asset_server.load("models/ar.glb#Scene0")),
-        Visibility::default(),
-    ));
-}

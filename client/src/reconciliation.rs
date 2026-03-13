@@ -3,8 +3,7 @@ use rapier3d::prelude::RigidBodyHandle;
 
 use common::net::message::{NetworkID, SimulationState};
 use common::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies};
-use common::pawn::biped;
-use common::pawn::pawn::{gather_pawn_input, BipedPawnComponent, Possessed};
+use common::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 
@@ -26,14 +25,18 @@ impl Default for LocalStateHistory {
     }
 }
 
-pub struct ReconciliationPlugin<S: States + Copy>(pub S);
+pub struct ReconciliationPlugin<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>>(
+    pub S,
+    pub fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
+);
 
-impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
+impl<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>> Plugin for ReconciliationPlugin<S, T> {
     fn build(&self, app: &mut App) {
         let state = self.0;
+        let apply = self.1;
         app.init_resource::<PendingReconciliation>()
             .init_resource::<LocalStateHistory>()
-            .add_systems(FixedPreUpdate, maybe_reconcile.before(gather_pawn_input).run_if(in_state(state)))
+            .add_systems(FixedPreUpdate, maybe_reconcile(apply).before(gather_pawn_input).run_if(in_state(state)))
             .add_systems(FixedPostUpdate, record_world_state.run_if(in_state(state)));
     }
 }
@@ -57,61 +60,63 @@ pub fn record_world_state(
 ///      inputs from `snapshot_tick+1` up to (not including) the current tick.
 ///      Bodies in the server snapshot are restored to server-authoritative state.
 ///      Networked bodies the server didn't mention are restored to local predicted state.
-pub fn maybe_reconcile(
-    mut pending: ResMut<PendingReconciliation>,
-    mut world: ResMut<PhysicsWorld>,
-    tick: Res<Ticker>,
-    history: Res<LocalStateHistory>,
-    bodies: Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>,
-) {
-    let Some(snapshot) = pending.0.take() else { return };
+pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>(
+    apply: fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
+) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>, Query<&mut T, With<Possessed>>) {
+    move |mut pending, mut world, tick, history, bodies, mut pawn_query| {
+        let Some(snapshot) = pending.0.take() else { return };
 
-    let Some((our_net_id, our_handle, possessed)) =
-        bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
-    else {
-        return;
-    };
+        let Some((our_net_id, our_handle, possessed)) =
+            bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
+        else {
+            return;
+        };
 
-    let local_at_tick = history.0.iter().find(|s| s.tick == snapshot.tick);
+        let local_at_tick = history.0.iter().find(|s| s.tick == snapshot.tick);
 
-    let needs_reconcile = match (
-        local_at_tick.and_then(|s| s.bodies.get(our_net_id)),
-        snapshot.bodies.get(our_net_id),
-    ) {
-        (Some(predicted), Some(server)) => {
-            let pos_err = (server.position - predicted.position).length();
-            let vel_err = (server.linvel - predicted.linvel).length();
-            pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
+        let needs_reconcile = match (
+            local_at_tick.and_then(|s| s.bodies.get(our_net_id)),
+            snapshot.bodies.get(our_net_id),
+        ) {
+            (Some(predicted), Some(server)) => {
+                let pos_err = (server.position - predicted.position).length();
+                let vel_err = (server.linvel - predicted.linvel).length();
+                pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
+            }
+            // No history for this tick — always reconcile to stay correct.
+            _ => true,
+        };
+
+        if !needs_reconcile {
+            return;
         }
-        // No history for this tick — always reconcile to stay correct.
-        _ => true,
-    };
 
-    if !needs_reconcile {
-        return;
-    }
-
-    let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
-        .iter()
-        .map(|(nid, h, _)| (nid.clone(), h.0))
-        .collect();
-
-    restore_snapshot(&mut world, &snapshot, &pairs);
-
-    if let Some(local) = local_at_tick {
-        let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
-            .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
-            .cloned()
+        let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
+            .iter()
+            .map(|(nid, h, _)| (nid.clone(), h.0))
             .collect();
-        restore_snapshot(&mut world, local, &unmentioned);
-    }
 
-    let current = tick.tick;
-    for replay_tick in (snapshot.tick + 1)..current {
-        if let Some(&input) = possessed.get_input(replay_tick) {
-            // TODO: generalise when Possessed can apply to non-biped pawns
-            biped::apply_biped_movement(&mut world, our_handle, input, &mut BipedPawnComponent);
+        restore_snapshot(&mut world, &snapshot, &pairs);
+
+        if let Some(local) = local_at_tick {
+            let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
+                .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
+                .cloned()
+                .collect();
+            restore_snapshot(&mut world, local, &unmentioned);
         }
-        world.step();
+
+        // Copy the handle value so the `bodies` borrow doesn't outlive the loop.
+        let our_rb = our_handle.0;
+        let current = tick.tick;
+        for replay_tick in (snapshot.tick + 1)..current {
+            if let Some(&input) = possessed.get_input(replay_tick) {
+                if let Ok(mut component) = pawn_query.single_mut() {
+                    let handle = PhysicsBodyHandle(our_rb);
+                    apply(&mut world, &handle, input, &mut component);
+                }
+            }
+            world.step();
+        }
     }
 }

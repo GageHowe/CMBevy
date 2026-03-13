@@ -124,7 +124,7 @@ impl ReassemblySlot {
 pub struct QuicManager {
     pub inbound: VecDeque<InboundMessage>,
     pub(crate) clients: HashSet<ConnectionId>,
-    client_connected: bool,
+    pub client_connected: bool,
     outbound: VecDeque<(SendTarget, Channel, MsgType)>,
     /// Sequence counter for outbound unreliable fragments.
     unreliable_seq: u32,
@@ -167,6 +167,15 @@ impl QuicManager {
     }
 
     pub fn connect(&mut self, client: &mut QuinnetClient, server_addr: SocketAddr) {
+        // Reuse an existing (disconnected) connection via reconnect() so the
+        // default_connection_id doesn't drift to a stale entry.
+        if let Some(conn) = client.get_connection_mut() {
+            match conn.reconnect() {
+                Ok(_) => println!("Connecting to QUIC server at {server_addr}"),
+                Err(e) => eprintln!("Failed to reconnect: {e}"),
+            }
+            return;
+        }
         let result = client.open_connection(ClientConnectionConfiguration {
             addr_config: ClientAddrConfiguration::from_addrs(
                 server_addr,
