@@ -23,11 +23,16 @@ pub struct PendingHullColliders(pub Vec<(Vec3, Quat, Handle<ConvexHullAsset>)>);
 #[derive(Component)]
 pub struct LevelEntity;
 
+fn one() -> f32 { 1.0 }
+fn default_scale() -> Vec3 { Vec3::ONE }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StaticCollider {
     pub position: Vec3,
     pub rotation: Quat,
     pub shape: ColliderShape,
+    #[serde(default = "one")]
+    pub scale: f32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -52,6 +57,8 @@ pub struct SpawnPoint {
 pub struct Map {
     /// Path to the GLB scene file loaded on the client for visuals.
     pub scene_path: String,
+    #[serde(default = "default_scale")]
+    pub scene_scale: Vec3,
     /// Static (fixed) physics bodies. Spawned on both client and server.
     pub static_colliders: Vec<StaticCollider>,
     /// Objects to spawn at level start. The server processes these on startup.
@@ -107,15 +114,17 @@ pub fn spawn_static_colliders(
     level: Res<Map>,
 ) {
     for sc in &level.static_colliders {
+        let s = sc.scale;
         if let ColliderShape::ConvexHulls(path) = &sc.shape {
-            pending.0.push((sc.position, sc.rotation, asset_server.load(path.clone())));
+            let handle = asset_server.load_with_settings(path.clone(), move |settings: &mut f32| *settings = s);
+            pending.0.push((sc.position, sc.rotation, handle));
             continue;
         }
         let collider = match &sc.shape {
-            ColliderShape::Cuboid(he) => ColliderBuilder::cuboid(he.x, he.y, he.z).build(),
-            ColliderShape::Ball(r) => ColliderBuilder::ball(*r).build(),
+            ColliderShape::Cuboid(he) => ColliderBuilder::cuboid(he.x * s, he.y * s, he.z * s).build(),
+            ColliderShape::Ball(r) => ColliderBuilder::ball(r * s).build(),
             ColliderShape::Capsule { half_height, radius } => {
-                ColliderBuilder::capsule_y(*half_height, *radius).build()
+                ColliderBuilder::capsule_y(half_height * s, radius * s).build()
             }
             ColliderShape::ConvexHulls(_) => unreachable!(),
         };
@@ -165,7 +174,7 @@ pub fn load_level_scene(
 ) {
     commands.spawn((
         SceneRoot(asset_server.load(level.scene_path.clone())),
-        Transform::default(),
+        Transform::from_scale(level.scene_scale),
         LevelEntity,
     ));
 }
@@ -185,11 +194,13 @@ pub fn cleanup_level(
 pub fn default_level() -> Map {
     Map {
         scene_path: "models/companion_cube.glb#Scene0".into(),
+        scene_scale: Vec3::ONE,
         static_colliders: vec![
             StaticCollider {
                 position: Vec3::new(0.0, -10.0, 0.0),
                 rotation: Quat::IDENTITY,
                 shape: ColliderShape::Cuboid(Vec3::new(10.0, 2.0, 10.0)),
+                scale: 1.0,
             },
         ],
         initial_spawns: vec![

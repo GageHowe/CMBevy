@@ -246,11 +246,13 @@ fn spawn_local_player(
     mut world: ResMut<PhysicsWorld>,
     mut net_ids: ResMut<NetworkIDResource>,
     camera: Query<Entity, With<Camera3d>>,
+    level: Res<Map>,
 ) {
+    let spawn = level.spawn_points.first();
     let cmd = SpawnCommand {
         net_id: NetworkID(net_ids.get_next_free_id()),
-        position: Vec3::new(0.0, 5.0, 0.0),
-        rotation: Quat::IDENTITY,
+        position: spawn.map_or(Vec3::new(0.0, 5.0, 0.0), |s| s.position),
+        rotation: spawn.map_or(Quat::IDENTITY, |s| s.rotation),
         starting_velocity: Vec3::ZERO,
         server_tick: 0,
         kind: GameObjectKind::Biped,

@@ -3,5 +3,7 @@
   <component name="RhaiCustomRegistrySettings">
     <option name="customFunctions" value="despawn&#10;get_health&#10;set_health&#10;spawn" />
     <option name="customTypes" value="Settings" />
+    <option name="migrated" value="true" />
+    <option name="projectRhaiCode" value="// === Migrated from legacy format ===&#10;&#10;// Functions:&#10;fn despawn() {}&#10;fn get_health() {}&#10;fn set_health() {}&#10;fn spawn() {}&#10;&#10;// Types:&#10;// type: Settings" />
   </component>
 </project>
