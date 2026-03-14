@@ -39,7 +39,7 @@ struct ModeConfig {
 fn parse_args() -> (SocketAddr, String, String) {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
     let mut map = "assets/maps/default.ron".to_string();
-    let mut gametype = "assets/gametypes/default.rhai".to_string();
+    let mut gametype = "assets/gametypes/default.lua".to_string();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -164,7 +164,7 @@ fn spawn_level_objects(
 }
 
 fn init_mode_config(world: &mut World) {
-    let respawn_delay = call_script_fn::<f64>(world, "get_respawn_delay", ())
+    let respawn_delay = call_script_fn::<f64>(world, "get_respawn_delay")
         .map(|d| d as f32)
         .unwrap_or(common::config::RESPAWN_DELAY_SECS);
     world.insert_resource(ModeConfig { respawn_delay });
@@ -290,7 +290,7 @@ fn on_message(
                 }
                 if let Some(cfg) = &script_config {
                     if let Ok(src) = std::fs::read(&cfg.path) {
-                        quic.send_file(SendTarget::One(msg.conn_id), "gametype.rhai".into(), src);
+                        quic.send_file(SendTarget::One(msg.conn_id), "gametype.lua".into(), src);
                     }
                 }
                 // Tell the new client about all existing pawns (as ghosts).

@@ -466,7 +466,7 @@ fn on_message(
                         Some(level) => { sp.commands.insert_resource(level); }
                         None => eprintln!("FileData: failed to parse map.ron"),
                     }
-                } else if name == "gametype.rhai" {
+                } else if name == "gametype.lua" {
                     match zstd::stream::decode_all(compressed.as_slice()) {
                         Ok(bytes) => match String::from_utf8(bytes) {
                             Ok(src) => {

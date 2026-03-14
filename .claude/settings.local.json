@@ -32,7 +32,8 @@
       "Bash(cd:*)",
       "Bash(find:*)",
       "Bash(grep \"type Pose\\\\b\\\\|type Vector\\\\b\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parry3d-0.26.0/src/math/mod.rs\" 2>/dev/null | head -10\nfind \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parry3d-0.26.0/src/math\" -name \"*.rs\" 2>/dev/null | head -5)",
-      "Bash(grep \"pub.*On\\\\b\\\\|pub use.*On\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.1/src/observer/mod.rs\" 2>/dev/null | head -10\ngrep \"struct On\\\\b\\\\|type On\\\\b\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.1/src/observer/runner.rs\" 2>/dev/null | head -5)"
+      "Bash(grep \"pub.*On\\\\b\\\\|pub use.*On\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.1/src/observer/mod.rs\" 2>/dev/null | head -10\ngrep \"struct On\\\\b\\\\|type On\\\\b\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.1/src/observer/runner.rs\" 2>/dev/null | head -5)",
+      "Bash(cd \"C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy\" && timeout /t 60 /nobreak && cargo check -p common 2>&1 | tail -5)"
     ],
     "deny": []
   }

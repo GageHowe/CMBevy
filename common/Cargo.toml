@@ -14,7 +14,7 @@ bevy_egui = "0.39.1"
 postcard = { version = "1", features = ["alloc"] }
 zstd = "0.13.3"
 bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false, features = ["client", "server"] }
-rhai = "1.24.0"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ron = "0.12.0"
