@@ -6,10 +6,13 @@ use bevy::prelude::*;
 use rapier3d::prelude::*;
 use crate::net::message::SpawnCommand;
 
+/// Number of weapon slots on a biped pawn.
+pub const NUM_WEAPON_SLOTS: usize = 2;
+
 /// Two weapon slots on a biped pawn. Stored on the entity, not globally.
 #[derive(Component, Default)]
 pub struct WeaponSlots {
-    pub slots: [Option<NetworkID>; 2],
+    pub slots: [Option<NetworkID>; NUM_WEAPON_SLOTS],
     pub active: usize,
 }
 

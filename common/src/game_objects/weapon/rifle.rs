@@ -3,21 +3,16 @@ use crate::game_objects::GameObjectKind;
 use crate::interaction::Interactable;
 use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
+use super::weapon::{insert_weapon_physics, WeaponComponent, WeaponInput, WeaponState};
 
 pub const RANGE: f32 = 500.0;
 pub const DAMAGE: f32 = 25.0;
 /// Seconds between shots (10 rounds/sec).
 pub const COOLDOWN: f32 = 0.1;
 
-/// Per-instance state for the rifle weapon type.
+/// Marker component for the rifle weapon type.
 #[derive(Component, Default)]
-pub struct RifleComponent {
-    pub cooldown: f32,
-    /// Latched when fire is requested; cleared after the shot fires.
-    /// Allows tapping fire while on cooldown to queue the next shot.
-    pub fire_requested: bool,
-}
+pub struct RifleComponent;
 
 /// Spawns a rifle entity with physics. Used by both server and client.
 pub fn spawn(
@@ -27,28 +22,15 @@ pub fn spawn(
 ) -> Entity {
     let entity = commands.spawn((
         WeaponComponent,
-        RifleComponent::default(),
+        RifleComponent,
         WeaponInput::default(),
+        WeaponState::new(RANGE, DAMAGE, COOLDOWN),
         GameObjectKind::Rifle,
         Interactable { range: 2.0 },
         Transform::from(transform),
     )).id();
     insert_weapon_physics(entity, &transform, commands, world);
     entity
-}
-
-pub fn apply_rifle_fire(
-    _world: &mut PhysicsWorld,
-    input: WeaponInput,
-    dt: f32,
-    rifle: &mut RifleComponent,
-) -> Option<FireEffect> {
-    if input.fire { rifle.fire_requested = true; }
-    rifle.cooldown = (rifle.cooldown - dt).max(0.0);
-    if !rifle.fire_requested || rifle.cooldown > 0.0 { return None; }
-    rifle.cooldown = COOLDOWN;
-    rifle.fire_requested = false;
-    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
 }
 
 /// Spawns a rifle from a network SpawnCommand. Handles physics, visuals, and net_id insertion.

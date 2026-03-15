@@ -7,7 +7,7 @@ use crate::physics::physics_world::*;
 #[derive(Component)]
 pub struct WeaponComponent;
 
-/// Input state for a weapon, set by whoever controls it before `fire_weapons<T>` runs.
+/// Input state for a weapon, set by whoever controls it before fire systems run.
 /// On the server this is set by `on_message` when a `Fire` packet arrives.
 /// On the client this is set by the fire_weapon input system before the next FixedUpdate.
 #[derive(Component, Default, Clone, Copy)]
@@ -20,7 +20,29 @@ pub struct WeaponInput {
     pub shooter: Option<Entity>,
 }
 
-/// Produced by `apply_*_fire` when a weapon successfully fires this tick.
+/// Per-instance fire state shared by all standard hitscan weapons.
+/// Set once at spawn with the weapon's static parameters; `cooldown` and
+/// `fire_requested` are updated each tick by `fire_all_weapons`.
+#[derive(Component)]
+pub struct WeaponState {
+    pub range: f32,
+    pub damage: f32,
+    /// Duration (seconds) between shots.
+    pub max_cooldown: f32,
+    /// Countdown timer; weapon fires when this reaches zero.
+    pub cooldown: f32,
+    /// Fire request latched until the weapon is off cooldown, allowing
+    /// a tap while on cooldown to queue the next shot.
+    pub fire_requested: bool,
+}
+
+impl WeaponState {
+    pub fn new(range: f32, damage: f32, max_cooldown: f32) -> Self {
+        Self { range, damage, max_cooldown, cooldown: 0.0, fire_requested: false }
+    }
+}
+
+/// Produced by fire systems when a weapon successfully fires this tick.
 ///
 /// Each variant represents a fundamentally different fire mechanic:
 /// - `Hitscan`: instant-travel ray; server raycasts and broadcasts `HitResult`.
@@ -39,13 +61,44 @@ pub enum FireEffect {
     // Future: Projectile { origin, direction, speed, damage, ... }
 }
 
-/// Resource that accumulates `FireEffect`s produced by `fire_weapons<T>` each tick.
+/// Resource that accumulates `FireEffect`s produced by fire systems each tick.
 /// The server's `handle_fired_weapons` drains it to perform raycasts + broadcast HitResult.
 /// The client should drain it after reading (e.g. for VFX) or discard it.
 #[derive(Resource, Default)]
 pub struct FiredWeapons(pub Vec<(Entity, FireEffect)>);
 
-/// Generic fire dispatch — analogous to `move_pawns<T>`.
+/// Fires all standard hitscan weapons. Ticks cooldowns, latches fire requests, and
+/// appends a `FireEffect` to `FiredWeapons` whenever a weapon is ready to shoot.
+/// Resets `WeaponInput` flags after processing regardless of whether the weapon fired.
+///
+/// Register this system in both server and client instead of per-type `fire_weapons<T>` calls.
+pub fn fire_all_weapons(
+    time: Res<Time<Fixed>>,
+    mut weapons: Query<(Entity, &mut WeaponInput, &mut WeaponState)>,
+    mut fired: ResMut<FiredWeapons>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut input, mut state) in weapons.iter_mut() {
+        if input.fire { state.fire_requested = true; }
+        state.cooldown = (state.cooldown - dt).max(0.0);
+        if state.fire_requested && state.cooldown == 0.0 {
+            state.cooldown = state.max_cooldown;
+            state.fire_requested = false;
+            fired.0.push((entity, FireEffect::Hitscan {
+                origin: input.origin,
+                direction: input.aim_dir,
+                range: state.range,
+                damage: state.damage,
+                shooter: input.shooter,
+            }));
+        }
+        input.fire = false;
+        input.shooter = None;
+    }
+}
+
+/// Generic fire dispatch for weapons that need custom per-type behavior beyond
+/// `WeaponState` (e.g. future projectile weapons with physics interactions).
 /// Calls `apply` each tick; returns `Some(FireEffect)` only when the weapon fires.
 /// Appends to `FiredWeapons` and resets `WeaponInput` regardless.
 pub fn fire_weapons<T: Component<Mutability = bevy::ecs::component::Mutable>>(

@@ -22,8 +22,8 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin};
-use common::pawn::biped::WeaponSlots;
+use common::weapon::{rifle, shotgun, fire_all_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin};
+use common::pawn::biped::{WeaponSlots, NUM_WEAPON_SLOTS};
 use std::net::SocketAddr;
 
 mod camera;
@@ -61,7 +61,7 @@ struct LocalNetworkID(Option<NetworkID>);
 /// Tracks the entity for each weapon slot viewmodel on the local player's pawn.
 /// Slot index matches WeaponSlots::slots.
 #[derive(Component, Default)]
-struct ViewmodelSlots([Option<Entity>; 2]);
+struct ViewmodelSlots([Option<Entity>; NUM_WEAPON_SLOTS]);
 
 /// Active hitscan beams to draw as gizmos. Each entry is (origin, end, seconds_remaining).
 #[derive(Resource, Default)]
@@ -158,12 +158,10 @@ fn main() {
             .run_if(in_state(GameState::Multiplayer)),
     );
 
-    // fire_weapons<T> ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
+    // fire_all_weapons ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
     // local_hitscan_vfx raycasts against the scene mesh for immediate client-side beam VFX.
-    // .chain() ensures rifle → shotgun → vfx in order, all before step_physics.
     app.add_systems(FixedUpdate, (
-        fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
-        fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
+        fire_all_weapons,
         local_hitscan_vfx,
     ).chain().before(step_physics).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
@@ -340,7 +338,7 @@ fn on_message(
                         sp.commands.entity(entity).despawn();
                         // If this was a viewmodel in a weapon slot, clear it.
                         if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
-                            for i in 0..2 {
+                            for i in 0..NUM_WEAPON_SLOTS {
                                 if slots.slots[i].as_ref() == Some(&net_id) {
                                     slots.slots[i] = None;
                                     viewmodels.0[i] = None;
@@ -540,9 +538,9 @@ fn switch_weapon_slot(
     let Ok((mut slots, viewmodels)) = pawn.single_mut() else { return };
     let prev = slots.active;
     slots.active = if delta > 0.0 {
-        (slots.active + 1) % 2
+        (slots.active + 1) % NUM_WEAPON_SLOTS
     } else {
-        slots.active.checked_sub(1).unwrap_or(1)
+        slots.active.checked_sub(1).unwrap_or(NUM_WEAPON_SLOTS - 1)
     };
     if slots.active == prev { return; }
     if let Some(e) = viewmodels.0[prev] {

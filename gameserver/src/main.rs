@@ -18,7 +18,7 @@ use common::pawn::pawn::BipedPawnComponent;
 use common::health::Health;
 use common::weapon::{
     rifle, shotgun,
-    fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin,
+    fire_all_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin,
     insert_weapon_physics,
 };
 use common::pawn::biped::WeaponSlots;
@@ -83,7 +83,7 @@ fn main() {
     app.init_resource::<PendingRespawns>();
 
     // FixedUpdate ordering:
-    //   on_message → WeaponFire (fire_weapons<T>, fills FiredWeapons)
+    //   on_message → WeaponFire (fire_all_weapons, fills FiredWeapons)
     //     → handle_fired_weapons (drains FiredWeapons, raycasts, applies damage, broadcasts)
     //     → step_physics → broadcast_tick
     #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,10 +94,7 @@ fn main() {
     app.add_systems(Startup, (start_server, spawn_level_objects, init_mode_config).chain());
     app.configure_sets(FixedUpdate, ServerSet::WeaponFire.after(on_message).before(step_physics));
     app.add_systems(FixedUpdate, on_message.before(step_physics));
-    app.add_systems(FixedUpdate, (
-        fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
-        fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
-    ).in_set(ServerSet::WeaponFire));
+    app.add_systems(FixedUpdate, fire_all_weapons.in_set(ServerSet::WeaponFire));
     app.add_systems(FixedUpdate, handle_fired_weapons.after(ServerSet::WeaponFire).before(step_physics));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
 

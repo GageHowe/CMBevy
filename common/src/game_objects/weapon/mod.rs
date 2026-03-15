@@ -4,12 +4,16 @@ pub mod weapon;
 pub mod rifle;
 pub mod shotgun;
 
-// Re-export shared types and the fire_weapons dispatcher so callers don't have to
-// reach into `weapon::weapon` directly.
-pub use weapon::{fire_weapons, FireEffect, FiredWeapons, WeaponComponent, WeaponInput, insert_weapon_physics};
+// Re-export shared types so callers don't have to reach into `weapon::weapon` directly.
+pub use weapon::{
+    fire_all_weapons, fire_weapons,
+    FireEffect, FiredWeapons,
+    WeaponComponent, WeaponInput, WeaponState,
+    insert_weapon_physics,
+};
 
 /// Registers shared weapon resources.
-/// Each binary registers the `fire_weapons<T>` systems itself with its own ordering
+/// Each binary registers `fire_all_weapons` itself with its own ordering
 /// (server: after on_message, before step_physics; client: before step_physics).
 pub struct WeaponPlugin;
 
