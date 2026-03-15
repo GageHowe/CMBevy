@@ -21,3 +21,11 @@ Codebases to reference as a sanity check
 * TODO: with very few exceptions, make client never spawn its own objects. Client should receive instructions to spawn objects from the server. Should look something like:
   * SpawnCommand( ObjectType (an enum), )
 * Hitscan weapons: 
+
+## Links
+* https://vercel.com/gagehowetamus-projects/off-by-three-website
+* https://off-by-three.itch.io/critical-mass
+* storefront: https://store.steampowered.com/app/3526510
+* package name and settings: https://partner.steamgames.com/store/packagelanding/1244771
+* publish changes: https://partner.steamgames.com/apps/publishing/3526510
+

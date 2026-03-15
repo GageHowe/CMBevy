@@ -8,7 +8,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bevy = { version = "0.18", features = ["serialize", "jpeg"] }
+bevy = { version = "0.18", features = ["serialize", "jpeg", "std", "multi_threaded"] }
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
 bevy_egui = "0.39.1"
 postcard = { version = "1", features = ["alloc"] }

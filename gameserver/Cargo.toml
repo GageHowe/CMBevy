@@ -9,4 +9,4 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
-bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded"] }
+bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded", "std"] }

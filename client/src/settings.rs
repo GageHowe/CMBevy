@@ -26,6 +26,7 @@ impl Default for Settings {
 // to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called
 
 fn load_settings(mut commands: Commands) {
+    // todo: change this to the app install directory
     let path = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("CMBevy")

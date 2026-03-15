@@ -8,7 +8,7 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
-bevy = { version = "0.18", default-features = false, features = ["jpeg"] }
+bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", "multi_threaded"] }
 bevy_egui = "0.39.1"
 zstd = "0.13.3"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
