@@ -29,3 +29,5 @@ Also see: README.md for project description
 * We use postcard for encoding, since bincode is dead.
 * It's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver. But as a default, put things in common
 * 
+
+Build client in the background in between tasks that touch client or common.

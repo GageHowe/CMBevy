@@ -19,7 +19,7 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
         .angular_damping(10.0)
         .build();
     let rb_handle = world.insert_body(entity, rb);
-    let collider = ColliderBuilder::cuboid(0.5, 0.5, 0.5).build();
+    let collider = ColliderBuilder::capsule_y(0.5, 0.3).build();
     commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
@@ -32,7 +32,7 @@ pub fn spawn(
     world: &mut PhysicsWorld,
 ) -> Entity {
     let entity = commands.spawn((
-        BipedPawnComponent,
+        BipedPawnComponent::default(),
         WeaponSlots::default(),
         Health::new(100.0),
         Transform::from(transform),
@@ -41,7 +41,7 @@ pub fn spawn(
     entity
 }
 
-/// Adds a mesh and material to an existing biped entity.
+/// Adds a mesh, material, and a hidden flashlight to an existing biped entity.
 pub fn add_visuals(
     entity: Entity,
     color: Color,
@@ -50,10 +50,23 @@ pub fn add_visuals(
     materials: &mut Assets<StandardMaterial>,
 ) {
     commands.entity(entity).insert((
-        Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(1.0, 1.0, 1.0))),
+        Mesh3d(meshes.add(bevy::math::primitives::Capsule3d::new(0.3, 1.0))),
         MeshMaterial3d(materials.add(color)),
         Visibility::default(),
     ));
+    let light = commands.spawn((
+        SpotLight {
+            intensity: 2_000_000.0,
+            range: 30.0,
+            outer_angle: 0.4,
+            inner_angle: 0.3,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.8, 0.0),
+        Visibility::Hidden,
+    )).id();
+    commands.entity(entity).add_child(light);
 }
 
 /// Sets up the YawPivot → PitchPivot → Camera hierarchy on an existing biped entity.

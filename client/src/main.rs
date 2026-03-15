@@ -27,11 +27,13 @@ use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
 mod camera;
+mod outline;
 mod ui;
 mod reconciliation;
 mod tick_sync;
 mod menu;
 use menu::MenuPlugin;
+use outline::OutlinePlugin;
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub SocketAddr);
@@ -61,6 +63,8 @@ struct SpawnParams<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     asset_server: Res<'w, AssetServer>,
+    entity_children: Query<'w, 's, &'static Children>,
+    lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
 }
 use settings::SettingsPlugin;
 use steam::SteamworksPlugin;
@@ -68,6 +72,7 @@ use common::debug_println;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
 use common::level::{Map, PendingHullColliders, default_level, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
+use common::game_objects::planet::draw_planet_radii;
 use ui::ui::GuiState;
 mod settings;
 mod steam;
@@ -138,7 +143,8 @@ fn main() {
             }),
     );
 
-    app.add_plugins(MasterPlugin)
+    app.add_plugins(OutlinePlugin)
+        .add_plugins(MasterPlugin)
         .add_plugins(SteamworksPlugin)
         .add_plugins(SettingsPlugin)
         .init_state::<GameState>()
@@ -195,6 +201,7 @@ fn main() {
 
     app.add_systems(Update, send_interact_request.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)
@@ -482,6 +489,19 @@ fn on_message(
                     }
                 }
             }
+            MsgType::FlashlightState(net_id, on) => {
+                // Local player is updated immediately by toggle_flashlight; skip to avoid flicker.
+                if local_net_id.0.as_ref() == Some(&net_id) { continue; }
+                if let Some((entity, _)) = networked.iter().find(|(_, nid)| *nid == &net_id) {
+                    if let Ok(children) = sp.entity_children.get(entity) {
+                        for child in children.iter() {
+                            if let Ok(mut vis) = sp.lights.get_mut(child) {
+                                *vis = if on { Visibility::Inherited } else { Visibility::Hidden };
+                            }
+                        }
+                    }
+                }
+            }
             other => debug_println!("Client: Got unhandled message: {other:?}"),
         }
     }
@@ -545,23 +565,6 @@ fn fire_weapon(
     );
 }
 
-fn draw_planet_radii(
-    planets: Query<(&common::game_objects::planet::PlanetBehaviorComponent, &GlobalTransform)>,
-    mut gizmos: Gizmos,
-) {
-    for (planet, gt) in planets.iter() {
-        let pos = gt.translation();
-        if planet.inner_radius > 0 {
-            gizmos.sphere(Isometry3d::from_translation(pos), planet.inner_radius as f32, Color::srgb(0.8, 0.2, 0.2));
-        }
-        if planet.snap_radius > 0 {
-            gizmos.sphere(Isometry3d::from_translation(pos), planet.snap_radius as f32, Color::srgb(0.9, 0.8, 0.1));
-        }
-        if planet.gravity_radius > 0 {
-            gizmos.sphere(Isometry3d::from_translation(pos), planet.gravity_radius as f32, Color::srgb(0.2, 0.8, 0.2));
-        }
-    }
-}
 
 /// Draws active hitscan beams as gizmos and ticks down their lifetime.
 fn draw_hit_beams(
@@ -575,6 +578,30 @@ fn draw_hit_beams(
         *remaining -= dt;
         *remaining > 0.0
     });
+}
+
+/// On Y press, toggles the local player's flashlight and sends FlashlightToggle to the server.
+fn toggle_flashlight(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Res<EguiWantsInput>,
+    local_net_id: Res<LocalNetworkID>,
+    pawn: Query<&Children, With<Possessed>>,
+    mut lights: Query<&mut Visibility, With<SpotLight>>,
+    mut quic: ResMut<QuicManager>,
+    mut on: Local<bool>,
+) {
+    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyY) { return; }
+    *on = !*on;
+    if let Ok(children) = pawn.single() {
+        for child in children.iter() {
+            if let Ok(mut vis) = lights.get_mut(child) {
+                *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
+            }
+        }
+    }
+    if local_net_id.0.is_some() {
+        quic.send(SendTarget::All, Channel::Ordered, &MsgType::FlashlightToggle);
+    }
 }
 
 /// On F press, finds the nearest interactable within range and sends an Interact request.

@@ -77,6 +77,10 @@ pub enum MsgType {
     TimePing(u64),
     /// Server → Client: echoes the TimePing payload unchanged.
     TimePong(u64),
+    /// Client → Server: toggle my flashlight.
+    FlashlightToggle,
+    /// Server → All: flashlight state for the given entity.
+    FlashlightState(NetworkID, bool),
     /// Server → Client: file transfer. `data` is zstd-compressed at level 9;
     /// decompress with `zstd::stream::decode_all` to recover the original bytes.
     FileData(String, Vec<u8>),

@@ -118,7 +118,7 @@ fn main_menu(
                         if ui.button("Host").clicked() {
                             let base = asset_base();
                             host.maps = scan_dir(&format!("{base}/maps"), "ron");
-                            host.gametypes = scan_dir(&format!("{base}/gametypes"), "rhai");
+                            host.gametypes = scan_dir(&format!("{base}/gametypes"), "lua");
                             host.map_idx = 0;
                             host.gametype_idx = 0;
                             *screen = Screen::Host;

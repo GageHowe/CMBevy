@@ -280,6 +280,7 @@ fn on_message(
     weapon_kinds: Query<&GameObjectKind>,
     mut weapon_inputs: Query<&mut WeaponInput>,
     mut pawn_slots: Query<&mut WeaponSlots>,
+    mut bipeds: Query<&mut BipedPawnComponent>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -344,7 +345,18 @@ fn on_message(
             MsgType::Input(pawn_input) => {
                 if let Some(&(entity, _)) = registry.0.get(&msg.conn_id) {
                     if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
-                        biped::apply_biped_movement(&mut world, &PhysicsBodyHandle(handle), pawn_input.input, &mut BipedPawnComponent);
+                        if let Ok(mut biped) = bipeds.get_mut(entity) {
+                            biped::apply_biped_movement(&mut world, &PhysicsBodyHandle(handle), pawn_input.input, &mut biped);
+                        }
+                    }
+                }
+            }
+            MsgType::FlashlightToggle => {
+                if let Some(&(entity, ref net_id)) = registry.0.get(&msg.conn_id) {
+                    if let Ok(mut biped) = bipeds.get_mut(entity) {
+                        biped.flashlight_on = !biped.flashlight_on;
+                        let on = biped.flashlight_on;
+                        quic.send(SendTarget::All, Channel::Ordered, &MsgType::FlashlightState(net_id.clone(), on));
                     }
                 }
             }

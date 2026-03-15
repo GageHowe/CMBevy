@@ -54,7 +54,7 @@ fn set_style(mut contexts: EguiContexts) {
     ctx.set_fonts(fonts);
 
     let mut style = (*ctx.style()).clone();
-    // style.visuals.window_shadow = egui::epaint::Shadow::NONE;
+    style.visuals.window_shadow = egui::epaint::Shadow::NONE;
     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 200);
     style.visuals.override_text_color = Some(egui::Color32::WHITE);
     style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;

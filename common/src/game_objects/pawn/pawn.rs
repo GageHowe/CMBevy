@@ -28,8 +28,10 @@ impl Plugin for PawnPlugin {
 
 // COMPONENTS
 
-#[derive(Component)]
-pub struct BipedPawnComponent;
+#[derive(Component, Default)]
+pub struct BipedPawnComponent {
+    pub flashlight_on: bool,
+}
 
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;

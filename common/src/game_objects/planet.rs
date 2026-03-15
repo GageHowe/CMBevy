@@ -179,6 +179,24 @@ pub fn orient_bipeds_to_planets(
     }
 }
 
+pub fn draw_planet_radii(
+    planets: Query<(&PlanetBehaviorComponent, &GlobalTransform)>,
+    mut gizmos: Gizmos,
+) {
+    for (planet, gt) in planets.iter() {
+        let pos = gt.translation();
+        if planet.inner_radius > 0 {
+            gizmos.sphere(Isometry3d::from_translation(pos), planet.inner_radius as f32, Color::srgba(0.8, 0.2, 0.2, 0.15));
+        }
+        if planet.snap_radius > 0 {
+            gizmos.sphere(Isometry3d::from_translation(pos), planet.snap_radius as f32, Color::srgba(0.9, 0.8, 0.1, 0.15));
+        }
+        if planet.gravity_radius > 0 {
+            gizmos.sphere(Isometry3d::from_translation(pos), planet.gravity_radius as f32, Color::srgba(0.2, 0.8, 0.2, 0.15));
+        }
+    }
+}
+
 pub struct PlanetPlugin;
 
 impl Plugin for PlanetPlugin {
