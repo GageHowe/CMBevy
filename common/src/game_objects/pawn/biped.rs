@@ -277,37 +277,51 @@ pub fn apply_biped_movement(
 
     // --- write phase ---
 
-    // sphere angular velocity drives friction-based movement
-    let desired = forward * input.forward + right * input.right;
-    let speed = if is_sprint { SPRINT_ANGULAR } else { WALK_ANGULAR };
-    let angvel = if !is_slide && desired.length_squared() > 1e-6 {
-        let axis = planet_up.cross(desired.normalize());
-        axis * speed
-    } else {
-        Vec3::ZERO
-    };
-    // disable sphere when sliding so the capsule's zero-friction collider takes over
     let sphere_collider_h = world.rigid_body_set.get(sphere_handle)
         .and_then(|rb| rb.colliders().first().copied());
-    let was_sliding = sphere_collider_h
-        .and_then(|ch| world.collider_set.get(ch))
-        .map(|col| !col.is_enabled())
-        .unwrap_or(false);
-    if let Some(ch) = sphere_collider_h {
-        if let Some(col) = world.collider_set.get_mut(ch) {
-            col.set_enabled(!is_slide);
-        }
-    }
 
-    let capsule_linvel = world.rigid_body_set.get(body_handle.0)
-        .map(|rb| { let v = rb.linvel(); Vector::new(v.x, v.y, v.z) })
-        .unwrap_or(Vector::ZERO);
+    if grounded {
+        // sphere angular velocity drives friction-based movement
+        let desired = forward * input.forward + right * input.right;
+        let speed = if is_sprint && input.forward >= 0.0 { SPRINT_ANGULAR } else { WALK_ANGULAR };
+        let angvel = if !is_slide && desired.length_squared() > 1e-6 {
+            let axis = planet_up.cross(desired.normalize());
+            axis * speed
+        } else {
+            Vec3::ZERO
+        };
 
-    if let Some(rb) = world.rigid_body_set.get_mut(sphere_handle) {
-        if is_slide || (was_sliding && !is_slide) {
-            rb.set_linvel(capsule_linvel, false);
+        // disable sphere when sliding so the capsule's zero-friction collider takes over
+        let was_sliding = sphere_collider_h
+            .and_then(|ch| world.collider_set.get(ch))
+            .map(|col| !col.is_enabled())
+            .unwrap_or(false);
+        if let Some(ch) = sphere_collider_h {
+            if let Some(col) = world.collider_set.get_mut(ch) {
+                col.set_enabled(!is_slide);
+            }
         }
-        rb.set_angvel(Vector::new(angvel.x, angvel.y, angvel.z), true);
+
+        let capsule_linvel = world.rigid_body_set.get(body_handle.0)
+            .map(|rb| { let v = rb.linvel(); Vector::new(v.x, v.y, v.z) })
+            .unwrap_or(Vector::ZERO);
+
+        if let Some(rb) = world.rigid_body_set.get_mut(sphere_handle) {
+            if is_slide || (was_sliding && !is_slide) {
+                rb.set_linvel(capsule_linvel, false);
+            }
+            rb.set_angvel(Vector::new(angvel.x, angvel.y, angvel.z), true);
+        }
+    } else {
+        // re-enable sphere collider in case we left the ground while sliding
+        if let Some(ch) = sphere_collider_h {
+            if let Some(col) = world.collider_set.get_mut(ch) {
+                col.set_enabled(true);
+            }
+        }
+        if let Some(rb) = world.rigid_body_set.get_mut(sphere_handle) {
+            rb.set_angvel(Vector::ZERO, true);
+        }
     }
 
     biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);

@@ -89,6 +89,10 @@ struct LocalNetworkID(Option<NetworkID>);
 #[derive(Resource, Default)]
 struct HitBeams(Vec<(Vec3, Vec3, f32)>);
 
+/// Most recent server SimulationState, retained for debug visualization.
+#[derive(Resource, Default)]
+struct LastServerState(Option<common::net::message::SimulationState>);
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub(crate) enum GameState {
     /// the game starts into this. has Quit
@@ -196,6 +200,7 @@ fn main() {
         .init_resource::<LocalNetworkID>()
         .init_resource::<HostedServer>()
         .init_resource::<HitBeams>()
+        .init_resource::<LastServerState>()
         .init_resource::<PendingHullColliders>()
         .add_systems(FixedUpdate, step_physics
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
@@ -237,6 +242,8 @@ fn main() {
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
     app.add_systems(FixedPostUpdate, on_message.run_if(in_state(GameState::Multiplayer)));
 
+    app.add_systems(FixedPostUpdate, snapshot_server_state.after(on_message).run_if(in_state(GameState::Multiplayer)));
+
     // (tick increment is FixedLast)
 
     app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
@@ -244,6 +251,7 @@ fn main() {
     app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
+    app.add_systems(Update, draw_server_state.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)
         .run_if(resource_added::<Map>));
     app.add_systems(Update, load_skybox.run_if(resource_added::<Map>));
@@ -716,6 +724,22 @@ fn swap_weapon_hull_colliders(
             collider_set.insert_with_parent(hull_collider, body_handle.0, rigid_body_set);
         }
         commands.entity(entity).remove::<PendingHullCollider>();
+    }
+}
+
+/// Copies the pending server snapshot into LastServerState before reconcile consumes it.
+fn snapshot_server_state(pending: Res<PendingReconciliation>, mut last: ResMut<LastServerState>) {
+    if let Some(st) = &pending.0 {
+        last.0 = Some(st.clone());
+    }
+}
+
+/// Draws a point gizmo at each body position from the latest server state.
+fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
+    let Some(state) = &last.0 else { return };
+    for body in state.bodies.values() {
+        let pos: Vec3 = body.position.into();
+        gizmos.sphere(pos, 0.15, Color::srgb(1.0, 0.2, 0.2));
     }
 }
 
