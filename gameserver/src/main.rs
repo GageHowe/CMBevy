@@ -27,7 +27,7 @@ use common::debug_println;
 use common::level::{Map, LevelPlugin, SpawnPoint};
 use std::sync::{mpsc, Mutex};
 use common::game_objects::planet::PlanetBehaviorComponent;
-use common::scripting::{RhaiScriptConfig, call_script_fn};
+use common::scripting::{ScriptConfig, call_script_fn};
 
 #[derive(Resource)]
 struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
@@ -82,7 +82,7 @@ fn main() {
     app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
-    app.insert_resource(RhaiScriptConfig { path: gametype_path, is_server: true, source: None });
+    app.insert_resource(ScriptConfig { path: gametype_path, is_server: true, source: None });
     app.insert_resource(ConsoleCommands(Mutex::new(cmd_rx)));
     app.init_resource::<PlayerRegistry>();
     app.init_resource::<WeaponRegistry>();
@@ -268,7 +268,7 @@ fn remove_player(
 
 fn on_message(
     mut quic: ResMut<QuicManager>,
-    script_config: Option<Res<RhaiScriptConfig>>,
+    script_config: Option<Res<ScriptConfig>>,
     mut registry: ResMut<PlayerRegistry>,
     mut weapon_registry: ResMut<WeaponRegistry>,
     mut pending_respawns: ResMut<PendingRespawns>,
@@ -414,6 +414,7 @@ fn on_message(
 
                     weapon_registry.free.remove(&target_net_id);
                     weapon_registry.held.insert(target_net_id.clone(), (weapon_entity, player_entity));
+                    world.remove_body(weapon_entity);
                     commands.entity(weapon_entity).remove::<PhysicsBodyHandle>();
                     quic.send(SendTarget::All, Channel::Ordered,
                         &MsgType::WeaponPickup(target_net_id, player_net_id));

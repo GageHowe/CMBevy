@@ -102,13 +102,14 @@ pub fn spawn(
 }
 
 /// Adds a mesh, material, and a hidden flashlight to an existing biped entity.
+/// Returns the flashlight entity so callers can re-parent it (e.g. under PitchPivot).
 pub fn add_visuals(
     entity: Entity,
     color: Color,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
-) {
+) -> Entity {
     commands.entity(entity).insert((
         Mesh3d(meshes.add(bevy::math::primitives::Capsule3d::new(0.3, 1.0))),
         MeshMaterial3d(materials.add(color)),
@@ -123,20 +124,24 @@ pub fn add_visuals(
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(0.0, 0.8, 0.0),
+        Transform::default(),
         Visibility::Hidden,
     )).id();
     commands.entity(entity).add_child(light);
+    light
 }
 
 /// Sets up the YawPivot → PitchPivot → Camera hierarchy on an existing biped entity.
 /// Pass the pre-existing Camera3d entity so it gets re-parented rather than re-spawned.
-pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, commands: &mut Commands) {
+/// Pass the flashlight entity to attach it under PitchPivot so it tracks camera look direction.
+pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, light: Entity, commands: &mut Commands) {
     let pitch_pivot = commands.spawn((
         PitchPivot { pitch: 0.0 },
         Transform::default(),
         Visibility::default(),
     )).id();
+
+    commands.entity(pitch_pivot).add_child(light);
 
     if let Some(cam) = camera {
         commands.entity(cam).insert(Transform::default());
@@ -170,9 +175,9 @@ pub fn spawn_from_command(
     };
     let entity = spawn(transform, commands, world);
     let color = if owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
-    add_visuals(entity, color, commands, meshes, materials);
+    let light = add_visuals(entity, color, commands, meshes, materials);
     if owned {
-        setup_camera_rig(entity, camera, commands);
+        setup_camera_rig(entity, camera, light, commands);
     }
     commands.entity(entity).insert(cmd.net_id.clone());
     entity
@@ -191,7 +196,7 @@ pub fn draw_biped_debug(
             let iso = rb_iso(rb);
             for ch in rb.colliders() {
                 if let Some(col) = world.collider_set.get(*ch) {
-                    draw_collider(col, iso, Color::srgba(0.3, 0.6, 1.0, 0.5), &mut gizmos);
+                    draw_collider(col, iso, Color::srgba(0.3, 0.6, 1.0, 0.1), &mut gizmos);
                 }
             }
         }
@@ -200,7 +205,7 @@ pub fn draw_biped_debug(
             let iso = rb_iso(rb);
             for ch in rb.colliders() {
                 if let Some(col) = world.collider_set.get(*ch) {
-                    draw_collider(col, iso, Color::srgba(0.2, 0.9, 0.3, 0.6), &mut gizmos);
+                    draw_collider(col, iso, Color::srgba(0.2, 0.9, 0.3, 0.1), &mut gizmos);
                 }
             }
             if let Some(cap_rb) = world.rigid_body_set.get(body_handle.0) {

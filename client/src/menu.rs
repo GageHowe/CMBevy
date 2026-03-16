@@ -91,9 +91,13 @@ fn main_menu(
         .pivot(egui::Align2::CENTER_CENTER)
         .resizable(false)
         .collapsible(false)
+        .movable(false)
+        .title_bar(false)
         .show(ctx, |ui| {
             ui.set_min_width(240.0);
             ui.vertical_centered(|ui| {
+                ui.heading(title);
+                ui.add_space(8.0);
                 match *screen {
                     Screen::Root => {
                         if ui.button("Singleplayer").clicked() { *screen = Screen::SinglePlayer; }
@@ -183,7 +187,7 @@ fn main_menu(
                             let port: u16 = host.port.parse().unwrap_or(42070);
                             let base = asset_base();
                             let map = format!("{base}/maps/{}.ron", host.maps[host.map_idx]);
-                            let gametype = format!("{base}/gametypes/{}.rhai", host.gametypes[host.gametype_idx]);
+                            let gametype = format!("{base}/gametypes/{}.lua", host.gametypes[host.gametype_idx]);
                             match std::process::Command::new(gameserver_exe())
                                 .args(["--port", &port.to_string(), "--map", &map, "--gametype", &gametype])
                                 .stdin(std::process::Stdio::piped())
@@ -222,9 +226,13 @@ fn pause_menu(
         .pivot(egui::Align2::CENTER_CENTER)
         .resizable(false)
         .collapsible(false)
+        .movable(false)
+        .title_bar(false)
         .show(ctx, |ui| {
             ui.set_min_width(200.0);
             ui.vertical_centered(|ui| {
+                ui.heading("Paused");
+                ui.add_space(8.0);
                 if ui.button("Resume").clicked() {
                     next_ui.set(UiState::Playing);
                 }
@@ -264,8 +272,12 @@ fn settings_menu(
         .pivot(egui::Align2::CENTER_CENTER)
         .resizable(false)
         .collapsible(false)
+        .movable(false)
+        .title_bar(false)
         .show(ctx, |ui| {
             ui.set_min_width(250.0);
+            ui.heading("Settings");
+            ui.add_space(8.0);
             show_settings_ui(ui, &mut settings);
             ui.add_space(8.0);
             ui.vertical_centered(|ui| {

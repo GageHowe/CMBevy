@@ -8,7 +8,7 @@ use crate::net::message::{NetworkID, NetworkIDResource};
 use crate::physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Clone)]
-pub struct RhaiScriptConfig {
+pub struct ScriptConfig {
     pub path: String,
     pub is_server: bool,
     /// Pre-loaded source (e.g. received from server). Takes priority over `path`.
@@ -33,7 +33,7 @@ impl Plugin for ScriptingPlugin {
     }
 }
 
-fn compile_script(config: &RhaiScriptConfig, runtime: &mut ScriptRuntime) {
+fn compile_script(config: &ScriptConfig, runtime: &mut ScriptRuntime) {
     let src = if let Some(s) = &config.source {
         s.clone()
     } else {
@@ -49,14 +49,14 @@ fn compile_script(config: &RhaiScriptConfig, runtime: &mut ScriptRuntime) {
     }
 }
 
-fn load(config: Option<Res<RhaiScriptConfig>>, mut runtime: NonSendMut<ScriptRuntime>) {
+fn load(config: Option<Res<ScriptConfig>>, mut runtime: NonSendMut<ScriptRuntime>) {
     let Some(config) = config else { return };
     compile_script(&config, &mut runtime);
 }
 
-/// Recompiles the script whenever `RhaiScriptConfig` is inserted or changed at runtime
+/// Recompiles the script whenever `ScriptConfig` is inserted or changed at runtime
 /// (e.g. when the client receives the gametype script from the server).
-fn reload_script(config: Option<Res<RhaiScriptConfig>>, mut runtime: NonSendMut<ScriptRuntime>) {
+fn reload_script(config: Option<Res<ScriptConfig>>, mut runtime: NonSendMut<ScriptRuntime>) {
     let Some(config) = config else { return };
     if !config.is_changed() { return; }
     compile_script(&config, &mut runtime);
@@ -130,7 +130,7 @@ pub fn call_script_fn<T: mlua::FromLuaMulti>(world: &mut World, fn_name: &str) -
 }
 
 fn call_script(world: &mut World, fn_name: &str) {
-    let Some(is_server) = world.get_resource::<RhaiScriptConfig>().map(|c| c.is_server) else { return };
+    let Some(is_server) = world.get_resource::<ScriptConfig>().map(|c| c.is_server) else { return };
     let runtime = world.remove_non_send_resource::<ScriptRuntime>().unwrap();
     if !runtime.loaded { world.insert_non_send_resource(runtime); return; }
     let _ = runtime.lua.globals().set("IS_SERVER", is_server);

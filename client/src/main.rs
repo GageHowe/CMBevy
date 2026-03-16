@@ -208,8 +208,9 @@ fn main() {
     // (tick increment is FixedLast)
 
     app.add_systems(Update, send_interact_request.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(Update, sp_interact.run_if(in_state(GameState::SinglePlayer)));
     app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer)));
-    app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)
@@ -377,7 +378,7 @@ fn disconnect(
 }
 
 fn remove_script(mut commands: Commands) {
-    commands.remove_resource::<common::scripting::RhaiScriptConfig>();
+    commands.remove_resource::<common::scripting::ScriptConfig>();
 }
 
 /// handles messages coming in from the server
@@ -509,6 +510,7 @@ fn on_message(
                             Some((idx, slots.active == idx))
                         } else { None }
                     } else { None };
+                    world.remove_body(weapon_entity);
                     if let (Some((slot_idx, is_active)), Ok(pivot)) = (slot_result, pitch_pivot.single()) {
                         let offset = viewmodel_offset(slot_idx);
                         sp.commands.entity(weapon_entity)
@@ -518,6 +520,7 @@ fn on_message(
                             .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
                     }
                 } else {
+                    world.remove_body(weapon_entity);
                     sp.commands.entity(weapon_entity).despawn();
                 }
             }
@@ -557,15 +560,15 @@ fn on_message(
                     match zstd::stream::decode_all(compressed.as_slice()) {
                         Ok(bytes) => match String::from_utf8(bytes) {
                             Ok(src) => {
-                                sp.commands.insert_resource(common::scripting::RhaiScriptConfig {
+                                sp.commands.insert_resource(common::scripting::ScriptConfig {
                                     path: String::new(),
                                     is_server: false,
                                     source: Some(src),
                                 });
                             }
-                            Err(e) => eprintln!("FileData: gametype.rhai not valid utf8: {e}"),
+                            Err(e) => eprintln!("FileData: gametype.lua not valid utf8: {e}"),
                         },
-                        Err(e) => eprintln!("FileData: failed to decompress gametype.rhai: {e}"),
+                        Err(e) => eprintln!("FileData: failed to decompress gametype.lua: {e}"),
                     }
                 }
             }
@@ -705,14 +708,14 @@ fn toggle_flashlight(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
     local_net_id: Res<LocalNetworkID>,
-    pawn: Query<&Children, With<Possessed>>,
+    pitch_pivot: Query<&Children, With<PitchPivot>>,
     mut lights: Query<&mut Visibility, With<SpotLight>>,
     mut quic: ResMut<QuicManager>,
     mut on: Local<bool>,
 ) {
     if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyY) { return; }
     *on = !*on;
-    if let Ok(children) = pawn.single() {
+    if let Ok(children) = pitch_pivot.single() {
         for child in children.iter() {
             if let Ok(mut vis) = lights.get_mut(child) {
                 *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
@@ -724,32 +727,65 @@ fn toggle_flashlight(
     }
 }
 
-/// On F press, finds the nearest interactable within range and sends an Interact request.
+fn nearest_interactable(
+    player_pos: Vec3,
+    interactables: &Query<(Entity, &PhysicsBodyHandle, &NetworkID), With<Interactable>>,
+    world: &PhysicsWorld,
+) -> Option<(Entity, NetworkID)> {
+    interactables.iter()
+        .filter_map(|(e, handle, net_id)| {
+            let rb = world.rigid_body_set.get(handle.0)?;
+            let t = rb.position().translation;
+            let dist = Vec3::new(t.x, t.y, t.z).distance(player_pos);
+            (dist < 3.0).then_some((e, net_id.clone(), dist))
+        })
+        .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(e, net_id, _)| (e, net_id))
+}
+
 fn send_interact_request(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
-    player: Query<&Transform, With<Possessed>>,
-    interactables: Query<(&Transform, &NetworkID), With<Interactable>>,
+    player: Query<(&PhysicsBodyHandle, &Transform), With<Possessed>>,
+    interactables: Query<(Entity, &PhysicsBodyHandle, &NetworkID), With<Interactable>>,
+    world: Res<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
 ) {
-    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) {
-        return;
+    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
+    let player_pos = player.single().ok()
+        .and_then(|(h, t)| world.rigid_body_set.get(h.0).map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) }))
+        .unwrap_or_else(|| player.single().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO));
+    if let Some((_, net_id)) = nearest_interactable(player_pos, &interactables, &world) {
+        quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(net_id));
     }
-    let Ok(player_transform) = player.single() else { return };
-    let player_pos = player_transform.translation;
+}
 
-    let nearest = interactables
-        .iter()
-        .filter(|(t, _)| t.translation.distance(player_pos) < 2.0)
-        .min_by(|(a, _), (b, _)| {
-            a.translation.distance(player_pos)
-                .partial_cmp(&b.translation.distance(player_pos))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-    if let Some((_, net_id)) = nearest {
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(net_id.clone()));
-    }
+fn sp_interact(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Res<EguiWantsInput>,
+    player: Query<(&PhysicsBodyHandle, &Transform), With<Possessed>>,
+    interactables: Query<(Entity, &PhysicsBodyHandle, &NetworkID), With<Interactable>>,
+    world: Res<PhysicsWorld>,
+    pitch_pivot: Query<Entity, With<PitchPivot>>,
+    mut possessed_q: Query<(&mut WeaponSlots, &mut ViewmodelSlots), With<Possessed>>,
+    mut commands: Commands,
+) {
+    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
+    let player_pos = player.single().ok()
+        .and_then(|(h, _)| world.rigid_body_set.get(h.0).map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) }))
+        .unwrap_or_else(|| player.single().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO));
+    let Some((weapon_entity, weapon_net_id)) = nearest_interactable(player_pos, &interactables, &world) else { return };
+    let Ok(pivot_entity) = pitch_pivot.single() else { return };
+    let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() else { return };
+    let Some(slot_idx) = slots.slots.iter().position(|s| s.is_none()) else { return };
+    slots.slots[slot_idx] = Some(weapon_net_id);
+    viewmodels.0[slot_idx] = Some(weapon_entity);
+    let is_active = slots.active == slot_idx;
+    commands.entity(weapon_entity)
+        .remove::<(PhysicsBodyHandle, Interactable)>()
+        .set_parent_in_place(pivot_entity)
+        .insert(viewmodel_offset(slot_idx))
+        .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
 }
 
 /// Local-space transform offset for the viewmodel depending on which slot it's in.

@@ -115,6 +115,36 @@ impl PhysicsWorld {
 }
 
 impl PhysicsWorld {
+    /// Cast a sphere and return the first entity hit.
+    pub fn cast_sphere(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        radius: f32,
+        max_distance: f32,
+        exclude_entity: Option<Entity>,
+    ) -> Option<Entity> {
+        use rapier3d::parry::query::ShapeCastOptions;
+        let filter = match exclude_entity.and_then(|e| self.entity_to_handle.get(&e).copied()) {
+            Some(handle) => QueryFilter::default().exclude_rigid_body(handle),
+            None => QueryFilter::default(),
+        };
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
+        let shape = Ball::new(radius);
+        let iso = Pose::translation(origin.x, origin.y, origin.z);
+        let vel = Vector::new(direction.x, direction.y, direction.z);
+        qp.cast_shape(&iso, vel, &shape, ShapeCastOptions::with_max_time_of_impact(max_distance))
+            .and_then(|(ch, _)| {
+                let rb_handle = self.collider_set.get(ch)?.parent()?;
+                Some(*self.handle_to_entity.get(&rb_handle)?)
+            })
+    }
+
     /// Cast a ray and return the first entity hit and the distance to impact.
     /// Optionally excludes `exclude_entity`'s colliders (e.g. the shooter).
     pub fn cast_ray(

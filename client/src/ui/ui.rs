@@ -31,7 +31,8 @@ pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_crosshair, set_style))
+        app.add_systems(Startup, spawn_crosshair)
+            .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
             .insert_resource(GuiState::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -55,10 +56,16 @@ fn set_style(mut contexts: EguiContexts) {
 
     let mut style = (*ctx.style()).clone();
     style.visuals.window_shadow = egui::epaint::Shadow::NONE;
-    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 200);
+    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 100);
+    style.visuals.window_corner_radius = egui::CornerRadius::ZERO;
     style.visuals.override_text_color = Some(egui::Color32::WHITE);
     style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;
-    style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
+    style.visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
+    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    // style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
+    style.visuals.window_stroke = egui::Stroke {
+        width: 0.0, color: egui::Color32::TRANSPARENT
+    };
     ctx.set_style(style);
 }
 
@@ -71,6 +78,7 @@ fn gui_top_left(
 ) -> Result {
     egui::Window::new("info")
         .title_bar(false)
+        .movable(false)
         .resizable(false)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
         .show(contexts.ctx_mut()?, |ui| {
@@ -106,6 +114,7 @@ fn gui_chat(
     let ctx = contexts.ctx_mut().unwrap();
     egui::Window::new("chat")
         .title_bar(false)
+        .movable(false)
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
@@ -163,6 +172,7 @@ fn gui_health(
     };
     egui::Window::new("health")
         .title_bar(false)
+        .movable(false)
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
