@@ -68,7 +68,7 @@ struct SpawnParams<'w, 's> {
     lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
     hull_assets: Res<'w, Assets<ConvexHullAsset>>,
 }
-use settings::SettingsPlugin;
+use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 use common::debug_println;
 use common::health::Health;
@@ -104,6 +104,43 @@ pub(crate) enum UiState {
     Playing,
     Paused,
     Settings,
+}
+
+/// Syncs physics bodies to Bevy transforms every frame using velocity, decoupled from the fixed tick.
+/// EXTRAPOLATE=true: projects forward from the last step by the accumulated overstep time.
+/// EXTRAPOLATE=false: interpolates — steps back one fixed dt then forward by overstep, keeping
+///   the visual one tick behind but never overshooting.
+fn sync_physics_visual(
+    world: Res<PhysicsWorld>,
+    time: Res<Time<Fixed>>,
+    settings: Res<Settings>,
+    mut query: Query<(&RigidBodyHandleComponenet, &mut Transform)>,
+) {
+    use settings::PhysicsInterp;
+    let overstep = time.overstep_fraction();
+    let fixed_dt = time.delta_secs();
+    let dt_offset = match settings.physics_interp {
+        PhysicsInterp::Off => 0.0,
+        PhysicsInterp::Extrapolate => overstep * fixed_dt,
+        PhysicsInterp::Interpolate => (overstep - 1.0) * fixed_dt,
+    };
+
+    for (body_handle, mut transform) in query.iter_mut() {
+        let Some(body) = world.rigid_body_set.get(body_handle.0) else { continue };
+        let pos = body.position();
+        let cur_pos = Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z);
+        let cur_rot = Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w);
+        let linvel = Vec3::new(body.linvel().x, body.linvel().y, body.linvel().z);
+        let angvel = Vec3::new(body.angvel().x, body.angvel().y, body.angvel().z);
+
+        transform.translation = cur_pos + linvel * dt_offset;
+        let ang_speed = angvel.length();
+        transform.rotation = if ang_speed > 1e-6 {
+            Quat::from_axis_angle(angvel / ang_speed, ang_speed * dt_offset) * cur_rot
+        } else {
+            cur_rot
+        };
+    }
 }
 
 fn parse_server_addr() -> SocketAddr {
@@ -160,7 +197,9 @@ fn main() {
         .init_resource::<HostedServer>()
         .init_resource::<HitBeams>()
         .init_resource::<PendingHullColliders>()
-        .add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain()
+        .add_systems(FixedUpdate, step_physics
+            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
+        .add_systems(Update, sync_physics_visual
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Startup, spawn_camera);
 
@@ -180,6 +219,7 @@ fn main() {
         send_pawn_input
             .after(gather_pawn_input)
             .before(move_pawns::<BipedPawnComponent>(biped::apply_biped_movement))
+            // AND OTHER PAWNS
             .run_if(in_state(GameState::Multiplayer)),
     );
 
@@ -519,7 +559,7 @@ fn on_message(
             }
             // Server relays Fire for hail mary projectiles (client-authoritative).
             // Skip if it's our own weapon; otherwise spawn a local visual projectile.
-            MsgType::Fire(weapon_net_id, origin, direction) => {
+            MsgType::Fire(weapon_net_id, origin, direction, _tick) => {
                 let is_ours = possessed_q.single().ok()
                     .map(|slots| slots.slots.iter().any(|s| s.0.as_ref() == Some(&weapon_net_id)))
                     .unwrap_or(false);
@@ -623,6 +663,7 @@ fn fire_weapon(
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     mut quic: ResMut<QuicManager>,
     mut weapon_inputs: Query<&mut WeaponInput>,
+    ticker: Res<Ticker>,
 ) {
     if egui_wants.wants_any_input() || !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -641,12 +682,13 @@ fn fire_weapon(
         w_input.origin = origin;
         w_input.aim_dir = direction;
         w_input.shooter = Some(pawn_entity);
+        w_input.tick = ticker.tick;
     }
 
     quic.send(
         SendTarget::All,
-        Channel::Unreliable,
-        &MsgType::Fire(weapon_net_id, origin.into(), direction.into()),
+        Channel::Unordered,
+        &MsgType::Fire(weapon_net_id, origin.into(), direction.into(), ticker.tick),
     );
 }
 

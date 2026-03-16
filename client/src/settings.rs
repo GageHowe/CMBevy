@@ -9,11 +9,20 @@ use common::pawn::pawn::MouseSensitivity;
 
 const SETTINGS_FILE: &str = "settings.toml";
 
+#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+pub enum PhysicsInterp {
+    Off,
+    Interpolate,
+    #[default]
+    Extrapolate,
+}
+
 #[derive(Resource, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Resource)]
 pub struct Settings {
     pub mouse_sensitivity: f32,
     pub fov: f32,
+    pub physics_interp: PhysicsInterp,
 }
 
 impl Default for Settings {
@@ -21,6 +30,7 @@ impl Default for Settings {
         Self {
             mouse_sensitivity: 0.002,
             fov: 90.0,
+            physics_interp: PhysicsInterp::Extrapolate,
         }
     }
 }
@@ -96,6 +106,13 @@ pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.horizontal(|ui| {
         ui.label("Field of view");
         ui.add(egui::Slider::new(&mut settings.fov, 60.0..=120.0).suffix("°"));
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Physics interpolation");
+        ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Off, "Off");
+        ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Interpolate, "Interpolate");
+        ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Extrapolate, "Extrapolate");
     });
 }
 

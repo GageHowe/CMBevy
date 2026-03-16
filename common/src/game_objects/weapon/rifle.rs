@@ -50,6 +50,6 @@ pub fn apply_rifle_fire(
     if !rifle.fire_requested || rifle.cooldown > 0 { return None; }
     rifle.cooldown = COOLDOWN_TICKS;
     rifle.fire_requested = false;
-    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
+    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter, tick: input.tick })
 }
 

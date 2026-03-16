@@ -25,6 +25,8 @@ pub struct WeaponInput {
     /// Server-only: the entity that pulled the trigger.
     /// Used to exclude the shooter from raycasts. Reset to None after each tick.
     pub shooter: Option<Entity>,
+    /// The client tick at which this shot was fired. Used for tick-stamped hit replay.
+    pub tick: u64,
 }
 
 /// Produced by `apply_*_fire` when a weapon successfully fires this tick.
@@ -41,6 +43,8 @@ pub enum FireEffect {
         damage: f32,
         /// Shooter entity, excluded from the raycast.
         shooter: Option<Entity>,
+        /// Client tick at which the shot was fired; server uses this to replay hits against historical positions.
+        tick: u64,
     },
     Projectile {
         origin: Vec3,

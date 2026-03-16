@@ -66,8 +66,8 @@ pub enum MsgType {
     WeaponPickup(NetworkID, NetworkID),
     /// Server → All: (weapon_id, carrier_net_id, drop_pos). Re-enables the weapon body at drop_pos.
     WeaponDrop(NetworkID, NetworkID, Vec3),
-    /// Client → Server: (weapon_net_id, origin, direction). Fire the held weapon.
-    Fire(NetworkID, Vec3, Vec3),
+    /// Client → Server: (weapon_net_id, origin, direction, client_tick). Fire the held weapon.
+    Fire(NetworkID, Vec3, Vec3, u64),
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
     /// wtf? why vfx? this will be outdated and since clients move very fast this will not be a good solution.
     /// instead, send the shooter entity (the gun) and the direction/magnitude vector, plus the target.

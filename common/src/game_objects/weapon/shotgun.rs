@@ -55,5 +55,5 @@ pub fn apply_shotgun_fire(
     shotgun.cooldown = COOLDOWN_TICKS;
     shotgun.fire_requested = false;
     // Client-side: caller can fan out PELLETS rays with SPREAD for VFX using the direction.
-    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
+    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter, tick: input.tick })
 }

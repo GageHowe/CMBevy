@@ -284,7 +284,7 @@ pub fn restore_snapshot(
     }
 }
 
-/// handle visual sync
+/// handle visual sync (gameserver FixedUpdate path — no smoothing needed)
 pub fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,
     mut query: Query<(&RigidBodyHandleComponenet, &mut Transform)>,

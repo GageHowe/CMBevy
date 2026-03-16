@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use common::physics::physics_world::*;
 use common::net::{
     quic::*,
-    message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SpawnCommand},
+    message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand},
 };
 use common::tick::Ticker;
 #[derive(Resource)]
@@ -85,6 +85,7 @@ fn main() {
     app.init_resource::<PlayerRegistry>();
     app.init_resource::<WeaponRegistry>();
     app.init_resource::<PendingRespawns>();
+    app.init_resource::<BodyHistory>();
 
     // FixedUpdate ordering:
     //   on_message → WeaponFire (fire_weapons<T>, fills FiredWeapons)
@@ -116,6 +117,11 @@ struct PlayerRegistry(HashMap<ConnectionId, (Entity, NetworkID)>);
 /// Pending respawns: conn_id → (seconds_remaining, kind).
 #[derive(Resource, Default)]
 struct PendingRespawns(HashMap<ConnectionId, (f32, GameObjectKind)>);
+
+/// Ring buffer of per-tick body snapshots used for tick-stamped hit replay.
+/// Entries older than 128 ticks are pruned after each broadcast.
+#[derive(Resource, Default)]
+struct BodyHistory(HashMap<u64, SimulationState>);
 
 /// Tracks weapons.
 /// `free`: net_id → entity (lying in world, has physics body).
@@ -397,7 +403,7 @@ fn on_message(
                         &MsgType::WeaponPickup(target_net_id, player_net_id));
                 }
             }
-            MsgType::Fire(weapon_net_id, origin, direction) => {
+            MsgType::Fire(weapon_net_id, origin, direction, fire_tick) => {
                 let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else { continue };
 
                 let weapon_entity = match weapon_registry.held.get(&weapon_net_id) {
@@ -411,7 +417,7 @@ fn on_message(
                 // Hail Mary is client-authoritative: relay the fire event to all clients.
                 // Hitscan weapons (rifle, shotgun) are processed server-side.
                 if weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false) {
-                    quic.send(SendTarget::All, Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction));
+                    quic.send(SendTarget::All, Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
                 } else {
                     let origin_v: Vec3 = origin.into();
                     if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
@@ -419,6 +425,7 @@ fn on_message(
                         w_input.origin = origin_v;
                         w_input.aim_dir = dir_v;
                         w_input.shooter = Some(shooter_entity);
+                        w_input.tick = fire_tick;
                     }
                 }
             }
@@ -443,6 +450,7 @@ fn handle_fired_weapons(
     mut fired: ResMut<FiredWeapons>,
     mut world: ResMut<PhysicsWorld>,
     networked: Query<(Entity, &NetworkID)>,
+    body_query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
     mut health_q: Query<(&mut Health, &NetworkID)>,
     mut quic: ResMut<QuicManager>,
     mut commands: Commands,
@@ -451,16 +459,29 @@ fn handle_fired_weapons(
     mut pending_respawns: ResMut<PendingRespawns>,
     tick: Res<Ticker>,
     mode: Res<ModeConfig>,
+    history: Res<BodyHistory>,
 ) {
     // Drain into a local vec so we can use `world` mutably below without holding
     // a borrow on `fired` at the same time.
     let effects: Vec<_> = fired.0.drain(..).collect();
 
+    // Collect pairs once for snapshot/restore calls.
+    let pairs: Vec<(NetworkID, RigidBodyHandle)> = body_query.iter()
+        .map(|(nid, rbh)| (nid.clone(), rbh.0))
+        .collect();
+
     for (_, effect) in effects {
         match effect {
             FireEffect::Projectile { .. } => {}
-            FireEffect::Hitscan { origin, direction, range, damage, shooter } => {
+            FireEffect::Hitscan { origin, direction, range, damage, shooter, tick: fire_tick } => {
+                // Restore body positions to the tick the client fired on, then cast the ray.
+                // This lets the server replay the exact hit the client saw without rewinding physics.
+                let current = snapshot_bodies(&world, tick.tick, body_query.iter());
+                if let Some(historical) = history.0.get(&fire_tick) {
+                    restore_snapshot(&mut world, historical, &pairs);
+                }
                 let hit = world.cast_ray(origin, direction, range, shooter);
+                restore_snapshot(&mut world, &current, &pairs);
                 let (end, hit_net_id) = match hit {
                     Some((hit_entity, toi)) => {
                         let hit_net_id = networked.iter()
@@ -572,7 +593,10 @@ fn broadcast_tick(
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
+    mut history: ResMut<BodyHistory>,
 ) {
     let state = snapshot_bodies(&world, tick.tick, query.iter());
+    history.0.insert(tick.tick, state.clone());
+    history.0.retain(|&t, _| tick.tick.saturating_sub(t) <= 128);
     quic.send(SendTarget::All, Channel::Unreliable, &MsgType::State(state));
 }
