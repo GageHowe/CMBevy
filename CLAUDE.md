@@ -11,6 +11,7 @@
 * Decouple unrelated systems.
 * Don't use bevy's events/messages.
 * Simplicity is everything. When in doubt, choose the lowest-additional-code implementation.
+* Use Update sparingly. Use SlowUpdate for things that don't have to happen each FixedUpdate.
 
 Also see: README.md for project description
 

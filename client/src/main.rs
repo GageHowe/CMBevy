@@ -1,7 +1,7 @@
 // client executable
 
 use bevy::core_pipeline::Skybox;
-use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::log::{Level, LogPlugin};
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
@@ -44,6 +44,8 @@ pub(crate) struct ServerAddr(pub SocketAddr);
 pub(crate) struct HostedServer {
     pub child: Option<std::process::Child>,
     pub stdin: Option<std::io::BufWriter<std::process::ChildStdin>>,
+    /// Filled by the beacon register thread once registration succeeds; cleared on deregister.
+    pub beacon_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl HostedServer {
@@ -254,7 +256,9 @@ fn main() {
     // (tick increment is FixedLast)
 
     app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
-    app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
+    app.add_systems(FixedPreUpdate, fire_weapon
+        .after(gather_pawn_input)
+        .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
     app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
@@ -267,15 +271,17 @@ fn main() {
     app.add_systems(Update, swap_weapon_hull_colliders);
     app.add_systems(Update, draw_planet_radii);
     app.add_systems(Update, draw_biped_debug);
-    app.add_systems(Update, hail_mary::draw_projectile_debug);
+    app.add_systems(FixedUpdate, hail_mary::draw_projectile_debug
+        .after(step_physics)
+        .before(despawn_projectiles)
+        .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
     app.add_systems(FixedUpdate, hail_mary::tick_muzzle_flash);
 
     debug_println!("starting client...\n");
     app.run();
 }
 
-/// Drains FiredWeapons and raycasts against the scene mesh for immediate client-side beam VFX.
-/// Viewmodel entities (held weapons) are excluded so the gun doesn't block its own shot.
+/// Drains FiredWeapons: spawns projectiles, draws hitscan beams, and sends MsgType::Fire.
 fn local_hitscan_vfx(
     mut fired: ResMut<FiredWeapons>,
     mut hit_beams: ResMut<HitBeams>,
@@ -283,11 +289,15 @@ fn local_hitscan_vfx(
     pawn: Query<&WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
+    mut quic: ResMut<QuicManager>,
+    net_ids: Query<&NetworkID>,
+    ticker: Res<Ticker>,
+    state: Res<State<GameState>>,
 ) {
     let excluded: Vec<Entity> = pawn.iter()
         .flat_map(|slots| slots.slots.iter().filter_map(|s| s.1))
         .collect();
-    for (_, effect) in fired.0.drain(..) {
+    for (weapon_entity, effect) in fired.0.drain(..) {
         match effect {
             FireEffect::Hitscan { origin, direction, range, .. } => {
                 let Ok(dir) = Dir3::new(direction) else { continue };
@@ -303,6 +313,12 @@ fn local_hitscan_vfx(
             }
             FireEffect::Projectile { origin, direction, shooter, .. } => {
                 hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, shooter);
+                if *state.get() == GameState::Multiplayer {
+                    if let Ok(weapon_net_id) = net_ids.get(weapon_entity) {
+                        quic.send(SendTarget::All, Channel::Unordered,
+                            &MsgType::Fire(weapon_net_id.clone(), origin.into(), direction.into(), ticker.tick));
+                    }
+                }
             }
         }
     }
@@ -428,6 +444,11 @@ fn disconnect(
     if let Some(mut child) = hosted.child.take() {
         let _ = child.kill();
     }
+    if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
+        std::thread::spawn(move || {
+            let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL)).call();
+        });
+    }
     quic.inbound.clear();
     quic.client_connected = false;
     local_net_id.0 = None;
@@ -437,6 +458,7 @@ fn disconnect(
 fn remove_script(mut commands: Commands) {
     commands.remove_resource::<common::scripting::ScriptConfig>();
 }
+
 
 /// handles messages coming in from the server
 /// called by quic on FixedPostUpdate
@@ -585,7 +607,6 @@ fn on_message(
             MsgType::HitResult(origin, end, _hit_net_id) => {
                 hit_beams.0.push((origin.into(), end.into(), 0.3));
             }
-            // Server relays Fire from other players (sender excluded via AllExcept).
             MsgType::Fire(_, origin, direction, _tick) => {
                 let dir = Vec3::from(direction).normalize_or_zero();
                 hail_mary::spawn_projectile(Vec3::from(origin), dir, &mut sp.commands, &mut world, 0.0, None);
@@ -676,42 +697,37 @@ fn send_pawn_input(
     );
 }
 
-/// On left-click while holding a weapon, sends a Fire message to the server and
-/// sets WeaponInput on the weapon entity so fire_weapons<T> predicts the shot locally.
 fn fire_weapon(
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Res<EguiWantsInput>,
-    pawn: Query<(Entity, &WeaponSlots), With<Possessed>>,
-    pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
-    mut quic: ResMut<QuicManager>,
+    pawn: Query<(Entity, &WeaponSlots, &RigidBodyHandleComponenet), With<Possessed>>,
+    yaw_q: Query<&YawPivot>,
+    pitch_q: Query<&PitchPivot>,
+    aim_mouse: Res<AccumulatedMouseMotion>,
+    sensitivity: Res<MouseSensitivity>,
+    world: Res<PhysicsWorld>,
     mut weapon_inputs: Query<&mut WeaponInput>,
     ticker: Res<Ticker>,
 ) {
-    if egui_wants.wants_any_input() || !mouse.just_pressed(MouseButton::Left) {
-        return;
-    }
-    let Ok((pawn_entity, slots)) = pawn.single() else { return };
-    let Some(weapon_net_id) = slots.slots[slots.active].0.clone() else { return };
+    if egui_wants.wants_any_input() || !mouse.pressed(MouseButton::Left) { return; }
+    let Ok((pawn_entity, slots, rb_handle)) = pawn.single() else { return };
     let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
-    let Ok(gt) = pitch_pivot.single() else { return };
-
-    let (_, rotation, origin) = gt.to_scale_rotation_translation();
-    let direction = rotation * Vec3::NEG_Z;
-
-    // Set input for client-side prediction (fire_weapons<T> reads this next FixedUpdate).
+    let Ok(yp) = yaw_q.single() else { return };
+    let Ok(pp) = pitch_q.single() else { return };
+    // Apply this frame's mouse delta on top of the stored angles to get the current-frame direction.
+    let yaw = yp.yaw - aim_mouse.delta.x * sensitivity.0;
+    let pitch = (pp.pitch - aim_mouse.delta.y * sensitivity.0).clamp(-PITCH_MAX, PITCH_MAX);
+    let aim = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
+    let origin = world.rigid_body_set.get(rb_handle.0)
+        .map(|rb| { let t = rb.position().translation; Vec3::new(t.x, t.y + 0.4, t.z) })
+        .unwrap_or_default();
     if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
         w_input.fire = true;
         w_input.origin = origin;
-        w_input.aim_dir = direction;
+        w_input.aim_dir = aim * Vec3::NEG_Z;
         w_input.shooter = Some(pawn_entity);
         w_input.tick = ticker.tick;
     }
-
-    quic.send(
-        SendTarget::All,
-        Channel::Unordered,
-        &MsgType::Fire(weapon_net_id, origin.into(), direction.into(), ticker.tick),
-    );
 }
 
 

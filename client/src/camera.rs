@@ -22,8 +22,8 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
         AmbientLight { brightness: 0.0, ..default() },
         EnvironmentMapLight {
-            diffuse_map: asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2"),
-            specular_map: asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2"),
+            diffuse_map: asset_server.load("textures/skyboxes/HDR_rich_blue_nebulae_1.ktx2"),
+            specular_map: asset_server.load("textures/skyboxes/HDR_rich_blue_nebulae_1.ktx2"),
             intensity: 200.0,
             affects_lightmapped_mesh_diffuse: true,
             ..default()
@@ -34,7 +34,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         }),
         Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         Skybox {
-            image: asset_server.load("textures/HDR_rich_blue_nebulae_1.ktx2"),
+            image: asset_server.load("textures/skyboxes/HDR_rich_blue_nebulae_1.ktx2"),
             brightness: 1000.0,
             ..default()
         },
@@ -42,7 +42,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         // tonemapping — override the Camera3d default (ReinhardLuminance).
         // AgX: neutral, filmic, good for HDR. TonyMcMapface: more contrasty/stylized.
         // BlenderFilmic: similar to ACES but less harsh. AcesFitted: punchy, saturated.
-        Tonemapping::AcesFitted,
+        Tonemapping::TonyMcMapface,
 
         // prepasses — required by SSAO and outline
         DepthPrepass,
@@ -78,7 +78,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         ),
     ))
     .insert(crate::outline::OutlineSettings {
-        threshold: 0.05,
+        threshold: 0.10,
         color: Vec4::new(0.5, 0.5, 0.5, 0.05),
     });
 }

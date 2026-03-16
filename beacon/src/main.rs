@@ -1,9 +1,10 @@
 mod config;
 
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Path, State},
+    http::StatusCode,
     response::Html,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use rusqlite::Connection;
@@ -34,8 +35,10 @@ async fn main() {
     let app = Router::new()
         .route("/", get(serve_ui))
         .route("/theme.css", get(serve_css))
+        .route("/lobbies", get(list_lobbies_json))
         .route("/lobbies/partial", get(list_lobbies_partial))
         .route("/lobbies/register", post(register_lobby))
+        .route("/lobbies/:id", delete(delete_lobby))
         .route("/health", get(|| async { "OK" }))
         .with_state(state);
 
@@ -73,6 +76,15 @@ async fn serve_css() -> Response {
         .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
         .body(include_str!("static/theme.css").into())
         .unwrap()
+}
+
+async fn list_lobbies_json(State(state): State<AppState>) -> Json<Vec<LobbyInfo>> {
+    Json(state.lobbies.lock().unwrap().values().cloned().collect())
+}
+
+async fn delete_lobby(Path(id): Path<String>, State(state): State<AppState>) -> StatusCode {
+    state.lobbies.lock().unwrap().remove(&id);
+    StatusCode::NO_CONTENT
 }
 
 async fn list_lobbies_partial(State(state): State<AppState>) -> Html<String> {

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use common::game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
 use common::net::message::{NetworkID, SimulationState};
@@ -162,6 +162,16 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
             restore_snapshot(&mut world, local, &unmentioned);
         }
 
+        // Freeze non-networked bodies (e.g. projectiles) so they aren't stepped during replay.
+        let tracked: HashSet<RigidBodyHandle> = pairs.iter().map(|(_, h)| *h).collect();
+        let to_freeze: Vec<RigidBodyHandle> = world.rigid_body_set.iter()
+            .filter(|(h, rb)| !tracked.contains(h) && !rb.is_fixed() && rb.is_enabled())
+            .map(|(h, _)| h)
+            .collect();
+        for &h in &to_freeze {
+            if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.set_enabled(false); }
+        }
+
         let our_rb = our_handle.0;
         let current_tick = tick.tick;
         for replay_tick in (snapshot.tick + 1)..current_tick {
@@ -173,6 +183,11 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
             }
             apply_gravity_impulses(&mut world, &planets, &gravity_scales);
             step_world(&mut world);
+        }
+
+        // Re-enable frozen non-networked bodies.
+        for &h in &to_freeze {
+            if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.set_enabled(true); }
         }
 
         // Snapshot resim result, then restore current state

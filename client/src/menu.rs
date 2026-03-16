@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::{GameState, UiState, ServerAddr, HostedServer};
 use crate::settings::{show_settings_ui, Settings};
+use common::config::BEACON_URL;
 
 pub struct MenuPlugin;
 
@@ -30,6 +31,8 @@ struct HostState {
     map_idx: usize,
     gametype_idx: usize,
     port: String,
+    name: String,
+    max_players: String,
     advertise: bool,
 }
 
@@ -41,9 +44,60 @@ impl Default for HostState {
             map_idx: 0,
             gametype_idx: 0,
             port: "42070".to_string(),
+            name: "My Lobby".to_string(),
+            max_players: "8".to_string(),
             advertise: false,
         }
     }
+}
+
+// Matches beacon's LobbyInfo for the browser
+#[derive(serde::Deserialize, Clone)]
+struct Lobby {
+    id: String,
+    name: String,
+    host: String,
+    player_count: u8,
+    max_players: u8,
+}
+
+// Matches beacon's RegisterRequest / RegisterResponse
+#[derive(serde::Serialize)]
+struct RegisterRequest {
+    quic_port: u16,
+    name: String,
+    max_players: u8,
+}
+
+#[derive(serde::Deserialize)]
+struct RegisterResponse {
+    id: String,
+}
+
+#[derive(Default)]
+struct LobbyBrowser {
+    rx: Option<std::sync::mpsc::Receiver<Result<Vec<Lobby>, String>>>,
+    lobbies: Vec<Lobby>,
+    error: String,
+    fetching: bool,
+}
+
+fn beacon_register(req: RegisterRequest, id_slot: std::sync::Arc<std::sync::Mutex<Option<String>>>) {
+    std::thread::spawn(move || {
+        if let Ok(resp) = ureq::post(&format!("{BEACON_URL}/lobbies/register")).send_json(&req) {
+            if let Ok(r) = resp.into_json::<RegisterResponse>() {
+                *id_slot.lock().unwrap() = Some(r.id);
+            }
+        }
+    });
+}
+
+fn fetch_lobbies() -> Result<Vec<Lobby>, String> {
+    ureq::get(&format!("{BEACON_URL}/lobbies"))
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_json()
+        .map_err(|e| e.to_string())
 }
 
 fn asset_base() -> &'static str {
@@ -75,11 +129,12 @@ fn main_menu(
     mut hosted: ResMut<HostedServer>,
     mut screen: Local<Screen>,
     mut host: Local<HostState>,
+    mut browser: Local<LobbyBrowser>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let center = ctx.content_rect().center();
     let title = match *screen {
-        Screen::Root        => "Critical Mass",
+        Screen::Root         => "Critical Mass",
         Screen::SinglePlayer => "Singleplayer",
         Screen::Multiplayer  => "Multiplayer",
         Screen::CustomGames  => "Custom Games",
@@ -94,7 +149,7 @@ fn main_menu(
         .movable(false)
         .title_bar(false)
         .show(ctx, |ui| {
-            ui.set_min_width(240.0);
+            ui.set_min_width(280.0);
             ui.vertical_centered(|ui| {
                 ui.heading(title);
                 ui.add_space(8.0);
@@ -131,10 +186,70 @@ fn main_menu(
                         if ui.button("Back").clicked() { *screen = Screen::Root; }
                     }
                     Screen::CustomGames => {
-                        ui.label("No lobbies available.");
-                        // TODO: fetch from beacon and list here
-                        ui.add_space(8.0);
-                        if ui.button("Back").clicked() { *screen = Screen::Multiplayer; }
+                        // Start fetch when entering with no pending request
+                        if !browser.fetching && browser.rx.is_none() {
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            browser.rx = Some(rx);
+                            browser.fetching = true;
+                            browser.error.clear();
+                            std::thread::spawn(move || { let _ = tx.send(fetch_lobbies()); });
+                        }
+
+                        // Drain result
+                        if let Some(rx) = &browser.rx {
+                            match rx.try_recv() {
+                                Ok(Ok(lobbies)) => {
+                                    browser.lobbies = lobbies;
+                                    browser.rx = None;
+                                    browser.fetching = false;
+                                }
+                                Ok(Err(e)) => {
+                                    browser.error = e;
+                                    browser.lobbies.clear();
+                                    browser.rx = None;
+                                    browser.fetching = false;
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                                Err(_) => { browser.rx = None; browser.fetching = false; }
+                            }
+                        }
+
+                        if browser.fetching {
+                            ui.spinner();
+                            ui.label("Looking for lobbies…");
+                        } else if !browser.error.is_empty() {
+                            ui.colored_label(egui::Color32::RED, &browser.error);
+                        } else if browser.lobbies.is_empty() {
+                            ui.label("No lobbies found.");
+                        } else {
+                            let mut connect_to: Option<String> = None;
+                            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                                for lobby in &browser.lobbies {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{} · {} ({}/{})", lobby.name, lobby.host, lobby.player_count, lobby.max_players));
+                                        if ui.button("Connect").clicked() {
+                                            connect_to = Some(lobby.host.clone());
+                                        }
+                                    });
+                                }
+                            });
+                            if let Some(addr) = connect_to {
+                                if let Ok(sa) = addr.parse() {
+                                    server_addr.0 = sa;
+                                    *screen = Screen::Root;
+                                    next_state.set(GameState::Multiplayer);
+                                    *browser = LobbyBrowser::default();
+                                }
+                            }
+                        }
+
+                        ui.add_space(4.0);
+                        if ui.button("Refresh").clicked() { *browser = LobbyBrowser::default(); }
+                        ui.add_space(4.0);
+                        if ui.button("Back").clicked() {
+                            *browser = LobbyBrowser::default();
+                            *screen = Screen::Multiplayer;
+                        }
                     }
                     Screen::Matchmaking => {
                         ui.label("Matchmaking coming soon.");
@@ -175,14 +290,25 @@ fn main_menu(
                                 ui.end_row();
 
                                 ui.label("Advertise");
-                                ui.add_enabled(false, egui::Checkbox::new(&mut host.advertise, "(coming soon)"));
+                                ui.checkbox(&mut host.advertise, "");
                                 ui.end_row();
+
+                                if host.advertise {
+                                    ui.label("Lobby name");
+                                    ui.text_edit_singleline(&mut host.name);
+                                    ui.end_row();
+
+                                    ui.label("Max players");
+                                    ui.text_edit_singleline(&mut host.max_players);
+                                    ui.end_row();
+                                }
                             });
 
                         ui.add_space(8.0);
 
                         let port_ok = host.port.parse::<u16>().is_ok();
-                        let can_host = !host.maps.is_empty() && !host.gametypes.is_empty() && port_ok;
+                        let max_players_ok = !host.advertise || host.max_players.parse::<u8>().is_ok();
+                        let can_host = !host.maps.is_empty() && !host.gametypes.is_empty() && port_ok && max_players_ok;
                         if ui.add_enabled(can_host, egui::Button::new("Start & Join")).clicked() {
                             let port: u16 = host.port.parse().unwrap_or(42070);
                             let base = asset_base();
@@ -197,6 +323,14 @@ fn main_menu(
                                     let stdin = child.stdin.take().map(std::io::BufWriter::new);
                                     hosted.child = Some(child);
                                     hosted.stdin = stdin;
+                                    if host.advertise {
+                                        let req = RegisterRequest {
+                                            quic_port: port,
+                                            name: host.name.clone(),
+                                            max_players: host.max_players.parse().unwrap_or(8),
+                                        };
+                                        beacon_register(req, std::sync::Arc::clone(&hosted.beacon_id));
+                                    }
                                     server_addr.0 = format!("127.0.0.1:{port}").parse().unwrap();
                                     *screen = Screen::Root;
                                     next_state.set(GameState::Multiplayer);

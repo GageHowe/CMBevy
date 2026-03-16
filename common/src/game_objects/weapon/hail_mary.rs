@@ -103,10 +103,11 @@ pub fn spawn_projectile(
     let rb_handle = world.insert_body(entity, rb);
     {
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        let projectile_solver = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
+        let projectile_groups = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
         collider_set.insert_with_parent(
             ColliderBuilder::ball(0.05)
-                .solver_groups(projectile_solver)
+                .collision_groups(projectile_groups)
+                .solver_groups(projectile_groups)
                 .build(),
             rb_handle, rigid_body_set,
         );

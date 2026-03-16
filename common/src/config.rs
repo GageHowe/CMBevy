@@ -1,6 +1,7 @@
 // config.rs: compilation options shared between server and client
 
 pub const SERVER_BIND_ADDRESS: &str = "127.0.0.1:42070";
+pub const BEACON_URL: &str = "https://cmbevy.onrender.com";
 pub const FIXED_TICK_RATE: f64 = 60.0;
 pub const RESPAWN_DELAY_SECS: f32 = 5.0;
 
