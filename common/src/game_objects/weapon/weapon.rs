@@ -3,6 +3,12 @@ use rapier3d::prelude::*;
 
 use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
+use crate::physics::convex_hull_asset::ConvexHullAsset;
+
+/// Attached to a weapon entity when its convex hull is still loading.
+/// Removed by `swap_weapon_hull_colliders` once the asset is ready.
+#[derive(Component)]
+pub struct PendingHullCollider(pub Handle<ConvexHullAsset>);
 
 /// Marker component present on every weapon entity regardless of type.
 #[derive(Component)]
@@ -37,7 +43,13 @@ pub enum FireEffect {
         /// Shooter entity, excluded from the raycast.
         shooter: Option<Entity>,
     },
-    // Future: Projectile { origin, direction, speed, damage, ... }
+    Projectile {
+        origin: Vec3,
+        direction: Vec3,
+        speed: f32,
+        damage: f32,
+        shooter: Option<Entity>,
+    },
 }
 
 /// Resource that accumulates `FireEffect`s produced by `fire_weapons<T>` each tick.
@@ -67,9 +79,16 @@ pub fn fire_weapons<T: Component<Mutability = bevy::ecs::component::Mutable>>(
 /// Shared interface for weapon types. Implement this to get `spawn_from_command` for free.
 pub trait WeaponKind: Component + Default {
     const MODEL_PATH: &'static str;
+    /// Optional path to a .obj convex hull asset. Empty string means use the default cuboid.
+    const HULL_PATH: &'static str = "";
+    /// Uniform scale applied to both the GLB visual and the convex hull collider.
+    const SCALE: f32 = 1.0;
 }
 
 /// Spawns a weapon from a network SpawnCommand: physics body + scene visuals + net_id.
+/// If `W::HULL_PATH` is set, replaces the default cuboid collider with the convex hull.
+/// If the asset is already cached the swap is immediate; otherwise a `PendingHullCollider`
+/// is attached and `swap_weapon_hull_colliders` finishes the job next frame.
 /// Client-only in practice (requires AssetServer for the GLB scene).
 pub fn spawn_from_command<W: WeaponKind>(
     cmd: SpawnCommand,
@@ -77,10 +96,31 @@ pub fn spawn_from_command<W: WeaponKind>(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     asset_server: &AssetServer,
+    hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
-    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, ..default() };
+    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(W::SCALE) };
     let entity = spawn(transform, commands, world);
     commands.entity(entity).insert((SceneRoot(asset_server.load(W::MODEL_PATH)), Visibility::default(), cmd.net_id));
+    if !W::HULL_PATH.is_empty() {
+        let s = W::SCALE;
+        let handle = asset_server.load_with_settings(W::HULL_PATH, move |settings: &mut f32| *settings = s);
+        if let Some(hull) = hull_assets.get(&handle) {
+            // Asset already cached — swap colliders immediately.
+            if let Some(rb_handle) = world.entity_to_handle.get(&entity).copied() {
+                let existing: Vec<rapier3d::prelude::ColliderHandle> = world.rigid_body_set.get(rb_handle)
+                    .map(|rb| rb.colliders().to_vec())
+                    .unwrap_or_default();
+                for ch in existing {
+                    let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
+                    collider_set.remove(ch, island_manager, rigid_body_set, true);
+                }
+                let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+                collider_set.insert_with_parent(hull.0.clone(), rb_handle, rigid_body_set);
+            }
+        } else {
+            commands.entity(entity).insert(PendingHullCollider(handle));
+        }
+    }
     entity
 }
 

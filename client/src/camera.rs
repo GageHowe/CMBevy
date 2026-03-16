@@ -42,7 +42,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         // tonemapping — override the Camera3d default (ReinhardLuminance).
         // AgX: neutral, filmic, good for HDR. TonyMcMapface: more contrasty/stylized.
         // BlenderFilmic: similar to ACES but less harsh. AcesFitted: punchy, saturated.
-        Tonemapping::AgX,
+        Tonemapping::AcesFitted,
 
         // prepasses — required by SSAO and outline
         DepthPrepass,
@@ -79,6 +79,6 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
     ))
     .insert(crate::outline::OutlineSettings {
         threshold: 0.05,
-        color: Vec4::new(0.5, 0.5, 0.5, 0.1),
+        color: Vec4::new(0.5, 0.5, 0.5, 0.05),
     });
 }

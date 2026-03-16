@@ -17,13 +17,14 @@ use common::pawn::biped;
 use common::pawn::pawn::BipedPawnComponent;
 use common::health::Health;
 use common::weapon::{
-    rifle, shotgun,
+    rifle, shotgun, hail_mary,
     fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin,
     insert_weapon_physics,
 };
+use common::weapon::hail_mary::HailMaryProjectileState;
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
-use common::level::{Map, LevelPlugin, default_level, SpawnPoint};
+use common::level::{Map, LevelPlugin, SpawnPoint};
 use std::sync::{mpsc, Mutex};
 use common::game_objects::planet::PlanetBehaviorComponent;
 use common::scripting::{RhaiScriptConfig, call_script_fn};
@@ -55,10 +56,7 @@ fn parse_args() -> (SocketAddr, String, String) {
 fn main() {
     let (bind_addr, map_path, gametype_path) = parse_args();
     println!("binding to {bind_addr}\nmap={map_path}\ngametype={gametype_path}");
-    let level = Map::from_ron(&map_path).unwrap_or_else(|e| {
-        eprintln!("Failed to load map \"{map_path}\": {e}. Using default.");
-        default_level()
-    });
+    let level = Map::from_ron(&map_path).unwrap_or_else(|e| panic!("Failed to load map \"{map_path}\": {e}"));
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -105,6 +103,7 @@ fn main() {
     app.add_systems(FixedUpdate, (
         fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
+        fire_weapons::<hail_mary::HailMaryComponent>(hail_mary::apply_hail_mary_fire),
     ).in_set(ServerSet::WeaponFire));
     app.add_systems(FixedUpdate, handle_fired_weapons.after(ServerSet::WeaponFire).before(step_physics));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
@@ -146,8 +145,9 @@ fn spawn_level_objects(
         let transform = Transform::from_translation(req.position).with_rotation(req.rotation);
         let net_id = NetworkID(net_ids.get_next_free_id());
         let entity = match req.kind {
-            GameObjectKind::Rifle   => rifle::spawn(transform, &mut commands, &mut world),
-            GameObjectKind::Shotgun => shotgun::spawn(transform, &mut commands, &mut world),
+            GameObjectKind::Rifle     => rifle::spawn(transform, &mut commands, &mut world),
+            GameObjectKind::Shotgun   => shotgun::spawn(transform, &mut commands, &mut world),
+            GameObjectKind::HailMary  => hail_mary::spawn(transform, &mut commands, &mut world),
             GameObjectKind::Planet  => {
                 let params = req.planet_params.clone().unwrap_or_else(|| {
                     eprintln!("Planet spawn request missing planet_params, using defaults");
@@ -468,6 +468,7 @@ fn handle_fired_weapons(
     weapon_kinds: Query<&GameObjectKind>,
     tick: Res<Ticker>,
     mode: Res<ModeConfig>,
+    mut net_ids: ResMut<NetworkIDResource>,
 ) {
     // Drain into a local vec so we can use `world` mutably below without holding
     // a borrow on `fired` at the same time.
@@ -516,7 +517,20 @@ fn handle_fired_weapons(
                     }
                 }
             }
-            // Future: FireEffect::Projectile { ... } → spawn authoritative projectile body + SpawnCommand
+            FireEffect::Projectile { origin, direction, speed, damage, shooter } => {
+                let net_id = NetworkID(net_ids.get_next_free_id());
+                let entity = hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, damage, shooter);
+                commands.entity(entity).insert(net_id.clone());
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
+                    net_id,
+                    position: origin,
+                    starting_velocity: direction * speed,
+                    rotation: Quat::IDENTITY,
+                    server_tick: tick.tick,
+                    kind: GameObjectKind::HailMaryProjectile,
+                    owned: false,
+                }));
+            }
         }
     }
 }

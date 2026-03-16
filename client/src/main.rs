@@ -1,5 +1,6 @@
 // client executable
 
+use bevy::core_pipeline::Skybox;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::log::{Level, LogPlugin};
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
@@ -22,7 +23,7 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, fire_weapons, spawn_from_command, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin};
+use common::weapon::{rifle, shotgun, hail_mary, fire_weapons, spawn_from_command, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin, PendingHullCollider};
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -65,14 +66,19 @@ struct SpawnParams<'w, 's> {
     asset_server: Res<'w, AssetServer>,
     entity_children: Query<'w, 's, &'static Children>,
     lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
+    predicted_projectiles: Query<'w, 's, (Entity, &'static hail_mary::PredictedProjectile)>,
+    body_handles: Query<'w, 's, &'static PhysicsBodyHandle>,
+    hull_assets: Res<'w, Assets<ConvexHullAsset>>,
 }
 use settings::SettingsPlugin;
 use steam::SteamworksPlugin;
 use common::debug_println;
 use common::health::Health;
 use common::master_plugin::MasterPlugin;
-use common::level::{Map, PendingHullColliders, default_level, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
+use common::level::{Map, PendingHullColliders, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
+use common::physics::convex_hull_asset::ConvexHullAsset;
 use common::game_objects::planet::draw_planet_radii;
+use common::game_objects::pawn::biped::draw_biped_debug;
 use ui::ui::GuiState;
 mod settings;
 mod steam;
@@ -168,10 +174,10 @@ fn main() {
     app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
 
-    app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player).chain());
-    app.add_systems(OnExit(GameState::SinglePlayer), (despawn_local_player, cleanup_level, remove_script).chain());
+    app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player, spawn_sp_weapons).chain());
+    app.add_systems(OnExit(GameState::SinglePlayer), (cleanup_world, cleanup_level, remove_script).chain());
     app.add_systems(OnEnter(GameState::Multiplayer), connect);
-    app.add_systems(OnExit(GameState::Multiplayer), (disconnect, cleanup_level, remove_script).chain());
+    app.add_systems(OnExit(GameState::Multiplayer), (cleanup_world, disconnect, cleanup_level, remove_script).chain());
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → gather_pawn_input → send_pawn_input → move_bipeds
@@ -190,7 +196,9 @@ fn main() {
     app.add_systems(FixedUpdate, (
         fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
+        fire_weapons::<hail_mary::HailMaryComponent>(hail_mary::apply_hail_mary_fire),
         local_hitscan_vfx,
+        tick_predicted_projectiles,
     ).chain().before(step_physics).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
     // FixedPostUpdate:
@@ -206,8 +214,14 @@ fn main() {
     app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)
         .run_if(resource_added::<Map>));
+    app.add_systems(Update, load_skybox.run_if(resource_added::<Map>));
+
     app.add_systems(Update, spawn_hull_colliders);
+    app.add_systems(Update, swap_weapon_hull_colliders);
     app.add_systems(Update, draw_planet_radii);
+    app.add_systems(Update, draw_biped_debug);
+    app.add_systems(Update, hail_mary::draw_projectile_debug);
+    app.add_systems(FixedUpdate, hail_mary::tick_muzzle_flash);
 
     debug_println!("starting client...\n");
     app.run();
@@ -220,29 +234,71 @@ fn local_hitscan_vfx(
     mut hit_beams: ResMut<HitBeams>,
     mut ray_cast: MeshRayCast,
     viewmodels: Query<&ViewmodelSlots>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
 ) {
     let excluded: Vec<Entity> = viewmodels.iter()
         .flat_map(|slots| slots.0.iter().filter_map(|e| *e))
         .collect();
     for (_, effect) in fired.0.drain(..) {
-        let FireEffect::Hitscan { origin, direction, range, .. } = effect;
-        let Ok(dir) = Dir3::new(direction) else { continue };
-        let hits = ray_cast.cast_ray(
-            Ray3d::new(origin, dir),
-            &MeshRayCastSettings { filter: &|e| !excluded.contains(&e), ..default() },
-        );
-        let end = hits.iter()
-            .find(|(_, hit)| hit.distance <= range)
-            .map(|(_, hit)| hit.point)
-            .unwrap_or(origin + direction * range);
-        hit_beams.0.push((origin, end, 0.3));
+        match effect {
+            FireEffect::Hitscan { origin, direction, range, .. } => {
+                let Ok(dir) = Dir3::new(direction) else { continue };
+                let hits = ray_cast.cast_ray(
+                    Ray3d::new(origin, dir),
+                    &MeshRayCastSettings { filter: &|e| !excluded.contains(&e), ..default() },
+                );
+                let end = hits.iter()
+                    .find(|(_, hit)| hit.distance <= range)
+                    .map(|(_, hit)| hit.point)
+                    .unwrap_or(origin + direction * range);
+                hit_beams.0.push((origin, end, 0.3));
+            }
+            FireEffect::Projectile { origin, direction, .. } => {
+                let entity = hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, None);
+                commands.entity(entity).insert(hail_mary::PredictedProjectile::default());
+            }
+        }
     }
 }
 
 fn load_sp_level(mut commands: Commands) {
-    let level = Map::from_ron("assets/maps/default.ron")
-        .unwrap_or_else(|_| default_level());
+    let level = Map::from_ron("assets/maps/default.ron").expect("failed to load assets/maps/default.ron");
     commands.insert_resource(level);
+}
+
+fn spawn_sp_weapons(
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    asset_server: Res<AssetServer>,
+    hull_assets: Res<Assets<ConvexHullAsset>>,
+    mut net_ids: ResMut<NetworkIDResource>,
+    level: Res<Map>,
+) {
+    for req in &level.initial_spawns {
+        let cmd = SpawnCommand {
+            net_id: NetworkID(net_ids.get_next_free_id()),
+            position: req.position,
+            rotation: req.rotation,
+            starting_velocity: Vec3::ZERO,
+            server_tick: 0,
+            kind: req.kind.clone(),
+            owned: false,
+        };
+        match req.kind {
+            GameObjectKind::HailMary => {
+                let entity = spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
+                hail_mary::add_muzzle_flash(entity, &mut commands);
+            }
+            GameObjectKind::Rifle => {
+                spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
+            }
+            GameObjectKind::Shotgun => {
+                spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
+            }
+            _ => {}
+        }
+    }
 }
 
 // PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
@@ -269,16 +325,29 @@ fn spawn_local_player(
     commands.entity(entity).insert((Possessed::new(128), ViewmodelSlots::default()));
 }
 
-// PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
-fn despawn_local_player(
+fn load_skybox(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    level: Res<Map>,
+    camera: Query<Entity, With<Camera3d>>,
+) {
+    let (Some(path), Ok(cam)) = (&level.skybox, camera.single()) else { return };
+    commands.entity(cam).insert(Skybox {
+        image: asset_server.load(path.clone()),
+        brightness: level.skybox_brightness,
+        ..default()
+    });
+}
+
+fn cleanup_world(
     mut commands: Commands,
     camera: Query<Entity, With<Camera3d>>,
-    pawns: Query<Entity, With<BipedPawnComponent>>,
+    roots: Query<Entity, (With<Transform>, Without<Camera3d>, Without<ChildOf>)>,
 ) {
     if let Ok(cam) = camera.single() {
         commands.entity(cam).remove_parent_in_place();
     }
-    for entity in pawns.iter() {
+    for entity in roots.iter() {
         commands.entity(entity).despawn();
     }
 }
@@ -288,14 +357,11 @@ fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, add
 }
 
 fn disconnect(
-    mut commands: Commands,
     mut quic: ResMut<QuicManager>,
     mut client: ResMut<QuinnetClient>,
     mut local_net_id: ResMut<LocalNetworkID>,
     mut pending: ResMut<PendingReconciliation>,
     mut hosted: ResMut<HostedServer>,
-    networked: Query<Entity, With<NetworkID>>,
-    camera: Query<Entity, With<Camera3d>>,
 ) {
     if let Some(conn) = client.get_connection_mut() {
         let _ = conn.disconnect();
@@ -308,19 +374,6 @@ fn disconnect(
     quic.client_connected = false;
     local_net_id.0 = None;
     pending.0 = None;
-    if let Ok(cam) = camera.single() {
-        commands.entity(cam).remove_parent_in_place();
-    }
-    // Detach all networked entities from their parents first.
-    // Weapon viewmodels are children of PitchPivot (which is a child of the pawn).
-    // Without this, despawning the pawn recursively also despawns the weapon, then
-    // the explicit loop below tries to despawn it a second time → Bevy warning.
-    for entity in networked.iter() {
-        commands.entity(entity).remove_parent_in_place();
-    }
-    for entity in networked.iter() {
-        commands.entity(entity).despawn();
-    }
 }
 
 fn remove_script(mut commands: Commands) {
@@ -364,10 +417,37 @@ fn on_message(
                         }
                     }
                     GameObjectKind::Rifle => {
-                        spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut sp.commands, &mut world, &sp.asset_server);
+                        spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
                     }
                     GameObjectKind::Shotgun => {
-                        spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut sp.commands, &mut world, &sp.asset_server);
+                        spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
+                    }
+                    GameObjectKind::HailMary => {
+                        let entity = spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
+                        hail_mary::add_muzzle_flash(entity, &mut sp.commands);
+                    }
+                    GameObjectKind::HailMaryProjectile => {
+                        let velocity = cmd.starting_velocity;
+                        let direction = velocity.normalize_or_zero();
+                        let dt = world.integration_parameters.dt;
+                        let ticks_ahead = ticker.tick.saturating_sub(cmd.server_tick);
+                        // Forward-predict the server bullet to the current client tick.
+                        let corrected_pos = cmd.position + velocity * dt * ticks_ahead as f32;
+                        if let Some((pred_entity, _)) = sp.predicted_projectiles.iter().next() {
+                            // Adopt the predicted entity: snap to server-authoritative position
+                            // and assign the NetworkID so it becomes a tracked entity.
+                            if let Ok(handle) = sp.body_handles.get(pred_entity) {
+                                if let Some(rb) = world.rigid_body_set.get_mut(handle.0) {
+                                    rb.set_translation(corrected_pos, true);
+                                }
+                            }
+                            sp.commands.entity(pred_entity)
+                                .insert(cmd.net_id)
+                                .remove::<hail_mary::PredictedProjectile>();
+                        } else {
+                            let entity = hail_mary::spawn_projectile(corrected_pos, direction, &mut sp.commands, &mut world, 0.0, None);
+                            sp.commands.entity(entity).insert(cmd.net_id);
+                        }
                     }
                     GameObjectKind::Spaceship => {
                         warn!("Spaceship spawn not yet implemented on client");
@@ -565,6 +645,46 @@ fn fire_weapon(
     );
 }
 
+
+/// Replaces a weapon entity's default cuboid collider with its convex hull once the asset loads.
+/// Triggered by `spawn_from_command` attaching a `Handle<ConvexHullAsset>` to the entity.
+fn swap_weapon_hull_colliders(
+    mut commands: Commands,
+    pending: Query<(Entity, &PendingHullCollider, &PhysicsBodyHandle)>,
+    hull_assets: Res<Assets<ConvexHullAsset>>,
+    mut world: ResMut<PhysicsWorld>,
+) {
+    for (entity, hull_handle, body_handle) in pending.iter() {
+        let Some(hull) = hull_assets.get(&hull_handle.0) else { continue };
+        let hull_collider = hull.0.clone();
+        let existing: Vec<rapier3d::prelude::ColliderHandle> = world.rigid_body_set.get(body_handle.0)
+            .map(|rb| rb.colliders().to_vec())
+            .unwrap_or_default();
+        for ch in existing {
+            let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
+            collider_set.remove(ch, island_manager, rigid_body_set, true);
+        }
+        {
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+            collider_set.insert_with_parent(hull_collider, body_handle.0, rigid_body_set);
+        }
+        commands.entity(entity).remove::<PendingHullCollider>();
+    }
+}
+
+/// Ages predicted projectiles each tick; despawns them if no server confirmation arrives
+/// within the timeout (server rejected the shot or packet was lost).
+fn tick_predicted_projectiles(
+    mut commands: Commands,
+    mut projectiles: Query<(Entity, &mut hail_mary::PredictedProjectile)>,
+) {
+    for (entity, mut pred) in projectiles.iter_mut() {
+        pred.age_ticks += 1;
+        if pred.age_ticks > 120 {
+            commands.entity(entity).despawn();
+        }
+    }
+}
 
 /// Draws active hitscan beams as gizmos and ticks down their lifetime.
 fn draw_hit_beams(

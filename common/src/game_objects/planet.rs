@@ -34,7 +34,7 @@ pub fn spawn(planet: PlanetBehaviorComponent, transform: Transform, commands: &m
     let entity = commands.spawn((planet, transform)).id();
     let rb_handle = world.insert_body(entity, RigidBodyBuilder::fixed().translation(Vector3::new(pos.x, pos.y, pos.z)).build());
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-    collider_set.insert_with_parent(ColliderBuilder::ball(collider_radius).build(), rb_handle, rigid_body_set);
+    collider_set.insert_with_parent(ColliderBuilder::ball(collider_radius).friction(3.0).restitution(0.0).build(), rb_handle, rigid_body_set);
     commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
     entity
 }
@@ -52,6 +52,7 @@ pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&Planet
         .collect();
 
     let mut impulses: Vec<(RigidBodyHandle, Vector)> = Vec::new();
+    let mut vel_deltas: Vec<(RigidBodyHandle, Vector)> = Vec::new();
 
     for (planet_center, planet, planet_handle) in &planet_data {
         let gravity_radius = planet.gravity_radius as f32;
@@ -82,7 +83,7 @@ pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&Planet
 
         for rb_handle in affected_handles {
             let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
-            if !rb.is_dynamic() { continue; }
+            if !rb.is_enabled() { continue; }
 
             let t = rb.position().translation;
             let to_planet = *planet_center - Vec3::new(t.x, t.y, t.z);
@@ -95,14 +96,24 @@ pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&Planet
                 GravityProfile::Constant(s)      => s,
             };
 
-            let impulse = to_planet / dist * strength * rb.mass() * dt;
-            impulses.push((rb_handle, impulse));
+            let dir = to_planet / dist;
+            if rb.is_dynamic() {
+                impulses.push((rb_handle, dir * strength * rb.mass() * dt));
+            } else if rb.is_kinematic() {
+                vel_deltas.push((rb_handle, dir * strength));
+            }
         }
     }
 
     for (handle, impulse) in impulses {
         if let Some(rb) = world.rigid_body_set.get_mut(handle) {
             rb.apply_impulse(impulse, true);
+        }
+    }
+    for (handle, dv) in vel_deltas {
+        if let Some(rb) = world.rigid_body_set.get_mut(handle) {
+            let v = rb.linvel();
+            rb.set_linvel(Vector::new(v.x + dv.x, v.y + dv.y, v.z + dv.z), true);
         }
     }
 }
@@ -148,7 +159,15 @@ pub fn orient_bipeds_to_planets(
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let Some((planet_center, _)) = nearest else { continue };
+        let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else { continue };
+
+        let Some((planet_center, _)) = nearest else {
+            // Outside all snap radii — restore free rotation.
+            rb.lock_rotations(false, true);
+            continue;
+        };
+
+        rb.lock_rotations(true, false);
 
         let desired_up = (pos - planet_center).normalize();
         let current_forward = current_rot * Vec3::NEG_Z;
@@ -171,11 +190,7 @@ pub fn orient_bipeds_to_planets(
         let back  = right.cross(desired_up).normalize();
         let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
 
-        let new_rot = current_rot.slerp(target_rot, 0.05);
-
-        if let Some(rb) = world.rigid_body_set.get_mut(rb_handle) {
-            rb.set_rotation(new_rot, false);
-        }
+        rb.set_rotation(target_rot, false);
     }
 }
 

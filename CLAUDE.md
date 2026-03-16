@@ -31,3 +31,5 @@ Also see: README.md for project description
 * 
 
 Build client in the background in between tasks that touch client or common.
+
+All movement and physics should be relative. When firing a projectile, it should inherit the velocity of its owner.

@@ -25,6 +25,7 @@ pub struct LevelEntity;
 
 fn one() -> f32 { 1.0 }
 fn default_scale() -> Vec3 { Vec3::ONE }
+fn default_skybox_brightness() -> f32 { 1000.0 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StaticCollider {
@@ -41,7 +42,7 @@ pub struct LevelSpawnRequest {
     pub position: Vec3,
     pub rotation: Quat,
     #[serde(default)]
-    pub planet_params: Option<PlanetBehaviorComponent>,
+    pub planet_params: Option<PlanetBehaviorComponent>, // wtf? why is this here
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -59,6 +60,11 @@ pub struct Map {
     pub scene_path: String,
     #[serde(default = "default_scale")]
     pub scene_scale: Vec3,
+    /// Optional path to a cubemap image (e.g. KTX2) for the skybox. Client-only.
+    #[serde(default)]
+    pub skybox: Option<String>,
+    #[serde(default = "default_skybox_brightness")]
+    pub skybox_brightness: f32,
     /// Static (fixed) physics bodies. Spawned on both client and server.
     pub static_colliders: Vec<StaticCollider>,
     /// Objects to spawn at level start. The server processes these on startup.
@@ -87,13 +93,8 @@ impl Map {
 pub struct LevelPlugin(pub Map);
 
 impl LevelPlugin {
-    /// Load from a RON file, falling back to `default_level()` on error.
     pub fn load(path: &str) -> Self {
-        let level = Map::from_ron(path).unwrap_or_else(|e| {
-            eprintln!("Failed to load level from \"{path}\": {e}. Using default.");
-            default_level()
-        });
-        LevelPlugin(level)
+        LevelPlugin(Map::from_ron(path).unwrap_or_else(|e| panic!("Failed to load level \"{path}\": {e}")))
     }
 }
 
@@ -206,34 +207,3 @@ pub fn cleanup_level(
     commands.remove_resource::<Map>();
 }
 
-pub fn default_level() -> Map {
-    Map {
-        scene_path: "models/companion_cube.glb#Scene0".into(),
-        scene_scale: Vec3::ONE,
-        static_colliders: vec![
-            StaticCollider {
-                position: Vec3::new(0.0, -10.0, 0.0),
-                rotation: Quat::IDENTITY,
-                shape: ColliderShape::Cuboid(Vec3::new(10.0, 2.0, 10.0)),
-                scale: 1.0,
-            },
-        ],
-        initial_spawns: vec![
-            LevelSpawnRequest {
-                kind: GameObjectKind::Rifle,
-                position: Vec3::new(3.0, 2.0, 0.0),
-                rotation: Quat::IDENTITY,
-                planet_params: None,
-            },
-            LevelSpawnRequest {
-                kind: GameObjectKind::Shotgun,
-                position: Vec3::new(-3.0, 2.0, 0.0),
-                rotation: Quat::IDENTITY,
-                planet_params: None,
-            },
-        ],
-        spawn_points: vec![
-            SpawnPoint { position: Vec3::new(0.0, 5.0, 0.0), rotation: Quat::IDENTITY, team: 0 },
-        ],
-    }
-}

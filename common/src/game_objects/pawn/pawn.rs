@@ -12,6 +12,7 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
+        app.add_observer(super::biped::on_remove_biped);
         app.add_systems(FixedPreUpdate, (
             gather_pawn_input.run_if(resource_exists::<ButtonInput<KeyCode>>),
             (
@@ -28,10 +29,7 @@ impl Plugin for PawnPlugin {
 
 // COMPONENTS
 
-#[derive(Component, Default)]
-pub struct BipedPawnComponent {
-    pub flashlight_on: bool,
-}
+pub use super::biped::BipedPawnComponent;
 
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;

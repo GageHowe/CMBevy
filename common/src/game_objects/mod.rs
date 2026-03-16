@@ -12,6 +12,8 @@ pub enum GameObjectKind {
     Spaceship,
     Rifle,
     Shotgun,
+    HailMary,
+    HailMaryProjectile,
     Planet,
 }
 
