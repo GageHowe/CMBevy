@@ -25,7 +25,7 @@ use common::debug_println;
 use common::level::{Map, LevelPlugin, SpawnPoint};
 use std::sync::{mpsc, Mutex};
 use common::game_objects::planet::PlanetBehaviorComponent;
-use common::scripting::{ScriptConfig, call_script_fn};
+use common::scripting::{ScriptConfig, call_script_fn, get_script_global};
 
 #[derive(Resource)]
 struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
@@ -161,7 +161,7 @@ fn spawn_level_objects(
 }
 
 fn init_mode_config(world: &mut World) {
-    let respawn_delay = call_script_fn::<f64>(world, "get_respawn_delay")
+    let respawn_delay = get_script_global::<f64>(world, "RESPAWN_DELAY")
         .map(|d| d as f32)
         .unwrap_or(common::config::RESPAWN_DELAY_SECS);
     world.insert_resource(ModeConfig { respawn_delay });

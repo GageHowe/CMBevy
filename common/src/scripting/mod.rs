@@ -115,6 +115,16 @@ fn register_script_functions(world: &mut World) {
     world.insert_non_send_resource(runtime);
 }
 
+/// Read a named global from the loaded Lua script. Returns `None` if the script isn't
+/// loaded or the global doesn't exist / has the wrong type.
+pub fn get_script_global<T: mlua::FromLua>(world: &mut World, name: &str) -> Option<T> {
+    let runtime = world.remove_non_send_resource::<ScriptRuntime>()?;
+    if !runtime.loaded { world.insert_non_send_resource(runtime); return None; }
+    let result = runtime.lua.globals().get::<T>(name).ok();
+    world.insert_non_send_resource(runtime);
+    result
+}
+
 /// Call a named function in the loaded Lua script, returning `None` if the script isn't
 /// loaded or the function doesn't exist. Requires exclusive world access.
 pub fn call_script_fn<T: mlua::FromLuaMulti>(world: &mut World, fn_name: &str) -> Option<T> {
