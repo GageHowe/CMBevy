@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 use crate::game_objects::pawn::pawn::BipedPawnComponent;
-use crate::physics::physics_world::*;
+use crate::physics::physics_world::{self, *};
 
 #[deprecated]
 /// this should depend on the individual GravityRadiusComponent
@@ -35,13 +35,17 @@ pub fn spawn(planet: PlanetBehaviorComponent, transform: Transform, commands: &m
     let rb_handle = world.insert_body(entity, RigidBodyBuilder::fixed().translation(Vector3::new(pos.x, pos.y, pos.z)).build());
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(ColliderBuilder::ball(collider_radius).friction(3.0).restitution(0.0).build(), rb_handle, rigid_body_set);
-    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
     entity
 }
 
 /// Applies a gravity impulse from each planet to all dynamic bodies within its radius.
 /// Called before every physics step, including during reconciliation replay.
-pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>) {
+pub fn apply_gravity_impulses(
+    world: &mut PhysicsWorld,
+    planets: &Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>,
+    gravity_scales: &Query<&physics_world::GravityScale>,
+) {
     let dt = world.integration_parameters.dt;
 
     let planet_data: Vec<(Vec3, &PlanetBehaviorComponent, RigidBodyHandle)> = planets.iter()
@@ -96,11 +100,16 @@ pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&Planet
                 GravityProfile::Constant(s)      => s,
             };
 
+            let scale = world.handle_to_entity.get(&rb_handle)
+                .and_then(|e| gravity_scales.get(*e).ok())
+                .map_or(1.0, |gs| gs.0);
+            if scale == 0.0 { continue; }
+
             let dir = to_planet / dist;
             if rb.is_dynamic() {
-                impulses.push((rb_handle, dir * strength * rb.mass() * dt));
+                impulses.push((rb_handle, dir * strength * scale * rb.mass() * dt));
             } else if rb.is_kinematic() {
-                vel_deltas.push((rb_handle, dir * strength));
+                vel_deltas.push((rb_handle, dir * strength * scale * dt));
             }
         }
     }
@@ -120,9 +129,10 @@ pub fn apply_gravity_impulses(world: &mut PhysicsWorld, planets: &Query<(&Planet
 
 pub fn apply_gravity(
     mut world: ResMut<PhysicsWorld>,
-    planets: Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>,
+    planets: Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>,
+    gravity_scales: Query<&physics_world::GravityScale>,
 ) {
-    apply_gravity_impulses(&mut world, &planets);
+    apply_gravity_impulses(&mut world, &planets, &gravity_scales);
 }
 
 /// Smoothly orients bipeds upright relative to the nearest planet using an
@@ -132,8 +142,8 @@ pub fn apply_gravity(
 /// the planet's "up". snap_radius == 0 is treated as unlimited.
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
-    bipeds: Query<&PhysicsBodyHandle, With<BipedPawnComponent>>,
-    planets: Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>,
+    bipeds: Query<&RigidBodyHandleComponenet, With<BipedPawnComponent>>,
+    planets: Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>,
 ) {
     let planet_data: Vec<(Vec3, f32)> = planets.iter()
         .filter_map(|(planet, handle)| {

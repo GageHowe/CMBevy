@@ -27,9 +27,10 @@ pub fn on_remove_biped(
 }
 
 /// Two weapon slots on a biped pawn. Stored on the entity, not globally.
+/// Each slot holds the NetworkID and (client-only) the local weapon entity for the viewmodel.
 #[derive(Component, Default)]
 pub struct WeaponSlots {
-    pub slots: [Option<NetworkID>; 2],
+    pub slots: [(Option<NetworkID>, Option<Entity>); 2],
     pub active: usize,
 }
 
@@ -44,12 +45,14 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
         .lock_rotations()
         .build();
     let rb_handle = world.insert_body(entity, capsule_rb);
+    let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
     let capsule_collider = ColliderBuilder::capsule_y(0.5, 0.3)
         .friction(0.0)
         .restitution(0.0)
         .restitution_combine_rule(CoefficientCombineRule::Min)
+        .solver_groups(player_solver)
         .build();
-    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
     {
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
         collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
@@ -69,6 +72,7 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
             .friction(3.0)
             .restitution(0.0)
             .restitution_combine_rule(CoefficientCombineRule::Min)
+            .solver_groups(player_solver)
             .build();
         collider_set.insert_with_parent(sphere_collider, sphere_handle, rigid_body_set);
     }
@@ -185,7 +189,7 @@ pub fn spawn_from_command(
 
 pub fn draw_biped_debug(
     world: Res<PhysicsWorld>,
-    bipeds: Query<(&BipedPawnComponent, &PhysicsBodyHandle)>,
+    bipeds: Query<(&BipedPawnComponent, &RigidBodyHandleComponenet)>,
     mut gizmos: Gizmos,
 ) {
     use crate::physics::debug::{draw_collider, rb_iso};
@@ -225,7 +229,7 @@ const JUMP_COOLDOWN:  u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jum
 
 pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
-    body_handle: &PhysicsBodyHandle,
+    body_handle: &RigidBodyHandleComponenet,
     input: PawnInput,
     biped: &mut BipedPawnComponent,
 ) {

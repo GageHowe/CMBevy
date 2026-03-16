@@ -61,10 +61,11 @@ pub enum MsgType {
     /// Depending on the entity's implementation(s), this could be equipping a weapon,
     /// getting into a vehicle, etc.
     Interact(NetworkID),
-    /// Server → All: (weapon_id, carrier_net_id). Clients remove the weapon entity;
-    /// the carrier client records it as their held weapon.
-    /// this seems bad, idk
+    /// Server → All: (weapon_id, carrier_net_id). The weapon's physics body is disabled;
+    /// the carrier client attaches it as a viewmodel.
     WeaponPickup(NetworkID, NetworkID),
+    /// Server → All: (weapon_id, carrier_net_id, drop_pos). Re-enables the weapon body at drop_pos.
+    WeaponDrop(NetworkID, NetworkID, Vec3),
     /// Client → Server: (weapon_net_id, origin, direction). Fire the held weapon.
     Fire(NetworkID, Vec3, Vec3),
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.

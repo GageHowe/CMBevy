@@ -8,9 +8,19 @@ use rapier3d::prelude::*;
 pub use rapier3d::prelude::RigidBodyHandle;
 use std::collections::HashMap;
 
+/// Collision group for player bodies (capsule + foot sphere).
+pub const GROUP_PLAYER: Group = Group::GROUP_1;
+/// Collision group for projectiles. Excluded from player-group solver contacts.
+pub const GROUP_PROJECTILE: Group = Group::GROUP_2;
+
+/// Scales how strongly planet gravity affects this body. Defaults to 1.0 if absent.
+/// Set to 0.0 to ignore planet gravity entirely, or a small value for slight curvature.
+#[derive(Component, Clone, Copy)]
+pub struct GravityScale(pub f32);
+
 /// a way for entities to refer to their rigidbody
 #[derive(Component)]
-pub struct PhysicsBodyHandle(pub rapier3d::prelude::RigidBodyHandle);
+pub struct RigidBodyHandleComponenet(pub RigidBodyHandle);
 
 #[derive(Resource)]
 pub struct PhysicsWorld {
@@ -112,6 +122,26 @@ impl PhysicsWorld {
             );
         }
     }
+
+    /// Disable or re-enable a body without removing it from the world.
+    pub fn set_body_enabled(&mut self, entity: Entity, enabled: bool) {
+        if let Some(&handle) = self.entity_to_handle.get(&entity) {
+            if let Some(rb) = self.rigid_body_set.get_mut(handle) {
+                rb.set_enabled(enabled);
+            }
+        }
+    }
+
+    /// Teleport a body to `pos` and zero its velocities.
+    pub fn teleport_body(&mut self, entity: Entity, pos: Vec3) {
+        if let Some(&handle) = self.entity_to_handle.get(&entity) {
+            if let Some(rb) = self.rigid_body_set.get_mut(handle) {
+                rb.set_translation(Vector3::new(pos.x, pos.y, pos.z), true);
+                rb.set_linvel(Vector3::ZERO, true);
+                rb.set_angvel(Vector3::ZERO, true);
+            }
+        }
+    }
 }
 
 impl PhysicsWorld {
@@ -182,7 +212,7 @@ impl Plugin for PhysicsPlugin {
     }
 }
 
-fn on_remove_physics_body(event: On<Remove, PhysicsBodyHandle>, mut world: ResMut<PhysicsWorld>) {
+fn on_remove_physics_body(event: On<Remove, RigidBodyHandleComponenet>, mut world: ResMut<PhysicsWorld>) {
     world.remove_body(event.entity);
 }
 
@@ -202,7 +232,7 @@ pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
 pub fn snapshot_bodies<'a>(
     world: &PhysicsWorld,
     tick: u64,
-    pairs: impl Iterator<Item = (&'a NetworkID, &'a PhysicsBodyHandle)>,
+    pairs: impl Iterator<Item = (&'a NetworkID, &'a RigidBodyHandleComponenet)>,
 ) -> SimulationState {
     let mut bodies = HashMap::new();
     for (net_id, body_handle) in pairs {
@@ -257,7 +287,7 @@ pub fn restore_snapshot(
 /// handle visual sync
 pub fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,
-    mut query: Query<(&PhysicsBodyHandle, &mut Transform)>,
+    mut query: Query<(&RigidBodyHandleComponenet, &mut Transform)>,
 ) {
     for (body_handle, mut transform) in query.iter_mut() {
         if let Some(body) = world.rigid_body_set.get(body_handle.0) {

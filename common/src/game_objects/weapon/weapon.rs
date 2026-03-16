@@ -31,8 +31,7 @@ pub struct WeaponInput {
 ///
 /// Each variant represents a fundamentally different fire mechanic:
 /// - `Hitscan`: instant-travel ray; server raycasts and broadcasts `HitResult`.
-/// - `Projectile` (future): server spawns an authoritative physics body and broadcasts
-///   a `SpawnCommand`; client spawns a predicted local body in its processing system.
+/// - `Projectile`: client-authoritative; server relays the Fire event to all clients.
 #[derive(Clone, Copy)]
 pub enum FireEffect {
     Hitscan {
@@ -62,12 +61,11 @@ pub struct FiredWeapons(pub Vec<(Entity, FireEffect)>);
 /// Calls `apply` each tick; returns `Some(FireEffect)` only when the weapon fires.
 /// Appends to `FiredWeapons` and resets `WeaponInput` regardless.
 pub fn fire_weapons<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, WeaponInput, f32, &mut T) -> Option<FireEffect>,
-) -> impl Fn(ResMut<PhysicsWorld>, Res<Time<Fixed>>, Query<(Entity, &mut WeaponInput, &mut T)>, ResMut<FiredWeapons>) {
-    move |mut world, time, mut weapons, mut fired| {
-        let dt = time.delta_secs();
+    apply: fn(&mut PhysicsWorld, WeaponInput, &mut T) -> Option<FireEffect>,
+) -> impl Fn(ResMut<PhysicsWorld>, Query<(Entity, &mut WeaponInput, &mut T)>, ResMut<FiredWeapons>) {
+    move |mut world, mut weapons, mut fired| {
         for (entity, mut input, mut component) in weapons.iter_mut() {
-            if let Some(effect) = apply(&mut world, *input, dt, &mut component) {
+            if let Some(effect) = apply(&mut world, *input, &mut component) {
                 fired.0.push((entity, effect));
             }
             input.fire = false;
@@ -107,7 +105,7 @@ pub fn spawn_from_command<W: WeaponKind>(
         if let Some(hull) = hull_assets.get(&handle) {
             // Asset already cached — swap colliders immediately.
             if let Some(rb_handle) = world.entity_to_handle.get(&entity).copied() {
-                let existing: Vec<rapier3d::prelude::ColliderHandle> = world.rigid_body_set.get(rb_handle)
+                let existing: Vec<ColliderHandle> = world.rigid_body_set.get(rb_handle)
                     .map(|rb| rb.colliders().to_vec())
                     .unwrap_or_default();
                 for ch in existing {
@@ -137,7 +135,7 @@ pub fn insert_weapon_physics(
         .build();
     let rb_handle = world.insert_body(entity, rb);
     let collider = ColliderBuilder::cuboid(0.2, 0.05, 0.4).build();
-    commands.entity(entity).insert(PhysicsBodyHandle(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
 }

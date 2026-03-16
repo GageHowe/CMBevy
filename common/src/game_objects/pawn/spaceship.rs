@@ -9,7 +9,7 @@ use rapier3d::prelude::*;
 
 pub fn apply_spaceship_movement(
     world: &mut PhysicsWorld,
-    body_handle: &PhysicsBodyHandle,
+    body_handle: &RigidBodyHandleComponenet,
     input: PawnInput,
     _spaceship: &mut SpaceshipPawnComponent,
 ) {

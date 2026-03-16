@@ -6,8 +6,8 @@ use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponIn
 
 pub const RANGE: f32 = 500.0;
 pub const DAMAGE: f32 = 25.0;
-/// Seconds between shots (10 rounds/sec).
-pub const COOLDOWN: f32 = 0.1;
+/// Ticks between shots (10 rounds/sec at 60 Hz).
+pub const COOLDOWN_TICKS: u32 = 6;
 
 impl WeaponKind for RifleComponent {
     const MODEL_PATH: &'static str = "models/ar.glb#Scene0";
@@ -16,7 +16,7 @@ impl WeaponKind for RifleComponent {
 /// Per-instance state for the rifle weapon type.
 #[derive(Component, Default)]
 pub struct RifleComponent {
-    pub cooldown: f32,
+    pub cooldown: u32,
     /// Latched when fire is requested; cleared after the shot fires.
     /// Allows tapping fire while on cooldown to queue the next shot.
     pub fire_requested: bool,
@@ -43,13 +43,12 @@ pub fn spawn(
 pub fn apply_rifle_fire(
     _world: &mut PhysicsWorld,
     input: WeaponInput,
-    dt: f32,
     rifle: &mut RifleComponent,
 ) -> Option<FireEffect> {
     if input.fire { rifle.fire_requested = true; }
-    rifle.cooldown = (rifle.cooldown - dt).max(0.0);
-    if !rifle.fire_requested || rifle.cooldown > 0.0 { return None; }
-    rifle.cooldown = COOLDOWN;
+    rifle.cooldown = rifle.cooldown.saturating_sub(1);
+    if !rifle.fire_requested || rifle.cooldown > 0 { return None; }
+    rifle.cooldown = COOLDOWN_TICKS;
     rifle.fire_requested = false;
     Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
 }

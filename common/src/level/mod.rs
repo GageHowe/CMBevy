@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld};
+use crate::physics::physics_world::{RigidBodyHandleComponenet, PhysicsWorld};
 use crate::physics::convex_hull_asset::ConvexHullAsset;
 use crate::game_objects::GameObjectKind;
 use crate::game_objects::planet::PlanetBehaviorComponent;
@@ -165,7 +165,7 @@ fn spawn_fixed_body(
     }
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands.entity(entity).insert((PhysicsBodyHandle(handle), LevelEntity));
+    commands.entity(entity).insert((RigidBodyHandleComponenet(handle), LevelEntity));
 }
 
 /// Spawns planet entities from the map's initial_spawns. Run on the client when

@@ -19,9 +19,7 @@ use common::health::Health;
 use common::weapon::{
     rifle, shotgun, hail_mary,
     fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin,
-    insert_weapon_physics,
 };
-use common::weapon::hail_mary::HailMaryProjectileState;
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
 use common::level::{Map, LevelPlugin, SpawnPoint};
@@ -103,7 +101,6 @@ fn main() {
     app.add_systems(FixedUpdate, (
         fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
-        fire_weapons::<hail_mary::HailMaryComponent>(hail_mary::apply_hail_mary_fire),
     ).in_set(ServerSet::WeaponFire));
     app.add_systems(FixedUpdate, handle_fired_weapons.after(ServerSet::WeaponFire).before(step_physics));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
@@ -230,7 +227,6 @@ fn remove_player(
     weapon_registry: &mut WeaponRegistry,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
-    weapon_kinds: &Query<&GameObjectKind>,
     tick: u64,
 ) {
     let drop_pos = world.entity_to_handle.get(&entity)
@@ -245,19 +241,10 @@ fn remove_player(
         .collect();
     for wid in held {
         if let Some((weapon_entity, _)) = weapon_registry.held.remove(&wid) {
-            let Ok(kind) = weapon_kinds.get(weapon_entity) else { continue };
-            let kind = kind.clone();
-            insert_weapon_physics(weapon_entity, &Transform::from_translation(drop_pos), commands, world);
+            world.teleport_body(weapon_entity, drop_pos);
+            world.set_body_enabled(weapon_entity, true);
             weapon_registry.free.insert(wid.clone(), weapon_entity);
-            quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
-                net_id: wid,
-                position: drop_pos.into(),
-                starting_velocity: Vec3::ZERO.into(),
-                rotation: Quat::IDENTITY.into(),
-                server_tick: tick,
-                kind,
-                owned: false,
-            }));
+            quic.send(SendTarget::All, Channel::Ordered, &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos));
         }
     }
 
@@ -339,14 +326,14 @@ fn on_message(
                 if let Some((entity, net_id)) = registry.0.remove(&msg.conn_id) {
                     debug_println!("GameServer: Player disconnected: entity={entity} conn={:?}", msg.conn_id);
                     remove_player(entity, net_id, &mut quic, &mut registry, &mut weapon_registry,
-                        &mut commands, &mut world, &weapon_kinds, tick.tick);
+                        &mut commands, &mut world, tick.tick);
                 }
             }
             MsgType::Input(pawn_input) => {
                 if let Some(&(entity, _)) = registry.0.get(&msg.conn_id) {
                     if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
                         if let Ok(mut biped) = bipeds.get_mut(entity) {
-                            biped::apply_biped_movement(&mut world, &PhysicsBodyHandle(handle), pawn_input.input, &mut biped);
+                            biped::apply_biped_movement(&mut world, &RigidBodyHandleComponenet(handle), pawn_input.input, &mut biped);
                         }
                     }
                 }
@@ -386,36 +373,26 @@ fn on_message(
                 if in_range {
                     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else { continue };
 
-                    if slots.slots.iter().all(|s| s.is_some()) {
+                    if slots.slots.iter().all(|s| s.0.is_some()) {
                         let active = slots.active;
-                        let drop_id = slots.slots[active].take().unwrap();
+                        let drop_id = slots.slots[active].0.take().unwrap();
                         if let Some((drop_entity, _)) = weapon_registry.held.remove(&drop_id) {
                             let drop_pos = player_pos.map(|t| Vec3::new(t.x, t.y, t.z)).unwrap_or(Vec3::ZERO);
-                            let Ok(kind) = weapon_kinds.get(drop_entity) else { continue };
-                            let kind = kind.clone();
-                            insert_weapon_physics(drop_entity, &Transform::from_translation(drop_pos), &mut commands, &mut world);
+                            world.teleport_body(drop_entity, drop_pos);
+                            world.set_body_enabled(drop_entity, true);
                             weapon_registry.free.insert(drop_id.clone(), drop_entity);
-                            quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(drop_id.clone()));
-                            quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
-                                net_id: drop_id,
-                                position: drop_pos.into(),
-                                starting_velocity: Vec3::ZERO.into(),
-                                rotation: Quat::IDENTITY.into(),
-                                server_tick: tick.tick,
-                                kind,
-                                owned: false,
-                            }));
+                            quic.send(SendTarget::All, Channel::Ordered,
+                                &MsgType::WeaponDrop(drop_id, player_net_id.clone(), drop_pos));
                         }
                     }
 
-                    let slot_idx = slots.slots.iter().position(|s| s.is_none()).unwrap();
-                    slots.slots[slot_idx] = Some(target_net_id.clone());
+                    let slot_idx = slots.slots.iter().position(|s| s.0.is_none()).unwrap();
+                    slots.slots[slot_idx].0 = Some(target_net_id.clone());
                     drop(slots);
 
                     weapon_registry.free.remove(&target_net_id);
                     weapon_registry.held.insert(target_net_id.clone(), (weapon_entity, player_entity));
-                    world.remove_body(weapon_entity);
-                    commands.entity(weapon_entity).remove::<PhysicsBodyHandle>();
+                    world.set_body_enabled(weapon_entity, false);
                     quic.send(SendTarget::All, Channel::Ordered,
                         &MsgType::WeaponPickup(target_net_id, player_net_id));
                 }
@@ -428,15 +405,21 @@ fn on_message(
                     _ => continue,
                 };
 
-                let origin_v: Vec3 = origin.into();
                 let dir_v = Vec3::from(direction).normalize_or_zero();
                 if dir_v == Vec3::ZERO { continue; }
 
-                if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
-                    w_input.fire = true;
-                    w_input.origin = origin_v;
-                    w_input.aim_dir = dir_v;
-                    w_input.shooter = Some(shooter_entity);
+                // Hail Mary is client-authoritative: relay the fire event to all clients.
+                // Hitscan weapons (rifle, shotgun) are processed server-side.
+                if weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false) {
+                    quic.send(SendTarget::All, Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction));
+                } else {
+                    let origin_v: Vec3 = origin.into();
+                    if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
+                        w_input.fire = true;
+                        w_input.origin = origin_v;
+                        w_input.aim_dir = dir_v;
+                        w_input.shooter = Some(shooter_entity);
+                    }
                 }
             }
             MsgType::TimePing(bits) => {
@@ -466,10 +449,8 @@ fn handle_fired_weapons(
     mut registry: ResMut<PlayerRegistry>,
     mut weapon_registry: ResMut<WeaponRegistry>,
     mut pending_respawns: ResMut<PendingRespawns>,
-    weapon_kinds: Query<&GameObjectKind>,
     tick: Res<Ticker>,
     mode: Res<ModeConfig>,
-    mut net_ids: ResMut<NetworkIDResource>,
 ) {
     // Drain into a local vec so we can use `world` mutably below without holding
     // a borrow on `fired` at the same time.
@@ -477,6 +458,7 @@ fn handle_fired_weapons(
 
     for (_, effect) in effects {
         match effect {
+            FireEffect::Projectile { .. } => {}
             FireEffect::Hitscan { origin, direction, range, damage, shooter } => {
                 let hit = world.cast_ray(origin, direction, range, shooter);
                 let (end, hit_net_id) = match hit {
@@ -505,7 +487,7 @@ fn handle_fired_weapons(
                                     .map(|(cid, (_, nid))| (*cid, nid.clone()));
                                 if let Some((conn_id, player_net_id)) = player_entry {
                                     remove_player(dead_entity, player_net_id, &mut quic, &mut registry,
-                                        &mut weapon_registry, &mut commands, &mut world, &weapon_kinds, tick.tick);
+                                        &mut weapon_registry, &mut commands, &mut world, tick.tick);
                                     pending_respawns.0.insert(conn_id,
                                         (mode.respawn_delay, GameObjectKind::Biped));
                                 } else {
@@ -517,20 +499,6 @@ fn handle_fired_weapons(
                         }
                     }
                 }
-            }
-            FireEffect::Projectile { origin, direction, speed, damage, shooter } => {
-                let net_id = NetworkID(net_ids.get_next_free_id());
-                let entity = hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, damage, shooter);
-                commands.entity(entity).insert(net_id.clone());
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
-                    net_id,
-                    position: origin,
-                    starting_velocity: direction * speed,
-                    rotation: Quat::IDENTITY,
-                    server_tick: tick.tick,
-                    kind: GameObjectKind::HailMaryProjectile,
-                    owned: false,
-                }));
             }
         }
     }
@@ -603,7 +571,7 @@ fn broadcast_tick(
     mut quic: ResMut<QuicManager>,
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
-    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
+    query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
 ) {
     let state = snapshot_bodies(&world, tick.tick, query.iter());
     quic.send(SendTarget::All, Channel::Unreliable, &MsgType::State(state));

@@ -3,7 +3,7 @@ use rapier3d::prelude::RigidBodyHandle;
 
 use common::game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
 use common::net::message::{NetworkID, SimulationState};
-use common::physics::physics_world::{PhysicsBodyHandle, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
+use common::physics::physics_world::{GravityScale, RigidBodyHandleComponenet, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
 use common::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
@@ -28,7 +28,7 @@ impl Default for LocalStateHistory {
 
 pub struct ReconciliationPlugin<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>>(
     pub S,
-    pub fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
+    pub fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
 );
 
 impl<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>> Plugin for ReconciliationPlugin<S, T> {
@@ -48,7 +48,7 @@ pub fn record_world_state(
     world: Res<PhysicsWorld>,
     tick: Res<Ticker>,
     mut history: ResMut<LocalStateHistory>,
-    query: Query<(&NetworkID, &PhysicsBodyHandle)>,
+    query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
 ) {
     history.0.push(snapshot_bodies(&world, tick.tick, query.iter()));
 }
@@ -62,9 +62,9 @@ pub fn record_world_state(
 ///      Bodies in the server snapshot are restored to server-authoritative state.
 ///      Networked bodies the server didn't mention are restored to local predicted state.
 pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
-) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &PhysicsBodyHandle, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetBehaviorComponent, &PhysicsBodyHandle)>) {
-    move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets| {
+    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
+) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponenet, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>, Query<&GravityScale>) {
+    move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales| {
         let Some(snapshot) = pending.0.take() else { return };
 
         let Some((our_net_id, our_handle, possessed)) =
@@ -113,11 +113,11 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
         for replay_tick in (snapshot.tick + 1)..current {
             if let Some(&input) = possessed.get_input(replay_tick) {
                 if let Ok(mut component) = pawn_query.single_mut() {
-                    let handle = PhysicsBodyHandle(our_rb);
+                    let handle = RigidBodyHandleComponenet(our_rb);
                     apply(&mut world, &handle, input, &mut component);
                 }
             }
-            apply_gravity_impulses(&mut world, &planets);
+            apply_gravity_impulses(&mut world, &planets, &gravity_scales);
             step_world(&mut world)
         }
     }

@@ -195,8 +195,8 @@ pub fn possess_pawn(
 
 /// generic input consumption function for all pawn types
 pub fn move_pawns<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
-) -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &PhysicsBodyHandle, &mut T)>) {
+    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
+) -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponenet, &mut T)>) {
     move |mut world, mut pawns| {
         for (mut possessed, handle, mut component) in pawns.iter_mut() {
             let Some(input) = possessed.consume() else { continue };

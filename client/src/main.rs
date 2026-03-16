@@ -66,8 +66,6 @@ struct SpawnParams<'w, 's> {
     asset_server: Res<'w, AssetServer>,
     entity_children: Query<'w, 's, &'static Children>,
     lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
-    predicted_projectiles: Query<'w, 's, (Entity, &'static hail_mary::PredictedProjectile)>,
-    body_handles: Query<'w, 's, &'static PhysicsBodyHandle>,
     hull_assets: Res<'w, Assets<ConvexHullAsset>>,
 }
 use settings::SettingsPlugin;
@@ -86,11 +84,6 @@ mod steam;
 /// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
 #[derive(Resource, Default)]
 struct LocalNetworkID(Option<NetworkID>);
-
-/// Tracks the entity for each weapon slot viewmodel on the local player's pawn.
-/// Slot index matches WeaponSlots::slots.
-#[derive(Component, Default)]
-struct ViewmodelSlots([Option<Entity>; 2]);
 
 /// Active hitscan beams to draw as gizmos. Each entry is (origin, end, seconds_remaining).
 #[derive(Resource, Default)]
@@ -198,7 +191,6 @@ fn main() {
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
         fire_weapons::<hail_mary::HailMaryComponent>(hail_mary::apply_hail_mary_fire),
         local_hitscan_vfx,
-        tick_predicted_projectiles,
     ).chain().before(step_physics).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
     // FixedPostUpdate:
@@ -207,9 +199,8 @@ fn main() {
 
     // (tick increment is FixedLast)
 
-    app.add_systems(Update, send_interact_request.run_if(in_state(GameState::Multiplayer)));
-    app.add_systems(Update, sp_interact.run_if(in_state(GameState::SinglePlayer)));
-    app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
+    app.add_systems(Update, fire_weapon.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
@@ -234,12 +225,12 @@ fn local_hitscan_vfx(
     mut fired: ResMut<FiredWeapons>,
     mut hit_beams: ResMut<HitBeams>,
     mut ray_cast: MeshRayCast,
-    viewmodels: Query<&ViewmodelSlots>,
+    pawn: Query<&WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
 ) {
-    let excluded: Vec<Entity> = viewmodels.iter()
-        .flat_map(|slots| slots.0.iter().filter_map(|e| *e))
+    let excluded: Vec<Entity> = pawn.iter()
+        .flat_map(|slots| slots.slots.iter().filter_map(|s| s.1))
         .collect();
     for (_, effect) in fired.0.drain(..) {
         match effect {
@@ -255,9 +246,8 @@ fn local_hitscan_vfx(
                     .unwrap_or(origin + direction * range);
                 hit_beams.0.push((origin, end, 0.3));
             }
-            FireEffect::Projectile { origin, direction, .. } => {
-                let entity = hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, None);
-                commands.entity(entity).insert(hail_mary::PredictedProjectile::default());
+            FireEffect::Projectile { origin, direction, shooter, .. } => {
+                let (entity, _) = hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, shooter);
             }
         }
     }
@@ -288,8 +278,7 @@ fn spawn_sp_weapons(
         };
         match req.kind {
             GameObjectKind::HailMary => {
-                let entity = spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
-                hail_mary::add_muzzle_flash(entity, &mut commands);
+                spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
             }
             GameObjectKind::Rifle => {
                 spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
@@ -323,7 +312,7 @@ fn spawn_local_player(
         owned: true,
     };
     let entity = biped::spawn_from_command(&cmd, true, &mut commands, &mut meshes, &mut materials, &mut world, camera.single().ok());
-    commands.entity(entity).insert((Possessed::new(128), ViewmodelSlots::default()));
+    commands.entity(entity).insert(Possessed::new(128));
 }
 
 fn load_skybox(
@@ -394,7 +383,7 @@ fn on_message(
     time: Res<Time>,
     mut local_net_id: ResMut<LocalNetworkID>,
     mut hit_beams: ResMut<HitBeams>,
-    mut possessed_q: Query<(&mut WeaponSlots, &mut ViewmodelSlots), With<Possessed>>,
+    mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     networked: Query<(Entity, &NetworkID)>,
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
@@ -414,7 +403,7 @@ fn on_message(
                         let cam = if owned { camera.single().ok() } else { None };
                         let entity = biped::spawn_from_command(&cmd, owned, &mut sp.commands, &mut sp.meshes, &mut sp.materials, &mut world, cam);
                         if owned {
-                            sp.commands.entity(entity).insert((Possessed::new(128), ViewmodelSlots::default()));
+                            sp.commands.entity(entity).insert(Possessed::new(128));
                         }
                     }
                     GameObjectKind::Rifle => {
@@ -424,31 +413,7 @@ fn on_message(
                         spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
                     }
                     GameObjectKind::HailMary => {
-                        let entity = spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
-                        hail_mary::add_muzzle_flash(entity, &mut sp.commands);
-                    }
-                    GameObjectKind::HailMaryProjectile => {
-                        let velocity = cmd.starting_velocity;
-                        let direction = velocity.normalize_or_zero();
-                        let dt = world.integration_parameters.dt;
-                        let ticks_ahead = ticker.tick.saturating_sub(cmd.server_tick);
-                        // Forward-predict the server bullet to the current client tick.
-                        let corrected_pos = cmd.position + velocity * dt * ticks_ahead as f32;
-                        if let Some((pred_entity, _)) = sp.predicted_projectiles.iter().next() {
-                            // Adopt the predicted entity: snap to server-authoritative position
-                            // and assign the NetworkID so it becomes a tracked entity.
-                            if let Ok(handle) = sp.body_handles.get(pred_entity) {
-                                if let Some(rb) = world.rigid_body_set.get_mut(handle.0) {
-                                    rb.set_translation(corrected_pos, true);
-                                }
-                            }
-                            sp.commands.entity(pred_entity)
-                                .insert(cmd.net_id)
-                                .remove::<hail_mary::PredictedProjectile>();
-                        } else {
-                            let entity = hail_mary::spawn_projectile(corrected_pos, direction, &mut sp.commands, &mut world, 0.0, None);
-                            sp.commands.entity(entity).insert(cmd.net_id);
-                        }
+                        spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
                     }
                     GameObjectKind::Spaceship => {
                         warn!("Spaceship spawn not yet implemented on client");
@@ -470,21 +435,21 @@ fn on_message(
                             }
                             // Despawn held weapon viewmodels explicitly so the
                             // recursive pawn despawn doesn't hit them a second time.
-                            if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                            if let Ok(mut slots) = possessed_q.single_mut() {
                                 for i in 0..2 {
-                                    slots.slots[i] = None;
-                                    if let Some(w) = viewmodels.0[i].take() {
+                                    let ent = slots.slots[i].1.take();
+                                    slots.slots[i].0 = None;
+                                    if let Some(w) = ent {
                                         sp.commands.entity(w).despawn();
                                     }
                                 }
                             }
                             local_net_id.0 = None;
-                        } else if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
+                        } else if let Ok(mut slots) = possessed_q.single_mut() {
                             // If this was a weapon viewmodel in a slot, clear the slot.
                             for i in 0..2 {
-                                if slots.slots[i].as_ref() == Some(&net_id) {
-                                    slots.slots[i] = None;
-                                    viewmodels.0[i] = None;
+                                if slots.slots[i].0.as_ref() == Some(&net_id) {
+                                    slots.slots[i] = (None, None);
                                 }
                             }
                         }
@@ -500,32 +465,68 @@ fn on_message(
                 let is_local = local_net_id.0.as_ref() == Some(&carrier_net_id);
                 let weapon_entity = networked.iter().find(|(_, nid)| *nid == &weapon_id).map(|(e, _)| e);
                 let Some(weapon_entity) = weapon_entity else { continue };
+                world.set_body_enabled(weapon_entity, false);
                 if is_local {
                     // Find first empty slot, assign weapon, attach as viewmodel.
-                    let slot_result = if let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() {
-                        let slot_idx = slots.slots.iter().position(|s| s.is_none());
+                    let slot_result = if let Ok(mut slots) = possessed_q.single_mut() {
+                        let slot_idx = slots.slots.iter().position(|s| s.0.is_none());
                         if let Some(idx) = slot_idx {
-                            slots.slots[idx] = Some(weapon_id.clone());
-                            viewmodels.0[idx] = Some(weapon_entity);
+                            slots.slots[idx] = (Some(weapon_id.clone()), Some(weapon_entity));
                             Some((idx, slots.active == idx))
                         } else { None }
                     } else { None };
-                    world.remove_body(weapon_entity);
                     if let (Some((slot_idx, is_active)), Ok(pivot)) = (slot_result, pitch_pivot.single()) {
                         let offset = viewmodel_offset(slot_idx);
                         sp.commands.entity(weapon_entity)
-                            .remove::<(PhysicsBodyHandle, Interactable)>()
+                            .remove::<(RigidBodyHandleComponenet, Interactable)>()
                             .set_parent_in_place(pivot)
                             .insert(offset)
                             .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
                     }
                 } else {
-                    world.remove_body(weapon_entity);
-                    sp.commands.entity(weapon_entity).despawn();
+                    sp.commands.entity(weapon_entity)
+                        .remove::<Interactable>()
+                        .insert(Visibility::Hidden);
+                }
+            }
+            MsgType::WeaponDrop(weapon_id, carrier_id, drop_pos) => {
+                let is_carrier = local_net_id.0.as_ref() == Some(&carrier_id);
+                let weapon_entity = networked.iter().find(|(_, nid)| *nid == &weapon_id).map(|(e, _)| e);
+                let Some(weapon_entity) = weapon_entity else { continue };
+                world.teleport_body(weapon_entity, drop_pos);
+                world.set_body_enabled(weapon_entity, true);
+                if is_carrier {
+                    if let Ok(mut slots) = possessed_q.single_mut() {
+                        for i in 0..2 {
+                            if slots.slots[i].0.as_ref() == Some(&weapon_id) {
+                                slots.slots[i] = (None, None);
+                            }
+                        }
+                    }
+                    let handle = world.entity_to_handle.get(&weapon_entity).copied();
+                    sp.commands.entity(weapon_entity)
+                        .remove_parent_in_place()
+                        .insert((Interactable { range: 2.0 }, Visibility::Inherited));
+                    if let Some(h) = handle {
+                        sp.commands.entity(weapon_entity).insert(RigidBodyHandleComponenet(h));
+                    }
+                } else {
+                    sp.commands.entity(weapon_entity).insert((Interactable { range: 2.0 }, Visibility::Inherited));
                 }
             }
             MsgType::HitResult(origin, end, _hit_net_id) => {
                 hit_beams.0.push((origin.into(), end.into(), 0.3));
+            }
+            // Server relays Fire for hail mary projectiles (client-authoritative).
+            // Skip if it's our own weapon; otherwise spawn a local visual projectile.
+            MsgType::Fire(weapon_net_id, origin, direction) => {
+                let is_ours = possessed_q.single().ok()
+                    .map(|slots| slots.slots.iter().any(|s| s.0.as_ref() == Some(&weapon_net_id)))
+                    .unwrap_or(false);
+                if !is_ours {
+                    let dir = Vec3::from(direction).normalize_or_zero();
+                    let (entity, _) = hail_mary::spawn_projectile(Vec3::from(origin), dir, &mut sp.commands, &mut world, 0.0, None);
+                }
             }
             MsgType::HealthUpdate(net_id, current) => {
                 for (nid, mut health) in health_q.iter_mut() {
@@ -618,7 +619,7 @@ fn send_pawn_input(
 fn fire_weapon(
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Res<EguiWantsInput>,
-    pawn: Query<(&WeaponSlots, &ViewmodelSlots), With<Possessed>>,
+    pawn: Query<(Entity, &WeaponSlots), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     mut quic: ResMut<QuicManager>,
     mut weapon_inputs: Query<&mut WeaponInput>,
@@ -626,9 +627,9 @@ fn fire_weapon(
     if egui_wants.wants_any_input() || !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let Ok((slots, viewmodels)) = pawn.single() else { return };
-    let Some(weapon_net_id) = slots.slots[slots.active].clone() else { return };
-    let Some(weapon_entity) = viewmodels.0[slots.active] else { return };
+    let Ok((pawn_entity, slots)) = pawn.single() else { return };
+    let Some(weapon_net_id) = slots.slots[slots.active].0.clone() else { return };
+    let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
     let Ok(gt) = pitch_pivot.single() else { return };
 
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
@@ -639,6 +640,7 @@ fn fire_weapon(
         w_input.fire = true;
         w_input.origin = origin;
         w_input.aim_dir = direction;
+        w_input.shooter = Some(pawn_entity);
     }
 
     quic.send(
@@ -653,7 +655,7 @@ fn fire_weapon(
 /// Triggered by `spawn_from_command` attaching a `Handle<ConvexHullAsset>` to the entity.
 fn swap_weapon_hull_colliders(
     mut commands: Commands,
-    pending: Query<(Entity, &PendingHullCollider, &PhysicsBodyHandle)>,
+    pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponenet)>,
     hull_assets: Res<Assets<ConvexHullAsset>>,
     mut world: ResMut<PhysicsWorld>,
 ) {
@@ -672,20 +674,6 @@ fn swap_weapon_hull_colliders(
             collider_set.insert_with_parent(hull_collider, body_handle.0, rigid_body_set);
         }
         commands.entity(entity).remove::<PendingHullCollider>();
-    }
-}
-
-/// Ages predicted projectiles each tick; despawns them if no server confirmation arrives
-/// within the timeout (server rejected the shot or packet was lost).
-fn tick_predicted_projectiles(
-    mut commands: Commands,
-    mut projectiles: Query<(Entity, &mut hail_mary::PredictedProjectile)>,
-) {
-    for (entity, mut pred) in projectiles.iter_mut() {
-        pred.age_ticks += 1;
-        if pred.age_ticks > 120 {
-            commands.entity(entity).despawn();
-        }
     }
 }
 
@@ -729,7 +717,7 @@ fn toggle_flashlight(
 
 fn nearest_interactable(
     player_pos: Vec3,
-    interactables: &Query<(Entity, &PhysicsBodyHandle, &NetworkID), With<Interactable>>,
+    interactables: &Query<(Entity, &RigidBodyHandleComponenet, &NetworkID), With<Interactable>>,
     world: &PhysicsWorld,
 ) -> Option<(Entity, NetworkID)> {
     interactables.iter()
@@ -743,49 +731,42 @@ fn nearest_interactable(
         .map(|(e, net_id, _)| (e, net_id))
 }
 
-fn send_interact_request(
+fn interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
-    player: Query<(&PhysicsBodyHandle, &Transform), With<Possessed>>,
-    interactables: Query<(Entity, &PhysicsBodyHandle, &NetworkID), With<Interactable>>,
-    world: Res<PhysicsWorld>,
-    mut quic: ResMut<QuicManager>,
-) {
-    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
-    let player_pos = player.single().ok()
-        .and_then(|(h, t)| world.rigid_body_set.get(h.0).map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) }))
-        .unwrap_or_else(|| player.single().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO));
-    if let Some((_, net_id)) = nearest_interactable(player_pos, &interactables, &world) {
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(net_id));
-    }
-}
-
-fn sp_interact(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    egui_wants: Res<EguiWantsInput>,
-    player: Query<(&PhysicsBodyHandle, &Transform), With<Possessed>>,
-    interactables: Query<(Entity, &PhysicsBodyHandle, &NetworkID), With<Interactable>>,
-    world: Res<PhysicsWorld>,
+    state: Res<State<GameState>>,
+    player: Query<(&RigidBodyHandleComponenet, &Transform), With<Possessed>>,
+    interactables: Query<(Entity, &RigidBodyHandleComponenet, &NetworkID), With<Interactable>>,
+    mut world: ResMut<PhysicsWorld>,
     pitch_pivot: Query<Entity, With<PitchPivot>>,
-    mut possessed_q: Query<(&mut WeaponSlots, &mut ViewmodelSlots), With<Possessed>>,
+    mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
+    mut quic: ResMut<QuicManager>,
 ) {
     if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
     let player_pos = player.single().ok()
         .and_then(|(h, _)| world.rigid_body_set.get(h.0).map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) }))
         .unwrap_or_else(|| player.single().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO));
     let Some((weapon_entity, weapon_net_id)) = nearest_interactable(player_pos, &interactables, &world) else { return };
-    let Ok(pivot_entity) = pitch_pivot.single() else { return };
-    let Ok((mut slots, mut viewmodels)) = possessed_q.single_mut() else { return };
-    let Some(slot_idx) = slots.slots.iter().position(|s| s.is_none()) else { return };
-    slots.slots[slot_idx] = Some(weapon_net_id);
-    viewmodels.0[slot_idx] = Some(weapon_entity);
-    let is_active = slots.active == slot_idx;
-    commands.entity(weapon_entity)
-        .remove::<(PhysicsBodyHandle, Interactable)>()
-        .set_parent_in_place(pivot_entity)
-        .insert(viewmodel_offset(slot_idx))
-        .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
+    match state.get() {
+        GameState::SinglePlayer => {
+            let Ok(pivot_entity) = pitch_pivot.single() else { return };
+            let Ok(mut slots) = possessed_q.single_mut() else { return };
+            let Some(slot_idx) = slots.slots.iter().position(|s| s.0.is_none()) else { return };
+            slots.slots[slot_idx] = (Some(weapon_net_id), Some(weapon_entity));
+            let is_active = slots.active == slot_idx;
+            world.set_body_enabled(weapon_entity, false);
+            commands.entity(weapon_entity)
+                .remove::<(RigidBodyHandleComponenet, Interactable)>()
+                .set_parent_in_place(pivot_entity)
+                .insert(viewmodel_offset(slot_idx))
+                .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
+        }
+        GameState::Multiplayer => {
+            quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(weapon_net_id));
+        }
+        _ => {}
+    }
 }
 
 /// Local-space transform offset for the viewmodel depending on which slot it's in.
@@ -799,12 +780,12 @@ fn viewmodel_offset(slot_idx: usize) -> Transform {
 /// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.
 fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
-    mut pawn: Query<(&mut WeaponSlots, &ViewmodelSlots), With<Possessed>>,
+    mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
     mut visibility: Query<&mut Visibility>,
 ) {
     let delta: f32 = scroll.delta.y;
     if delta == 0.0 { return; }
-    let Ok((mut slots, viewmodels)) = pawn.single_mut() else { return };
+    let Ok(mut slots) = pawn.single_mut() else { return };
     let prev = slots.active;
     slots.active = if delta > 0.0 {
         (slots.active + 1) % 2
@@ -812,10 +793,10 @@ fn switch_weapon_slot(
         slots.active.checked_sub(1).unwrap_or(1)
     };
     if slots.active == prev { return; }
-    if let Some(e) = viewmodels.0[prev] {
+    if let Some(e) = slots.slots[prev].1 {
         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
     }
-    if let Some(e) = viewmodels.0[slots.active] {
+    if let Some(e) = slots.slots[slots.active].1 {
         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
     }
 }
