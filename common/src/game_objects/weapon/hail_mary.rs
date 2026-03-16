@@ -154,9 +154,10 @@ pub fn apply_hail_mary_fire(
     input: WeaponInput,
     hail_mary: &mut HailMaryComponent,
 ) -> Option<FireEffect> {
-    if input.fire { hail_mary.fire_requested = true; }
     hail_mary.cooldown = hail_mary.cooldown.saturating_sub(1);
-    if !hail_mary.fire_requested || hail_mary.cooldown > 0 { return None; }
+    // Only latch fire_requested when the weapon is ready; discard clicks during cooldown.
+    if input.fire && hail_mary.cooldown == 0 { hail_mary.fire_requested = true; }
+    if !hail_mary.fire_requested { return None; }
     hail_mary.cooldown = COOLDOWN_TICKS;
     hail_mary.fire_requested = false;
     hail_mary.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;

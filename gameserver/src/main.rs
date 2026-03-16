@@ -417,7 +417,7 @@ fn on_message(
                 // Hail Mary is client-authoritative: relay the fire event to all clients.
                 // Hitscan weapons (rifle, shotgun) are processed server-side.
                 if weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false) {
-                    quic.send(SendTarget::All, Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
+                    quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
                 } else {
                     let origin_v: Vec3 = origin.into();
                     if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use rapier3d::prelude::RigidBodyHandle;
+use rapier3d::prelude::{RigidBodyHandle, Vector};
+use std::collections::HashMap;
 
 use common::game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
 use common::net::message::{NetworkID, SimulationState};
@@ -8,8 +9,25 @@ use common::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 
-pub const RECONCILE_POS_THRESHOLD: f32 = 0.2;
-pub const RECONCILE_VEL_THRESHOLD: f32 = 1.0;
+/// Per-body accumulated physics error to smooth out over time.
+/// Each field is the delta (target − current) at the moment it was set.
+#[derive(Default)]
+struct BodyError {
+    pos:    Vec3,
+    rot:    Vec3, // axis * angle
+    linvel: Vec3,
+    angvel: Vec3,
+}
+
+impl BodyError {
+    fn is_nearly_zero(&self) -> bool {
+        self.pos.length_squared() < 1e-4 && self.linvel.length_squared() < 1e-2
+    }
+}
+
+/// Accumulated per-body physics errors, exponentially drained each tick.
+#[derive(Resource, Default)]
+pub struct PhysicsErrors(HashMap<NetworkID, BodyError>);
 
 /// Holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
 /// Set by `on_message` when a `MsgType::State` arrives.
@@ -37,7 +55,11 @@ impl<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>>
         let apply = self.1;
         app.init_resource::<PendingReconciliation>()
             .init_resource::<LocalStateHistory>()
-            .add_systems(FixedPreUpdate, maybe_reconcile(apply).before(gather_pawn_input).run_if(in_state(state)))
+            .init_resource::<PhysicsErrors>()
+            .add_systems(FixedPreUpdate,
+                (apply_physics_corrections, maybe_reconcile(apply)).chain()
+                    .before(gather_pawn_input)
+                    .run_if(in_state(state)))
             .add_systems(FixedPostUpdate, record_world_state.run_if(in_state(state)));
     }
 }
@@ -53,53 +75,86 @@ pub fn record_world_state(
     history.0.push(snapshot_bodies(&world, tick.tick, query.iter()));
 }
 
-/// Runs at the start of `FixedPreUpdate`, before input is gathered.
+/// Exponentially drains per-body physics errors by applying a fraction each tick.
+/// Alpha = 0.1 → ~90% corrected after ~22 ticks (~0.37 s at 60 Hz).
+pub fn apply_physics_corrections(
+    mut errors: ResMut<PhysicsErrors>,
+    mut world: ResMut<PhysicsWorld>,
+    bodies: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
+) {
+    const ALPHA: f32 = 0.2; // how quickly it corrects
+    if errors.0.is_empty() { return; }
+    let handles: HashMap<NetworkID, RigidBodyHandle> = bodies.iter().map(|(nid, h)| (nid.clone(), h.0)).collect();
+    errors.0.retain(|net_id, error| {
+        if error.is_nearly_zero() { return false; }
+        let Some(&handle) = handles.get(net_id) else { return false };
+        let Some(rb) = world.rigid_body_set.get_mut(handle) else { return false };
+
+        let dp = error.pos * ALPHA;
+        let dv = error.linvel * ALPHA;
+        let dav = error.angvel * ALPHA;
+        let dr = error.rot * ALPHA;
+
+        let t = rb.position().translation;
+        rb.set_translation(Vector::new(t.x + dp.x, t.y + dp.y, t.z + dp.z), true);
+
+        let ang = dr.length();
+        if ang > 1e-6 {
+            let r = rb.rotation();
+            let cur = Quat::from_xyzw(r.x, r.y, r.z, r.w);
+            let delta = Quat::from_axis_angle(dr / ang, ang);
+            let new_rot = delta * cur;
+            rb.set_rotation(new_rot, true);
+        }
+
+        let v = rb.linvel();
+        rb.set_linvel(Vector::new(v.x + dv.x, v.y + dv.y, v.z + dv.z), true);
+        let av = rb.angvel();
+        rb.set_angvel(Vector::new(av.x + dav.x, av.y + dav.y, av.z + dav.z), true);
+
+        // Decay the remaining error
+        let keep = 1.0 - ALPHA;
+        error.pos    *= keep;
+        error.rot    *= keep;
+        error.linvel *= keep;
+        error.angvel *= keep;
+
+        true
+    });
+}
+
+/// Runs at the start of `FixedPreUpdate`, after apply_physics_corrections.
 ///
-/// If a server snapshot is pending:
-///   1. Compare it against our locally predicted state at that tick.
-///   2. If the error exceeds threshold, restore physics state and replay all buffered
-///      inputs from `snapshot_tick+1` up to (not including) the current tick.
-///      Bodies in the server snapshot are restored to server-authoritative state.
-///      Networked bodies the server didn't mention are restored to local predicted state.
+/// For every pending server snapshot:
+///   1. Snapshot current physics state.
+///   2. Fast-forward: restore to server state, replay buffered inputs from snapshot.tick+1..current.
+///   3. Snapshot the resim result.
+///   4. Compute per-body error = resim_result − current_state, store in PhysicsErrors.
+///   5. Restore physics to current state — corrections are applied gradually by apply_physics_corrections.
 pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>(
     apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
-) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponenet, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>, Query<&GravityScale>) {
-    move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales| {
+) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponenet, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>, Query<&GravityScale>, ResMut<PhysicsErrors>) {
+    move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales, mut errors| {
         let Some(snapshot) = pending.0.take() else { return };
 
-        let Some((our_net_id, our_handle, possessed)) =
+        let Some((_, our_handle, possessed)) =
             bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
         else {
             return;
         };
-
-        let local_at_tick = history.0.iter().find(|s| s.tick == snapshot.tick);
-
-        let needs_reconcile = match (
-            local_at_tick.and_then(|s| s.bodies.get(our_net_id)),
-            snapshot.bodies.get(our_net_id),
-        ) {
-            (Some(predicted), Some(server)) => {
-                let pos_err = (server.position - predicted.position).length();
-                let vel_err = (server.linvel - predicted.linvel).length();
-                pos_err > RECONCILE_POS_THRESHOLD || vel_err > RECONCILE_VEL_THRESHOLD
-            }
-            // No history for this tick — always reconcile to stay correct.
-            _ => true,
-        };
-
-        if !needs_reconcile {
-            return;
-        }
 
         let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
             .iter()
             .map(|(nid, h, _)| (nid.clone(), h.0))
             .collect();
 
+        // Snapshot what physics currently looks like (pre-correction baseline)
+        let current_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+
+        // Fast-forward: restore to server authoritative state and replay inputs
         restore_snapshot(&mut world, &snapshot, &pairs);
 
-        if let Some(local) = local_at_tick {
+        if let Some(local) = history.0.iter().find(|s| s.tick == snapshot.tick) {
             let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
                 .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
                 .cloned()
@@ -107,10 +162,9 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
             restore_snapshot(&mut world, local, &unmentioned);
         }
 
-        // Copy the handle value so the `bodies` borrow doesn't outlive the loop.
         let our_rb = our_handle.0;
-        let current = tick.tick;
-        for replay_tick in (snapshot.tick + 1)..current {
+        let current_tick = tick.tick;
+        for replay_tick in (snapshot.tick + 1)..current_tick {
             if let Some(&input) = possessed.get_input(replay_tick) {
                 if let Ok(mut component) = pawn_query.single_mut() {
                     let handle = RigidBodyHandleComponenet(our_rb);
@@ -118,7 +172,25 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
                 }
             }
             apply_gravity_impulses(&mut world, &planets, &gravity_scales);
-            step_world(&mut world)
+            step_world(&mut world);
+        }
+
+        // Snapshot resim result, then restore current state
+        let resim_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+        restore_snapshot(&mut world, &current_state, &pairs);
+
+        // Compute and store per-body errors (resim − current)
+        for (net_id, resim) in &resim_state.bodies {
+            let Some(cur) = current_state.bodies.get(net_id) else { continue };
+
+            let rot_err = resim.rotation * cur.rotation.conjugate();
+            let (axis, angle) = rot_err.to_axis_angle();
+
+            let entry = errors.0.entry(net_id.clone()).or_default();
+            entry.pos    = resim.position - cur.position;
+            entry.rot    = axis * angle;
+            entry.linvel = resim.linvel - cur.linvel;
+            entry.angvel = resim.angvel - cur.angvel;
         }
     }
 }

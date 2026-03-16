@@ -80,6 +80,8 @@ use common::game_objects::pawn::biped::draw_biped_debug;
 use ui::ui::GuiState;
 mod settings;
 mod steam;
+mod sound;
+use sound::SoundPlugin;
 
 /// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
 #[derive(Resource, Default)]
@@ -194,6 +196,7 @@ fn main() {
         .add_plugins(MenuPlugin)
         .add_plugins(PawnPlugin)
         .add_plugins(WeaponPlugin)
+        .add_plugins(SoundPlugin)
         .add_plugins(ReconciliationPlugin(GameState::Multiplayer, biped::apply_biped_movement))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
@@ -203,6 +206,9 @@ fn main() {
         .init_resource::<LastServerState>()
         .init_resource::<PendingHullColliders>()
         .add_systems(FixedUpdate, step_physics
+            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
+        .add_systems(FixedUpdate, despawn_projectiles
+            .after(step_physics)
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Update, sync_physics_visual
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
@@ -235,6 +241,7 @@ fn main() {
         fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
         fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
         fire_weapons::<hail_mary::HailMaryComponent>(hail_mary::apply_hail_mary_fire),
+        sound::sound_from_fired_weapons,
         local_hitscan_vfx,
     ).chain().before(step_physics).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
@@ -242,7 +249,7 @@ fn main() {
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
     app.add_systems(FixedPostUpdate, on_message.run_if(in_state(GameState::Multiplayer)));
 
-    app.add_systems(FixedPostUpdate, snapshot_server_state.after(on_message).run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(FixedPostUpdate, snapshot_server_state.after(on_message).run_if(in_state(GameState::Multiplayer).and(resource_changed::<PendingReconciliation>)));
 
     // (tick increment is FixedLast)
 
@@ -295,8 +302,21 @@ fn local_hitscan_vfx(
                 hit_beams.0.push((origin, end, 0.3));
             }
             FireEffect::Projectile { origin, direction, shooter, .. } => {
-                let (entity, _) = hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, shooter);
+                hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, shooter);
             }
+        }
+    }
+}
+
+fn despawn_projectiles(
+    mut commands: Commands,
+    world: Res<PhysicsWorld>,
+    projectiles: Query<(Entity, &RigidBodyHandleComponenet), With<hail_mary::HailMaryProjectileState>>,
+) {
+    for (entity, body_handle) in projectiles.iter() {
+        let Some(rb) = world.rigid_body_set.get(body_handle.0) else { continue };
+        if rb.colliders().iter().any(|&ch| world.narrow_phase.contact_pairs_with(ch).next().is_some()) {
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -565,16 +585,10 @@ fn on_message(
             MsgType::HitResult(origin, end, _hit_net_id) => {
                 hit_beams.0.push((origin.into(), end.into(), 0.3));
             }
-            // Server relays Fire for hail mary projectiles (client-authoritative).
-            // Skip if it's our own weapon; otherwise spawn a local visual projectile.
-            MsgType::Fire(weapon_net_id, origin, direction, _tick) => {
-                let is_ours = possessed_q.single().ok()
-                    .map(|slots| slots.slots.iter().any(|s| s.0.as_ref() == Some(&weapon_net_id)))
-                    .unwrap_or(false);
-                if !is_ours {
-                    let dir = Vec3::from(direction).normalize_or_zero();
-                    let (entity, _) = hail_mary::spawn_projectile(Vec3::from(origin), dir, &mut sp.commands, &mut world, 0.0, None);
-                }
+            // Server relays Fire from other players (sender excluded via AllExcept).
+            MsgType::Fire(_, origin, direction, _tick) => {
+                let dir = Vec3::from(direction).normalize_or_zero();
+                hail_mary::spawn_projectile(Vec3::from(origin), dir, &mut sp.commands, &mut world, 0.0, None);
             }
             MsgType::HealthUpdate(net_id, current) => {
                 for (nid, mut health) in health_q.iter_mut() {

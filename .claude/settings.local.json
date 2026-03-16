@@ -35,7 +35,17 @@
       "Bash(grep \"pub.*On\\\\b\\\\|pub use.*On\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.1/src/observer/mod.rs\" 2>/dev/null | head -10\ngrep \"struct On\\\\b\\\\|type On\\\\b\" \"C:/Users/howeg/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.1/src/observer/runner.rs\" 2>/dev/null | head -5)",
       "Bash(cd \"C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy\" && timeout /t 60 /nobreak && cargo check -p common 2>&1 | tail -5)",
       "Bash(git:*)",
-      "Bash(for f:*)"
+      "Bash(for f:*)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(/dev/null -name *.dll -o -name *.lib)",
+      "Bash(cp:*)",
+      "Bash(powershell -Command \"Get-EventLog -LogName Application -Newest 5 -EntryType Error,Warning -Source 'Application Error','Windows Error Reporting' 2>$null | Select-Object TimeGenerated,Source,Message | Format-List\" 2>/dev/null)",
+      "Bash(cmd.exe /c \"target\\\\debug\\\\client.exe > %TEMP%\\\\client_out.txt 2>&1\")",
+      "Read(//c/Users/howeg/AppData/Local/Temp/**)",
+      "Bash(powershell -Command \"\n\\\\$p = Start-Process -FilePath 'C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy\\\\target\\\\debug\\\\client.exe' -WorkingDirectory 'C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy' -PassThru -WindowStyle Normal\nStart-Sleep 6\nif \\(-not \\\\$p.HasExited\\) { Write-Output 'RUNNING OK'; \\\\$p.Kill\\(\\) }\nelse { Write-Output \\('EXITED with code: ' + \\\\$p.ExitCode\\) }\n\" 2>&1)",
+      "WebFetch(domain:api.github.com)"
     ],
     "deny": []
   }

@@ -5,12 +5,12 @@
 * Read as many files as you need to understand the codebase.
 * If you don't understand something I ask, look it up.
 * No hacks. This is for an enterprise-quality game; everything needs to be scalable. Write once, use forever.
-* Duplication is ok if it means we keep game code flexible and modular.
-* DO NOT rewrite my comments, or add comments to code that's already commented
+* DO NOT rewrite my comments.
 * Avoid pulling in new dependencies unless they're both absolutely needed and recently updated
 * Please DO NOT create new structs, enums, components, etc if not absolutely necessary.
 * Decouple unrelated systems.
 * Don't use bevy's events/messages.
+* Simplicity is everything. When in doubt, choose the lowest-additional-code implementation.
 
 Also see: README.md for project description
 
