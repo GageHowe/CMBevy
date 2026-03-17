@@ -21,6 +21,7 @@ impl Plugin for MasterPlugin {
         // step executes on FixedUpdate
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(ConvexHullPlugin);
+        app.add_plugins(crate::game_objects::planet::PlanetPlugin);
         app.add_plugins(ScriptingPlugin);
 
         // tick should increment after everything else in FixedUpdate

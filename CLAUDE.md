@@ -5,12 +5,14 @@
 * Read as many files as you need to understand the codebase.
 * If you don't understand something I ask, look it up.
 * No hacks. This is for an enterprise-quality game; everything needs to be scalable. Write once, use forever.
-* Duplication is ok if it means we keep game code flexible and modular.
-* DO NOT rewrite my comments, or add comments to code that's already commented
+* DO NOT rewrite my comments; if code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing it.
 * Avoid pulling in new dependencies unless they're both absolutely needed and recently updated
 * Please DO NOT create new structs, enums, components, etc if not absolutely necessary.
 * Decouple unrelated systems.
 * Don't use bevy's events/messages.
+* Simplicity is everything. When in doubt, choose the lowest-additional-code implementation.
+* Use Update sparingly. Use SlowUpdate for things that don't have to happen each FixedUpdate.
+* Do NOT fundamentally change how things work without asking me first.
 
 Also see: README.md for project description
 
@@ -28,4 +30,9 @@ Also see: README.md for project description
 ## random other info
 * We use postcard for encoding, since bincode is dead.
 * It's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver. But as a default, put things in common
-* 
+* Hitscan weapon input/fire should be handled with bevy mesh raycasts, not rapier.
+* Biped: no special logic except has weapons, and has a Yaw component with a Pitch component which has the Camera attached to it.
+
+Build client in the background in between tasks that touch client or common.
+
+All movement and physics should be relative. When firing a projectile, it should inherit the velocity of its owner.

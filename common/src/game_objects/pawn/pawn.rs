@@ -12,6 +12,7 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
+        app.add_observer(super::biped::on_remove_biped);
         app.add_systems(FixedPreUpdate, (
             gather_pawn_input.run_if(resource_exists::<ButtonInput<KeyCode>>),
             (
@@ -28,8 +29,7 @@ impl Plugin for PawnPlugin {
 
 // COMPONENTS
 
-#[derive(Component)]
-pub struct BipedPawnComponent;
+pub use super::biped::BipedPawnComponent;
 
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;
@@ -74,8 +74,9 @@ pub struct PawnInput {
     pub ability1: bool,
     pub ability2: bool,
     /// Pawn-local yaw angle (radians) from the YawPivot at input time.
-    /// Server reconstructs world-space facing as: body_rotation * Quat::from_rotation_y(look_yaw).
     pub look_yaw: f32,
+    /// Camera pitch (radians) from the PitchPivot at input time.
+    pub look_pitch: f32,
 }
 
 /// Marks a pawn as possessed and owns its input history for prediction + reconciliation.
@@ -130,33 +131,42 @@ pub fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
-    mut yaw_q: Query<(&mut Transform, &mut YawPivot), Without<PitchPivot>>,
-    mut pitch_q: Query<(&mut Transform, &mut PitchPivot)>,
+    possessed: Query<&BipedPawnComponent, With<Possessed>>,
+    mut pivots: ParamSet<(
+        Query<(&mut Transform, &mut YawPivot)>,
+        Query<(&mut Transform, &mut PitchPivot)>,
+    )>,
 ) {
     if cursor_q.grab_mode == CursorGrabMode::None { return; }
     let delta = mouse.delta;
     if delta == Vec2::ZERO { return; }
+    let Ok(biped) = possessed.single() else { return };
     let s = sensitivity.0;
 
-    if let Ok((mut t, mut pivot)) = yaw_q.single_mut() {
-        pivot.yaw -= delta.x * s;
-        t.rotation = Quat::from_rotation_y(pivot.yaw);
+    if let Some(yaw_e) = biped.yaw_pivot {
+        if let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e) {
+            pivot.yaw -= delta.x * s;
+            t.rotation = Quat::from_rotation_y(pivot.yaw);
+        }
     }
-    if let Ok((mut t, mut pivot)) = pitch_q.single_mut() {
-        pivot.pitch = (pivot.pitch - delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
-        t.rotation = Quat::from_rotation_x(pivot.pitch);
+    if let Some(pitch_e) = biped.pitch_pivot {
+        if let Ok((mut t, mut pivot)) = pivots.p1().get_mut(pitch_e) {
+            pivot.pitch = (pivot.pitch - delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
+            t.rotation = Quat::from_rotation_x(pivot.pitch);
+        }
     }
 }
 
 /// gathers keyboard input for the locally possessed pawn(s)
 pub fn gather_pawn_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut pawns: Query<&mut Possessed>,
-    yaw_pivot: Query<&YawPivot>,
+    mut pawns: Query<(&mut Possessed, Option<&BipedPawnComponent>)>,
+    yaw_pivots: Query<&YawPivot>,
+    pitch_pivots: Query<&PitchPivot>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) { return; }
-    let Ok(mut possessed) = pawns.single_mut() else { return };
+    let Ok((mut possessed, biped)) = pawns.single_mut() else { return };
 
     let mut input = PawnInput::default();
     if keyboard.pressed(KeyCode::KeyW) { input.forward += 1.0; }
@@ -174,8 +184,13 @@ pub fn gather_pawn_input(
     input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
     input.ability2 = keyboard.pressed(KeyCode::KeyE);
 
-    if let Ok(pivot) = yaw_pivot.single() {
-        input.look_yaw = pivot.yaw;
+    if let Some(biped) = biped {
+        if let Some(yaw_e) = biped.yaw_pivot {
+            if let Ok(yp) = yaw_pivots.get(yaw_e) { input.look_yaw = yp.yaw; }
+        }
+        if let Some(pitch_e) = biped.pitch_pivot {
+            if let Ok(pp) = pitch_pivots.get(pitch_e) { input.look_pitch = pp.pitch; }
+        }
     }
 
     possessed.push(input);
@@ -195,8 +210,8 @@ pub fn possess_pawn(
 
 /// generic input consumption function for all pawn types
 pub fn move_pawns<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, &PhysicsBodyHandle, PawnInput, &mut T),
-) -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &PhysicsBodyHandle, &mut T)>) {
+    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
+) -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponenet, &mut T)>) {
     move |mut world, mut pawns| {
         for (mut possessed, handle, mut component) in pawns.iter_mut() {
             let Some(input) = possessed.consume() else { continue };

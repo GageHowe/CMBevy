@@ -30,7 +30,7 @@ impl Plugin for SteamworksPlugin {
                 println!("Beta: {:?}", apps.current_beta_name());
 
                 let friends = client.friends();
-                println!("Friends");
+                // println!("Friends");
                 let list = friends.get_friends(FriendFlags::IMMEDIATE);
                 for f in &list {
                     println!("Friend: {:?} - {}({:?})", f.id(), f.name(), f.state());

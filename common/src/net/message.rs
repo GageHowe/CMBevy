@@ -58,12 +58,16 @@ pub enum MsgType {
     SpawnCommand(SpawnCommand),
     DespawnCommand(NetworkID),
     /// Client → Server: request to interact with the entity identified by NetworkID.
+    /// Depending on the entity's implementation(s), this could be equipping a weapon,
+    /// getting into a vehicle, etc.
     Interact(NetworkID),
-    /// Server → All: (weapon_id, carrier_net_id). Clients remove the weapon entity;
-    /// the carrier client records it as their held weapon.
+    /// Server → All: (weapon_id, carrier_net_id). The weapon's physics body is disabled;
+    /// the carrier client attaches it as a viewmodel.
     WeaponPickup(NetworkID, NetworkID),
-    /// Client → Server: (weapon_net_id, origin, direction). Fire the held weapon.
-    Fire(NetworkID, Vec3, Vec3),
+    /// Server → All: (weapon_id, carrier_net_id, drop_pos). Re-enables the weapon body at drop_pos.
+    WeaponDrop(NetworkID, NetworkID, Vec3),
+    /// Client → Server: (weapon_net_id, origin, direction, client_tick). Fire the held weapon.
+    Fire(NetworkID, Vec3, Vec3, u64),
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
     /// wtf? why vfx? this will be outdated and since clients move very fast this will not be a good solution.
     /// instead, send the shooter entity (the gun) and the direction/magnitude vector, plus the target.
@@ -74,11 +78,17 @@ pub enum MsgType {
     TimePing(u64),
     /// Server → Client: echoes the TimePing payload unchanged.
     TimePong(u64),
+    /// Client → Server: toggle my flashlight.
+    FlashlightToggle,
+    /// Server → All: flashlight state for the given entity.
+    FlashlightState(NetworkID, bool),
     /// Server → Client: file transfer. `data` is zstd-compressed at level 9;
     /// decompress with `zstd::stream::decode_all` to recover the original bytes.
     FileData(String, Vec<u8>),
 }
 
+/// networked state of a dynamic rigidbody.
+/// stable, do not touch.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BodyState {
     pub position: Vec3,
@@ -87,6 +97,8 @@ pub struct BodyState {
     pub angvel: Vec3,
 }
 
+/// networked message for a set of rigidbodies.
+/// stable, do not touch.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SimulationState {
     pub tick: u64,

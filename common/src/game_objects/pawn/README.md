@@ -9,10 +9,10 @@ Pawns are defined by their marker components (`BipedPawnComponent`, `SpaceshipPa
    #[derive(Component)] pub struct MyPawnComponent;
    ```
 
-2. Implement the following functions (by convention — not a trait):
+2. Implement the following functions (by convention — not a trait, yet):
    - `spawn(transform, commands, meshes, materials, world, camera?) -> Entity` — client, with mesh
    - `spawn_server(transform, commands, world) -> Entity` — server, physics only
-   - `spawn_ghost(transform, commands, meshes, materials, world) -> Entity` — other players on client
+   - `spawn_ghost(transform, commands, meshes, materials, world) -> Entity` — other players on client # looking for a way to avoid having to do this
    - `apply_movement(world: &mut PhysicsWorld, handle: &PhysicsBodyHandle, input: PawnInput)` — called every fixed tick
 
 3. Register the movement system in `PawnPlugin::build`:

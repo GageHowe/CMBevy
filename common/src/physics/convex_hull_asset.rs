@@ -14,19 +14,20 @@ pub struct ConvexHullAsset(pub Collider);
 pub struct ConvexHullAssetLoader;
 impl AssetLoader for ConvexHullAssetLoader {
     type Asset = ConvexHullAsset;
-    type Settings = ();
+    /// Uniform scale applied to all vertices at load time.
+    type Settings = f32;
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     async fn load(
         &self,
         reader: &mut dyn Reader,
-        _settings: &(),
+        settings: &f32,
         _load_context: &mut LoadContext<'_>,
     ) -> Result<ConvexHullAsset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
         let text = std::str::from_utf8(&bytes)?;
-        parse_obj_compound(text)
+        parse_obj_compound(text, *settings)
             .map(ConvexHullAsset)
             .ok_or_else(|| "failed to build convex hulls from OBJ".into())
     }
@@ -38,7 +39,8 @@ impl AssetLoader for ConvexHullAssetLoader {
 }
 
 /// converts the string contents of a .obj file into a rapier3d Collider
-fn parse_obj_compound(text: &str) -> Option<Collider> {
+fn parse_obj_compound(text: &str, scale: f32) -> Option<Collider> {
+    let s = if scale == 0.0 { 1.0 } else { scale };
     let mut shapes: Vec<(Pose, SharedShape)> = Vec::new();
     let mut verts: Vec<Vec3> = Vec::new();
 
@@ -54,7 +56,7 @@ fn parse_obj_compound(text: &str) -> Option<Collider> {
             let x: f32 = p.next()?.parse().ok()?;
             let y: f32 = p.next()?.parse().ok()?;
             let z: f32 = p.next()?.parse().ok()?;
-            verts.push(Vec3::new(x, y, z));
+            verts.push(Vec3::new(x * s, y * s, z * s));
         }
     }
     if !verts.is_empty() {

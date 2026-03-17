@@ -3,18 +3,16 @@ use bevy::prelude::*;
 pub mod weapon;
 pub mod rifle;
 pub mod shotgun;
+pub mod hail_mary;
 
-// Re-export shared types and the fire_weapons dispatcher so callers don't have to
-// reach into `weapon::weapon` directly.
-pub use weapon::{fire_weapons, FireEffect, FiredWeapons, WeaponComponent, WeaponInput, insert_weapon_physics};
+pub use weapon::{Weapon, WeaponComponent, PendingHullCollider};
 
-/// Registers shared weapon resources.
-/// Each binary registers the `fire_weapons<T>` systems itself with its own ordering
-/// (server: after on_message, before step_physics; client: before step_physics).
+/// Shared weapon plugin. Currently empty; each binary registers its own systems.
 pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<FiredWeapons>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
+
+// TODO: make a weapon that's KinematicVelocityBased like a plasma launcher
+// can this be affected by add_impulse?

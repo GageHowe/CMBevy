@@ -3,20 +3,32 @@ use crate::game_objects::GameObjectKind;
 use crate::interaction::Interactable;
 use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput};
+use crate::physics::convex_hull_asset::ConvexHullAsset;
+use rapier3d::prelude::*;
+use super::weapon::{Weapon, WeaponComponent};
 
 pub const RANGE: f32 = 500.0;
 pub const DAMAGE: f32 = 25.0;
-/// Seconds between shots (10 rounds/sec).
-pub const COOLDOWN: f32 = 0.1;
+/// Ticks between shots (10 rounds/sec at 60 Hz).
+pub const COOLDOWN_TICKS: u32 = 6;
 
 /// Per-instance state for the rifle weapon type.
 #[derive(Component, Default)]
 pub struct RifleComponent {
-    pub cooldown: f32,
+    pub cooldown: u32,
     /// Latched when fire is requested; cleared after the shot fires.
-    /// Allows tapping fire while on cooldown to queue the next shot.
     pub fire_requested: bool,
+}
+
+impl Weapon for RifleComponent {
+    fn update(&mut self, _world: &mut PhysicsWorld, _commands: &mut Commands, _origin: Vec3, _aim_dir: Vec3, _shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
+        if want_fire { self.fire_requested = true; }
+        self.cooldown = self.cooldown.saturating_sub(1);
+        if !self.fire_requested || self.cooldown > 0 { return false; }
+        self.cooldown = COOLDOWN_TICKS;
+        self.fire_requested = false;
+        true
+    }
 }
 
 /// Spawns a rifle entity with physics. Used by both server and client.
@@ -28,52 +40,30 @@ pub fn spawn(
     let entity = commands.spawn((
         WeaponComponent,
         RifleComponent::default(),
-        WeaponInput::default(),
         GameObjectKind::Rifle,
         Interactable { range: 2.0 },
         Transform::from(transform),
     )).id();
-    insert_weapon_physics(entity, &transform, commands, world);
+    let rb = RigidBodyBuilder::dynamic()
+        .translation(transform.translation)
+        .angular_damping(2.0)
+        .build();
+    let rb_handle = world.insert_body(entity, rb);
+    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
     entity
 }
 
-pub fn apply_rifle_fire(
-    _world: &mut PhysicsWorld,
-    input: WeaponInput,
-    dt: f32,
-    rifle: &mut RifleComponent,
-) -> Option<FireEffect> {
-    if input.fire { rifle.fire_requested = true; }
-    rifle.cooldown = (rifle.cooldown - dt).max(0.0);
-    if !rifle.fire_requested || rifle.cooldown > 0.0 { return None; }
-    rifle.cooldown = COOLDOWN;
-    rifle.fire_requested = false;
-    Some(FireEffect::Hitscan { origin: input.origin, direction: input.aim_dir, range: RANGE, damage: DAMAGE, shooter: input.shooter })
-}
-
-/// Spawns a rifle from a network SpawnCommand. Handles physics, visuals, and net_id insertion.
-/// Client-only: requires AssetServer for the GLB model.
 pub fn spawn_from_command(
     cmd: SpawnCommand,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     asset_server: &AssetServer,
+    _hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
-    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, ..default() };
+    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE };
     let entity = spawn(transform, commands, world);
-    add_visuals(entity, commands, asset_server);
-    commands.entity(entity).insert(cmd.net_id);
+    commands.entity(entity).insert((SceneRoot(asset_server.load("models/ar.glb#Scene0")), Visibility::default(), cmd.net_id));
     entity
-}
-
-/// Adds a scene (GLB model) to an existing rifle entity.
-pub fn add_visuals(
-    entity: Entity,
-    commands: &mut Commands,
-    asset_server: &bevy::asset::AssetServer,
-) {
-    commands.entity(entity).insert((
-        SceneRoot(asset_server.load("models/ar.glb#Scene0")),
-        Visibility::default(),
-    ));
 }

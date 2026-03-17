@@ -82,6 +82,8 @@ pub struct InboundMessage {
 pub enum SendTarget {
     One(ConnectionId),
     All,
+    /// Send to all connected clients except the given one.
+    AllExcept(ConnectionId),
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +126,7 @@ impl ReassemblySlot {
 pub struct QuicManager {
     pub inbound: VecDeque<InboundMessage>,
     pub(crate) clients: HashSet<ConnectionId>,
-    client_connected: bool,
+    pub client_connected: bool,
     outbound: VecDeque<(SendTarget, Channel, MsgType)>,
     /// Sequence counter for outbound unreliable fragments.
     unreliable_seq: u32,
@@ -167,6 +169,15 @@ impl QuicManager {
     }
 
     pub fn connect(&mut self, client: &mut QuinnetClient, server_addr: SocketAddr) {
+        // Reuse an existing (disconnected) connection via reconnect() so the
+        // default_connection_id doesn't drift to a stale entry.
+        if let Some(conn) = client.get_connection_mut() {
+            match conn.reconnect() {
+                Ok(_) => println!("Connecting to QUIC server at {server_addr}"),
+                Err(e) => eprintln!("Failed to reconnect: {e}"),
+            }
+            return;
+        }
         let result = client.open_connection(ClientConnectionConfiguration {
             addr_config: ClientAddrConfiguration::from_addrs(
                 server_addr,
@@ -347,14 +358,21 @@ pub fn flush_outbound(
     mut server: ResMut<QuinnetServer>,
     mut client: ResMut<QuinnetClient>,
 ) {
-    // Group by (target, channel).
+    // Group by (target, channel). AllExcept is pre-expanded into One sends per client.
+    let outbound: Vec<_> = quic.outbound.drain(..).collect();
+    let all_clients: Vec<ConnectionId> = quic.clients.iter().copied().collect();
     let mut batches: HashMap<(Option<ConnectionId>, ChannelId), Vec<MsgType>> = HashMap::new();
-    while let Some((target, channel, msg)) = quic.outbound.pop_front() {
-        let key = (
-            match target { SendTarget::All => None, SendTarget::One(id) => Some(id) },
-            ChannelId::from(channel),
-        );
-        batches.entry(key).or_default().push(msg);
+    for (target, channel, msg) in outbound {
+        let ch_id = ChannelId::from(channel);
+        match target {
+            SendTarget::All => { batches.entry((None, ch_id)).or_default().push(msg); }
+            SendTarget::One(id) => { batches.entry((Some(id), ch_id)).or_default().push(msg); }
+            SendTarget::AllExcept(excluded) => {
+                for &id in all_clients.iter().filter(|&&id| id != excluded) {
+                    batches.entry((Some(id), ch_id)).or_default().push(msg.clone());
+                }
+            }
+        }
     }
 
     if let Some(endpoint) = server.get_endpoint_mut() {
