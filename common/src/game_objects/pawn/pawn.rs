@@ -1,9 +1,6 @@
 use crate::physics::physics_world::*;
 use crate::{physics::physics_world::PhysicsWorld, ring_buffer::RingBuffer};
-use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::transform::TransformSystems;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use bevy_egui::input::EguiWantsInput;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,18 +9,11 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(super::biped::on_remove_biped);
+        app.add_plugins(super::biped::BipedPlugin);
         app.add_systems(FixedPreUpdate, (
             gather_pawn_input.run_if(resource_exists::<ButtonInput<KeyCode>>),
-            (
-                move_pawns::<BipedPawnComponent>(super::biped::apply_biped_movement),
-                move_pawns::<SpaceshipPawnComponent>(super::spaceship::apply_spaceship_movement),
-            ),
+            move_pawns::<SpaceshipPawnComponent>(super::spaceship::apply_spaceship_movement),
         ).chain());
-        app.init_resource::<MouseSensitivity>()
-            .add_systems(PostUpdate, mouse_look
-                .before(TransformSystems::Propagate)
-                .run_if(resource_exists::<AccumulatedMouseMotion>));
     }
 }
 
@@ -125,37 +115,6 @@ impl Possessed {
 }
 
 // SYSTEMS
-
-/// runs every frame in PostUpdate, before transform propagation
-pub fn mouse_look(
-    mouse: Res<AccumulatedMouseMotion>,
-    sensitivity: Res<MouseSensitivity>,
-    cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
-    possessed: Query<&BipedPawnComponent, With<Possessed>>,
-    mut pivots: ParamSet<(
-        Query<(&mut Transform, &mut YawPivot)>,
-        Query<(&mut Transform, &mut PitchPivot)>,
-    )>,
-) {
-    if cursor_q.grab_mode == CursorGrabMode::None { return; }
-    let delta = mouse.delta;
-    if delta == Vec2::ZERO { return; }
-    let Ok(biped) = possessed.single() else { return };
-    let s = sensitivity.0;
-
-    if let Some(yaw_e) = biped.yaw_pivot {
-        if let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e) {
-            pivot.yaw -= delta.x * s;
-            t.rotation = Quat::from_rotation_y(pivot.yaw);
-        }
-    }
-    if let Some(pitch_e) = biped.pitch_pivot {
-        if let Ok((mut t, mut pivot)) = pivots.p1().get_mut(pitch_e) {
-            pivot.pitch = (pivot.pitch - delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
-            t.rotation = Quat::from_rotation_x(pivot.pitch);
-        }
-    }
-}
 
 /// gathers keyboard input for the locally possessed pawn(s)
 pub fn gather_pawn_input(

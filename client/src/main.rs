@@ -23,7 +23,6 @@ use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
 use common::weapon::{rifle, shotgun, hail_mary, WeaponPlugin, PendingHullCollider};
-use common::pawn::biped::biped_fire;
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -247,13 +246,7 @@ fn main() {
     // (tick increment is FixedLast)
 
     app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
-    app.add_systems(FixedPreUpdate, (
-        biped_fire::<rifle::RifleComponent>,
-        biped_fire::<shotgun::ShotgunComponent>,
-        biped_fire::<hail_mary::HailMaryComponent>,
-    ).after(gather_pawn_input).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
     app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
-    app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, draw_server_state.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)

@@ -1,11 +1,14 @@
 use crate::game_objects::health::Health;
-use crate::physics::physics_world::*;
-use super::pawn::*;
-use crate::net::message::NetworkID;
-use bevy::prelude::*;
-use rapier3d::prelude::*;
-use crate::net::message::SpawnCommand;
+use crate::game_objects::weapon::{rifle, shotgun, hail_mary};
 use crate::game_objects::weapon::weapon::Weapon;
+use crate::net::message::{NetworkID, SpawnCommand};
+use crate::physics::physics_world::*;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::prelude::*;
+use bevy::transform::TransformSystems;
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use rapier3d::prelude::*;
+use super::pawn::*;
 
 #[derive(Component, Default)]
 pub struct BipedPawnComponent {
@@ -20,6 +23,75 @@ pub struct BipedPawnComponent {
     /// cached pivot entities set by setup_camera_rig; None on the server.
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
+}
+
+pub struct BipedPlugin;
+
+impl Plugin for BipedPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_remove_biped);
+        app.init_resource::<MouseSensitivity>();
+        app.add_systems(FixedPreUpdate, (
+            move_pawns::<BipedPawnComponent>(apply_biped_movement),
+            biped_fire::<rifle::RifleComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
+            biped_fire::<shotgun::ShotgunComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
+            biped_fire::<hail_mary::HailMaryComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
+        ).after(gather_pawn_input));
+        app.add_systems(PostUpdate, mouse_look
+            .before(TransformSystems::Propagate)
+            .run_if(resource_exists::<AccumulatedMouseMotion>));
+        app.add_systems(Update, switch_weapon_slot
+            .run_if(resource_exists::<AccumulatedMouseScroll>));
+    }
+}
+
+fn mouse_look(
+    mouse: Res<AccumulatedMouseMotion>,
+    sensitivity: Res<MouseSensitivity>,
+    cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
+    possessed: Query<&BipedPawnComponent, With<Possessed>>,
+    mut pivots: ParamSet<(
+        Query<(&mut Transform, &mut YawPivot)>,
+        Query<(&mut Transform, &mut PitchPivot)>,
+    )>,
+) {
+    if cursor_q.grab_mode == CursorGrabMode::None { return; }
+    let delta = mouse.delta;
+    if delta == Vec2::ZERO { return; }
+    let Ok(biped) = possessed.single() else { return };
+    let s = sensitivity.0;
+
+    if let Some(yaw_e) = biped.yaw_pivot {
+        if let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e) {
+            pivot.yaw -= delta.x * s;
+            t.rotation = Quat::from_rotation_y(pivot.yaw);
+        }
+    }
+    if let Some(pitch_e) = biped.pitch_pivot {
+        if let Ok((mut t, mut pivot)) = pivots.p1().get_mut(pitch_e) {
+            pivot.pitch = (pivot.pitch - delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
+            t.rotation = Quat::from_rotation_x(pivot.pitch);
+        }
+    }
+}
+
+fn switch_weapon_slot(
+    scroll: Res<AccumulatedMouseScroll>,
+    mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
+    mut visibility: Query<&mut Visibility>,
+) {
+    let delta: f32 = scroll.delta.y;
+    if delta == 0.0 { return; }
+    let Ok(mut slots) = pawn.single_mut() else { return };
+    let prev = slots.active;
+    slots.active = if delta > 0.0 { (slots.active + 1) % 2 } else { slots.active.checked_sub(1).unwrap_or(1) };
+    if slots.active == prev { return; }
+    if let Some(e) = slots.slots[prev].1 {
+        if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
+    }
+    if let Some(e) = slots.slots[slots.active].1 {
+        if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
+    }
 }
 
 pub fn on_remove_biped(
