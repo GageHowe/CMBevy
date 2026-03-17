@@ -17,6 +17,12 @@ pub enum GameObjectKind {
     Planet,
 }
 
+impl GameObjectKind {
+    pub fn is_projectile(&self) -> bool {
+        matches!(self, GameObjectKind::HailMary)
+    }
+}
+
 /// A component holding "tags", labels that can be applied
 /// currently unused
 #[derive(Debug, PartialEq, Clone, bevy::ecs::component::Component, Serialize, Deserialize)]

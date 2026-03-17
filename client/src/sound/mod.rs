@@ -1,11 +1,5 @@
 use bevy::prelude::*;
 use lanyard::Utf8CString;
-use common::weapon::{
-    FiredWeapons, FireEffect,
-    rifle::RifleComponent,
-    shotgun::ShotgunComponent,
-    hail_mary::HailMaryComponent,
-};
 
 /// FMOD Studio .bank files to load at startup, relative to the working directory.
 const BANK_PATHS: &[&str] = &[
@@ -112,32 +106,6 @@ fn flush_sound_queue(fmod: Option<Res<FmodStudio>>, mut queue: ResMut<SoundQueue
 fn update_fmod(fmod: Option<Res<FmodStudio>>) {
     if let Some(fmod) = fmod {
         let _ = fmod.system.update();
-    }
-}
-
-/// Reads FiredWeapons before local_hitscan_vfx drains them, queuing fire sounds.
-/// Must run in the same FixedUpdate chain, immediately before local_hitscan_vfx.
-pub fn sound_from_fired_weapons(
-    fired: Res<FiredWeapons>,
-    rifles: Query<(), With<RifleComponent>>,
-    shotguns: Query<(), With<ShotgunComponent>>,
-    hail_marys: Query<(), With<HailMaryComponent>>,
-    mut queue: ResMut<SoundQueue>,
-) {
-    for (entity, effect) in &fired.0 {
-        let event = if rifles.contains(*entity) {
-            "event:/Weapons/Rifle/Fire"
-        } else if shotguns.contains(*entity) {
-            "event:/Weapons/Shotgun/Fire"
-        } else if hail_marys.contains(*entity) {
-            "event:/Weapons/HailMary/Fire"
-        } else {
-            continue;
-        };
-        let origin = match effect {
-            FireEffect::Hitscan { origin, .. } | FireEffect::Projectile { origin, .. } => *origin,
-        };
-        queue.0.push(SoundRequest { event, position: Some(origin), velocity: None });
     }
 }
 

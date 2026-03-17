@@ -87,6 +87,8 @@ pub enum MsgType {
     FileData(String, Vec<u8>),
 }
 
+/// networked state of a dynamic rigidbody.
+/// stable, do not touch.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BodyState {
     pub position: Vec3,
@@ -95,6 +97,8 @@ pub struct BodyState {
     pub angvel: Vec3,
 }
 
+/// networked message for a set of rigidbodies.
+/// stable, do not touch.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SimulationState {
     pub tick: u64,

@@ -3,8 +3,10 @@ use rapier3d::prelude::*;
 use crate::game_objects::GameObjectKind;
 use crate::physics::debug::{draw_collider, rb_iso};
 use crate::interaction::Interactable;
+use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
-use super::weapon::{insert_weapon_physics, FireEffect, WeaponComponent, WeaponInput, WeaponKind};
+use crate::physics::convex_hull_asset::ConvexHullAsset;
+use super::weapon::{Weapon, WeaponComponent, PendingHullCollider};
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
@@ -15,12 +17,8 @@ pub const COOLDOWN_TICKS: u32 = 120;
 /// Projectile speed in m/s.
 pub const PROJECTILE_SPEED: f32 = 100.0;
 
-// didnt know impls could have consts lol
-impl WeaponKind for HailMaryComponent {
-    const MODEL_PATH: &'static str = "models/hail_mary_placeholder_2.glb#Scene0";
-    const HULL_PATH: &'static str = "collision/hail_mary_placeholder_2.obj";
-    const SCALE: f32 = 10.0;
-}
+const HULL_PATH: &str = "collision/hail_mary_placeholder_2.obj";
+const SCALE: f32 = 10.0;
 
 #[derive(Component, Default)]
 pub struct HailMaryComponent {
@@ -33,6 +31,19 @@ pub struct HailMaryComponent {
 }
 
 const MUZZLE_FLASH_TICKS: u8 = 3;
+
+impl Weapon for HailMaryComponent {
+    fn update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, origin: Vec3, aim_dir: Vec3, shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
+        self.cooldown = self.cooldown.saturating_sub(1);
+        if want_fire && self.cooldown == 0 { self.fire_requested = true; }
+        if !self.fire_requested { return false; }
+        self.cooldown = COOLDOWN_TICKS;
+        self.fire_requested = false;
+        self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
+        spawn_projectile(origin, aim_dir, commands, world, DAMAGE, shooter);
+        true
+    }
+}
 
 /// Spawns a Hail Mary weapon entity with physics. Used by both server and client.
 pub fn spawn(
@@ -54,13 +65,51 @@ pub fn spawn(
     let entity = commands.spawn((
         WeaponComponent,
         HailMaryComponent { muzzle_flash_light: Some(light), ..default() },
-        WeaponInput::default(),
         GameObjectKind::HailMary,
         Interactable { range: 2.0 },
         Transform::from(transform),
     )).id();
-    insert_weapon_physics(entity, &transform, commands, world);
+    let rb = RigidBodyBuilder::dynamic()
+        .translation(transform.translation)
+        .angular_damping(2.0)
+        .build();
+    let rb_handle = world.insert_body(entity, rb);
+    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    {
+        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+        collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
+    }
     commands.entity(entity).add_child(light);
+    entity
+}
+
+pub fn spawn_from_command(
+    cmd: SpawnCommand,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    asset_server: &AssetServer,
+    hull_assets: &Assets<ConvexHullAsset>,
+) -> Entity {
+    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(SCALE) };
+    let entity = spawn(transform, commands, world);
+    commands.entity(entity).insert((SceneRoot(asset_server.load("models/hail_mary_placeholder_2.glb#Scene0")), Visibility::default(), cmd.net_id));
+    let s = SCALE;
+    let handle = asset_server.load_with_settings(HULL_PATH, move |settings: &mut f32| *settings = s);
+    if let Some(hull) = hull_assets.get(&handle) {
+        if let Some(rb_handle) = world.entity_to_handle.get(&entity).copied() {
+            let existing: Vec<ColliderHandle> = world.rigid_body_set.get(rb_handle)
+                .map(|rb| rb.colliders().to_vec())
+                .unwrap_or_default();
+            for ch in existing {
+                let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
+                collider_set.remove(ch, island_manager, rigid_body_set, true);
+            }
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+            collider_set.insert_with_parent(hull.0.clone(), rb_handle, rigid_body_set);
+        }
+    } else {
+        commands.entity(entity).insert(PendingHullCollider(handle));
+    }
     entity
 }
 
@@ -81,12 +130,17 @@ pub fn spawn_projectile(
     damage: f32,
     shooter: Option<Entity>,
 ) -> (Entity, Vec3) {
-    let shooter_vel = shooter
-        .and_then(|e| world.entity_to_handle.get(&e).copied())
-        .and_then(|h| world.rigid_body_set.get(h))
-        .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
-        .unwrap_or(Vec3::ZERO);
-    let vel = direction * PROJECTILE_SPEED + shooter_vel;
+    // When shooter is None (ghost), direction is treated as a pre-computed velocity.
+    let vel = match shooter {
+        Some(e) => {
+            let sv = world.entity_to_handle.get(&e)
+                .and_then(|&h| world.rigid_body_set.get(h))
+                .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+                .unwrap_or(Vec3::ZERO);
+            direction * PROJECTILE_SPEED + sv
+        }
+        None => direction,
+    };
     let entity = commands.spawn((
         GameObjectKind::HailMaryProjectile,
         HailMaryProjectileState { damage, shooter },
@@ -148,25 +202,4 @@ pub fn draw_projectile_debug(
             }
         }
     }
-}
-
-pub fn apply_hail_mary_fire(
-    _world: &mut PhysicsWorld,
-    input: WeaponInput,
-    hail_mary: &mut HailMaryComponent,
-) -> Option<FireEffect> {
-    hail_mary.cooldown = hail_mary.cooldown.saturating_sub(1);
-    // Only latch fire_requested when the weapon is ready; discard clicks during cooldown.
-    if input.fire && hail_mary.cooldown == 0 { hail_mary.fire_requested = true; }
-    if !hail_mary.fire_requested { return None; }
-    hail_mary.cooldown = COOLDOWN_TICKS;
-    hail_mary.fire_requested = false;
-    hail_mary.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
-    Some(FireEffect::Projectile {
-        origin: input.origin,
-        direction: input.aim_dir,
-        speed: PROJECTILE_SPEED,
-        damage: DAMAGE,
-        shooter: input.shooter,
-    })
 }

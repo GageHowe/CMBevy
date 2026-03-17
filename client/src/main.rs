@@ -1,9 +1,8 @@
 // client executable
 
 use bevy::core_pipeline::Skybox;
-use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::log::{Level, LogPlugin};
-use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::input::EguiWantsInput;
@@ -23,7 +22,8 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, hail_mary, fire_weapons, spawn_from_command, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin, PendingHullCollider};
+use common::weapon::{rifle, shotgun, hail_mary, WeaponPlugin, PendingHullCollider};
+use common::pawn::biped::biped_fire;
 use common::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -236,16 +236,6 @@ fn main() {
             .run_if(in_state(GameState::Multiplayer)),
     );
 
-    // fire_weapons<T> ticks weapon cooldowns, resets WeaponInput, and appends to FiredWeapons.
-    // local_hitscan_vfx raycasts against the scene mesh for immediate client-side beam VFX.
-    // .chain() ensures rifle → shotgun → vfx in order, all before step_physics.
-    app.add_systems(FixedUpdate, (
-        fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
-        fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
-        fire_weapons::<hail_mary::HailMaryComponent>(hail_mary::apply_hail_mary_fire),
-        sound::sound_from_fired_weapons,
-        local_hitscan_vfx,
-    ).chain().before(step_physics).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
     // FixedPostUpdate:
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
@@ -253,12 +243,15 @@ fn main() {
 
     app.add_systems(FixedPostUpdate, snapshot_server_state.after(on_message).run_if(in_state(GameState::Multiplayer).and(resource_changed::<PendingReconciliation>)));
 
+
     // (tick increment is FixedLast)
 
     app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
-    app.add_systems(FixedPreUpdate, fire_weapon
-        .after(gather_pawn_input)
-        .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
+    app.add_systems(FixedPreUpdate, (
+        biped_fire::<rifle::RifleComponent>,
+        biped_fire::<shotgun::ShotgunComponent>,
+        biped_fire::<hail_mary::HailMaryComponent>,
+    ).after(gather_pawn_input).run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
     app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, switch_weapon_slot);
     app.add_systems(Update, draw_hit_beams);
@@ -281,49 +274,6 @@ fn main() {
     app.run();
 }
 
-/// Drains FiredWeapons: spawns projectiles, draws hitscan beams, and sends MsgType::Fire.
-fn local_hitscan_vfx(
-    mut fired: ResMut<FiredWeapons>,
-    mut hit_beams: ResMut<HitBeams>,
-    mut ray_cast: MeshRayCast,
-    pawn: Query<&WeaponSlots, With<Possessed>>,
-    mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
-    mut quic: ResMut<QuicManager>,
-    net_ids: Query<&NetworkID>,
-    ticker: Res<Ticker>,
-    state: Res<State<GameState>>,
-) {
-    let excluded: Vec<Entity> = pawn.iter()
-        .flat_map(|slots| slots.slots.iter().filter_map(|s| s.1))
-        .collect();
-    for (weapon_entity, effect) in fired.0.drain(..) {
-        match effect {
-            FireEffect::Hitscan { origin, direction, range, .. } => {
-                let Ok(dir) = Dir3::new(direction) else { continue };
-                let hits = ray_cast.cast_ray(
-                    Ray3d::new(origin, dir),
-                    &MeshRayCastSettings { filter: &|e| !excluded.contains(&e), ..default() },
-                );
-                let end = hits.iter()
-                    .find(|(_, hit)| hit.distance <= range)
-                    .map(|(_, hit)| hit.point)
-                    .unwrap_or(origin + direction * range);
-                hit_beams.0.push((origin, end, 0.3));
-            }
-            FireEffect::Projectile { origin, direction, shooter, .. } => {
-                hail_mary::spawn_projectile(origin, direction, &mut commands, &mut world, 0.0, shooter);
-                if *state.get() == GameState::Multiplayer {
-                    if let Ok(weapon_net_id) = net_ids.get(weapon_entity) {
-                        quic.send(SendTarget::All, Channel::Unordered,
-                            &MsgType::Fire(weapon_net_id.clone(), origin.into(), direction.into(), ticker.tick));
-                    }
-                }
-            }
-        }
-    }
-}
-
 fn despawn_projectiles(
     mut commands: Commands,
     world: Res<PhysicsWorld>,
@@ -331,7 +281,7 @@ fn despawn_projectiles(
 ) {
     for (entity, body_handle) in projectiles.iter() {
         let Some(rb) = world.rigid_body_set.get(body_handle.0) else { continue };
-        if rb.colliders().iter().any(|&ch| world.narrow_phase.contact_pairs_with(ch).next().is_some()) {
+        if rb.colliders().iter().any(|&ch| world.narrow_phase.contact_pairs_with(ch).any(|p| p.has_any_active_contact())) {
             commands.entity(entity).despawn();
         }
     }
@@ -362,13 +312,13 @@ fn spawn_sp_weapons(
         };
         match req.kind {
             GameObjectKind::HailMary => {
-                spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
+                hail_mary::spawn_from_command(cmd, &mut commands, &mut world, &asset_server, &hull_assets);
             }
             GameObjectKind::Rifle => {
-                spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
+                rifle::spawn_from_command(cmd, &mut commands, &mut world, &asset_server, &hull_assets);
             }
             GameObjectKind::Shotgun => {
-                spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut commands, &mut world, &asset_server, &hull_assets);
+                shotgun::spawn_from_command(cmd, &mut commands, &mut world, &asset_server, &hull_assets);
             }
             _ => {}
         }
@@ -473,11 +423,11 @@ fn on_message(
     time: Res<Time>,
     mut local_net_id: ResMut<LocalNetworkID>,
     mut hit_beams: ResMut<HitBeams>,
-    mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
+    mut possessed_q: Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     networked: Query<(Entity, &NetworkID)>,
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
-    pitch_pivot: Query<Entity, With<PitchPivot>>,
+    pitch_pivot_q: Query<Entity, With<PitchPivot>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
@@ -497,13 +447,13 @@ fn on_message(
                         }
                     }
                     GameObjectKind::Rifle => {
-                        spawn_from_command::<rifle::RifleComponent>(cmd, rifle::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
+                        rifle::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
                     }
                     GameObjectKind::Shotgun => {
-                        spawn_from_command::<shotgun::ShotgunComponent>(cmd, shotgun::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
+                        shotgun::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
                     }
                     GameObjectKind::HailMary => {
-                        spawn_from_command::<hail_mary::HailMaryComponent>(cmd, hail_mary::spawn, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
+                        hail_mary::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
                     }
                     GameObjectKind::Spaceship => {
                         warn!("Spaceship spawn not yet implemented on client");
@@ -525,7 +475,7 @@ fn on_message(
                             }
                             // Despawn held weapon viewmodels explicitly so the
                             // recursive pawn despawn doesn't hit them a second time.
-                            if let Ok(mut slots) = possessed_q.single_mut() {
+                            if let Ok((mut slots, _)) = possessed_q.single_mut() {
                                 for i in 0..2 {
                                     let ent = slots.slots[i].1.take();
                                     slots.slots[i].0 = None;
@@ -535,7 +485,7 @@ fn on_message(
                                 }
                             }
                             local_net_id.0 = None;
-                        } else if let Ok(mut slots) = possessed_q.single_mut() {
+                        } else if let Ok((mut slots, _)) = possessed_q.single_mut() {
                             // If this was a weapon viewmodel in a slot, clear the slot.
                             for i in 0..2 {
                                 if slots.slots[i].0.as_ref() == Some(&net_id) {
@@ -557,20 +507,18 @@ fn on_message(
                 let Some(weapon_entity) = weapon_entity else { continue };
                 world.set_body_enabled(weapon_entity, false);
                 if is_local {
-                    // Find first empty slot, assign weapon, attach as viewmodel.
-                    let slot_result = if let Ok(mut slots) = possessed_q.single_mut() {
-                        let slot_idx = slots.slots.iter().position(|s| s.0.is_none());
-                        if let Some(idx) = slot_idx {
+                    let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = possessed_q.single_mut() {
+                        let slot_result = slots.slots.iter().position(|s| s.0.is_none()).map(|idx| {
                             slots.slots[idx] = (Some(weapon_id.clone()), Some(weapon_entity));
-                            Some((idx, slots.active == idx))
-                        } else { None }
-                    } else { None };
-                    if let (Some((slot_idx, is_active)), Ok(pivot)) = (slot_result, pitch_pivot.single()) {
-                        let offset = viewmodel_offset(slot_idx);
+                            (idx, slots.active == idx)
+                        });
+                        (slot_result, biped.pitch_pivot)
+                    } else { (None, None) };
+                    if let (Some((slot_idx, is_active)), Some(pivot)) = (slot_result, pivot_e) {
                         sp.commands.entity(weapon_entity)
                             .remove::<(RigidBodyHandleComponenet, Interactable)>()
                             .set_parent_in_place(pivot)
-                            .insert(offset)
+                            .insert(viewmodel_offset(slot_idx))
                             .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
                     }
                 } else {
@@ -586,7 +534,7 @@ fn on_message(
                 world.teleport_body(weapon_entity, drop_pos);
                 world.set_body_enabled(weapon_entity, true);
                 if is_carrier {
-                    if let Ok(mut slots) = possessed_q.single_mut() {
+                    if let Ok((mut slots, _)) = possessed_q.single_mut() {
                         for i in 0..2 {
                             if slots.slots[i].0.as_ref() == Some(&weapon_id) {
                                 slots.slots[i] = (None, None);
@@ -607,9 +555,8 @@ fn on_message(
             MsgType::HitResult(origin, end, _hit_net_id) => {
                 hit_beams.0.push((origin.into(), end.into(), 0.3));
             }
-            MsgType::Fire(_, origin, direction, _tick) => {
-                let dir = Vec3::from(direction).normalize_or_zero();
-                hail_mary::spawn_projectile(Vec3::from(origin), dir, &mut sp.commands, &mut world, 0.0, None);
+            MsgType::Fire(_, origin, velocity, _tick) => {
+                hail_mary::spawn_projectile(Vec3::from(origin), Vec3::from(velocity), &mut sp.commands, &mut world, 0.0, None);
             }
             MsgType::HealthUpdate(net_id, current) => {
                 for (nid, mut health) in health_q.iter_mut() {
@@ -697,39 +644,6 @@ fn send_pawn_input(
     );
 }
 
-fn fire_weapon(
-    mouse: Res<ButtonInput<MouseButton>>,
-    egui_wants: Res<EguiWantsInput>,
-    pawn: Query<(Entity, &WeaponSlots, &RigidBodyHandleComponenet), With<Possessed>>,
-    yaw_q: Query<&YawPivot>,
-    pitch_q: Query<&PitchPivot>,
-    aim_mouse: Res<AccumulatedMouseMotion>,
-    sensitivity: Res<MouseSensitivity>,
-    world: Res<PhysicsWorld>,
-    mut weapon_inputs: Query<&mut WeaponInput>,
-    ticker: Res<Ticker>,
-) {
-    if egui_wants.wants_any_input() || !mouse.pressed(MouseButton::Left) { return; }
-    let Ok((pawn_entity, slots, rb_handle)) = pawn.single() else { return };
-    let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
-    let Ok(yp) = yaw_q.single() else { return };
-    let Ok(pp) = pitch_q.single() else { return };
-    // Apply this frame's mouse delta on top of the stored angles to get the current-frame direction.
-    let yaw = yp.yaw - aim_mouse.delta.x * sensitivity.0;
-    let pitch = (pp.pitch - aim_mouse.delta.y * sensitivity.0).clamp(-PITCH_MAX, PITCH_MAX);
-    let aim = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
-    let origin = world.rigid_body_set.get(rb_handle.0)
-        .map(|rb| { let t = rb.position().translation; Vec3::new(t.x, t.y + 0.4, t.z) })
-        .unwrap_or_default();
-    if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
-        w_input.fire = true;
-        w_input.origin = origin;
-        w_input.aim_dir = aim * Vec3::NEG_Z;
-        w_input.shooter = Some(pawn_entity);
-        w_input.tick = ticker.tick;
-    }
-}
-
 
 /// Replaces a weapon entity's default cuboid collider with its convex hull once the asset loads.
 /// Triggered by `spawn_from_command` attaching a `Handle<ConvexHullAsset>` to the entity.
@@ -764,6 +678,7 @@ fn snapshot_server_state(pending: Res<PendingReconciliation>, mut last: ResMut<L
     }
 }
 
+
 /// Draws a point gizmo at each body position from the latest server state.
 fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
     let Some(state) = &last.0 else { return };
@@ -792,6 +707,7 @@ fn toggle_flashlight(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
     local_net_id: Res<LocalNetworkID>,
+    possessed_q: Query<&BipedPawnComponent, With<Possessed>>,
     pitch_pivot: Query<&Children, With<PitchPivot>>,
     mut lights: Query<&mut Visibility, With<SpotLight>>,
     mut quic: ResMut<QuicManager>,
@@ -799,10 +715,14 @@ fn toggle_flashlight(
 ) {
     if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyY) { return; }
     *on = !*on;
-    if let Ok(children) = pitch_pivot.single() {
-        for child in children.iter() {
-            if let Ok(mut vis) = lights.get_mut(child) {
-                *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
+    if let Ok(biped) = possessed_q.single() {
+        if let Some(pitch_e) = biped.pitch_pivot {
+            if let Ok(children) = pitch_pivot.get(pitch_e) {
+                for child in children.iter() {
+                    if let Ok(mut vis) = lights.get_mut(child) {
+                        *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
+                    }
+                }
             }
         }
     }
@@ -831,22 +751,22 @@ fn interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
     state: Res<State<GameState>>,
-    player: Query<(&RigidBodyHandleComponenet, &Transform), With<Possessed>>,
+    player: Query<(&RigidBodyHandleComponenet, &Transform, &BipedPawnComponent), With<Possessed>>,
     interactables: Query<(Entity, &RigidBodyHandleComponenet, &NetworkID), With<Interactable>>,
     mut world: ResMut<PhysicsWorld>,
-    pitch_pivot: Query<Entity, With<PitchPivot>>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut quic: ResMut<QuicManager>,
 ) {
     if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
-    let player_pos = player.single().ok()
-        .and_then(|(h, _)| world.rigid_body_set.get(h.0).map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) }))
-        .unwrap_or_else(|| player.single().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO));
+    let Ok((h, t, biped)) = player.single() else { return };
+    let player_pos = world.rigid_body_set.get(h.0)
+        .map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) })
+        .unwrap_or(t.translation);
     let Some((weapon_entity, weapon_net_id)) = nearest_interactable(player_pos, &interactables, &world) else { return };
     match state.get() {
         GameState::SinglePlayer => {
-            let Ok(pivot_entity) = pitch_pivot.single() else { return };
+            let Some(pivot_entity) = biped.pitch_pivot else { return };
             let Ok(mut slots) = possessed_q.single_mut() else { return };
             let Some(slot_idx) = slots.slots.iter().position(|s| s.0.is_none()) else { return };
             slots.slots[slot_idx] = (Some(weapon_net_id), Some(weapon_entity));

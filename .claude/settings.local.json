@@ -45,7 +45,8 @@
       "Bash(cmd.exe /c \"target\\\\debug\\\\client.exe > %TEMP%\\\\client_out.txt 2>&1\")",
       "Read(//c/Users/howeg/AppData/Local/Temp/**)",
       "Bash(powershell -Command \"\n\\\\$p = Start-Process -FilePath 'C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy\\\\target\\\\debug\\\\client.exe' -WorkingDirectory 'C:\\\\Users\\\\howeg\\\\Downloads\\\\CMBevy' -PassThru -WindowStyle Normal\nStart-Sleep 6\nif \\(-not \\\\$p.HasExited\\) { Write-Output 'RUNNING OK'; \\\\$p.Kill\\(\\) }\nelse { Write-Output \\('EXITED with code: ' + \\\\$p.ExitCode\\) }\n\" 2>&1)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(wait:*)"
     ],
     "deny": []
   }

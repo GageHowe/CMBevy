@@ -140,6 +140,11 @@ pub fn apply_gravity(
 /// when composing rotation arcs, since the basis is reconstructed from scratch
 /// using the current forward vector projected onto the plane perpendicular to
 /// the planet's "up". snap_radius == 0 is treated as unlimited.
+/// Smoothly orients bipeds upright relative to the nearest planet using an
+/// orthonormal basis rebuild each tick. Avoids the roll drift that accumulates
+/// when composing rotation arcs, since the basis is reconstructed from scratch
+/// using the current forward vector projected onto the plane perpendicular to
+/// the planet's "up". snap_radius == 0 is treated as unlimited.
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
     bipeds: Query<&RigidBodyHandleComponenet, With<BipedPawnComponent>>,
@@ -170,12 +175,7 @@ pub fn orient_bipeds_to_planets(
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else { continue };
-
-        let Some((planet_center, _)) = nearest else {
-            // Outside all snap radii — restore free rotation.
-            rb.lock_rotations(false, true);
-            continue;
-        };
+        let Some((planet_center, _)) = nearest else { continue };
 
         rb.lock_rotations(true, false);
 
@@ -189,7 +189,6 @@ pub fn orient_bipeds_to_planets(
             if proj.length_squared() > 1e-6 {
                 proj.normalize()
             } else {
-                // forward is parallel to up — pick an arbitrary stable perpendicular
                 let alt = if desired_up.abs().x < 0.9 { Vec3::X } else { Vec3::Z };
                 (alt - alt.dot(desired_up) * desired_up).normalize()
             }
@@ -198,9 +197,7 @@ pub fn orient_bipeds_to_planets(
         // Rebuild orthonormal basis: X=right, Y=up, Z=back
         let right = forward_proj.cross(desired_up).normalize();
         let back  = right.cross(desired_up).normalize();
-        let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
-
-        rb.set_rotation(target_rot, false);
+        rb.set_rotation(Quat::from_mat3(&Mat3::from_cols(right, desired_up, back)), false);
     }
 }
 

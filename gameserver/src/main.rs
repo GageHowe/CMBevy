@@ -16,10 +16,7 @@ use common::master_plugin::MasterPlugin;
 use common::pawn::biped;
 use common::pawn::pawn::BipedPawnComponent;
 use common::health::Health;
-use common::weapon::{
-    rifle, shotgun, hail_mary,
-    fire_weapons, FireEffect, FiredWeapons, WeaponInput, WeaponPlugin,
-};
+use common::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
 use common::pawn::biped::WeaponSlots;
 use common::debug_println;
 use common::level::{Map, LevelPlugin, SpawnPoint};
@@ -87,23 +84,10 @@ fn main() {
     app.init_resource::<PendingRespawns>();
     app.init_resource::<BodyHistory>();
 
-    // FixedUpdate ordering:
-    //   on_message → WeaponFire (fire_weapons<T>, fills FiredWeapons)
-    //     → handle_fired_weapons (drains FiredWeapons, raycasts, applies damage, broadcasts)
-    //     → step_physics → broadcast_tick
-    #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-    enum ServerSet { WeaponFire }
-
     app.add_systems(PreUpdate, process_inbound_server);
     app.add_systems(Update, (tick_respawns, process_console_commands));
     app.add_systems(Startup, (start_server, spawn_level_objects, init_mode_config).chain());
-    app.configure_sets(FixedUpdate, ServerSet::WeaponFire.after(on_message).before(step_physics));
     app.add_systems(FixedUpdate, on_message.before(step_physics));
-    app.add_systems(FixedUpdate, (
-        fire_weapons::<rifle::RifleComponent>(rifle::apply_rifle_fire),
-        fire_weapons::<shotgun::ShotgunComponent>(shotgun::apply_shotgun_fire),
-    ).in_set(ServerSet::WeaponFire));
-    app.add_systems(FixedUpdate, handle_fired_weapons.after(ServerSet::WeaponFire).before(step_physics));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
 
     println!("starting server...\n");
@@ -259,6 +243,15 @@ fn remove_player(
     quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(net_id));
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct HitscanParams<'w, 's> {
+    networked: Query<'w, 's, (Entity, &'static NetworkID)>,
+    body_query: Query<'w, 's, (&'static NetworkID, &'static RigidBodyHandleComponenet)>,
+    health_q: Query<'w, 's, (&'static mut Health, &'static NetworkID)>,
+    history: Res<'w, BodyHistory>,
+    mode: Res<'w, ModeConfig>,
+}
+
 fn on_message(
     mut quic: ResMut<QuicManager>,
     script_config: Option<Res<ScriptConfig>>,
@@ -271,9 +264,9 @@ fn on_message(
     tick: Res<Ticker>,
     level: Res<Map>,
     weapon_kinds: Query<&GameObjectKind>,
-    mut weapon_inputs: Query<&mut WeaponInput>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
+    mut hs: HitscanParams,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -339,6 +332,8 @@ fn on_message(
                 if let Some(&(entity, _)) = registry.0.get(&msg.conn_id) {
                     if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
                         if let Ok(mut biped) = bipeds.get_mut(entity) {
+                            biped.look_yaw   = pawn_input.input.look_yaw;
+                            biped.look_pitch = pawn_input.input.look_pitch;
                             biped::apply_biped_movement(&mut world, &RigidBodyHandleComponenet(handle), pawn_input.input, &mut biped);
                         }
                     }
@@ -405,27 +400,63 @@ fn on_message(
             }
             MsgType::Fire(weapon_net_id, origin, direction, fire_tick) => {
                 let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else { continue };
-
                 let weapon_entity = match weapon_registry.held.get(&weapon_net_id) {
                     Some(&(we, carrier)) if carrier == shooter_entity => we,
                     _ => continue,
                 };
-
                 let dir_v = Vec3::from(direction).normalize_or_zero();
                 if dir_v == Vec3::ZERO { continue; }
 
-                // Hail Mary is client-authoritative: relay the fire event to all clients.
-                // Hitscan weapons (rifle, shotgun) are processed server-side.
-                if weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false) {
+                let is_projectile = weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false);
+                if is_projectile {
                     quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
                 } else {
+                    // Hitscan: lag-comp raycast inline.
                     let origin_v: Vec3 = origin.into();
-                    if let Ok(mut w_input) = weapon_inputs.get_mut(weapon_entity) {
-                        w_input.fire = true;
-                        w_input.origin = origin_v;
-                        w_input.aim_dir = dir_v;
-                        w_input.shooter = Some(shooter_entity);
-                        w_input.tick = fire_tick;
+                    let pairs: Vec<(NetworkID, RigidBodyHandle)> = hs.body_query.iter()
+                        .map(|(nid, rbh)| (nid.clone(), rbh.0))
+                        .collect();
+                    let current = snapshot_bodies(&world, tick.tick, hs.body_query.iter());
+                    if let Some(historical) = hs.history.0.get(&fire_tick) {
+                        restore_snapshot(&mut world, historical, &pairs);
+                    }
+                    let (range, damage) = match weapon_kinds.get(weapon_entity) {
+                        Ok(GameObjectKind::Rifle)   => (rifle::RANGE, rifle::DAMAGE),
+                        Ok(GameObjectKind::Shotgun) => (shotgun::RANGE, shotgun::DAMAGE),
+                        _ => { restore_snapshot(&mut world, &current, &pairs); continue; }
+                    };
+                    let hit = world.cast_ray(origin_v, dir_v, range, Some(shooter_entity));
+                    restore_snapshot(&mut world, &current, &pairs);
+                    let (end, hit_net_id) = match hit {
+                        Some((hit_entity, toi)) => {
+                            let hit_net_id = hs.networked.iter().find(|(e, _)| *e == hit_entity).map(|(_, nid)| nid.clone());
+                            (origin_v + dir_v * toi, hit_net_id)
+                        }
+                        None => (origin_v + dir_v * range, None),
+                    };
+                    quic.send(SendTarget::All, Channel::Unreliable,
+                        &MsgType::HitResult(origin_v.into(), end.into(), hit_net_id.clone()));
+                    if let Some(hit_nid) = hit_net_id {
+                        if let Some((mut health, _)) = hs.health_q.iter_mut().find(|(_, nid)| **nid == hit_nid) {
+                            let died = health.apply_damage(damage);
+                            quic.send(SendTarget::All, Channel::Ordered,
+                                &MsgType::HealthUpdate(hit_nid.clone(), health.current));
+                            if died {
+                                if let Some((dead_entity, _)) = hs.networked.iter().find(|(_, nid)| **nid == hit_nid) {
+                                    let player_entry = registry.0.iter()
+                                        .find(|(_, (e, _))| *e == dead_entity)
+                                        .map(|(cid, (_, nid))| (*cid, nid.clone()));
+                                    if let Some((conn_id, player_net_id)) = player_entry {
+                                        remove_player(dead_entity, player_net_id, &mut quic, &mut registry,
+                                            &mut weapon_registry, &mut commands, &mut world, tick.tick);
+                                        pending_respawns.0.insert(conn_id, (hs.mode.respawn_delay, GameObjectKind::Biped));
+                                    } else {
+                                        commands.entity(dead_entity).despawn();
+                                        quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(hit_nid));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -441,86 +472,6 @@ fn on_message(
                 quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(sender, text));
             }
             other => debug_println!("Unhandled: {other:?}"),
-        }
-    }
-}
-
-/// Drains `FiredWeapons`, dispatches per `FireEffect` variant, applies damage, and broadcasts results.
-fn handle_fired_weapons(
-    mut fired: ResMut<FiredWeapons>,
-    mut world: ResMut<PhysicsWorld>,
-    networked: Query<(Entity, &NetworkID)>,
-    body_query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
-    mut health_q: Query<(&mut Health, &NetworkID)>,
-    mut quic: ResMut<QuicManager>,
-    mut commands: Commands,
-    mut registry: ResMut<PlayerRegistry>,
-    mut weapon_registry: ResMut<WeaponRegistry>,
-    mut pending_respawns: ResMut<PendingRespawns>,
-    tick: Res<Ticker>,
-    mode: Res<ModeConfig>,
-    history: Res<BodyHistory>,
-) {
-    // Drain into a local vec so we can use `world` mutably below without holding
-    // a borrow on `fired` at the same time.
-    let effects: Vec<_> = fired.0.drain(..).collect();
-
-    // Collect pairs once for snapshot/restore calls.
-    let pairs: Vec<(NetworkID, RigidBodyHandle)> = body_query.iter()
-        .map(|(nid, rbh)| (nid.clone(), rbh.0))
-        .collect();
-
-    for (_, effect) in effects {
-        match effect {
-            FireEffect::Projectile { .. } => {}
-            FireEffect::Hitscan { origin, direction, range, damage, shooter, tick: fire_tick } => {
-                // Restore body positions to the tick the client fired on, then cast the ray.
-                // This lets the server replay the exact hit the client saw without rewinding physics.
-                let current = snapshot_bodies(&world, tick.tick, body_query.iter());
-                if let Some(historical) = history.0.get(&fire_tick) {
-                    restore_snapshot(&mut world, historical, &pairs);
-                }
-                let hit = world.cast_ray(origin, direction, range, shooter);
-                restore_snapshot(&mut world, &current, &pairs);
-                let (end, hit_net_id) = match hit {
-                    Some((hit_entity, toi)) => {
-                        let hit_net_id = networked.iter()
-                            .find(|(e, _)| *e == hit_entity)
-                            .map(|(_, nid)| nid.clone());
-                        (origin + direction * toi, hit_net_id)
-                    }
-                    None => (origin + direction * range, None),
-                };
-
-                quic.send(SendTarget::All, Channel::Unreliable,
-                    &MsgType::HitResult(origin.into(), end.into(), hit_net_id.clone()));
-
-                // Apply damage and handle death.
-                if let Some(hit_nid) = hit_net_id {
-                    if let Some((mut health, _)) = health_q.iter_mut().find(|(_, nid)| **nid == hit_nid) {
-                        let died = health.apply_damage(damage);
-                        quic.send(SendTarget::All, Channel::Ordered,
-                            &MsgType::HealthUpdate(hit_nid.clone(), health.current));
-                        if died {
-                            if let Some((dead_entity, _)) = networked.iter().find(|(_, nid)| **nid == hit_nid) {
-                                let player_entry = registry.0.iter()
-                                    .find(|(_, (e, _))| *e == dead_entity)
-                                    .map(|(cid, (_, nid))| (*cid, nid.clone()));
-                                if let Some((conn_id, player_net_id)) = player_entry {
-                                    remove_player(dead_entity, player_net_id, &mut quic, &mut registry,
-                                        &mut weapon_registry, &mut commands, &mut world, tick.tick);
-                                    pending_respawns.0.insert(conn_id,
-                                        (mode.respawn_delay, GameObjectKind::Biped));
-                                } else {
-                                    // Non-player entity with health (future: destructible props).
-                                    commands.entity(dead_entity).despawn();
-                                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(hit_nid));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

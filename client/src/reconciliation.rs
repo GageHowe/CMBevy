@@ -3,6 +3,7 @@ use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
 use common::game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
+use common::game_objects::pawn::biped::BipedPawnComponent;
 use common::net::message::{NetworkID, SimulationState};
 use common::physics::physics_world::{GravityScale, RigidBodyHandleComponenet, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
 use common::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
@@ -80,14 +81,16 @@ pub fn record_world_state(
 pub fn apply_physics_corrections(
     mut errors: ResMut<PhysicsErrors>,
     mut world: ResMut<PhysicsWorld>,
-    bodies: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
+    bodies: Query<(&NetworkID, &RigidBodyHandleComponenet, Option<&BipedPawnComponent>)>,
 ) {
     const ALPHA: f32 = 0.2; // how quickly it corrects
     if errors.0.is_empty() { return; }
-    let handles: HashMap<NetworkID, RigidBodyHandle> = bodies.iter().map(|(nid, h)| (nid.clone(), h.0)).collect();
+    let handles: HashMap<NetworkID, (RigidBodyHandle, bool)> = bodies.iter()
+        .map(|(nid, h, biped)| (nid.clone(), (h.0, biped.is_some())))
+        .collect();
     errors.0.retain(|net_id, error| {
         if error.is_nearly_zero() { return false; }
-        let Some(&handle) = handles.get(net_id) else { return false };
+        let Some(&(handle, is_biped)) = handles.get(net_id) else { return false };
         let Some(rb) = world.rigid_body_set.get_mut(handle) else { return false };
 
         let dp = error.pos * ALPHA;
@@ -98,19 +101,22 @@ pub fn apply_physics_corrections(
         let t = rb.position().translation;
         rb.set_translation(Vector::new(t.x + dp.x, t.y + dp.y, t.z + dp.z), true);
 
-        let ang = dr.length();
-        if ang > 1e-6 {
-            let r = rb.rotation();
-            let cur = Quat::from_xyzw(r.x, r.y, r.z, r.w);
-            let delta = Quat::from_axis_angle(dr / ang, ang);
-            let new_rot = delta * cur;
-            rb.set_rotation(new_rot, true);
+        // Biped rotation is owned by orient_bipeds_to_planets — skip rotation/angvel corrections
+        // to prevent stale server look_yaw from leaking into the camera.
+        if !is_biped {
+            let ang = dr.length();
+            if ang > 1e-6 {
+                let r = rb.rotation();
+                let cur = Quat::from_xyzw(r.x, r.y, r.z, r.w);
+                let delta = Quat::from_axis_angle(dr / ang, ang);
+                rb.set_rotation(delta * cur, true);
+            }
+            let av = rb.angvel();
+            rb.set_angvel(Vector::new(av.x + dav.x, av.y + dav.y, av.z + dav.z), true);
         }
 
         let v = rb.linvel();
         rb.set_linvel(Vector::new(v.x + dv.x, v.y + dv.y, v.z + dv.z), true);
-        let av = rb.angvel();
-        rb.set_angvel(Vector::new(av.x + dav.x, av.y + dav.y, av.z + dav.z), true);
 
         // Decay the remaining error
         let keep = 1.0 - ALPHA;
