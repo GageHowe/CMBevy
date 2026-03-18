@@ -1,10 +1,10 @@
 use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use mlua::prelude::*;
-use crate::pawn::biped;
-use crate::weapon::{rifle, shotgun};
-use crate::{GameObject, GenericShape, spawn_generic};
-use crate::health::Health;
+use game_objects::pawn::biped;
+use game_objects::weapon::{rifle, shotgun};
+use game_objects::{GameObject, GenericShape, spawn_generic};
+use game_objects::health::Health;
 use common::{NetworkID, NetworkIDResource};
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::PhysicsWorld;
@@ -71,12 +71,14 @@ fn reload_script(config: Option<Res<ScriptConfig>>, mut runtime: NonSendMut<Scri
 fn register_script_functions(world: &mut World) {
     let runtime = world.remove_non_send_resource::<ScriptRuntime>().unwrap();
 
+    /// gets the current health of the specified entity ID
     runtime.lua.globals().set("get_health", runtime.lua.create_function(|lua, entity_id: i64| {
         let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
         let entity = Entity::from_bits(entity_id as u64);
         Ok(world.get::<Health>(entity).map(|h| h.current as i32).unwrap_or(0))
     }).unwrap()).unwrap();
 
+    /// sets the current health of the specified entity ID
     runtime.lua.globals().set("set_health", runtime.lua.create_function(|lua, (entity_id, amount): (i64, i32)| {
         let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
         let entity = Entity::from_bits(entity_id as u64);
@@ -86,23 +88,24 @@ fn register_script_functions(world: &mut World) {
         Ok(())
     }).unwrap()).unwrap();
 
-    // spawn(name, x, y, z) → entity_id
-    runtime.lua.globals().set("spawn", runtime.lua.create_function(|lua, (name, x, y, z): (String, f64, f64, f64)| {
-        let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
-        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
-        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
-        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
-        let (mut commands, mut physics) = state.get_mut(world);
-        let entity = match name.as_str() {
-            "biped"   => biped::BipedPawnComponent::spawn_physics(transform, &mut commands, &mut physics),
-            "rifle"   => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut physics),
-            "shotgun" => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut physics),
-            other => { error!("spawn: unknown entity '{other}'"); return Ok(-1i64); }
-        };
-        commands.entity(entity).insert(net_id);
-        state.apply(world);
-        Ok(entity.to_bits() as i64)
-    }).unwrap()).unwrap();
+    // this isn't ready yet
+    // // spawn(name, x, y, z) → entity_id
+    // runtime.lua.globals().set("spawn", runtime.lua.create_function(|lua, (name, x, y, z): (String, f64, f64, f64)| {
+    //     let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
+    //     let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
+    //     let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+    //     let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
+    //     let (mut commands, mut physics) = state.get_mut(world);
+    //     let entity = match name.as_str() {
+    //         "biped"   => biped::BipedPawnComponent::spawn_physics(transform, &mut commands, &mut physics),
+    //         "rifle"   => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut physics),
+    //         "shotgun" => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut physics),
+    //         other => { error!("spawn: unknown entity '{other}'"); return Ok(-1i64); }
+    //     };
+    //     commands.entity(entity).insert(net_id);
+    //     state.apply(world);
+    //     Ok(entity.to_bits() as i64)
+    // }).unwrap()).unwrap();
 
     // spawn_box(x, y, z, hx, hy, hz, friction, restitution) → entity_id
     runtime.lua.globals().set("spawn_box", runtime.lua.create_function(|lua, (x, y, z, hx, hy, hz, friction, restitution): (f64, f64, f64, f64, f64, f64, f64, f64)| {
@@ -112,19 +115,6 @@ fn register_script_functions(world: &mut World) {
         let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
         let (mut commands, mut physics) = state.get_mut(world);
         let shape = GenericShape::Primitive(ColliderBuilder::cuboid(hx as f32, hy as f32, hz as f32).friction(friction as f32).restitution(restitution as f32));
-        let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
-        state.apply(world);
-        Ok(entity.to_bits() as i64)
-    }).unwrap()).unwrap();
-
-    // spawn_ball(x, y, z, radius, friction, restitution) → entity_id
-    runtime.lua.globals().set("spawn_ball", runtime.lua.create_function(|lua, (x, y, z, radius, friction, restitution): (f64, f64, f64, f64, f64, f64)| {
-        let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
-        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
-        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
-        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
-        let (mut commands, mut physics) = state.get_mut(world);
-        let shape = GenericShape::Primitive(ColliderBuilder::ball(radius as f32).friction(friction as f32).restitution(restitution as f32));
         let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
         state.apply(world);
         Ok(entity.to_bits() as i64)
@@ -169,7 +159,7 @@ fn register_script_functions(world: &mut World) {
 
 /// Read a named global from the loaded Lua script. Returns `None` if the script isn't
 /// loaded or the global doesn't exist / has the wrong type.
-pub fn get_script_global<T: mlua::FromLua>(world: &mut World, name: &str) -> Option<T> {
+pub fn get_script_global<T: FromLua>(world: &mut World, name: &str) -> Option<T> {
     let runtime = world.remove_non_send_resource::<ScriptRuntime>()?;
     if !runtime.loaded { world.insert_non_send_resource(runtime); return None; }
     let result = runtime.lua.globals().get::<T>(name).ok();
@@ -179,7 +169,7 @@ pub fn get_script_global<T: mlua::FromLua>(world: &mut World, name: &str) -> Opt
 
 /// Call a named function in the loaded Lua script, returning `None` if the script isn't
 /// loaded or the function doesn't exist. Requires exclusive world access.
-pub fn call_script_fn<T: mlua::FromLuaMulti>(world: &mut World, fn_name: &str) -> Option<T> {
+pub fn call_script_fn<T: FromLuaMulti>(world: &mut World, fn_name: &str) -> Option<T> {
     let runtime = world.remove_non_send_resource::<ScriptRuntime>()?;
     if !runtime.loaded { world.insert_non_send_resource(runtime); return None; }
     runtime.lua.set_app_data(world as *mut World);

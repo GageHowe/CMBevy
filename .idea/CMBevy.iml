@@ -12,6 +12,8 @@
       <sourceFolder url="file://$MODULE_DIR$/game_objects/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/net/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/physics/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/master_plugin/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripting/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/ktx2conv/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>

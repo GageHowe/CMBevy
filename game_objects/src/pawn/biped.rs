@@ -24,6 +24,27 @@ pub struct BipedPawnComponent {
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
 }
+impl Pawn for BipedPawnComponent {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
+        apply_biped_movement(world, body, input, self);
+    }
+}
+impl GameObject for BipedPawnComponent {
+    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+        let entity = commands.spawn((
+            WeaponSlots::default(),
+            Health::new(100.0),
+            Transform::from(transform),
+        )).id();
+        let sphere_handle = insert_biped_physics(entity, &transform, commands, world);
+        commands.entity(entity).insert(BipedPawnComponent { foot_sphere: Some(sphere_handle), ..default() });
+        entity
+    }
+    fn cleanup() {}
+    fn get_rigidbody() -> Option<RigidBody> {
+        Some(RigidBodyBuilder::dynamic().angular_damping(10.0).lock_rotations().build())
+    }
+}
 
 pub struct BipedPlugin;
 impl Plugin for BipedPlugin {
@@ -57,6 +78,7 @@ pub struct PitchPivot {
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
+/// moves the biped's yaw and pitch components on Update
 fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
@@ -117,7 +139,7 @@ pub fn on_remove_biped(
     rigid_body_set.remove(sphere_handle, island_manager, collider_set, impulse_joint_set, multibody_joint_set, true);
 }
 
-/// Two weapon slots on a biped pawn. Stored on the entity, not globally.
+/// Two weapon slots on a biped pawn, stored on the entity.
 /// Each slot holds the NetworkID and (client-only) the local weapon entity for the viewmodel.
 #[derive(Component, Default)]
 pub struct WeaponSlots {
@@ -273,29 +295,6 @@ pub fn spawn_from_command(
         }
     });
     entity
-}
-
-impl Pawn for BipedPawnComponent {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
-        apply_biped_movement(world, body, input, self);
-    }
-}
-
-impl GameObject for BipedPawnComponent {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
-        let entity = commands.spawn((
-            WeaponSlots::default(),
-            Health::new(100.0),
-            Transform::from(transform),
-        )).id();
-        let sphere_handle = insert_biped_physics(entity, &transform, commands, world);
-        commands.entity(entity).insert(BipedPawnComponent { foot_sphere: Some(sphere_handle), ..default() });
-        entity
-    }
-    fn cleanup() {}
-    fn get_rigidbody() -> Option<RigidBody> {
-        Some(RigidBodyBuilder::dynamic().angular_damping(10.0).lock_rotations().build())
-    }
 }
 
 pub fn draw_biped_debug(
@@ -479,7 +478,7 @@ pub fn biped_fire<W: Weapon>(
     let Ok(gt) = pitch_pivot.get(pitch_e) else { return };
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
     let aim_dir = rotation * Vec3::NEG_Z;
-    if weapon.update(&mut world, &mut commands, origin, aim_dir, Some(pawn_entity), ticker.tick, want_fire) {
+    if weapon.fixed_update(&mut world, &mut commands, origin, aim_dir, Some(pawn_entity), ticker.tick, want_fire) {
         if let (Some(sq), Some(event)) = (sound_queue.as_mut(), weapon.fire_sound()) {
             // shooter velocity for doppler
             let vel = world.entity_to_handle.get(&pawn_entity)

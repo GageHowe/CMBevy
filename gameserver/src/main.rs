@@ -12,7 +12,7 @@ use net::{
 use common::tick::Ticker;
 #[derive(Resource)]
 struct BindAddr(SocketAddr);
-use game_objects::master_plugin::MasterPlugin;
+use master_plugin::MasterPlugin;
 use game_objects::pawn::biped;
 use game_objects::GameObject;
 use game_objects::pawn::BipedPawnComponent;
@@ -23,7 +23,7 @@ use common::debug_println;
 use game_objects::level::{Map, LevelPlugin, SpawnPoint};
 use std::sync::{mpsc, Mutex};
 use game_objects::planet::PlanetComponent;
-use game_objects::scripting::{ScriptConfig, get_script_global};
+use scripting::{ScriptConfig, get_script_global};
 
 #[derive(Resource)]
 struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
@@ -225,7 +225,7 @@ fn kill_player (
     weapon_registry: &mut WeaponRegistry,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
-    // tick: u64,
+    _tick: u64,
 ) {
     let drop_pos = world.entity_to_handle.get(&entity)
         // looks stupid but too lazy to look into it

@@ -13,15 +13,23 @@ use crate::sound::SoundEmitter;
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
 
+const MUZZLE_FLASH_TICKS: u8 = 3;
 pub const DAMAGE: f32 = 100.0;
-/// fixed between shots
-pub const COOLDOWN_TICKS: u32 = 120;
-/// Projectile speed in m/s.
-pub const PROJECTILE_SPEED: f32 = 150.0;
-pub const PROJECTILE_LIFETIME: f32 = 600.0; // max 10 seconds
+pub const COOLDOWN_TICKS: u32 = 120; // fixed ticks between shots
+pub const PROJECTILE_SPEED: f32 = 300.0; // projectile speed in m/s
+pub const PROJECTILE_LIFETIME: u32 = 300; // in ticks
 
 const HULL_PATH: &str = "collision/hail_mary_placeholder_2.obj";
 const SCALE: f32 = 10.0;
+
+pub struct HailMaryPlugin;
+impl Plugin for HailMaryPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(FixedUpdate, tick_projectile_hits.after(step_physics));
+        app.add_systems(FixedUpdate, tick_muzzle_flash);
+    }
+}
+
 
 #[derive(Component, Default)]
 pub struct HailMaryComponent {
@@ -32,12 +40,9 @@ pub struct HailMaryComponent {
     pub muzzle_flash_ticks: u8,
     pub muzzle_flash_light: Option<Entity>,
 }
-
-const MUZZLE_FLASH_TICKS: u8 = 3;
-
 impl Weapon for HailMaryComponent {
     fn fire_sound(&self) -> Option<&'static str> { Some("event:/SniperShot") }
-    fn update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, origin: Vec3, aim_dir: Vec3, shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
+    fn fixed_update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, origin: Vec3, aim_dir: Vec3, shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
         self.cooldown = self.cooldown.saturating_sub(1);
         if want_fire && self.cooldown == 0 { self.fire_requested = true; }
         if !self.fire_requested { return false; }
@@ -53,7 +58,7 @@ impl GameObject for HailMaryComponent {
     fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let light = commands.spawn((
             PointLight {
-                intensity: 2_000_000.0,
+                intensity: 20000.0,
                 range: 15.0,
                 color: Color::srgb(1.0, 0.6, 0.2),
                 shadows_enabled: false,
@@ -160,7 +165,7 @@ pub fn spawn_projectile(
     };
     let entity = commands.spawn((
         GameObjectKind::HailMaryProjectile,
-        HailMaryProjectileState { damage, shooter, lifetime: PROJECTILE_LIFETIME as u32 },
+        HailMaryProjectileState { damage, shooter, lifetime: PROJECTILE_LIFETIME },
         Transform::from_translation(origin),
         SoundEmitter { event: "event:/SniperShot" },
         // GravityScale(0.5),
@@ -186,9 +191,8 @@ pub fn spawn_projectile(
         );
     }
     commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
-    // small bullet light; ignored on headless server (no rendering plugins)
     let light = commands.spawn((
-        PointLight { intensity: 80_000.0, range: 6.0, color: Color::srgb(0.7, 0.85, 1.0), shadows_enabled: false, ..default() },
+        PointLight { intensity: 8000.0, range: 50.0, color: Color::srgb(1.0, 0.0, 0.0), shadows_enabled: true, ..default() },
         Transform::default(),
     )).id();
     commands.entity(entity).add_child(light);
@@ -262,13 +266,5 @@ pub fn draw_projectile_debug(
                 draw_collider(col, iso, Color::srgba(1.0, 0.3, 0.1, 0.9), &mut gizmos);
             }
         }
-    }
-}
-
-pub struct HailMaryPlugin;
-impl Plugin for HailMaryPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, tick_projectile_hits.after(step_physics));
-        app.add_systems(FixedUpdate, tick_muzzle_flash);
     }
 }

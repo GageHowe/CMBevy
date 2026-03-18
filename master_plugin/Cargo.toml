@@ -1,0 +1,16 @@
+[package]
+name = "master_plugin"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+game_objects = { path = "../game_objects" }
+scripting = { path = "../scripting" }
+common = { path = "../common" }
+physics = { path = "../physics" }
+net = { path = "../net" }
+bevy = { version = "0.18", features = ["std", "multi_threaded"] }
+bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false, features = ["client", "server"] }

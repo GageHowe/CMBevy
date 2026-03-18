@@ -6,10 +6,12 @@ use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
 use net::quic::QuicManager;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullPlugin;
-use crate::scripting::ScriptingPlugin;
+use scripting::ScriptingPlugin;
 use common::tick::*;
 use common::NetworkIDResource;
 use common::slow_update::SlowSchedulePlugin;
+use game_objects::planet::PlanetPlugin;
+use game_objects::atmosphere::AtmospherePlugin;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
@@ -21,8 +23,8 @@ impl Plugin for MasterPlugin {
         // step executes on FixedUpdate
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(ConvexHullPlugin);
-        app.add_plugins(crate::planet::PlanetPlugin);
-        app.add_plugins(crate::atmosphere::AtmospherePlugin);
+        app.add_plugins(PlanetPlugin);
+        app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
 
         // tick should increment after everything else in FixedUpdate

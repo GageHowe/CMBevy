@@ -73,7 +73,7 @@ use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 use common::debug_println;
 use game_objects::health::Health;
-use game_objects::master_plugin::MasterPlugin;
+use master_plugin::MasterPlugin;
 use game_objects::level::{Map, PendingHullColliders, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
 use physics::convex_hull_asset::ConvexHullAsset;
 use game_objects::planet::draw_planet_radii;
@@ -381,7 +381,7 @@ fn disconnect(
 }
 
 fn remove_script(mut commands: Commands) {
-    commands.remove_resource::<game_objects::scripting::ScriptConfig>();
+    commands.remove_resource::<scripting::ScriptConfig>();
 }
 
 
@@ -566,7 +566,7 @@ fn on_message(
                     match zstd::stream::decode_all(compressed.as_slice()) {
                         Ok(bytes) => match String::from_utf8(bytes) {
                             Ok(src) => {
-                                sp.commands.insert_resource(game_objects::scripting::ScriptConfig {
+                                sp.commands.insert_resource(scripting::ScriptConfig {
                                     path: String::new(),
                                     is_server: false,
                                     source: Some(src),

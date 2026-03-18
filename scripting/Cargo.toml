@@ -1,0 +1,15 @@
+[package]
+name = "scripting"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+game_objects = { path = "../game_objects" }
+common = { path = "../common" }
+physics = { path = "../physics" }
+bevy = { version = "0.18", features = ["serialize", "jpeg", "std", "multi_threaded"] }
+rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
+mlua = { version = "0.10", features = ["lua54", "vendored"] }

@@ -6,13 +6,11 @@ use rapier3d::prelude::*;
 
 #[derive(Component)]
 pub struct SpaceshipPawnComponent;
-
 impl Pawn for SpaceshipPawnComponent {
     fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
         apply_spaceship_movement(world, body, input, self);
     }
 }
-
 impl GameObject for SpaceshipPawnComponent {
     fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let entity = commands.spawn((SpaceshipPawnComponent, Transform::from(transform))).id();

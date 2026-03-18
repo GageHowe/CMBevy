@@ -21,7 +21,7 @@ pub struct RifleComponent {
 }
 
 impl Weapon for RifleComponent {
-    fn update(&mut self, _world: &mut PhysicsWorld, _commands: &mut Commands, _origin: Vec3, _aim_dir: Vec3, _shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
+    fn fixed_update(&mut self, _world: &mut PhysicsWorld, _commands: &mut Commands, _origin: Vec3, _aim_dir: Vec3, _shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
         if want_fire { self.fire_requested = true; }
         self.cooldown = self.cooldown.saturating_sub(1);
         if !self.fire_requested || self.cooldown > 0 { return false; }
