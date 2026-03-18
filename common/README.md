@@ -1,3 +1,5 @@
 # game_common
 
-This is for gameplay-related shared types and code needed by both client and gameserver, but not the beacon server.
+This is for shared types and code needed by both both client and gameserver, as well as other modules.
+
+When modules get too big, or stop being in danger of circular dependencies, they should get their own crate.

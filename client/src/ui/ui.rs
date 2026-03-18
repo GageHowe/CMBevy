@@ -2,14 +2,14 @@ use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use common::health::Health;
-use common::net::quic::{QuicManager, SendTarget, Channel};
-use common::net::message::MsgType;
-use common::pawn::pawn::Possessed;
+use game_objects::health::Health;
+use net::quic::{QuicManager, SendTarget, Channel};
+use net::message::MsgType;
+use game_objects::pawn::pawn::Possessed;
 use crate::GameState;
 use crate::steam::SteamClient;
 use crate::tick_sync::NetworkStats;
-use common::physics::physics_world::PhysicsWorld;
+use physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
 /// Data that needs to persist inside the GUI (text etc)

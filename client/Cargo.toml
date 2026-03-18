@@ -8,6 +8,9 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
+physics = { path = "../physics" }
+net = { path = "../net" }
+game_objects = { path = "../game_objects" }
 bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", "multi_threaded"] }
 bevy_egui = "0.39.1"
 zstd = "0.13.3"

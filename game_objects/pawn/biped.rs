@@ -466,7 +466,7 @@ pub fn biped_fire<W: Weapon>(
     if weapon.update(&mut world, &mut commands, origin, aim_dir, Some(pawn_entity), ticker.tick, want_fire) {
         if let (Some(quic), Ok(net_id)) = (quic.as_mut(), net_ids.get(weapon_entity)) {
             quic.send(crate::net::quic::SendTarget::All, crate::net::quic::Channel::Unordered,
-                &crate::net::message::MsgType::Fire(net_id.clone(), origin.into(), aim_dir.into(), ticker.tick));
+                      &crate::net::message::MsgType::Fire(net_id.clone(), origin.into(), aim_dir.into(), ticker.tick));
         }
     }
 }

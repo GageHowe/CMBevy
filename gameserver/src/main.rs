@@ -4,26 +4,26 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use common::physics::physics_world::*;
-use common::net::{
+use physics::physics_world::*;
+use net::{
     quic::*,
     message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand},
 };
 use common::tick::Ticker;
 #[derive(Resource)]
 struct BindAddr(SocketAddr);
-use common::master_plugin::MasterPlugin;
-use common::pawn::biped;
-use common::game_objects::GameObject;
-use common::pawn::pawn::BipedPawnComponent;
-use common::health::Health;
-use common::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
-use common::pawn::biped::WeaponSlots;
+use game_objects::master_plugin::MasterPlugin;
+use game_objects::pawn::biped;
+use game_objects::GameObject;
+use game_objects::pawn::pawn::BipedPawnComponent;
+use game_objects::health::Health;
+use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
+use game_objects::pawn::biped::WeaponSlots;
 use common::debug_println;
-use common::level::{Map, LevelPlugin, SpawnPoint};
+use game_objects::level::{Map, LevelPlugin, SpawnPoint};
 use std::sync::{mpsc, Mutex};
-use common::game_objects::planet::PlanetBehaviorComponent;
-use common::scripting::{ScriptConfig, call_script_fn, get_script_global};
+use game_objects::planet::PlanetBehaviorComponent;
+use game_objects::scripting::{ScriptConfig, call_script_fn, get_script_global};
 
 #[derive(Resource)]
 struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
@@ -146,9 +146,9 @@ fn spawn_level_objects(
                 let params = req.planet_params.clone().unwrap_or_else(|| {
                     eprintln!("Planet spawn request missing planet_params, using defaults");
                     PlanetBehaviorComponent { inner_radius: 5, snap_radius: 0, gravity_radius: 0,
-                        gravity_profile: common::game_objects::planet::GravityProfile::Constant(9.81) }
+                        gravity_profile: game_objects::planet::GravityProfile::Constant(9.81) }
                 });
-                common::game_objects::planet::spawn(params, transform, &mut commands, &mut world)
+                game_objects::planet::spawn(params, transform, &mut commands, &mut world)
             }
             _ => continue,
         };

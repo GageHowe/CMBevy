@@ -9,6 +9,9 @@
       <sourceFolder url="file://$MODULE_DIR$/common/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/decomp/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/ktx2conv/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/game_objects/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/physics/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/ktx2conv/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>

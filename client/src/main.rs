@@ -7,23 +7,23 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::input::EguiWantsInput;
 use camera::spawn_camera;
-use common::net::{
+use net::{
     message::*,
     quic::*,
 };
-use common::game_objects::GameObjectKind;
-use common::pawn::pawn::PitchPivot;
-use common::pawn::biped;
-use common::pawn::pawn::*;
-use common::physics::physics_world::*;
+use common::GameObjectKind;
+use game_objects::pawn::pawn::PitchPivot;
+use game_objects::pawn::biped;
+use game_objects::pawn::pawn::*;
+use physics::physics_world::*;
 use reconciliation::{PendingReconciliation, ReconciliationPlugin};
 use tick_sync::{NetworkStats, TickSyncPlugin};
 use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use common::weapon::{rifle, shotgun, hail_mary, WeaponPlugin, PendingHullCollider};
-use common::pawn::biped::WeaponSlots;
+use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin, PendingHullCollider};
+use game_objects::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
 mod camera;
@@ -72,12 +72,12 @@ struct SpawnParams<'w, 's> {
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 use common::debug_println;
-use common::health::Health;
-use common::master_plugin::MasterPlugin;
-use common::level::{Map, PendingHullColliders, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
-use common::physics::convex_hull_asset::ConvexHullAsset;
-use common::game_objects::planet::draw_planet_radii;
-use common::game_objects::pawn::biped::draw_biped_debug;
+use game_objects::health::Health;
+use game_objects::master_plugin::MasterPlugin;
+use game_objects::level::{Map, PendingHullColliders, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
+use physics::convex_hull_asset::ConvexHullAsset;
+use game_objects::planet::draw_planet_radii;
+use game_objects::pawn::biped::draw_biped_debug;
 use ui::ui::GuiState;
 mod settings;
 mod steam;
@@ -94,7 +94,7 @@ struct HitBeams(Vec<(Vec3, Vec3, f32)>);
 
 /// Most recent server SimulationState, retained for debug visualization.
 #[derive(Resource, Default)]
-struct LastServerState(Option<common::net::message::SimulationState>);
+struct LastServerState(Option<net::message::SimulationState>);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub(crate) enum GameState {
@@ -399,7 +399,7 @@ fn disconnect(
 }
 
 fn remove_script(mut commands: Commands) {
-    commands.remove_resource::<common::scripting::ScriptConfig>();
+    commands.remove_resource::<game_objects::scripting::ScriptConfig>();
 }
 
 
@@ -584,7 +584,7 @@ fn on_message(
                     match zstd::stream::decode_all(compressed.as_slice()) {
                         Ok(bytes) => match String::from_utf8(bytes) {
                             Ok(src) => {
-                                sp.commands.insert_resource(common::scripting::ScriptConfig {
+                                sp.commands.insert_resource(game_objects::scripting::ScriptConfig {
                                     path: String::new(),
                                     is_server: false,
                                     source: Some(src),

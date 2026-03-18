@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
-use common::net::message::MsgType;
-use common::net::quic::{Channel, QuicManager, SendTarget};
+use net::message::MsgType;
+use net::quic::{Channel, QuicManager, SendTarget};
 use common::slow_update::SlowUpdate;
 
 /// Smoothed network statistics updated each time a TimePong or State arrives.

@@ -2,11 +2,11 @@ use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
-use common::game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
-use common::game_objects::pawn::biped::BipedPawnComponent;
-use common::net::message::{NetworkID, SimulationState};
-use common::physics::physics_world::{GravityScale, RigidBodyHandleComponenet, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
-use common::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
+use game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
+use game_objects::pawn::biped::BipedPawnComponent;
+use net::message::{NetworkID, SimulationState};
+use physics::physics_world::{GravityScale, RigidBodyHandleComponenet, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
+use game_objects::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 
