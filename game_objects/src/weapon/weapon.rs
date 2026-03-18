@@ -18,4 +18,6 @@ pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Defaul
     /// `want_fire` is true when the player is pressing the fire button.
     /// Returns true if the weapon actually discharged this tick.
     fn update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, origin: Vec3, aim_dir: Vec3, shooter: Option<Entity>, tick: u64, want_fire: bool) -> bool;
+    /// FMOD event path for the fire sound. None = silent.
+    fn fire_sound(&self) -> Option<&'static str> { None }
 }

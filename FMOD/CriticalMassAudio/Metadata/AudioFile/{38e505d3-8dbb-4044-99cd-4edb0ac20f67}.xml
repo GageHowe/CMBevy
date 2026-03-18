@@ -2,7 +2,7 @@
 <objects serializationModel="Studio.02.03.00">
 	<object class="AudioFile" id="{38e505d3-8dbb-4044-99cd-4edb0ac20f67}">
 		<property name="assetPath">
-			<value>Claude_Debussys_Clair_de_Lune_KLICKAUD.mp3</value>
+			<value>ClaireDeLune.mp3</value>
 		</property>
 		<property name="isStreaming">
 			<value>true</value>

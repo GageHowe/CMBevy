@@ -453,6 +453,7 @@ pub fn biped_fire<W: Weapon>(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
+    mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
 ) {
     let want_fire = !egui_wants.map_or(false, |e| e.wants_any_input()) && mouse.pressed(MouseButton::Left);
@@ -464,6 +465,15 @@ pub fn biped_fire<W: Weapon>(
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
     let aim_dir = rotation * Vec3::NEG_Z;
     if weapon.update(&mut world, &mut commands, origin, aim_dir, Some(pawn_entity), ticker.tick, want_fire) {
+        if let (Some(sq), Some(event)) = (sound_queue.as_mut(), weapon.fire_sound()) {
+            // shooter velocity for doppler
+            let vel = world.entity_to_handle.get(&pawn_entity)
+                .and_then(|&h| world.rigid_body_set.get(h))
+                .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+                .unwrap_or(Vec3::ZERO);
+            // own weapon fire is 2D — no spatialization, always sounds centered
+            sq.0.push(crate::sound::SoundRequest { event, position: None, velocity: Vec3::ZERO });
+        }
         if let (Some(quic), Ok(net_id)) = (quic.as_mut(), net_ids.get(weapon_entity)) {
             quic.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
                       &net::message::MsgType::Fire(net_id.clone(), origin.into(), aim_dir.into(), ticker.tick));

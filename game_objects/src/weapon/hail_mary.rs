@@ -7,6 +7,7 @@ use net::message::SpawnCommand;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullAsset;
 use super::weapon::{Weapon, WeaponComponent, PendingHullCollider};
+use crate::sound::SoundEmitter;
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
@@ -33,6 +34,7 @@ pub struct HailMaryComponent {
 const MUZZLE_FLASH_TICKS: u8 = 3;
 
 impl Weapon for HailMaryComponent {
+    fn fire_sound(&self) -> Option<&'static str> { Some("event:/SniperShot") }
     fn update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, origin: Vec3, aim_dir: Vec3, shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
         self.cooldown = self.cooldown.saturating_sub(1);
         if want_fire && self.cooldown == 0 { self.fire_requested = true; }
@@ -156,6 +158,7 @@ pub fn spawn_projectile(
         GameObjectKind::HailMaryProjectile,
         HailMaryProjectileState { damage, shooter },
         Transform::from_translation(origin),
+        SoundEmitter { event: "event:/SniperShot" },
         // GravityScale(0.5),
     )).id();
     let rb = RigidBodyBuilder::kinematic_velocity_based()

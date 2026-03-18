@@ -3,6 +3,7 @@ use rapier3d::prelude::RigidBody;
 pub use common::GameObjectKind;
 
 pub mod health;
+pub mod sound;
 pub mod pawn;
 pub mod weapon;
 pub mod planet;
