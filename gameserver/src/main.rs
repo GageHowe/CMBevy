@@ -90,6 +90,7 @@ fn main() {
     app.add_systems(Startup, (start_server, spawn_level_objects, init_mode_config).chain());
     app.add_systems(FixedUpdate, on_message.before(step_physics));
     app.add_systems(FixedUpdate, broadcast_health_updates.after(step_physics).before(broadcast_tick));
+    app.add_systems(FixedUpdate, handle_deaths.after(broadcast_health_updates).before(broadcast_tick));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
 
     println!("starting server...\n");
@@ -258,7 +259,6 @@ struct HitscanParams<'w, 's> {
     body_query: Query<'w, 's, (&'static NetworkID, &'static RigidBodyHandleComponent)>,
     health_q: Query<'w, 's, (&'static mut Health, &'static NetworkID)>,
     history: Res<'w, BodyHistory>,
-    mode: Res<'w, ModeConfig>,
 }
 
 fn on_message(
@@ -449,26 +449,10 @@ fn on_message(
                     };
                     quic.send(SendTarget::All, Channel::Unreliable,
                         &MsgType::HitResult(origin_v.into(), end.into(), hit_net_id.clone()));
+                    // damage only; handle_deaths handles kill logic via Changed<Health>
                     if let Some(hit_nid) = hit_net_id {
                         if let Some((mut health, _)) = hs.health_q.iter_mut().find(|(_, nid)| **nid == hit_nid) {
-                            let died = health.apply_damage(damage);
-                            quic.send(SendTarget::All, Channel::Ordered,
-                                &MsgType::HealthUpdate(hit_nid.clone(), health.current));
-                            if died {
-                                if let Some((dead_entity, _)) = hs.networked.iter().find(|(_, nid)| **nid == hit_nid) {
-                                    let player_entry = registry.0.iter()
-                                        .find(|(_, (e, _))| *e == dead_entity)
-                                        .map(|(cid, (_, nid))| (*cid, nid.clone()));
-                                    if let Some((conn_id, player_net_id)) = player_entry {
-                                        kill_player(dead_entity, player_net_id, &mut quic, &mut registry,
-                                                    &mut weapon_registry, &mut commands, &mut world, tick.tick);
-                                        pending_respawns.0.insert(conn_id, (hs.mode.respawn_delay, GameObjectKind::Biped));
-                                    } else {
-                                        commands.entity(dead_entity).despawn();
-                                        quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(hit_nid));
-                                    }
-                                }
-                            }
+                            health.apply_damage(damage);
                         }
                     }
                 }
@@ -548,6 +532,34 @@ fn process_console_commands(
             }
             "" => {}
             other => println!("Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"),
+        }
+    }
+}
+
+/// Kills any entity whose Health just reached zero; queues player respawns.
+/// Runs after broadcast_health_updates so the zero-health state is sent before despawn.
+fn handle_deaths(
+    dead_q: Query<(Entity, &Health, &NetworkID), Changed<Health>>,
+    mut quic: ResMut<QuicManager>,
+    mut registry: ResMut<PlayerRegistry>,
+    mut weapon_registry: ResMut<WeaponRegistry>,
+    mut pending_respawns: ResMut<PendingRespawns>,
+    mode: Res<ModeConfig>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    tick: Res<Ticker>,
+) {
+    for (entity, health, net_id) in dead_q.iter() {
+        if health.current > 0.0 { continue; }
+        let conn_id = registry.0.iter()
+            .find(|(_, (e, _))| *e == entity)
+            .map(|(cid, _)| *cid);
+        if let Some(conn_id) = conn_id {
+            kill_player(entity, net_id.clone(), &mut quic, &mut registry, &mut weapon_registry, &mut commands, &mut world, tick.tick);
+            pending_respawns.0.insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
+        } else {
+            commands.entity(entity).despawn();
+            quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(net_id.clone()));
         }
     }
 }

@@ -1,6 +1,8 @@
 # Build and package CriticalMass for Windows (itch.io release)
 # Run from repo root: ./scripts/build_release_windows.ps1
 
+# todo: convert this to a rust script that encrypts all assets
+
 param(
     [string]$Version = "0.1.0"
 )
@@ -30,6 +32,13 @@ if ($SteamDll) {
     Copy-Item $SteamDll.FullName "$DistDir\steam_api64.dll"
 } else {
     throw "steam_api64.dll not found in build output - was the client built?"
+}
+
+Write-Host "Copying fmod dlls..."
+foreach ($fmodDll in @("fmod.dll", "fmodstudio.dll")) {
+    $src = "$RepoRoot\target\release\$fmodDll"
+    if (-not (Test-Path $src)) { throw "$fmodDll not found in target/release" }
+    Copy-Item $src "$DistDir\$fmodDll"
 }
 
 Write-Host "Copying assets (excluding blender sources)..."
