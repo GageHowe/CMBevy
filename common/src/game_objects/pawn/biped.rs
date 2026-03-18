@@ -1,4 +1,4 @@
-use crate::game_objects::health::Health;
+use crate::game_objects::{health::Health, GameObject};
 use crate::game_objects::weapon::{rifle, shotgun, hail_mary};
 use crate::game_objects::weapon::weapon::Weapon;
 use crate::net::message::{NetworkID, SpawnCommand};
@@ -32,7 +32,7 @@ impl Plugin for BipedPlugin {
         app.add_observer(on_remove_biped);
         app.init_resource::<MouseSensitivity>();
         app.add_systems(FixedPreUpdate, (
-            move_pawns::<BipedPawnComponent>(apply_biped_movement),
+            move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
             biped_fire::<rifle::RifleComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
             biped_fire::<shotgun::ShotgunComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
             biped_fire::<hail_mary::HailMaryComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
@@ -170,21 +170,6 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
     sphere_handle
 }
 
-/// Spawns a biped with physics only. Used by both server and client.
-pub fn spawn(
-    transform: Transform,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) -> Entity {
-    let entity = commands.spawn((
-        WeaponSlots::default(),
-        Health::new(100.0),
-        Transform::from(transform),
-    )).id();
-    let sphere_handle = insert_biped_physics(entity, &transform, commands, world);
-    commands.entity(entity).insert(BipedPawnComponent { foot_sphere: Some(sphere_handle), ..default() });
-    entity
-}
 
 /// Adds a mesh, material, and a hidden flashlight to an existing biped entity.
 /// Returns the flashlight entity so callers can re-parent it (e.g. under PitchPivot).
@@ -260,7 +245,7 @@ pub fn spawn_from_command(
         rotation: cmd.rotation.into(),
         ..default()
     };
-    let entity = spawn(transform, commands, world);
+    let entity = BipedPawnComponent::spawn_physics(transform, commands, world);
     let color = if owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
     let light = add_visuals(entity, color, commands, meshes, materials);
     let cam = if owned { camera } else { None };
@@ -273,6 +258,29 @@ pub fn spawn_from_command(
         }
     });
     entity
+}
+
+impl Pawn for BipedPawnComponent {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponenet, input: PawnInput) {
+        apply_biped_movement(world, body, input, self);
+    }
+}
+
+impl GameObject for BipedPawnComponent {
+    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+        let entity = commands.spawn((
+            WeaponSlots::default(),
+            Health::new(100.0),
+            Transform::from(transform),
+        )).id();
+        let sphere_handle = insert_biped_physics(entity, &transform, commands, world);
+        commands.entity(entity).insert(BipedPawnComponent { foot_sphere: Some(sphere_handle), ..default() });
+        entity
+    }
+    fn cleanup() {}
+    fn get_rigidbody() -> Option<RigidBody> {
+        Some(RigidBodyBuilder::dynamic().angular_damping(10.0).lock_rotations().build())
+    }
 }
 
 pub fn draw_biped_debug(

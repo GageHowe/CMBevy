@@ -12,7 +12,7 @@ impl Plugin for PawnPlugin {
         app.add_plugins(super::biped::BipedPlugin);
         app.add_systems(FixedPreUpdate, (
             gather_pawn_input.run_if(resource_exists::<ButtonInput<KeyCode>>),
-            move_pawns::<SpaceshipPawnComponent>(super::spaceship::apply_spaceship_movement),
+            move_pawns::<SpaceshipPawnComponent>().in_set(MovePawnsSet),
         ).chain());
     }
 }
@@ -167,14 +167,21 @@ pub fn possess_pawn(
     commands.entity(target).insert(Possessed::new(60));
 }
 
+/// System set covering all `move_pawns` systems. Use for ordering against pawn movement.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MovePawnsSet;
+
+/// Per-pawn movement logic. Implement on each pawn component.
+pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponenet, input: PawnInput);
+}
+
 /// generic input consumption function for all pawn types
-pub fn move_pawns<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
-) -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponenet, &mut T)>) {
-    move |mut world, mut pawns| {
+pub fn move_pawns<T: Pawn>() -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponenet, &mut T)>) {
+    |mut world, mut pawns| {
         for (mut possessed, handle, mut component) in pawns.iter_mut() {
             let Some(input) = possessed.consume() else { continue };
-            apply(&mut world, handle, input, &mut component);
+            component.apply_input(&mut world, handle, input);
         }
     }
 }

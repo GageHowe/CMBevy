@@ -14,6 +14,7 @@ use common::tick::Ticker;
 struct BindAddr(SocketAddr);
 use common::master_plugin::MasterPlugin;
 use common::pawn::biped;
+use common::game_objects::GameObject;
 use common::pawn::pawn::BipedPawnComponent;
 use common::health::Health;
 use common::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
@@ -94,7 +95,10 @@ fn main() {
     app.run();
 }
 
-/// Maps each connected client to their spawned pawn entity and network id.
+/// maps of each connected client to their spawned pawn entity and network id.
+/// TODO: what to do once we have players that can switch Possessed Entities? E.g., getting into vehicles
+/// TODO: how to get, say, NetworkID or ConnectionID from Entity efficiently?
+/// maybe https://github.com/lun3x/multi_index_map
 #[derive(Resource, Default)]
 struct PlayerRegistry(HashMap<ConnectionId, (Entity, NetworkID)>);
 
@@ -110,17 +114,20 @@ struct BodyHistory(HashMap<u64, SimulationState>);
 /// Tracks weapons.
 /// `free`: net_id → entity (lying in world, has physics body).
 /// `held`: net_id → (weapon_entity, carrier_entity) (carried, no physics body).
+/// TODO: this seems kinda scuffed, justify why this makes sense
 #[derive(Resource, Default)]
 struct WeaponRegistry {
     free: HashMap<NetworkID, Entity>,
     held: HashMap<NetworkID, (Entity, Entity)>,
 }
 
+/// starts the quic server
 fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>, addr: Res<BindAddr>) {
     quic.start_server(&mut server, addr.0);
 }
 
 /// this is fairly hard-coded, we need to make it more modular
+/// TODO: use a trait or something idk
 fn spawn_level_objects(
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
@@ -130,11 +137,11 @@ fn spawn_level_objects(
 ) {
     for req in &level.initial_spawns {
         let transform = Transform::from_translation(req.position).with_rotation(req.rotation);
-        let net_id = NetworkID(net_ids.get_next_free_id());
+        let net_id = NetworkID(net_ids.next());
         let entity = match req.kind {
-            GameObjectKind::Rifle     => rifle::spawn(transform, &mut commands, &mut world),
-            GameObjectKind::Shotgun   => shotgun::spawn(transform, &mut commands, &mut world),
-            GameObjectKind::HailMary  => hail_mary::spawn(transform, &mut commands, &mut world),
+            GameObjectKind::Rifle     => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut world),
+            GameObjectKind::Shotgun   => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut world),
+            GameObjectKind::HailMary  => hail_mary::HailMaryComponent::spawn_physics(transform, &mut commands, &mut world),
             GameObjectKind::Planet  => {
                 let params = req.planet_params.clone().unwrap_or_else(|| {
                     eprintln!("Planet spawn request missing planet_params, using defaults");
@@ -178,9 +185,9 @@ fn spawn_player(
     world: &mut PhysicsWorld,
     tick: u64,
 ) {
-    let net_id = NetworkID(net_ids.get_next_free_id());
+    let net_id = NetworkID(net_ids.next());
     let entity = match kind {
-        GameObjectKind::Biped => biped::spawn(Transform::from_translation(spawn_pos).with_rotation(spawn_rot), commands, world),
+        GameObjectKind::Biped => biped::BipedPawnComponent::spawn_physics(Transform::from_translation(spawn_pos).with_rotation(spawn_rot), commands, world),
         _ => unreachable!("spawn_player called with non-pawn kind"),
     };
     commands.entity(entity).insert(net_id.clone());
@@ -207,9 +214,9 @@ fn spawn_player(
     registry.0.insert(conn_id, (entity, net_id));
 }
 
-/// Shared logic for when a player leaves the game (disconnect or death).
+/// Logic for when a player leaves or dies.
 /// Drops held weapons back into the world and despawns the pawn.
-fn remove_player(
+fn kill_player (
     entity: Entity,
     net_id: NetworkID,
     quic: &mut QuicManager,
@@ -220,6 +227,7 @@ fn remove_player(
     tick: u64,
 ) {
     let drop_pos = world.entity_to_handle.get(&entity)
+        // looks stupid but too lazy to look into it
         .and_then(|&h| world.rigid_body_set.get(h))
         .map(|rb| { let t = rb.position().translation; Vec3::new(t.x, t.y, t.z) })
         .unwrap_or(Vec3::ZERO);
@@ -320,12 +328,14 @@ fn on_message(
                 spawn_player(msg.conn_id, GameObjectKind::Biped, sp, sr, &mut quic, &mut registry, &mut net_ids,
                     &mut commands, &mut world, tick.tick);
             }
+
+            /// if server receives a Disconnected message...
             MsgType::Disconnected => {
                 pending_respawns.0.remove(&msg.conn_id);
                 if let Some((entity, net_id)) = registry.0.remove(&msg.conn_id) {
                     debug_println!("GameServer: Player disconnected: entity={entity} conn={:?}", msg.conn_id);
-                    remove_player(entity, net_id, &mut quic, &mut registry, &mut weapon_registry,
-                        &mut commands, &mut world, tick.tick);
+                    kill_player(entity, net_id, &mut quic, &mut registry, &mut weapon_registry,
+                                &mut commands, &mut world, tick.tick);
                 }
             }
             MsgType::Input(pawn_input) => {
@@ -407,8 +417,8 @@ fn on_message(
                 let dir_v = Vec3::from(direction).normalize_or_zero();
                 if dir_v == Vec3::ZERO { continue; }
 
-                let is_projectile = weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false);
-                if is_projectile {
+                let is_hailmary_projectile = weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false);
+                if is_hailmary_projectile {
                     quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
                 } else {
                     // Hitscan: lag-comp raycast inline.
@@ -447,8 +457,8 @@ fn on_message(
                                         .find(|(_, (e, _))| *e == dead_entity)
                                         .map(|(cid, (_, nid))| (*cid, nid.clone()));
                                     if let Some((conn_id, player_net_id)) = player_entry {
-                                        remove_player(dead_entity, player_net_id, &mut quic, &mut registry,
-                                            &mut weapon_registry, &mut commands, &mut world, tick.tick);
+                                        kill_player(dead_entity, player_net_id, &mut quic, &mut registry,
+                                                    &mut weapon_registry, &mut commands, &mut world, tick.tick);
                                         pending_respawns.0.insert(conn_id, (hs.mode.respawn_delay, GameObjectKind::Biped));
                                     } else {
                                         commands.entity(dead_entity).despawn();

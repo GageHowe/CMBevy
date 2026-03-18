@@ -10,14 +10,14 @@ pub use crate::game_objects::GameObjectKind;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Component, Hash)]
 pub struct NetworkID(pub u64);
 
-/// Like the Ticker resource, keeps track of the next available NetworkID to use
+/// server-side resource that keeps track of the next available NetworkID to use
 #[derive(Resource, Default)]
 pub struct NetworkIDResource {
-    pub last_id: u64
+    last_id: u64
 }
 impl NetworkIDResource {
     /// should be used when spawning a new networked entity
-    pub fn get_next_free_id(&mut self) -> u64 {
+    pub fn next(&mut self) -> u64 {
         self.last_id += 1;
         self.last_id
     }
@@ -34,6 +34,7 @@ pub struct SpawnCommand {
     pub server_tick: u64,
     pub kind: GameObjectKind,
     /// True only for the single recipient that owns/possesses this object.
+    /// let's refactor this so that Owner is a NetworkID
     pub owned: bool,
 }
 
@@ -64,15 +65,18 @@ pub enum MsgType {
     /// Server → All: (weapon_id, carrier_net_id). The weapon's physics body is disabled;
     /// the carrier client attaches it as a viewmodel.
     WeaponPickup(NetworkID, NetworkID),
-    /// Server → All: (weapon_id, carrier_net_id, drop_pos). Re-enables the weapon body at drop_pos.
+    /// reliably server -> all (weapon_id, carrier_net_id, drop_position)
+    /// TODO: add velocity, should inherit the velocity of the player who dropped or was killed
     WeaponDrop(NetworkID, NetworkID, Vec3),
     /// Client → Server: (weapon_net_id, origin, direction, client_tick). Fire the held weapon.
+    /// TODO: this should be refactored; one MsgType variant per weapon type.
     Fire(NetworkID, Vec3, Vec3, u64),
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
     /// wtf? why vfx? this will be outdated and since clients move very fast this will not be a good solution.
     /// instead, send the shooter entity (the gun) and the direction/magnitude vector, plus the target.
     HitResult(Vec3, Vec3, Option<NetworkID>),
-    /// Server → All: current health for the given entity.
+
+    /// updates clients with the current health for the given entity.
     HealthUpdate(NetworkID, f32),
     /// Client → Server: timestamp echo request. Payload is the bits of an f64 elapsed time.
     TimePing(u64),

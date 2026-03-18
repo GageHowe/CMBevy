@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
-use crate::game_objects::GameObjectKind;
+use crate::game_objects::{GameObjectKind, GameObject};
 use crate::physics::debug::{draw_collider, rb_iso};
 use crate::interaction::Interactable;
 use crate::net::message::SpawnCommand;
@@ -45,42 +45,53 @@ impl Weapon for HailMaryComponent {
     }
 }
 
-/// Spawns a Hail Mary weapon entity with physics. Used by both server and client.
-pub fn spawn(
-    transform: Transform,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) -> Entity {
-    let light = commands.spawn((
-        PointLight {
-            intensity: 2_000_000.0,
-            range: 15.0,
-            color: Color::srgb(1.0, 0.6, 0.2),
-            shadows_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, -0.6),
-        Visibility::Hidden,
-    )).id();
-    let entity = commands.spawn((
-        WeaponComponent,
-        HailMaryComponent { muzzle_flash_light: Some(light), ..default() },
-        GameObjectKind::HailMary,
-        Interactable { range: 2.0 },
-        Transform::from(transform),
-    )).id();
-    let rb = RigidBodyBuilder::dynamic()
-        .translation(transform.translation)
-        .angular_damping(2.0)
-        .build();
-    let rb_handle = world.insert_body(entity, rb);
-    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
-    {
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
+impl GameObject for HailMaryComponent {
+    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+        let light = commands.spawn((
+            PointLight {
+                intensity: 2_000_000.0,
+                range: 15.0,
+                color: Color::srgb(1.0, 0.6, 0.2),
+                shadows_enabled: false,
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, -0.6),
+            Visibility::Hidden,
+        )).id();
+        let entity = commands.spawn((
+            WeaponComponent,
+            HailMaryComponent { muzzle_flash_light: Some(light), ..default() },
+            GameObjectKind::HailMary,
+            Interactable { range: 2.0 },
+            Transform::from(transform),
+        )).id();
+        let rb = RigidBodyBuilder::dynamic()
+            .translation(transform.translation)
+            .angular_damping(2.0)
+            .build();
+        let rb_handle = world.insert_body(entity, rb);
+        commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+        {
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+            collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
+        }
+        commands.entity(entity).add_child(light);
+        entity
     }
-    commands.entity(entity).add_child(light);
-    entity
+    fn cleanup() {}
+    fn get_rigidbody() -> Option<RigidBody> {
+        Some(RigidBodyBuilder::dynamic().angular_damping(2.0).build())
+    }
+}
+
+impl GameObject for HailMaryProjectileState {
+    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+        spawn_projectile(transform.translation, Vec3::NEG_Z, commands, world, DAMAGE, None).0
+    }
+    fn cleanup() {}
+    fn get_rigidbody() -> Option<RigidBody> {
+        Some(RigidBodyBuilder::kinematic_velocity_based().ccd_enabled(true).build())
+    }
 }
 
 pub fn spawn_from_command(
@@ -91,7 +102,7 @@ pub fn spawn_from_command(
     hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
     let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(SCALE) };
-    let entity = spawn(transform, commands, world);
+    let entity = HailMaryComponent::spawn_physics(transform, commands, world);
     commands.entity(entity).insert((SceneRoot(asset_server.load("models/hail_mary_placeholder_2.glb#Scene0")), Visibility::default(), cmd.net_id));
     let s = SCALE;
     let handle = asset_server.load_with_settings(HULL_PATH, move |settings: &mut f32| *settings = s);
@@ -145,7 +156,7 @@ pub fn spawn_projectile(
         GameObjectKind::HailMaryProjectile,
         HailMaryProjectileState { damage, shooter },
         Transform::from_translation(origin),
-        GravityScale(0.0),
+        // GravityScale(0.5),
     )).id();
     let rb = RigidBodyBuilder::kinematic_velocity_based()
 

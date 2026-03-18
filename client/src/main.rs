@@ -230,7 +230,7 @@ fn main() {
         FixedPreUpdate,
         send_pawn_input
             .after(gather_pawn_input)
-            .before(move_pawns::<BipedPawnComponent>(biped::apply_biped_movement))
+            .before(MovePawnsSet)
             // AND OTHER PAWNS
             .run_if(in_state(GameState::Multiplayer)),
     );
@@ -295,7 +295,7 @@ fn spawn_sp_weapons(
 ) {
     for req in &level.initial_spawns {
         let cmd = SpawnCommand {
-            net_id: NetworkID(net_ids.get_next_free_id()),
+            net_id: NetworkID(net_ids.next()),
             position: req.position,
             rotation: req.rotation,
             starting_velocity: Vec3::ZERO,
@@ -330,7 +330,7 @@ fn spawn_local_player(
 ) {
     let spawn = level.spawn_points.first();
     let cmd = SpawnCommand {
-        net_id: NetworkID(net_ids.get_next_free_id()),
+        net_id: NetworkID(net_ids.next()),
         position: spawn.map_or(Vec3::new(0.0, 5.0, 0.0), |s| s.position),
         rotation: spawn.map_or(Quat::IDENTITY, |s| s.rotation),
         starting_velocity: Vec3::ZERO,

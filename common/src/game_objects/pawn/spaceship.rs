@@ -1,11 +1,28 @@
+use crate::game_objects::GameObject;
 use crate::physics::physics_world::*;
 use super::pawn::*;
-// use bevy::prelude::*;
+use bevy::prelude::*;
 use rapier3d::prelude::*;
-// use bevy::prelude::Cuboid;
 
-// also should i make a pawn trait so there's some more structure, so we know that a pawn needs to implement spawn,
-//   consume_inputs (movement), etc?
+impl Pawn for SpaceshipPawnComponent {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponenet, input: PawnInput) {
+        apply_spaceship_movement(world, body, input, self);
+    }
+}
+
+impl GameObject for SpaceshipPawnComponent {
+    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+        let entity = commands.spawn((SpaceshipPawnComponent, Transform::from(transform))).id();
+        let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
+        let rb_handle = world.insert_body(entity, rb);
+        commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+        entity
+    }
+    fn cleanup() {}
+    fn get_rigidbody() -> Option<RigidBody> {
+        Some(RigidBodyBuilder::dynamic().build())
+    }
+}
 
 pub fn apply_spaceship_movement(
     world: &mut PhysicsWorld,

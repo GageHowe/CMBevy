@@ -7,14 +7,14 @@ use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
 pub use rapier3d::prelude::RigidBodyHandle;
 use std::collections::HashMap;
+use crate::debug_println;
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
 /// Collision group for projectiles. Excluded from player-group solver contacts.
 pub const GROUP_PROJECTILE: Group = Group::GROUP_2;
 
-/// Scales how strongly planet gravity affects this body. Defaults to 1.0 if absent.
-/// Set to 0.0 to ignore planet gravity entirely, or a small value for slight curvature.
+/// scales how strongly planetary gravity affects this body. Defaults to 1.0 if absent.
 #[derive(Component, Clone, Copy)]
 pub struct GravityScale(pub f32);
 
@@ -98,7 +98,7 @@ impl PhysicsWorld {
         );
     }
 
-    /// Insert a rigidbody with a rigidbody-entity relationship. It's not tracked until inserted here
+    /// insert a rigidbody with a rigidbody-entity relationship. it's not tracked until inserted here.
     pub fn insert_body(&mut self, entity: Entity, body: RigidBody) -> RigidBodyHandle {
         let handle = self.rigid_body_set.insert(body);
 
@@ -108,8 +108,8 @@ impl PhysicsWorld {
         handle
     }
 
-    /// Clean up the rigidbody associated with this entity.
-    pub fn remove_body(&mut self, entity: Entity) {
+    /// clean up the rigidbody associated with this entity.
+    pub fn remove_rigidbody(&mut self, entity: Entity) {
         if let Some(handle) = self.entity_to_handle.remove(&entity) {
             self.handle_to_entity.remove(&handle);
             self.rigid_body_set.remove(
@@ -120,6 +120,8 @@ impl PhysicsWorld {
                 &mut self.multibody_joint_set,
                 true,
             );
+        } else {
+            debug_println!("Warning: tried to remove_rigidbody but entity {entity} is not in entity_to_handle")
         }
     }
 
@@ -213,7 +215,7 @@ impl Plugin for PhysicsPlugin {
 }
 
 fn on_remove_physics_body(event: On<Remove, RigidBodyHandleComponenet>, mut world: ResMut<PhysicsWorld>) {
-    world.remove_body(event.entity);
+    world.remove_rigidbody(event.entity);
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {

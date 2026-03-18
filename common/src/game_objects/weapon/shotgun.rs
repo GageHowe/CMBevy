@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::game_objects::GameObjectKind;
+use crate::game_objects::{GameObjectKind, GameObject};
 use crate::interaction::Interactable;
 use crate::net::message::SpawnCommand;
 use crate::physics::physics_world::*;
@@ -36,28 +36,29 @@ impl Weapon for ShotgunComponent {
     }
 }
 
-/// Spawns a shotgun entity with physics. Used by both server and client.
-pub fn spawn(
-    transform: Transform,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) -> Entity {
-    let entity = commands.spawn((
-        WeaponComponent,
-        ShotgunComponent::default(),
-        GameObjectKind::Shotgun,
-        Interactable { range: 2.0 },
-        Transform::from(transform),
-    )).id();
-    let rb = RigidBodyBuilder::dynamic()
-        .translation(transform.translation)
-        .angular_damping(2.0)
-        .build();
-    let rb_handle = world.insert_body(entity, rb);
-    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-    collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
-    entity
+impl GameObject for ShotgunComponent {
+    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+        let entity = commands.spawn((
+            WeaponComponent,
+            ShotgunComponent::default(),
+            GameObjectKind::Shotgun,
+            Interactable { range: 2.0 },
+            Transform::from(transform),
+        )).id();
+        let rb = RigidBodyBuilder::dynamic()
+            .translation(transform.translation)
+            .angular_damping(2.0)
+            .build();
+        let rb_handle = world.insert_body(entity, rb);
+        commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+        collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
+        entity
+    }
+    fn cleanup() {}
+    fn get_rigidbody() -> Option<RigidBody> {
+        Some(RigidBodyBuilder::dynamic().angular_damping(2.0).build())
+    }
 }
 
 pub fn spawn_from_command(
@@ -68,7 +69,7 @@ pub fn spawn_from_command(
     _hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
     let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE };
-    let entity = spawn(transform, commands, world);
+    let entity = ShotgunComponent::spawn_physics(transform, commands, world);
     commands.entity(entity).insert((SceneRoot(asset_server.load("models/shotgun.glb#Scene0")), Visibility::default(), cmd.net_id));
     entity
 }

@@ -2,10 +2,13 @@ use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use mlua::prelude::*;
 use crate::game_objects::pawn::biped;
-use crate::game_objects::health::Health;
 use crate::game_objects::weapon::{rifle, shotgun};
+use crate::game_objects::{GameObject, GenericShape, spawn_generic};
+use crate::game_objects::health::Health;
 use crate::net::message::{NetworkID, NetworkIDResource};
+use crate::physics::convex_hull_asset::ConvexHullAsset;
 use crate::physics::physics_world::PhysicsWorld;
+use rapier3d::prelude::ColliderBuilder;
 
 #[derive(Resource, Clone)]
 pub struct ScriptConfig {
@@ -87,16 +90,65 @@ fn register_script_functions(world: &mut World) {
     runtime.lua.globals().set("spawn", runtime.lua.create_function(|lua, (name, x, y, z): (String, f64, f64, f64)| {
         let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
         let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
-        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().get_next_free_id());
+        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
         let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
         let (mut commands, mut physics) = state.get_mut(world);
         let entity = match name.as_str() {
-            "biped"   => biped::spawn(transform, &mut commands, &mut physics),
-            "rifle"   => rifle::spawn(transform, &mut commands, &mut physics),
-            "shotgun" => shotgun::spawn(transform, &mut commands, &mut physics),
+            "biped"   => biped::BipedPawnComponent::spawn_physics(transform, &mut commands, &mut physics),
+            "rifle"   => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut physics),
+            "shotgun" => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut physics),
             other => { error!("spawn: unknown entity '{other}'"); return Ok(-1i64); }
         };
         commands.entity(entity).insert(net_id);
+        state.apply(world);
+        Ok(entity.to_bits() as i64)
+    }).unwrap()).unwrap();
+
+    // spawn_box(x, y, z, hx, hy, hz, friction, restitution) → entity_id
+    runtime.lua.globals().set("spawn_box", runtime.lua.create_function(|lua, (x, y, z, hx, hy, hz, friction, restitution): (f64, f64, f64, f64, f64, f64, f64, f64)| {
+        let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
+        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
+        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
+        let (mut commands, mut physics) = state.get_mut(world);
+        let shape = GenericShape::Primitive(ColliderBuilder::cuboid(hx as f32, hy as f32, hz as f32).friction(friction as f32).restitution(restitution as f32));
+        let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
+        state.apply(world);
+        Ok(entity.to_bits() as i64)
+    }).unwrap()).unwrap();
+
+    // spawn_ball(x, y, z, radius, friction, restitution) → entity_id
+    runtime.lua.globals().set("spawn_ball", runtime.lua.create_function(|lua, (x, y, z, radius, friction, restitution): (f64, f64, f64, f64, f64, f64)| {
+        let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
+        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
+        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>)> = SystemState::new(world);
+        let (mut commands, mut physics) = state.get_mut(world);
+        let shape = GenericShape::Primitive(ColliderBuilder::ball(radius as f32).friction(friction as f32).restitution(restitution as f32));
+        let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
+        state.apply(world);
+        Ok(entity.to_bits() as i64)
+    }).unwrap()).unwrap();
+
+    // spawn_hull(x, y, z, hull_path, scale, friction, restitution, mesh_path) → entity_id
+    // mesh_path is optional (nil to skip visuals)
+    // e.g. local e = spawn_hull(0, 0, 0, "collision/rock.obj", 5.0, 0.8, 0.2, "models/rock.glb#Scene0")
+    runtime.lua.globals().set("spawn_hull", runtime.lua.create_function(|lua, (x, y, z, path, scale, friction, restitution, mesh_path): (f64, f64, f64, String, f64, f64, f64, Option<String>)| {
+        let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
+        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
+        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>, Option<Res<AssetServer>>, Option<Res<Assets<ConvexHullAsset>>>)> = SystemState::new(world);
+        let (mut commands, mut physics, asset_server, hull_assets) = state.get_mut(world);
+        let (Some(asset_server), Some(hull_assets)) = (asset_server.as_deref(), hull_assets.as_deref()) else {
+            error!("spawn_hull: asset pipeline unavailable");
+            return Ok(-1i64);
+        };
+        let leaked: &'static str = Box::leak(path.into_boxed_str());
+        let shape = GenericShape::Hull { path: leaked, scale: scale as f32, asset_server, hull_assets };
+        let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
+        if let Some(mesh_path) = mesh_path {
+            commands.entity(entity).insert((SceneRoot(asset_server.load(mesh_path)), Visibility::default()));
+        }
         state.apply(world);
         Ok(entity.to_bits() as i64)
     }).unwrap()).unwrap();

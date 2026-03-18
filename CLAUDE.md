@@ -13,6 +13,7 @@
 * Simplicity is everything. When in doubt, choose the lowest-additional-code implementation.
 * Use Update sparingly. Use SlowUpdate for things that don't have to happen each FixedUpdate.
 * Do NOT fundamentally change how things work without asking me first.
+* When you add or change things, leave comments justifying why.
 
 Also see: README.md for project description
 
