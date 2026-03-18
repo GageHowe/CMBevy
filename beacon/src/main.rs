@@ -38,7 +38,7 @@ async fn main() {
         .route("/lobbies", get(list_lobbies_json))
         .route("/lobbies/partial", get(list_lobbies_partial))
         .route("/lobbies/register", post(register_lobby))
-        .route("/lobbies/:id", delete(delete_lobby))
+        .route("/lobbies/{id}", delete(delete_lobby))
         .route("/health", get(|| async { "OK" }))
         .with_state(state);
 
