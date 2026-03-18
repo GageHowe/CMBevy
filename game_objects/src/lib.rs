@@ -15,6 +15,8 @@ pub use generic::{spawn_generic, GenericShape};
 
 use physics::physics_world::PhysicsWorld;
 
+// TODO: find a way to spawn anything that implements GameObject through lua script
+
 pub trait GameObject {
     fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity;
     fn cleanup();

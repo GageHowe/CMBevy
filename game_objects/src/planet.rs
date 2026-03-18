@@ -145,11 +145,16 @@ pub fn apply_gravity(
 /// when composing rotation arcs, since the basis is reconstructed from scratch
 /// using the current forward vector projected onto the plane perpendicular to
 /// the planet's "up". snap_radius == 0 is treated as unlimited.
+// how fast bipeds rotate toward planet-up (radians-ish per second)
+const ORIENT_SPEED: f32 = 2.0;
+
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
     bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
 ) {
+    let dt = world.integration_parameters.dt;
+
     let planet_data: Vec<(Vec3, f32)> = planets.iter()
         .filter_map(|(planet, handle)| {
             let t = world.rigid_body_set.get(handle.0)?.position().translation;
@@ -197,7 +202,11 @@ pub fn orient_bipeds_to_planets(
         // Rebuild orthonormal basis: X=right, Y=up, Z=back
         let right = forward_proj.cross(desired_up).normalize();
         let back  = right.cross(desired_up).normalize();
-        rb.set_rotation(Quat::from_mat3(&Mat3::from_cols(right, desired_up, back)), false);
+        let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
+
+        // lerp toward target so orientation smoothly tracks the planet surface
+        let rot = current_rot.slerp(target_rot, (ORIENT_SPEED * dt).min(1.0));
+        rb.set_rotation(rot, false);
     }
 }
 
