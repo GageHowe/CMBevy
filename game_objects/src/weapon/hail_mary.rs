@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 use crate::{GameObjectKind, GameObject};
+use crate::health::Health;
 use physics::debug::{draw_collider, rb_iso};
 use common::interaction::Interactable;
 use net::message::SpawnCommand;
@@ -16,7 +17,8 @@ pub const DAMAGE: f32 = 100.0;
 /// fixed between shots
 pub const COOLDOWN_TICKS: u32 = 120;
 /// Projectile speed in m/s.
-pub const PROJECTILE_SPEED: f32 = 100.0;
+pub const PROJECTILE_SPEED: f32 = 150.0;
+pub const PROJECTILE_LIFETIME: f32 = 600.0; // max 10 seconds
 
 const HULL_PATH: &str = "collision/hail_mary_placeholder_2.obj";
 const SCALE: f32 = 10.0;
@@ -126,11 +128,13 @@ pub fn spawn_from_command(
     entity
 }
 
-/// Tracks damage and shooter on a live projectile entity (server-side).
+/// Tracks damage and shooter on a live projectile entity.
 #[derive(Component)]
 pub struct HailMaryProjectileState {
     pub damage: f32,
     pub shooter: Option<Entity>,
+    /// ticks remaining before auto-despawn
+    pub lifetime: u32,
 }
 
 /// Spawns a Hail Mary projectile physics body. Returns `(entity, actual_velocity)`.
@@ -156,14 +160,12 @@ pub fn spawn_projectile(
     };
     let entity = commands.spawn((
         GameObjectKind::HailMaryProjectile,
-        HailMaryProjectileState { damage, shooter },
+        HailMaryProjectileState { damage, shooter, lifetime: PROJECTILE_LIFETIME as u32 },
         Transform::from_translation(origin),
         SoundEmitter { event: "event:/SniperShot" },
         // GravityScale(0.5),
     )).id();
     let rb = RigidBodyBuilder::kinematic_velocity_based()
-
-
         .translation(origin)
         .linvel(Vector::new(vel.x, vel.y, vel.z))
         .ccd_enabled(true)
@@ -171,17 +173,62 @@ pub fn spawn_projectile(
     let rb_handle = world.insert_body(entity, rb);
     {
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        let projectile_groups = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
+        // collision_groups: detect against all groups (needed for narrow_phase contact pairs)
+        // solver_groups: exclude players so projectiles don't physically push them
+        let proj_collision = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL, InteractionTestMode::And);
+        let proj_solver    = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
         collider_set.insert_with_parent(
             ColliderBuilder::ball(0.05)
-                .collision_groups(projectile_groups)
-                .solver_groups(projectile_groups)
+                .collision_groups(proj_collision)
+                .solver_groups(proj_solver)
                 .build(),
             rb_handle, rigid_body_set,
         );
     }
     commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    // small bullet light; ignored on headless server (no rendering plugins)
+    let light = commands.spawn((
+        PointLight { intensity: 80_000.0, range: 6.0, color: Color::srgb(0.7, 0.85, 1.0), shadows_enabled: false, ..default() },
+        Transform::default(),
+    )).id();
+    commands.entity(entity).add_child(light);
     (entity, vel)
+}
+
+/// Detects narrow_phase contacts for live projectiles, applies damage, and despawns on hit or expiry.
+pub fn tick_projectile_hits(
+    world: Res<PhysicsWorld>,
+    mut commands: Commands,
+    mut projectiles: Query<(Entity, &mut HailMaryProjectileState, &RigidBodyHandleComponenet)>,
+    mut health_q: Query<&mut Health>,
+) {
+    // collect hits first to avoid reborrowing world
+    let mut hits: Vec<(Entity, Entity, f32)> = Vec::new();
+
+    for (proj_entity, mut state, rb_handle) in projectiles.iter_mut() {
+        state.lifetime = state.lifetime.saturating_sub(1);
+        if state.lifetime == 0 { commands.entity(proj_entity).despawn(); continue; }
+
+        let Some(rb) = world.rigid_body_set.get(rb_handle.0) else { continue };
+        'outer: for &ch in rb.colliders() {
+            for pair in world.narrow_phase.contact_pairs_with(ch) {
+                if !pair.has_any_active_contact() { continue; }
+                let other_ch = if pair.collider1 == ch { pair.collider2 } else { pair.collider1 };
+                let Some(other_rb) = world.collider_set.get(other_ch).and_then(|c| c.parent()) else { continue };
+                let Some(&hit_entity) = world.handle_to_entity.get(&other_rb) else { continue };
+                if state.shooter == Some(hit_entity) { continue; }
+                hits.push((proj_entity, hit_entity, state.damage));
+                break 'outer;
+            }
+        }
+    }
+
+    for (proj, target, damage) in hits {
+        commands.entity(proj).despawn();
+        if let Ok(mut health) = health_q.get_mut(target) {
+            health.apply_damage(damage);
+        }
+    }
 }
 
 /// Ticks down muzzle flash and toggles the PointLight child accordingly.
@@ -215,5 +262,13 @@ pub fn draw_projectile_debug(
                 draw_collider(col, iso, Color::srgba(1.0, 0.3, 0.1, 0.9), &mut gizmos);
             }
         }
+    }
+}
+
+pub struct HailMaryPlugin;
+impl Plugin for HailMaryPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(FixedUpdate, tick_projectile_hits.after(step_physics));
+        app.add_systems(FixedUpdate, tick_muzzle_flash);
     }
 }

@@ -89,6 +89,7 @@ fn main() {
     app.add_systems(Update, (tick_respawns, process_console_commands));
     app.add_systems(Startup, (start_server, spawn_level_objects, init_mode_config).chain());
     app.add_systems(FixedUpdate, on_message.before(step_physics));
+    app.add_systems(FixedUpdate, broadcast_health_updates.after(step_physics).before(broadcast_tick));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
 
     println!("starting server...\n");
@@ -415,14 +416,16 @@ fn on_message(
                     _ => continue,
                 };
                 let dir_v = Vec3::from(direction).normalize_or_zero();
+                let origin_v: Vec3 = origin.into();
                 if dir_v == Vec3::ZERO { continue; }
 
                 let is_hailmary_projectile = weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false);
                 if is_hailmary_projectile {
+                    // spawn projectile physics body on server for authoritative hit detection
+                    hail_mary::spawn_projectile(origin_v, dir_v, &mut commands, &mut world, hail_mary::DAMAGE, Some(shooter_entity));
                     quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
                 } else {
                     // Hitscan: lag-comp raycast inline.
-                    let origin_v: Vec3 = origin.into();
                     let pairs: Vec<(NetworkID, RigidBodyHandle)> = hs.body_query.iter()
                         .map(|(nid, rbh)| (nid.clone(), rbh.0))
                         .collect();
@@ -546,6 +549,16 @@ fn process_console_commands(
             "" => {}
             other => println!("Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"),
         }
+    }
+}
+
+/// Broadcasts any Health changes to all clients after tick_projectile_hits runs.
+fn broadcast_health_updates(
+    mut quic: ResMut<QuicManager>,
+    health_q: Query<(&Health, &NetworkID), Changed<Health>>,
+) {
+    for (health, net_id) in health_q.iter() {
+        quic.send(SendTarget::All, Channel::Ordered, &MsgType::HealthUpdate(net_id.clone(), health.current));
     }
 }
 

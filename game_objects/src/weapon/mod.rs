@@ -11,7 +11,9 @@ pub use weapon::{Weapon, WeaponComponent, PendingHullCollider};
 pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_plugins(hail_mary::HailMaryPlugin);
+    }
 }
 
 // TODO: make a weapon that's KinematicVelocityBased like a plasma launcher

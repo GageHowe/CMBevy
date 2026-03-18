@@ -124,13 +124,16 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
         .lock_rotations()
         .build();
     let rb_handle = world.insert_body(entity, capsule_rb);
-    let player_groups = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
+    // collision_groups: detect all (so projectile narrow_phase pairs are generated)
+    // solver_groups: exclude projectiles so they don't physically push the player
+    let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
+    let player_solver    = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
     let capsule_collider = ColliderBuilder::capsule_y(0.5, 0.3)
         .friction(0.0)
         .restitution(0.0)
         .restitution_combine_rule(CoefficientCombineRule::Min)
-        .collision_groups(player_groups)
-        .solver_groups(player_groups)
+        .collision_groups(player_collision)
+        .solver_groups(player_solver)
         .build();
     commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
     {
@@ -152,8 +155,8 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
             .friction(3.0)
             .restitution(0.0)
             .restitution_combine_rule(CoefficientCombineRule::Min)
-            .collision_groups(player_groups)
-            .solver_groups(player_groups)
+            .collision_groups(player_collision)
+            .solver_groups(player_solver)
             .build();
         collider_set.insert_with_parent(sphere_collider, sphere_handle, rigid_body_set);
     }

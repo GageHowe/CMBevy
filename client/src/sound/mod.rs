@@ -23,7 +23,6 @@ pub struct FmodStudio {
 /// Stops and releases on Drop — handles cleanup for both despawn and component removal.
 #[derive(Component)]
 struct FmodInstance(fmod::studio::EventInstance);
-
 impl Drop for FmodInstance {
     fn drop(&mut self) {
         let _ = self.0.stop(fmod::studio::StopMode::AllowFadeout);

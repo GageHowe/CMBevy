@@ -208,9 +208,6 @@ fn main() {
         .init_resource::<PendingHullColliders>()
         .add_systems(FixedUpdate, step_physics
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
-        .add_systems(FixedUpdate, despawn_projectiles
-            .after(step_physics)
-            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Update, sync_physics_visual
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Startup, spawn_camera);
@@ -259,25 +256,10 @@ fn main() {
     app.add_systems(Update, draw_biped_debug);
     app.add_systems(FixedUpdate, hail_mary::draw_projectile_debug
         .after(step_physics)
-        .before(despawn_projectiles)
         .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
-    app.add_systems(FixedUpdate, hail_mary::tick_muzzle_flash);
 
     debug_println!("starting client...\n");
     app.run();
-}
-
-fn despawn_projectiles(
-    mut commands: Commands,
-    world: Res<PhysicsWorld>,
-    projectiles: Query<(Entity, &RigidBodyHandleComponenet), With<hail_mary::HailMaryProjectileState>>,
-) {
-    for (entity, body_handle) in projectiles.iter() {
-        let Some(rb) = world.rigid_body_set.get(body_handle.0) else { continue };
-        if rb.colliders().iter().any(|&ch| world.narrow_phase.contact_pairs_with(ch).any(|p| p.has_any_active_contact())) {
-            commands.entity(entity).despawn();
-        }
-    }
 }
 
 fn load_sp_level(mut commands: Commands) {
