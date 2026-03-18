@@ -5,7 +5,7 @@ use net::message::SpawnCommand;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullAsset;
 use rapier3d::prelude::*;
-use super::weapon::{Weapon, WeaponComponent};
+use super::{Weapon, WeaponComponent};
 
 pub const RANGE: f32 = 500.0;
 pub const DAMAGE: f32 = 25.0;
@@ -45,7 +45,7 @@ impl GameObject for RifleComponent {
             .angular_damping(2.0)
             .build();
         let rb_handle = world.insert_body(entity, rb);
-        commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
         collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
         entity

@@ -15,15 +15,15 @@ struct BindAddr(SocketAddr);
 use game_objects::master_plugin::MasterPlugin;
 use game_objects::pawn::biped;
 use game_objects::GameObject;
-use game_objects::pawn::pawn::BipedPawnComponent;
+use game_objects::pawn::BipedPawnComponent;
 use game_objects::health::Health;
 use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
 use game_objects::pawn::biped::WeaponSlots;
 use common::debug_println;
 use game_objects::level::{Map, LevelPlugin, SpawnPoint};
 use std::sync::{mpsc, Mutex};
-use game_objects::planet::PlanetBehaviorComponent;
-use game_objects::scripting::{ScriptConfig, call_script_fn, get_script_global};
+use game_objects::planet::PlanetComponent;
+use game_objects::scripting::{ScriptConfig, get_script_global};
 
 #[derive(Resource)]
 struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
@@ -146,7 +146,7 @@ fn spawn_level_objects(
             GameObjectKind::Planet  => {
                 let params = req.planet_params.clone().unwrap_or_else(|| {
                     eprintln!("Planet spawn request missing planet_params, using defaults");
-                    PlanetBehaviorComponent { inner_radius: 5, snap_radius: 0, gravity_radius: 0,
+                    PlanetComponent { inner_radius: 5, snap_radius: 0, gravity_radius: 0,
                         gravity_profile: game_objects::planet::GravityProfile::Constant(9.81) }
                 });
                 game_objects::planet::spawn(params, transform, &mut commands, &mut world)
@@ -225,7 +225,7 @@ fn kill_player (
     weapon_registry: &mut WeaponRegistry,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
-    tick: u64,
+    // tick: u64,
 ) {
     let drop_pos = world.entity_to_handle.get(&entity)
         // looks stupid but too lazy to look into it
@@ -255,7 +255,7 @@ fn kill_player (
 #[derive(bevy::ecs::system::SystemParam)]
 struct HitscanParams<'w, 's> {
     networked: Query<'w, 's, (Entity, &'static NetworkID)>,
-    body_query: Query<'w, 's, (&'static NetworkID, &'static RigidBodyHandleComponenet)>,
+    body_query: Query<'w, 's, (&'static NetworkID, &'static RigidBodyHandleComponent)>,
     health_q: Query<'w, 's, (&'static mut Health, &'static NetworkID)>,
     history: Res<'w, BodyHistory>,
     mode: Res<'w, ModeConfig>,
@@ -330,7 +330,7 @@ fn on_message(
                     &mut commands, &mut world, tick.tick);
             }
 
-            /// if server receives a Disconnected message...
+            // if server receives a Disconnected message...
             MsgType::Disconnected => {
                 pending_respawns.0.remove(&msg.conn_id);
                 if let Some((entity, net_id)) = registry.0.remove(&msg.conn_id) {
@@ -345,7 +345,7 @@ fn on_message(
                         if let Ok(mut biped) = bipeds.get_mut(entity) {
                             biped.look_yaw   = pawn_input.input.look_yaw;
                             biped.look_pitch = pawn_input.input.look_pitch;
-                            biped::apply_biped_movement(&mut world, &RigidBodyHandleComponenet(handle), pawn_input.input, &mut biped);
+                            biped::apply_biped_movement(&mut world, &RigidBodyHandleComponent(handle), pawn_input.input, &mut biped);
                         }
                     }
                 }
@@ -499,7 +499,7 @@ fn tick_respawns(
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
     level: Res<Map>,
-    mode: Res<ModeConfig>,
+    // mode: Res<ModeConfig>,
 ) {
     let dt = time.delta_secs();
     let ready: Vec<(ConnectionId, GameObjectKind)> = pending.0.iter_mut()
@@ -566,7 +566,7 @@ fn broadcast_tick(
     mut quic: ResMut<QuicManager>,
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
-    query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
+    query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
     mut history: ResMut<BodyHistory>,
 ) {
     let state = snapshot_bodies(&world, tick.tick, query.iter());

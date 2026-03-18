@@ -2,11 +2,11 @@ use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
-use game_objects::planet::{apply_gravity_impulses, PlanetBehaviorComponent};
+use game_objects::planet::{apply_gravity_impulses, PlanetComponent};
 use game_objects::pawn::biped::BipedPawnComponent;
 use net::message::{NetworkID, SimulationState};
-use physics::physics_world::{GravityScale, RigidBodyHandleComponenet, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
-use game_objects::pawn::pawn::{gather_pawn_input, PawnInput, Possessed};
+use physics::physics_world::{GravityScale, RigidBodyHandleComponent, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
+use game_objects::pawn::{gather_pawn_input, PawnInput, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 
@@ -47,7 +47,7 @@ impl Default for LocalStateHistory {
 
 pub struct ReconciliationPlugin<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>>(
     pub S,
-    pub fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
+    pub fn(&mut PhysicsWorld, &RigidBodyHandleComponent, PawnInput, &mut T),
 );
 
 impl<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>> Plugin for ReconciliationPlugin<S, T> {
@@ -71,7 +71,7 @@ pub fn record_world_state(
     world: Res<PhysicsWorld>,
     tick: Res<Ticker>,
     mut history: ResMut<LocalStateHistory>,
-    query: Query<(&NetworkID, &RigidBodyHandleComponenet)>,
+    query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
 ) {
     history.0.push(snapshot_bodies(&world, tick.tick, query.iter()));
 }
@@ -81,7 +81,7 @@ pub fn record_world_state(
 pub fn apply_physics_corrections(
     mut errors: ResMut<PhysicsErrors>,
     mut world: ResMut<PhysicsWorld>,
-    bodies: Query<(&NetworkID, &RigidBodyHandleComponenet, Option<&BipedPawnComponent>)>,
+    bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&BipedPawnComponent>)>,
 ) {
     const ALPHA: f32 = 0.2; // how quickly it corrects
     if errors.0.is_empty() { return; }
@@ -138,8 +138,8 @@ pub fn apply_physics_corrections(
 ///   4. Compute per-body error = resim_result − current_state, store in PhysicsErrors.
 ///   5. Restore physics to current state — corrections are applied gradually by apply_physics_corrections.
 pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponenet, PawnInput, &mut T),
-) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponenet, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>, Query<&GravityScale>, ResMut<PhysicsErrors>) {
+    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponent, PawnInput, &mut T),
+) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetComponent, &RigidBodyHandleComponent)>, Query<&GravityScale>, ResMut<PhysicsErrors>) {
     move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales, mut errors| {
         let Some(snapshot) = pending.0.take() else { return };
 
@@ -183,7 +183,7 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
         for replay_tick in (snapshot.tick + 1)..current_tick {
             if let Some(&input) = possessed.get_input(replay_tick) {
                 if let Ok(mut component) = pawn_query.single_mut() {
-                    let handle = RigidBodyHandleComponenet(our_rb);
+                    let handle = RigidBodyHandleComponent(our_rb);
                     apply(&mut world, &handle, input, &mut component);
                 }
             }

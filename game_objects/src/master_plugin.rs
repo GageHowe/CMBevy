@@ -22,6 +22,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(ConvexHullPlugin);
         app.add_plugins(crate::planet::PlanetPlugin);
+        app.add_plugins(crate::atmosphere::AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
 
         // tick should increment after everything else in FixedUpdate

@@ -20,7 +20,7 @@ pub struct GravityScale(pub f32);
 
 /// a way for entities to refer to their rigidbody
 #[derive(Component)]
-pub struct RigidBodyHandleComponenet(pub RigidBodyHandle);
+pub struct RigidBodyHandleComponent(pub RigidBodyHandle);
 
 #[derive(Resource)]
 pub struct PhysicsWorld {
@@ -214,7 +214,7 @@ impl Plugin for PhysicsPlugin {
     }
 }
 
-fn on_remove_physics_body(event: On<Remove, RigidBodyHandleComponenet>, mut world: ResMut<PhysicsWorld>) {
+fn on_remove_physics_body(event: On<Remove, RigidBodyHandleComponent>, mut world: ResMut<PhysicsWorld>) {
     world.remove_rigidbody(event.entity);
 }
 
@@ -234,7 +234,7 @@ pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
 pub fn snapshot_bodies<'a>(
     world: &PhysicsWorld,
     tick: u64,
-    pairs: impl Iterator<Item = (&'a NetworkID, &'a RigidBodyHandleComponenet)>,
+    pairs: impl Iterator<Item = (&'a NetworkID, &'a RigidBodyHandleComponent)>,
 ) -> SimulationState {
     let mut bodies = HashMap::new();
     for (net_id, body_handle) in pairs {
@@ -289,7 +289,7 @@ pub fn restore_snapshot(
 /// handle visual sync (gameserver FixedUpdate path — no smoothing needed)
 pub fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,
-    mut query: Query<(&RigidBodyHandleComponenet, &mut Transform)>,
+    mut query: Query<(&RigidBodyHandleComponent, &mut Transform)>,
 ) {
     for (body_handle, mut transform) in query.iter_mut() {
         if let Some(body) = world.rigid_body_set.get(body_handle.0) {

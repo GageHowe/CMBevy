@@ -7,7 +7,7 @@ use common::interaction::Interactable;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullAsset;
-use super::weapon::{Weapon, WeaponComponent, PendingHullCollider};
+use super::{Weapon, WeaponComponent, PendingHullCollider};
 use crate::sound::SoundEmitter;
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
@@ -74,7 +74,7 @@ impl GameObject for HailMaryComponent {
             .angular_damping(2.0)
             .build();
         let rb_handle = world.insert_body(entity, rb);
-        commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
         {
             let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
             collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
@@ -185,7 +185,7 @@ pub fn spawn_projectile(
             rb_handle, rigid_body_set,
         );
     }
-    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
     // small bullet light; ignored on headless server (no rendering plugins)
     let light = commands.spawn((
         PointLight { intensity: 80_000.0, range: 6.0, color: Color::srgb(0.7, 0.85, 1.0), shadows_enabled: false, ..default() },
@@ -199,7 +199,7 @@ pub fn spawn_projectile(
 pub fn tick_projectile_hits(
     world: Res<PhysicsWorld>,
     mut commands: Commands,
-    mut projectiles: Query<(Entity, &mut HailMaryProjectileState, &RigidBodyHandleComponenet)>,
+    mut projectiles: Query<(Entity, &mut HailMaryProjectileState, &RigidBodyHandleComponent)>,
     mut health_q: Query<&mut Health>,
 ) {
     // collect hits first to avoid reborrowing world
@@ -251,7 +251,7 @@ pub fn tick_muzzle_flash(
 
 pub fn draw_projectile_debug(
     world: Res<PhysicsWorld>,
-    projectiles: Query<(&HailMaryProjectileState, &RigidBodyHandleComponenet)>,
+    projectiles: Query<(&HailMaryProjectileState, &RigidBodyHandleComponent)>,
     mut gizmos: Gizmos,
 ) {
     for (_, body_handle) in projectiles.iter() {

@@ -11,6 +11,7 @@ pub mod generic;
 pub mod level;
 pub mod scripting;
 pub mod master_plugin;
+pub mod atmosphere;
 
 pub use generic::{spawn_generic, GenericShape};
 

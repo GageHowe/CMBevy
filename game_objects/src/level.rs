@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
-use physics::physics_world::{RigidBodyHandleComponenet, PhysicsWorld};
+use physics::physics_world::{RigidBodyHandleComponent, PhysicsWorld};
 use physics::convex_hull_asset::ConvexHullAsset;
 use crate::GameObjectKind;
-use crate::planet::PlanetBehaviorComponent;
+use crate::planet::PlanetComponent;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ColliderShape {
@@ -42,7 +42,7 @@ pub struct LevelSpawnRequest {
     pub position: Vec3,
     pub rotation: Quat,
     #[serde(default)]
-    pub planet_params: Option<PlanetBehaviorComponent>, // wtf? why is this here
+    pub planet_params: Option<PlanetComponent>, // wtf? why is this here
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -165,7 +165,7 @@ fn spawn_fixed_body(
     }
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands.entity(entity).insert((RigidBodyHandleComponenet(handle), LevelEntity));
+    commands.entity(entity).insert((RigidBodyHandleComponent(handle), LevelEntity));
 }
 
 /// Spawns planet entities from the map's initial_spawns. Run on the client when

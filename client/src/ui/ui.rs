@@ -5,7 +5,7 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use game_objects::health::Health;
 use net::quic::{QuicManager, SendTarget, Channel};
 use net::message::MsgType;
-use game_objects::pawn::pawn::Possessed;
+use game_objects::pawn::Possessed;
 use crate::GameState;
 use crate::steam::SteamClient;
 use crate::tick_sync::NetworkStats;

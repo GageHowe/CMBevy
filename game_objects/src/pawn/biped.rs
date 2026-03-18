@@ -1,6 +1,6 @@
 use crate::{health::Health, GameObject};
 use crate::weapon::{rifle, shotgun, hail_mary};
-use crate::weapon::weapon::Weapon;
+use crate::weapon::Weapon;
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use rapier3d::prelude::*;
-use super::pawn::*;
+use super::*;
 
 #[derive(Component, Default)]
 pub struct BipedPawnComponent {
@@ -17,16 +17,15 @@ pub struct BipedPawnComponent {
     pub foot_sphere: Option<RigidBodyHandle>,
     /// ticks remaining before another jump is allowed.
     pub jump_cooldown: u8,
-    /// look yaw/pitch (radians). Set from input; used for server-side movement simulation.
+    /// Look yaw/pitch (radians). Set from input; used for server-side movement simulation.
     pub look_yaw: f32,
     pub look_pitch: f32,
-    /// cached pivot entities set by setup_camera_rig; None on the server.
+    /// Ccached pivot entities set by setup_camera_rig; None on the server.
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
 }
 
 pub struct BipedPlugin;
-
 impl Plugin for BipedPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_remove_biped);
@@ -44,6 +43,19 @@ impl Plugin for BipedPlugin {
             .run_if(resource_exists::<AccumulatedMouseScroll>));
     }
 }
+
+/// rotates around the pawn's local yaw. child of the pawn entity.
+#[derive(Component)]
+pub struct YawPivot {
+    pub yaw: f32,
+}
+/// rotates around its local pitch. child of YawPivot.
+#[derive(Component)]
+pub struct PitchPivot {
+    pub pitch: f32,
+}
+
+pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
 fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
@@ -135,7 +147,7 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
         .collision_groups(player_collision)
         .solver_groups(player_solver)
         .build();
-    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
     {
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
         collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
@@ -264,7 +276,7 @@ pub fn spawn_from_command(
 }
 
 impl Pawn for BipedPawnComponent {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponenet, input: PawnInput) {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
         apply_biped_movement(world, body, input, self);
     }
 }
@@ -288,7 +300,7 @@ impl GameObject for BipedPawnComponent {
 
 pub fn draw_biped_debug(
     world: Res<PhysicsWorld>,
-    bipeds: Query<(&BipedPawnComponent, &RigidBodyHandleComponenet)>,
+    bipeds: Query<(&BipedPawnComponent, &RigidBodyHandleComponent)>,
     mut gizmos: Gizmos,
 ) {
     use physics::debug::{draw_collider, rb_iso};
@@ -328,7 +340,7 @@ const JUMP_COOLDOWN:  u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jum
 
 pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
-    body_handle: &RigidBodyHandleComponenet,
+    body_handle: &RigidBodyHandleComponent,
     input: PawnInput,
     biped: &mut BipedPawnComponent,
 ) {

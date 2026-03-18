@@ -12,9 +12,9 @@ use net::{
     quic::*,
 };
 use common::GameObjectKind;
-use game_objects::pawn::pawn::PitchPivot;
+use game_objects::pawn::PitchPivot;
 use game_objects::pawn::biped;
-use game_objects::pawn::pawn::*;
+use game_objects::pawn::*;
 use physics::physics_world::*;
 use reconciliation::{PendingReconciliation, ReconciliationPlugin};
 use tick_sync::{NetworkStats, TickSyncPlugin};
@@ -121,7 +121,7 @@ fn sync_physics_visual(
     world: Res<PhysicsWorld>,
     time: Res<Time<Fixed>>,
     settings: Res<Settings>,
-    mut query: Query<(&RigidBodyHandleComponenet, &mut Transform)>,
+    mut query: Query<(&RigidBodyHandleComponent, &mut Transform)>,
 ) {
     use settings::PhysicsInterp;
     let overstep = time.overstep_fraction();
@@ -491,7 +491,7 @@ fn on_message(
                     } else { (None, None) };
                     if let (Some((slot_idx, is_active)), Some(pivot)) = (slot_result, pivot_e) {
                         sp.commands.entity(weapon_entity)
-                            .remove::<(RigidBodyHandleComponenet, Interactable)>()
+                            .remove::<(RigidBodyHandleComponent, Interactable)>()
                             .set_parent_in_place(pivot)
                             .insert(viewmodel_offset(slot_idx))
                             .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
@@ -521,7 +521,7 @@ fn on_message(
                         .remove_parent_in_place()
                         .insert((Interactable { range: 2.0 }, Visibility::Inherited));
                     if let Some(h) = handle {
-                        sp.commands.entity(weapon_entity).insert(RigidBodyHandleComponenet(h));
+                        sp.commands.entity(weapon_entity).insert(RigidBodyHandleComponent(h));
                     }
                 } else {
                     sp.commands.entity(weapon_entity).insert((Interactable { range: 2.0 }, Visibility::Inherited));
@@ -624,7 +624,7 @@ fn send_pawn_input(
 /// Triggered by `spawn_from_command` attaching a `Handle<ConvexHullAsset>` to the entity.
 fn swap_weapon_hull_colliders(
     mut commands: Commands,
-    pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponenet)>,
+    pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponent)>,
     hull_assets: Res<Assets<ConvexHullAsset>>,
     mut world: ResMut<PhysicsWorld>,
 ) {
@@ -708,7 +708,7 @@ fn toggle_flashlight(
 
 fn nearest_interactable(
     player_pos: Vec3,
-    interactables: &Query<(Entity, &RigidBodyHandleComponenet, &NetworkID), With<Interactable>>,
+    interactables: &Query<(Entity, &RigidBodyHandleComponent, &NetworkID), With<Interactable>>,
     world: &PhysicsWorld,
 ) -> Option<(Entity, NetworkID)> {
     interactables.iter()
@@ -726,8 +726,8 @@ fn interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
     state: Res<State<GameState>>,
-    player: Query<(&RigidBodyHandleComponenet, &Transform, &BipedPawnComponent), With<Possessed>>,
-    interactables: Query<(Entity, &RigidBodyHandleComponenet, &NetworkID), With<Interactable>>,
+    player: Query<(&RigidBodyHandleComponent, &Transform, &BipedPawnComponent), With<Possessed>>,
+    interactables: Query<(Entity, &RigidBodyHandleComponent, &NetworkID), With<Interactable>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
@@ -748,7 +748,7 @@ fn interact(
             let is_active = slots.active == slot_idx;
             world.set_body_enabled(weapon_entity, false);
             commands.entity(weapon_entity)
-                .remove::<(RigidBodyHandleComponenet, Interactable)>()
+                .remove::<(RigidBodyHandleComponent, Interactable)>()
                 .set_parent_in_place(pivot_entity)
                 .insert(viewmodel_offset(slot_idx))
                 .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });

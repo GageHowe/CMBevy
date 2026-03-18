@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use lanyard::Utf8CString;
 use game_objects::sound::{SoundEmitter, SoundQueue};
-use game_objects::pawn::pawn::Possessed;
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponenet};
+use game_objects::pawn::Possessed;
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 /// FMOD Studio .bank files to load at startup, relative to the working directory.
 const BANK_PATHS: &[&str] = &[
@@ -15,7 +15,7 @@ const BANK_PATHS: &[&str] = &[
 #[derive(Resource)]
 pub struct FmodStudio {
     pub system: fmod::studio::System,
-    // Keep bank handles alive — releasing a bank unloads all its events.
+    /// Keep bank handles alive — releasing a bank unloads all its events.
     _banks: Vec<fmod::studio::Bank>,
 }
 
@@ -45,15 +45,13 @@ impl Plugin for SoundPlugin {
     }
 }
 
+/// called once at startup before any FMOD use
+/// stable, do not touch.
 fn init_fmod(mut commands: Commands) {
-    // FMOD_INIT_RIGHTHANDED_3D matches Bevy's right-handed Y-up coordinate system,
-    // so Vec3 values can be passed directly without axis conversion.
-    // Safety: called once at app startup on the main thread before any FMOD use.
     let Ok(system) = (unsafe { fmod::studio::SystemBuilder::new() })
         .and_then(|b| b.build(512, fmod::studio::InitFlags::NORMAL, fmod::InitFlags::RIGHTHANDED_3D))
         .inspect_err(|e| warn!("FMOD: init failed: {e:?}"))
     else { return };
-
     let mut banks = Vec::new();
     for path in BANK_PATHS {
         let Ok(cpath) = Utf8CString::new(*path)
@@ -64,7 +62,6 @@ fn init_fmod(mut commands: Commands) {
             Err(e) => warn!("FMOD: could not load '{path}': {e:?}"),
         }
     }
-
     commands.insert_resource(FmodStudio { system, _banks: banks });
 }
 
@@ -87,7 +84,7 @@ fn spawn_instances(
 /// Syncs 3D position and velocity for all persistent instances each frame.
 fn update_instances(
     world: Res<PhysicsWorld>,
-    instances: Query<(&FmodInstance, &GlobalTransform, Option<&RigidBodyHandleComponenet>)>,
+    instances: Query<(&FmodInstance, &GlobalTransform, Option<&RigidBodyHandleComponent>)>,
 ) {
     for (inst, gt, rb) in &instances {
         let (_, rot, pos) = gt.to_scale_rotation_translation();
@@ -117,7 +114,7 @@ fn flush_queue(fmod: Option<Res<FmodStudio>>, mut queue: ResMut<SoundQueue>) {
 fn sync_listener(
     fmod: Option<Res<FmodStudio>>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
-    possessed: Query<&RigidBodyHandleComponenet, With<Possessed>>,
+    possessed: Query<&RigidBodyHandleComponent, With<Possessed>>,
     world: Res<PhysicsWorld>,
 ) {
     let (Some(fmod), Ok(gt)) = (fmod, camera.single()) else { return };

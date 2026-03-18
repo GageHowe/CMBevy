@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::pawn::pawn::BipedPawnComponent;
+use crate::pawn::BipedPawnComponent;
 use physics::physics_world::{self, *};
 
 #[deprecated]
-/// this should depend on the individual GravityRadiusComponent
+/// this should depend on the individual component instance
 pub const GRAVITY_STRENGTH: f32 = 9.81;
 
 #[derive(Component, Serialize, Deserialize, Clone)]
@@ -16,7 +16,7 @@ pub enum GravityProfile {
 }
 
 #[derive(Component, Serialize, Deserialize, Clone)]
-pub struct PlanetBehaviorComponent {
+pub struct PlanetComponent {
     /// skips gravity application completely when within this radius
     pub inner_radius: u32,
     /// outer radius where bipeds' feet should point towards the center of the planet.
@@ -28,14 +28,14 @@ pub struct PlanetBehaviorComponent {
     pub gravity_profile: GravityProfile
 }
 
-pub fn spawn(planet: PlanetBehaviorComponent, transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+pub fn spawn(planet: PlanetComponent, transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
     let collider_radius = planet.inner_radius as f32;
     let pos = transform.translation;
     let entity = commands.spawn((planet, transform)).id();
     let rb_handle = world.insert_body(entity, RigidBodyBuilder::fixed().translation(Vector3::new(pos.x, pos.y, pos.z)).build());
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(ColliderBuilder::ball(collider_radius).friction(3.0).restitution(0.0).build(), rb_handle, rigid_body_set);
-    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
     entity
 }
 
@@ -43,12 +43,12 @@ pub fn spawn(planet: PlanetBehaviorComponent, transform: Transform, commands: &m
 /// Called before every physics step, including during reconciliation replay.
 pub fn apply_gravity_impulses(
     world: &mut PhysicsWorld,
-    planets: &Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>,
+    planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     gravity_scales: &Query<&physics_world::GravityScale>,
 ) {
     let dt = world.integration_parameters.dt;
 
-    let planet_data: Vec<(Vec3, &PlanetBehaviorComponent, RigidBodyHandle)> = planets.iter()
+    let planet_data: Vec<(Vec3, &PlanetComponent, RigidBodyHandle)> = planets.iter()
         .filter_map(|(planet, handle)| {
             let t = world.rigid_body_set.get(handle.0)?.position().translation;
             Some((Vec3::new(t.x, t.y, t.z), planet, handle.0))
@@ -129,7 +129,7 @@ pub fn apply_gravity_impulses(
 
 pub fn apply_gravity(
     mut world: ResMut<PhysicsWorld>,
-    planets: Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>,
+    planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     gravity_scales: Query<&physics_world::GravityScale>,
 ) {
     apply_gravity_impulses(&mut world, &planets, &gravity_scales);
@@ -147,8 +147,8 @@ pub fn apply_gravity(
 /// the planet's "up". snap_radius == 0 is treated as unlimited.
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
-    bipeds: Query<&RigidBodyHandleComponenet, With<BipedPawnComponent>>,
-    planets: Query<(&PlanetBehaviorComponent, &RigidBodyHandleComponenet)>,
+    bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
+    planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
 ) {
     let planet_data: Vec<(Vec3, f32)> = planets.iter()
         .filter_map(|(planet, handle)| {
@@ -202,7 +202,7 @@ pub fn orient_bipeds_to_planets(
 }
 
 pub fn draw_planet_radii(
-    planets: Query<(&PlanetBehaviorComponent, &GlobalTransform)>,
+    planets: Query<(&PlanetComponent, &GlobalTransform)>,
     mut gizmos: Gizmos,
 ) {
     for (planet, gt) in planets.iter() {

@@ -1,11 +1,14 @@
 use crate::GameObject;
 use physics::physics_world::*;
-use super::pawn::*;
+use super::*;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 
+#[derive(Component)]
+pub struct SpaceshipPawnComponent;
+
 impl Pawn for SpaceshipPawnComponent {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponenet, input: PawnInput) {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
         apply_spaceship_movement(world, body, input, self);
     }
 }
@@ -15,7 +18,7 @@ impl GameObject for SpaceshipPawnComponent {
         let entity = commands.spawn((SpaceshipPawnComponent, Transform::from(transform))).id();
         let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
         let rb_handle = world.insert_body(entity, rb);
-        commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
         entity
     }
     fn cleanup() {}
@@ -26,7 +29,7 @@ impl GameObject for SpaceshipPawnComponent {
 
 pub fn apply_spaceship_movement(
     world: &mut PhysicsWorld,
-    body_handle: &RigidBodyHandleComponenet,
+    body_handle: &RigidBodyHandleComponent,
     input: PawnInput,
     _spaceship: &mut SpaceshipPawnComponent,
 ) {

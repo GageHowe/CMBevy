@@ -1,7 +1,7 @@
 // generic.rs — spawns arbitrary physics objects with an optional mesh and network ID.
 use bevy::prelude::*;
 use rapier3d::prelude::*;
-use crate::weapon::weapon::PendingHullCollider;
+use crate::weapon::PendingHullCollider;
 use common::NetworkID;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::*;
@@ -27,7 +27,7 @@ pub fn spawn_generic(
     let entity = commands.spawn(Transform::from(transform)).id();
     let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
     let rb_handle = world.insert_body(entity, rb);
-    commands.entity(entity).insert(RigidBodyHandleComponenet(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
 
     match shape {
         GenericShape::Primitive(builder) => {
