@@ -18,7 +18,7 @@ pub const PELLETS: usize = 8;
 pub const SPREAD: f32 = 0.08;
 
 /// Per-instance state for the shotgun weapon type.
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct ShotgunComponent {
     pub cooldown: u32,
     /// Latched when fire is requested; cleared after the shot fires.
@@ -37,7 +37,7 @@ impl Weapon for ShotgunComponent {
 }
 
 impl GameObject for ShotgunComponent {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let entity = commands.spawn((
             WeaponComponent,
             ShotgunComponent::default(),
@@ -69,7 +69,7 @@ pub fn spawn_from_command(
     _hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
     let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE };
-    let entity = ShotgunComponent::spawn_physics(transform, commands, world);
+    let entity = ShotgunComponent::initialize(transform, commands, world);
     commands.entity(entity).insert((SceneRoot(asset_server.load("models/shotgun.glb#Scene0")), Visibility::default(), cmd.net_id));
     entity
 }

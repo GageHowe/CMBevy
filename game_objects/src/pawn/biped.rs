@@ -28,7 +28,7 @@ const GROUND_DIST:     f32 = 0.01;  // must be nearly touching to count as groun
 const JUMP_COOLDOWN:   u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jump
 
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
     pub flashlight_on: bool,
     /// ticks remaining before another jump is allowed.
@@ -47,7 +47,7 @@ impl Pawn for BipedPawnComponent {
     }
 }
 impl GameObject for BipedPawnComponent {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let entity = commands.spawn((
             WeaponSlots::default(),
             Health::new(100.0),
@@ -246,7 +246,7 @@ pub fn spawn_from_command(
         rotation: cmd.rotation.into(),
         ..default()
     };
-    let entity = BipedPawnComponent::spawn_physics(transform, commands, world);
+    let entity = BipedPawnComponent::initialize(transform, commands, world);
     commands.entity(entity).insert(cmd.net_id.clone());
     #[cfg(feature = "client")]
     {
@@ -264,6 +264,7 @@ pub fn spawn_from_command(
     entity
 }
 
+#[cfg(feature = "client")]
 pub fn draw_biped_debug(
     world: Res<PhysicsWorld>,
     bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,

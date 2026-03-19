@@ -1,8 +1,8 @@
 use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use mlua::prelude::*;
-use game_objects::pawn::biped;
-use game_objects::weapon::{rifle, shotgun};
+// use game_objects::pawn::biped;
+// use game_objects::weapon::{rifle, shotgun};
 use game_objects::{GameObject, GenericShape, spawn_generic};
 use game_objects::health::Health;
 use common::{NetworkID, NetworkIDResource};
@@ -71,14 +71,14 @@ fn reload_script(config: Option<Res<ScriptConfig>>, mut runtime: NonSendMut<Scri
 fn register_script_functions(world: &mut World) {
     let runtime = world.remove_non_send_resource::<ScriptRuntime>().unwrap();
 
-    /// gets the current health of the specified entity ID
+    // gets the current health of the specified entity ID
     runtime.lua.globals().set("get_health", runtime.lua.create_function(|lua, entity_id: i64| {
         let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
         let entity = Entity::from_bits(entity_id as u64);
         Ok(world.get::<Health>(entity).map(|h| h.current as i32).unwrap_or(0))
     }).unwrap()).unwrap();
 
-    /// sets the current health of the specified entity ID
+    // sets the current health of the specified entity ID
     runtime.lua.globals().set("set_health", runtime.lua.create_function(|lua, (entity_id, amount): (i64, i32)| {
         let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
         let entity = Entity::from_bits(entity_id as u64);

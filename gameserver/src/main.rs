@@ -165,9 +165,9 @@ fn spawn_scene_weapons(
         let transform = *transform;
         let net_id = NetworkID(net_ids.next());
         let weapon_entity = match kind {
-            GameObjectKind::Rifle    => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut world),
-            GameObjectKind::Shotgun  => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut world),
-            GameObjectKind::HailMary => hail_mary::HailMaryComponent::spawn_physics(transform, &mut commands, &mut world),
+            GameObjectKind::Rifle    => rifle::RifleComponent::initialize(transform, &mut commands, &mut world),
+            GameObjectKind::Shotgun  => shotgun::ShotgunComponent::initialize(transform, &mut commands, &mut world),
+            GameObjectKind::HailMary => hail_mary::HailMaryComponent::initialize(transform, &mut commands, &mut world),
             _ => { commands.entity(scene_entity).despawn(); continue; }
         };
         commands.entity(weapon_entity).insert(net_id.clone());
@@ -220,7 +220,7 @@ fn spawn_player(
 ) {
     let net_id = NetworkID(net_ids.next());
     let entity = match kind {
-        GameObjectKind::Biped => biped::BipedPawnComponent::spawn_physics(Transform::from_translation(spawn_pos).with_rotation(spawn_rot), commands, world),
+        GameObjectKind::Biped => biped::BipedPawnComponent::initialize(Transform::from_translation(spawn_pos).with_rotation(spawn_rot), commands, world),
         _ => unreachable!("spawn_player called with non-pawn kind"),
     };
     commands.entity(entity).insert(net_id.clone());

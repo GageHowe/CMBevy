@@ -54,7 +54,7 @@ impl Default for HostState {
 // Matches beacon's LobbyInfo for the browser
 #[derive(serde::Deserialize, Clone)]
 struct Lobby {
-    id: String,
+    // id: String,
     name: String,
     host: String,
     player_count: u8,

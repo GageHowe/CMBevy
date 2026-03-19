@@ -6,6 +6,8 @@ use crate::physics::convex_hull_asset::ConvexHullAsset;
 use crate::game_objects::GameObjectKind;
 use crate::game_objects::planet::PlanetBehaviorComponent;
 
+// TODO: completely change this to use Bevy's scene loading, .scn.ron etc.
+// look into completely changing and simplifying the level system to just use Bevy's native scene loading, scn.ron. anything that isn't supported, let me know.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ColliderShape {
     Cuboid(Vec3),
@@ -42,7 +44,7 @@ pub struct LevelSpawnRequest {
     pub position: Vec3,
     pub rotation: Quat,
     #[serde(default)]
-    pub planet_params: Option<PlanetBehaviorComponent>, // wtf? why is this here
+    pub planet_params: Option<PlanetBehaviorComponent>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

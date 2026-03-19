@@ -14,7 +14,7 @@ use physics::physics_world::PhysicsWorld;
 #[derive(Resource, Debug, Default)]
 /// Data that needs to persist inside the GUI (text etc)
 pub struct GuiState {
-    pub text_input: String,
+    // pub text_input: String,
     pub command_input: String,
     pub log: Vec<String>,
 }

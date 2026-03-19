@@ -16,9 +16,9 @@ pub struct NetworkStats {
 
 impl NetworkStats {
     /// One-way latency estimate in milliseconds (RTT / 2).
-    pub fn latency_ms(&self) -> f32 {
-        self.rtt_secs * 500.0
-    }
+    // pub fn latency_ms(&self) -> f32 {
+    //     self.rtt_secs * 500.0
+    // }
 
     /// Call when a TimePong arrives to update the smoothed RTT.
     pub fn record_pong(&mut self, sent_bits: u64, now_secs: f64) {

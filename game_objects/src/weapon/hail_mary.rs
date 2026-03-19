@@ -31,7 +31,7 @@ impl Plugin for HailMaryPlugin {
 }
 
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct HailMaryComponent {
     pub cooldown: u32,
     /// Latched when fire is requested; cleared after the shot fires.
@@ -55,7 +55,7 @@ impl Weapon for HailMaryComponent {
 }
 
 impl GameObject for HailMaryComponent {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let light = commands.spawn((
             PointLight {
                 intensity: 20000.0,
@@ -94,7 +94,7 @@ impl GameObject for HailMaryComponent {
 }
 
 impl GameObject for HailMaryProjectileState {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         spawn_projectile(transform.translation, Vec3::NEG_Z, commands, world, DAMAGE, None).0
     }
     fn cleanup() {}
@@ -111,7 +111,7 @@ pub fn spawn_from_command(
     hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
     let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(SCALE) };
-    let entity = HailMaryComponent::spawn_physics(transform, commands, world);
+    let entity = HailMaryComponent::initialize(transform, commands, world);
     commands.entity(entity).insert((SceneRoot(asset_server.load("models/hail_mary_placeholder_2.glb#Scene0")), Visibility::default(), cmd.net_id));
     let s = SCALE;
     let handle = asset_server.load_with_settings(HULL_PATH, move |settings: &mut f32| *settings = s);
@@ -134,7 +134,7 @@ pub fn spawn_from_command(
 }
 
 /// Tracks damage and shooter on a live projectile entity.
-#[derive(Component)]
+#[derive(Component, Default, Reflect)]
 pub struct HailMaryProjectileState {
     pub damage: f32,
     pub shooter: Option<Entity>,

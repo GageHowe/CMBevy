@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
+use bevy::scene::serde::SceneDeserializer;
+use serde::de::DeserializeSeed;
 use rapier3d::prelude::*;
 use physics::physics_world::{RigidBodyHandleComponent, PhysicsWorld};
 use physics::convex_hull_asset::ConvexHullAsset;
@@ -78,29 +80,28 @@ pub fn read_and_compress_level(path: &str) -> Vec<u8> {
 #[derive(Resource)]
 pub struct PendingMapScene(pub Vec<u8>);
 
-/// Decompresses scene bytes from the server, writes to a temp asset path, and spawns the scene.
-/// Run on the client whenever PendingMapScene exists.
-/// NOTE: writes to the assets directory on disk — desktop-only approach.
-pub fn apply_pending_map_scene(
-    pending: Option<Res<PendingMapScene>>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
-    let Some(pending) = pending else { return };
+/// Decompresses scene bytes from the server, deserializes in-memory, and spawns the scene.
+/// Exclusive system — runs on the client whenever PendingMapScene exists.
+pub fn apply_pending_map_scene(world: &mut World) {
+    let Some(pending) = world.remove_resource::<PendingMapScene>() else { return };
     let bytes = match zstd::stream::decode_all(pending.0.as_slice()) {
         Ok(b) => b,
-        Err(e) => { error!("map decompress: {e}"); commands.remove_resource::<PendingMapScene>(); return; }
+        Err(e) => { error!("map decompress: {e}"); return; }
     };
-    let asset_dir = if cfg!(debug_assertions) { "../assets" } else { "assets" };
-    let temp_path = format!("{asset_dir}/maps/_server_map.scn.ron");
-    if let Err(e) = std::fs::write(&temp_path, &bytes) {
-        error!("map write temp: {e}"); commands.remove_resource::<PendingMapScene>(); return;
-    }
-    // Reload in case this path was previously cached.
-    asset_server.reload("maps/_server_map.scn.ron");
-    let handle: Handle<DynamicScene> = asset_server.load("maps/_server_map.scn.ron");
-    commands.spawn((DynamicSceneRoot(handle), LevelSceneRoot));
-    commands.remove_resource::<PendingMapScene>();
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry_guard = registry.read();
+    let scene_de = SceneDeserializer { type_registry: &registry_guard };
+    let mut ron_de = match ron::Deserializer::from_bytes(&bytes) {
+        Ok(d) => d,
+        Err(e) => { error!("map ron: {e}"); return; }
+    };
+    let scene = match scene_de.deserialize(&mut ron_de) {
+        Ok(s) => s,
+        Err(e) => { error!("map deserialize: {e}"); return; }
+    };
+    drop(registry_guard);
+    let handle = world.resource_mut::<Assets<DynamicScene>>().add(scene);
+    world.spawn((DynamicSceneRoot(handle), LevelSceneRoot));
 }
 
 // ── plugin ────────────────────────────────────────────────────────────────────

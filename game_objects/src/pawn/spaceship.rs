@@ -4,7 +4,7 @@ use super::*;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 
-#[derive(Component)]
+#[derive(Component, Default, Reflect)]
 pub struct SpaceshipPawnComponent;
 impl Pawn for SpaceshipPawnComponent {
     fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
@@ -12,7 +12,7 @@ impl Pawn for SpaceshipPawnComponent {
     }
 }
 impl GameObject for SpaceshipPawnComponent {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let entity = commands.spawn((SpaceshipPawnComponent, Transform::from(transform))).id();
         let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
         let rb_handle = world.insert_body(entity, rb);

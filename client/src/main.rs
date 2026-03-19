@@ -368,7 +368,7 @@ fn on_message(
     networked: Query<(Entity, &NetworkID)>,
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
-    pitch_pivot_q: Query<Entity, With<PitchPivot>>,
+    // pitch_pivot_q: Query<Entity, With<PitchPivot>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
@@ -714,27 +714,27 @@ fn viewmodel_offset(slot_idx: usize) -> Transform {
         _ => Transform::from_xyz(-0.3, -0.25, -0.5),
     }
 }
-
-/// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.
-fn switch_weapon_slot(
-    scroll: Res<AccumulatedMouseScroll>,
-    mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
-    mut visibility: Query<&mut Visibility>,
-) {
-    let delta: f32 = scroll.delta.y;
-    if delta == 0.0 { return; }
-    let Ok(mut slots) = pawn.single_mut() else { return };
-    let prev = slots.active;
-    slots.active = if delta > 0.0 {
-        (slots.active + 1) % 2
-    } else {
-        slots.active.checked_sub(1).unwrap_or(1)
-    };
-    if slots.active == prev { return; }
-    if let Some(e) = slots.slots[prev].1 {
-        if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
-    }
-    if let Some(e) = slots.slots[slots.active].1 {
-        if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
-    }
-}
+//
+// /// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.
+// fn switch_weapon_slot(
+//     scroll: Res<AccumulatedMouseScroll>,
+//     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
+//     mut visibility: Query<&mut Visibility>,
+// ) {
+//     let delta: f32 = scroll.delta.y;
+//     if delta == 0.0 { return; }
+//     let Ok(mut slots) = pawn.single_mut() else { return };
+//     let prev = slots.active;
+//     slots.active = if delta > 0.0 {
+//         (slots.active + 1) % 2
+//     } else {
+//         slots.active.checked_sub(1).unwrap_or(1)
+//     };
+//     if slots.active == prev { return; }
+//     if let Some(e) = slots.slots[prev].1 {
+//         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
+//     }
+//     if let Some(e) = slots.slots[slots.active].1 {
+//         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
+//     }
+// }

@@ -13,13 +13,24 @@ pub mod planet;
 pub mod generic;
 pub mod level;
 pub mod atmosphere;
-
 pub use generic::{spawn_generic, GenericShape};
 
-// TODO: find a way to spawn anything that implements GameObject through lua script
+/*
+This module is for GameObjects, a collection of objects that can bwe spawned into the game world.
+GameObjects can be spawned by:
+* Server -> Client spawn commands,
+* the Client (in the case of Singleplayer, static objects, predicted projectiles etc)
+* Lua scripting
 
-pub trait GameObject {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity;
+The goal is to have a clean and simple calling convention so callers can spawn a GameObject easily.
+
+*/
+
+/// everything that appears in a map needs to implement this.
+/// Requires FromWorld, Reflect, Default in order to instantiate these objects from scene ron file.
+/// FromWorld is automatically implemented for any type implementing Default
+pub trait GameObject : Default + Reflect {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity;
     fn cleanup();
     fn get_rigidbody() -> Option<RigidBody>;
 }

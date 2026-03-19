@@ -8,7 +8,7 @@ an atmosphere:
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
-use physics::physics_world::{self, *};
+use physics::physics_world::{*};
 
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {

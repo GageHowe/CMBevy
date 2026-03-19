@@ -13,7 +13,7 @@ pub const DAMAGE: f32 = 25.0;
 pub const COOLDOWN_TICKS: u32 = 6;
 
 /// Per-instance state for the rifle weapon type.
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct RifleComponent {
     pub cooldown: u32,
     /// Latched when fire is requested; cleared after the shot fires.
@@ -32,7 +32,7 @@ impl Weapon for RifleComponent {
 }
 
 impl GameObject for RifleComponent {
-    fn spawn_physics(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
         let entity = commands.spawn((
             WeaponComponent,
             RifleComponent::default(),
@@ -64,7 +64,7 @@ pub fn spawn_from_command(
     _hull_assets: &Assets<ConvexHullAsset>,
 ) -> Entity {
     let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE };
-    let entity = RifleComponent::spawn_physics(transform, commands, world);
+    let entity = RifleComponent::initialize(transform, commands, world);
     commands.entity(entity).insert((SceneRoot(asset_server.load("models/ar.glb#Scene0")), Visibility::default(), cmd.net_id));
     entity
 }
