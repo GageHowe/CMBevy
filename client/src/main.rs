@@ -22,7 +22,8 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin, PendingHullCollider};
+use game_objects::{spawn_game_object, VisualSpawnParams};
+use game_objects::weapon::{hail_mary, WeaponPlugin, PendingHullCollider};
 use game_objects::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -74,7 +75,7 @@ use steam::SteamworksPlugin;
 use common::debug_println;
 use game_objects::health::Health;
 use master_plugin::MasterPlugin;
-use game_objects::level::{Map, PendingHullColliders, spawn_static_colliders, spawn_hull_colliders, load_level_scene, spawn_level_planets, cleanup_level};
+use game_objects::level::{LevelPlugin, cleanup_level, load_level_scene, apply_pending_map_scene, PendingMapScene, MapMeta, LevelSceneRoot};
 use physics::convex_hull_asset::ConvexHullAsset;
 use game_objects::planet::draw_planet_radii;
 use game_objects::pawn::biped::draw_biped_debug;
@@ -196,6 +197,7 @@ fn main() {
         .add_plugins(UIPlugin)
         .add_plugins(MenuPlugin)
         .add_plugins(PawnPlugin)
+        .add_plugins(LevelPlugin)
         .add_plugins(WeaponPlugin)
         .add_plugins(SoundPlugin)
         .add_plugins(ReconciliationPlugin(GameState::Multiplayer, biped::apply_biped_movement))
@@ -205,7 +207,7 @@ fn main() {
         .init_resource::<HostedServer>()
         .init_resource::<HitBeams>()
         .init_resource::<LastServerState>()
-        .init_resource::<PendingHullColliders>()
+        // PendingHullColliders now managed by LevelPlugin
         .add_systems(FixedUpdate, step_physics
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Update, sync_physics_visual
@@ -215,7 +217,7 @@ fn main() {
     app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
 
-    app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player, spawn_sp_weapons).chain());
+    app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player).chain());
     app.add_systems(OnExit(GameState::SinglePlayer), (cleanup_world, cleanup_level, remove_script).chain());
     app.add_systems(OnEnter(GameState::Multiplayer), connect);
     app.add_systems(OnExit(GameState::Multiplayer), (cleanup_world, disconnect, cleanup_level, remove_script).chain());
@@ -246,11 +248,9 @@ fn main() {
     app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, draw_server_state.run_if(in_state(GameState::Multiplayer)));
-    app.add_systems(Update, (spawn_static_colliders, load_level_scene, spawn_level_planets)
-        .run_if(resource_added::<Map>));
-    app.add_systems(Update, load_skybox.run_if(resource_added::<Map>));
-
-    app.add_systems(Update, spawn_hull_colliders);
+    app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
+    app.add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>));
+    app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(Update, swap_weapon_hull_colliders);
     app.add_systems(Update, draw_planet_radii);
     app.add_systems(Update, draw_biped_debug);
@@ -262,45 +262,11 @@ fn main() {
     app.run();
 }
 
-fn load_sp_level(mut commands: Commands) {
-    let level = Map::from_ron("assets/maps/default.ron").expect("failed to load assets/maps/default.ron");
-    commands.insert_resource(level);
+fn load_sp_level(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((bevy::scene::DynamicSceneRoot(asset_server.load("maps/default.scn.ron")), LevelSceneRoot));
 }
 
-fn spawn_sp_weapons(
-    mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
-    asset_server: Res<AssetServer>,
-    hull_assets: Res<Assets<ConvexHullAsset>>,
-    mut net_ids: ResMut<NetworkIDResource>,
-    level: Res<Map>,
-) {
-    for req in &level.initial_spawns {
-        let cmd = SpawnCommand {
-            net_id: NetworkID(net_ids.next()),
-            position: req.position,
-            rotation: req.rotation,
-            starting_velocity: Vec3::ZERO,
-            server_tick: 0,
-            kind: req.kind.clone(),
-            owned: false,
-        };
-        match req.kind {
-            GameObjectKind::HailMary => {
-                hail_mary::spawn_from_command(cmd, &mut commands, &mut world, &asset_server, &hull_assets);
-            }
-            GameObjectKind::Rifle => {
-                rifle::spawn_from_command(cmd, &mut commands, &mut world, &asset_server, &hull_assets);
-            }
-            GameObjectKind::Shotgun => {
-                shotgun::spawn_from_command(cmd, &mut commands, &mut world, &asset_server, &hull_assets);
-            }
-            _ => {}
-        }
-    }
-}
 
-// PLACEHOLDER: remove when LevelPlugin handles singleplayer pawn spawning
 fn spawn_local_player(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -308,32 +274,32 @@ fn spawn_local_player(
     mut world: ResMut<PhysicsWorld>,
     mut net_ids: ResMut<NetworkIDResource>,
     camera: Query<Entity, With<Camera3d>>,
-    level: Res<Map>,
 ) {
-    let spawn = level.spawn_points.first();
+    // scene loads async; spawn at the default map origin — scene's SpawnPoint y=800 matches
     let cmd = SpawnCommand {
         net_id: NetworkID(net_ids.next()),
-        position: spawn.map_or(Vec3::new(0.0, 5.0, 0.0), |s| s.position),
-        rotation: spawn.map_or(Quat::IDENTITY, |s| s.rotation),
+        position: Vec3::new(0.0, 800.0, 0.0),
+        rotation: Quat::IDENTITY,
         starting_velocity: Vec3::ZERO,
         server_tick: 0,
         kind: GameObjectKind::Biped,
         owned: true,
     };
-    let entity = biped::spawn_from_command(&cmd, true, &mut commands, &mut meshes, &mut materials, &mut world, camera.single().ok());
+    let mut visual = VisualSpawnParams { meshes: &mut meshes, materials: &mut materials, camera: camera.single().ok() };
+    let entity = biped::spawn_from_command(&cmd, &mut commands, &mut world, &mut visual);
     commands.entity(entity).insert(Possessed::new(128));
 }
 
 fn load_skybox(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    level: Res<Map>,
+    meta: Res<MapMeta>,
     camera: Query<Entity, With<Camera3d>>,
 ) {
-    let (Some(path), Ok(cam)) = (&level.skybox, camera.single()) else { return };
+    let (Some(path), Ok(cam)) = (&meta.skybox, camera.single()) else { return };
     commands.entity(cam).insert(Skybox {
         image: asset_server.load(path.clone()),
-        brightness: level.skybox_brightness,
+        brightness: meta.skybox_brightness,
         ..default()
     });
 }
@@ -408,34 +374,17 @@ fn on_message(
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
-                match cmd.kind {
-                    GameObjectKind::Biped => {
-                        let owned = cmd.owned;
-                        if owned {
-                            ticker.tick = cmd.server_tick;
-                            local_net_id.0 = Some(cmd.net_id.clone());
-                        }
-                        let cam = if owned { camera.single().ok() } else { None };
-                        let entity = biped::spawn_from_command(&cmd, owned, &mut sp.commands, &mut sp.meshes, &mut sp.materials, &mut world, cam);
-                        if owned {
-                            sp.commands.entity(entity).insert(Possessed::new(128));
-                        }
-                    }
-                    GameObjectKind::Rifle => {
-                        rifle::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
-                    }
-                    GameObjectKind::Shotgun => {
-                        shotgun::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
-                    }
-                    GameObjectKind::HailMary => {
-                        hail_mary::spawn_from_command(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets);
-                    }
-                    GameObjectKind::Spaceship => {
-                        warn!("Spaceship spawn not yet implemented on client");
-                    }
-                    _ => {
-                        warn!("client: type not implemented");
-                    }
+                let is_biped = cmd.kind == GameObjectKind::Biped;
+                let owned = cmd.owned;
+                if is_biped && owned {
+                    ticker.tick = cmd.server_tick;
+                    local_net_id.0 = Some(cmd.net_id.clone());
+                }
+                let cam = if is_biped && owned { camera.single().ok() } else { None };
+                let mut visual = VisualSpawnParams { meshes: &mut sp.meshes, materials: &mut sp.materials, camera: cam };
+                let entity = spawn_game_object(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets, &mut visual);
+                if is_biped && owned {
+                    if let Some(e) = entity { sp.commands.entity(e).insert(Possessed::new(128)); }
                 }
             }
             MsgType::DespawnCommand(net_id) => {
@@ -557,11 +506,9 @@ fn on_message(
                 pending.0 = Some(st);
             }
             MsgType::FileData(name, compressed) => {
-                if name == "map.ron" {
-                    match Map::from_compressed_ron(&compressed) {
-                        Some(level) => { sp.commands.insert_resource(level); }
-                        None => eprintln!("FileData: failed to parse map.ron"),
-                    }
+                if name == "map.scn.ron" {
+                    // store compressed bytes; apply_pending_map_scene will decompress + load
+                    sp.commands.insert_resource(PendingMapScene(compressed));
                 } else if name == "gametype.lua" {
                     match zstd::stream::decode_all(compressed.as_slice()) {
                         Ok(bytes) => match String::from_utf8(bytes) {
@@ -642,7 +589,7 @@ fn swap_weapon_hull_colliders(
             let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
             collider_set.insert_with_parent(hull_collider, body_handle.0, rigid_body_set);
         }
-        commands.entity(entity).remove::<PendingHullCollider>();
+        commands.entity(entity).try_remove::<PendingHullCollider>();
     }
 }
 

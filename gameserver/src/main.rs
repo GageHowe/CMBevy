@@ -16,13 +16,13 @@ use master_plugin::MasterPlugin;
 use game_objects::pawn::biped;
 use game_objects::GameObject;
 use game_objects::pawn::BipedPawnComponent;
-use game_objects::health::Health;
+use game_objects::health::{Health, handle_deaths};
 use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
 use game_objects::pawn::biped::WeaponSlots;
 use common::debug_println;
-use game_objects::level::{Map, LevelPlugin, SpawnPoint};
-use std::sync::{mpsc, Mutex};
+use game_objects::level::{LevelPlugin, LevelBytes, SpawnPoint, read_and_compress_level};
 use game_objects::planet::PlanetComponent;
+use std::sync::{mpsc, Mutex};
 use scripting::{ScriptConfig, get_script_global};
 
 #[derive(Resource)]
@@ -35,7 +35,7 @@ struct ModeConfig {
 
 fn parse_args() -> (SocketAddr, String, String) {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
-    let mut map = "assets/maps/default.ron".to_string();
+    let mut map = "maps/default.scn.ron".to_string(); // asset-relative; load_server_level prepends the asset dir for fs reads
     let mut gametype = "assets/gametypes/default.lua".to_string();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -49,10 +49,13 @@ fn parse_args() -> (SocketAddr, String, String) {
     (addr.parse().unwrap(), map, gametype)
 }
 
+/// Resource holding the path to the level .scn.ron file.
+#[derive(Resource)]
+struct LevelPath(String);
+
 fn main() {
     let (bind_addr, map_path, gametype_path) = parse_args();
     println!("binding to {bind_addr}\nmap={map_path}\ngametype={gametype_path}");
-    let level = Map::from_ron(&map_path).unwrap_or_else(|e| panic!("Failed to load map \"{map_path}\": {e}"));
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -60,6 +63,7 @@ fn main() {
             file_path: if cfg!(debug_assertions) { "../assets" } else { "assets" }.to_string(),
             ..default()
         })
+        .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<String>();
@@ -73,11 +77,12 @@ fn main() {
     });
 
     app.add_plugins(MasterPlugin);
-    app.add_plugins(LevelPlugin(level));
+    app.add_plugins(LevelPlugin);
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
     app.insert_resource(BindAddr(bind_addr));
+    app.insert_resource(LevelPath(map_path));
     app.insert_resource(ScriptConfig { path: gametype_path, is_server: true, source: None });
     app.insert_resource(ConsoleCommands(Mutex::new(cmd_rx)));
     app.init_resource::<PlayerRegistry>();
@@ -86,11 +91,12 @@ fn main() {
     app.init_resource::<BodyHistory>();
 
     app.add_systems(PreUpdate, process_inbound_server);
-    app.add_systems(Update, (tick_respawns, process_console_commands));
-    app.add_systems(Startup, (start_server, spawn_level_objects, init_mode_config).chain());
+    app.add_systems(Update, (tick_respawns, process_console_commands, spawn_scene_weapons, assign_planet_network_ids));
+    // load_server_level: read file bytes → LevelBytes, spawn DynamicSceneRoot
+    app.add_systems(Startup, (load_server_level, start_server, init_mode_config).chain());
     app.add_systems(FixedUpdate, on_message.before(step_physics));
     app.add_systems(FixedUpdate, broadcast_health_updates.after(step_physics).before(broadcast_tick));
-    app.add_systems(FixedUpdate, handle_deaths.after(broadcast_health_updates).before(broadcast_tick));
+    app.add_systems(FixedUpdate, (handle_player_deaths, handle_deaths).chain().after(step_physics).before(broadcast_tick));
     app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
 
     println!("starting server...\n");
@@ -128,32 +134,57 @@ fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>
     quic.start_server(&mut server, addr.0);
 }
 
-/// this is fairly hard-coded, we need to make it more modular
-/// TODO: use a trait or something idk
-fn spawn_level_objects(
+/// Reads the level file, stores compressed bytes for client transfer, and starts async scene load.
+/// LevelPath is asset-relative (e.g. "maps/default.scn.ron"); we prepend the asset dir for fs reads.
+/// Bevy's FileAssetReader resolves relative paths from CARGO_MANIFEST_DIR (not CWD), so we match that.
+fn load_server_level(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    level_path: Res<LevelPath>,
+) {
+    let asset_path = &level_path.0;
+    // env! gives the compile-time manifest dir; in release, assets sit next to the binary.
+    let asset_dir = if cfg!(debug_assertions) { concat!(env!("CARGO_MANIFEST_DIR"), "/../assets") } else { "assets" };
+    let fs_path = format!("{asset_dir}/{asset_path}");
+    commands.insert_resource(LevelBytes(read_and_compress_level(&fs_path)));
+    let handle: Handle<DynamicScene> = asset_server.load(asset_path.clone());
+    commands.spawn(bevy::scene::DynamicSceneRoot(handle));
+}
+
+/// Spawns physics bodies for GameObjectKind scene entities (weapons placed in the level).
+/// Assigns NetworkIDs and registers in WeaponRegistry. Server-only.
+fn spawn_scene_weapons(
+    // Without<NetworkID>: scene placeholders never have a network ID; real spawned entities always do
+    query: Query<(Entity, &GameObjectKind, &Transform), (Added<GameObjectKind>, Without<NetworkID>)>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut weapon_registry: ResMut<WeaponRegistry>,
-    level: Res<Map>,
 ) {
-    for req in &level.initial_spawns {
-        let transform = Transform::from_translation(req.position).with_rotation(req.rotation);
+    for (scene_entity, kind, transform) in query.iter() {
+        let transform = *transform;
         let net_id = NetworkID(net_ids.next());
-        let entity = match req.kind {
-            GameObjectKind::Rifle     => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut world),
-            GameObjectKind::Shotgun   => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut world),
-            GameObjectKind::HailMary  => hail_mary::HailMaryComponent::spawn_physics(transform, &mut commands, &mut world),
-            GameObjectKind::Planet  => {
-                let params = req.planet_params.clone().unwrap_or_else(|| {
-                    eprintln!("Planet spawn request missing planet_params, using defaults");
-                    PlanetComponent { inner_radius: 5, snap_radius: 0, gravity_radius: 0,
-                        gravity_profile: game_objects::planet::GravityProfile::Constant(9.81) }
-                });
-                game_objects::planet::spawn(params, transform, &mut commands, &mut world)
-            }
-            _ => continue,
+        let weapon_entity = match kind {
+            GameObjectKind::Rifle    => rifle::RifleComponent::spawn_physics(transform, &mut commands, &mut world),
+            GameObjectKind::Shotgun  => shotgun::ShotgunComponent::spawn_physics(transform, &mut commands, &mut world),
+            GameObjectKind::HailMary => hail_mary::HailMaryComponent::spawn_physics(transform, &mut commands, &mut world),
+            _ => { commands.entity(scene_entity).despawn(); continue; }
         };
+        commands.entity(weapon_entity).insert(net_id.clone());
+        weapon_registry.free.insert(net_id, weapon_entity);
+        commands.entity(scene_entity).despawn();
+    }
+}
+
+/// Assigns NetworkIDs to planets once their physics body is ready. Server-only.
+fn assign_planet_network_ids(
+    query: Query<Entity, (With<PlanetComponent>, With<RigidBodyHandleComponent>, Without<NetworkID>)>,
+    mut commands: Commands,
+    mut net_ids: ResMut<NetworkIDResource>,
+    mut weapon_registry: ResMut<WeaponRegistry>,
+) {
+    for entity in query.iter() {
+        let net_id = NetworkID(net_ids.next());
         commands.entity(entity).insert(net_id.clone());
         weapon_registry.free.insert(net_id, entity);
     }
@@ -166,13 +197,13 @@ fn init_mode_config(world: &mut World) {
     world.insert_resource(ModeConfig { respawn_delay });
 }
 
-fn pick_spawn_point(spawn_points: &[SpawnPoint], team: u8, counter: usize) -> (Vec3, Quat) {
-    let pts: Vec<_> = spawn_points.iter().filter(|p| p.team == team).collect();
+fn pick_spawn_point(spawn_points: &Query<(&SpawnPoint, &Transform)>, team: u8, counter: usize) -> (Vec3, Quat) {
+    let pts: Vec<_> = spawn_points.iter().filter(|(sp, _)| sp.team == team).collect();
     if pts.is_empty() {
         return (Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY);
     }
-    let p = &pts[counter % pts.len()];
-    (p.position, p.rotation)
+    let (_, t) = pts[counter % pts.len()];
+    (t.translation, t.rotation)
 }
 
 fn spawn_player(
@@ -271,7 +302,8 @@ fn on_message(
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
-    level: Res<Map>,
+    level_bytes: Option<Res<LevelBytes>>,
+    spawn_points: Query<(&SpawnPoint, &Transform)>,
     weapon_kinds: Query<&GameObjectKind>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
@@ -280,9 +312,9 @@ fn on_message(
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::Connected => {
-                if let Some(data) = level.to_compressed_ron() {
+                if let Some(ref lb) = level_bytes {
                     quic.send(SendTarget::One(msg.conn_id), Channel::Ordered,
-                        &MsgType::FileData("map.ron".into(), data));
+                        &MsgType::FileData("map.scn.ron".into(), lb.0.clone()));
                 }
                 if let Some(cfg) = &script_config {
                     if let Ok(src) = std::fs::read(&cfg.path) {
@@ -323,9 +355,9 @@ fn on_message(
                     }));
                 }
 
-                let num_teams = { let mut s = std::collections::HashSet::new(); for p in &level.spawn_points { s.insert(p.team); } s.len().max(1) };
+                let num_teams = { let mut s = std::collections::HashSet::new(); for (sp, _) in spawn_points.iter() { s.insert(sp.team); } s.len().max(1) };
                 let team = (registry.0.len() % num_teams) as u8;
-                let (sp, sr) = pick_spawn_point(&level.spawn_points, team, registry.0.len());
+                let (sp, sr) = pick_spawn_point(&spawn_points, team, registry.0.len());
                 spawn_player(msg.conn_id, GameObjectKind::Biped, sp, sr, &mut quic, &mut registry, &mut net_ids,
                     &mut commands, &mut world, tick.tick);
             }
@@ -482,8 +514,7 @@ fn tick_respawns(
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
-    level: Res<Map>,
-    // mode: Res<ModeConfig>,
+    spawn_points: Query<(&SpawnPoint, &Transform)>,
 ) {
     let dt = time.delta_secs();
     let ready: Vec<(ConnectionId, GameObjectKind)> = pending.0.iter_mut()
@@ -491,7 +522,7 @@ fn tick_respawns(
         .collect();
     for (conn_id, kind) in ready {
         pending.0.remove(&conn_id);
-        let (sp, sr) = pick_spawn_point(&level.spawn_points, 0, registry.0.len());
+        let (sp, sr) = pick_spawn_point(&spawn_points, 0, registry.0.len());
         spawn_player(conn_id, kind, sp, sr, &mut quic, &mut registry, &mut net_ids,
             &mut commands, &mut world, tick.tick);
     }
@@ -536,31 +567,42 @@ fn process_console_commands(
     }
 }
 
-/// Kills any entity whose Health just reached zero; queues player respawns.
-/// Runs after broadcast_health_updates so the zero-health state is sent before despawn.
-fn handle_deaths(
+/// Handles player-specific death cleanup: drops weapons, removes from registry, queues respawn.
+/// Runs before handle_deaths (which despawns the entity).
+fn handle_player_deaths(
     dead_q: Query<(Entity, &Health, &NetworkID), Changed<Health>>,
     mut quic: ResMut<QuicManager>,
     mut registry: ResMut<PlayerRegistry>,
     mut weapon_registry: ResMut<WeaponRegistry>,
     mut pending_respawns: ResMut<PendingRespawns>,
     mode: Res<ModeConfig>,
-    mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
-    tick: Res<Ticker>,
 ) {
     for (entity, health, net_id) in dead_q.iter() {
         if health.current > 0.0 { continue; }
         let conn_id = registry.0.iter()
             .find(|(_, (e, _))| *e == entity)
             .map(|(cid, _)| *cid);
-        if let Some(conn_id) = conn_id {
-            kill_player(entity, net_id.clone(), &mut quic, &mut registry, &mut weapon_registry, &mut commands, &mut world, tick.tick);
-            pending_respawns.0.insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
-        } else {
-            commands.entity(entity).despawn();
-            quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(net_id.clone()));
+        let Some(conn_id) = conn_id else { continue };
+
+        let drop_pos = world.entity_to_handle.get(&entity)
+            .and_then(|&h| world.rigid_body_set.get(h))
+            .map(|rb| { let t = rb.position().translation; Vec3::new(t.x, t.y, t.z) })
+            .unwrap_or(Vec3::ZERO);
+        let held: Vec<NetworkID> = weapon_registry.held.iter()
+            .filter(|&(_, &(_, carrier))| carrier == entity)
+            .map(|(wid, _)| wid.clone())
+            .collect();
+        for wid in held {
+            if let Some((weapon_entity, _)) = weapon_registry.held.remove(&wid) {
+                world.teleport_body(weapon_entity, drop_pos);
+                world.set_body_enabled(weapon_entity, true);
+                weapon_registry.free.insert(wid.clone(), weapon_entity);
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos));
+            }
         }
+        registry.0.retain(|_, (e, _)| *e != entity);
+        pending_respawns.0.insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
     }
 }
 

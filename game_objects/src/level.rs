@@ -1,135 +1,151 @@
 use bevy::prelude::*;
+use bevy::scene::DynamicSceneRoot;
 use rapier3d::prelude::*;
-use serde::{Deserialize, Serialize};
 use physics::physics_world::{RigidBodyHandleComponent, PhysicsWorld};
 use physics::convex_hull_asset::ConvexHullAsset;
-use crate::GameObjectKind;
-use crate::planet::PlanetComponent;
 
-#[derive(Clone, Serialize, Deserialize)]
+// ── component / resource types ────────────────────────────────────────────────
+
+#[derive(Clone, Reflect)]
+#[reflect(Default)]
 pub enum ColliderShape {
-    Cuboid(Vec3),
     Ball(f32),
+    Cuboid(Vec3),
     Capsule { half_height: f32, radius: f32 },
     /// Path to an OBJ file (relative to assets/) containing VHACD convex hulls.
     ConvexHulls(String),
 }
 
-#[derive(Resource, Default)]
-pub struct PendingHullColliders(pub Vec<(Vec3, Quat, Handle<ConvexHullAsset>)>);
+impl Default for ColliderShape {
+    fn default() -> Self { Self::Ball(1.0) }
+}
 
-/// Marks every entity spawned by level loading (static colliders, scene root).
-/// Used to identify and despawn them on level unload.
-#[derive(Component)]
-pub struct LevelEntity;
-
-fn one() -> f32 { 1.0 }
-fn default_scale() -> Vec3 { Vec3::ONE }
-fn default_skybox_brightness() -> f32 { 1000.0 }
-
-#[derive(Clone, Serialize, Deserialize)]
+/// Static (fixed) collider placed in the scene. Position/rotation come from Transform.
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
 pub struct StaticCollider {
-    pub position: Vec3,
-    pub rotation: Quat,
     pub shape: ColliderShape,
-    #[serde(default = "one")]
     pub scale: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct LevelSpawnRequest {
-    pub kind: GameObjectKind,
-    pub position: Vec3,
-    pub rotation: Quat,
-    #[serde(default)]
-    pub planet_params: Option<PlanetComponent>, // wtf? why is this here
-}
-
-#[derive(Clone, Serialize, Deserialize)]
+/// Player/bot spawn point placed in the scene. Position/rotation come from Transform.
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
 pub struct SpawnPoint {
-    pub position: Vec3,
-    pub rotation: Quat,
     pub team: u8,
 }
 
-/// Describes everything needed to load a level.
-/// Serializable — can be loaded from RON and in the future sent over the network.
-#[derive(Resource, Clone, Serialize, Deserialize)]
-pub struct Map {
-    /// Path to the GLB scene file loaded on the client for visuals.
+/// Level-wide metadata inserted as a Resource by the .scn.ron file.
+#[derive(Resource, Clone, Reflect, Default)]
+#[reflect(Resource, Default)]
+pub struct MapMeta {
+    /// Path to the GLB visual scene file. Client-only.
     pub scene_path: String,
-    #[serde(default = "default_scale")]
     pub scene_scale: Vec3,
-    /// Optional path to a cubemap image (e.g. KTX2) for the skybox. Client-only.
-    #[serde(default)]
+    /// Optional cubemap path (e.g. KTX2) for the skybox. Client-only.
     pub skybox: Option<String>,
-    #[serde(default = "default_skybox_brightness")]
     pub skybox_brightness: f32,
-    /// Static (fixed) physics bodies. Spawned on both client and server.
-    pub static_colliders: Vec<StaticCollider>,
-    /// Objects to spawn at level start. The server processes these on startup.
-    pub initial_spawns: Vec<LevelSpawnRequest>,
-    /// Player spawn points, grouped by team id.
-    pub spawn_points: Vec<SpawnPoint>,
 }
 
-impl Map {
-    pub fn from_ron(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        Ok(ron::from_str(&content)?)
-    }
+// ── scene-root marker ─────────────────────────────────────────────────────────
 
-    pub fn to_compressed_ron(&self) -> Option<Vec<u8>> {
-        let s = ron::to_string(self).ok()?;
-        zstd::stream::encode_all(s.as_bytes(), 9).ok()
-    }
+/// Marks the entity that owns the loaded DynamicScene.
+/// The visual GLB scene is spawned as a child, so despawning this entity cleans everything up.
+#[derive(Component)]
+pub struct LevelSceneRoot;
 
-    pub fn from_compressed_ron(bytes: &[u8]) -> Option<Self> {
-        let data = zstd::stream::decode_all(bytes).ok()?;
-        ron::from_str(std::str::from_utf8(&data).ok()?).ok()
-    }
+// ── pending hull collider queue ───────────────────────────────────────────────
+
+/// Pending convex-hull colliders for static level geometry, waiting for the mesh asset to load.
+#[derive(Resource, Default)]
+pub struct PendingHullColliders(pub Vec<(Entity, Vec3, Quat, Handle<ConvexHullAsset>)>);
+
+// ── network transfer helper ───────────────────────────────────────────────────
+
+/// Compressed raw .scn.ron bytes to send to new clients on connect.
+/// Server-only; set in the level-load startup system.
+#[derive(Resource)]
+pub struct LevelBytes(pub Vec<u8>);
+
+/// Reads a .scn.ron file and returns it as compressed bytes for network transfer.
+pub fn read_and_compress_level(path: &str) -> Vec<u8> {
+    let raw = std::fs::read(path)
+        .unwrap_or_else(|e| panic!("Failed to read level \"{path}\": {e}"));
+    zstd::stream::encode_all(raw.as_slice(), 3).expect("level: zstd compress failed")
 }
 
-pub struct LevelPlugin(pub Map);
+/// Compressed .scn.ron bytes received from the server, pending scene spawn.
+#[derive(Resource)]
+pub struct PendingMapScene(pub Vec<u8>);
 
-impl LevelPlugin {
-    pub fn load(path: &str) -> Self {
-        LevelPlugin(Map::from_ron(path).unwrap_or_else(|e| panic!("Failed to load level \"{path}\": {e}")))
+/// Decompresses scene bytes from the server, writes to a temp asset path, and spawns the scene.
+/// Run on the client whenever PendingMapScene exists.
+/// NOTE: writes to the assets directory on disk — desktop-only approach.
+pub fn apply_pending_map_scene(
+    pending: Option<Res<PendingMapScene>>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    let Some(pending) = pending else { return };
+    let bytes = match zstd::stream::decode_all(pending.0.as_slice()) {
+        Ok(b) => b,
+        Err(e) => { error!("map decompress: {e}"); commands.remove_resource::<PendingMapScene>(); return; }
+    };
+    let asset_dir = if cfg!(debug_assertions) { "../assets" } else { "assets" };
+    let temp_path = format!("{asset_dir}/maps/_server_map.scn.ron");
+    if let Err(e) = std::fs::write(&temp_path, &bytes) {
+        error!("map write temp: {e}"); commands.remove_resource::<PendingMapScene>(); return;
     }
+    // Reload in case this path was previously cached.
+    asset_server.reload("maps/_server_map.scn.ron");
+    let handle: Handle<DynamicScene> = asset_server.load("maps/_server_map.scn.ron");
+    commands.spawn((DynamicSceneRoot(handle), LevelSceneRoot));
+    commands.remove_resource::<PendingMapScene>();
 }
 
+// ── plugin ────────────────────────────────────────────────────────────────────
+
+pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.0.clone());
-        app.init_resource::<PendingHullColliders>();
-        app.add_systems(Startup, spawn_static_colliders);
-        app.add_systems(Update, spawn_hull_colliders);
+        app.register_type::<ColliderShape>()
+            .register_type::<StaticCollider>()
+            .register_type::<SpawnPoint>()
+            .register_type::<common::GameObjectKind>()
+            .register_type::<MapMeta>()
+            .init_resource::<PendingHullColliders>()
+            // react to scene-spawned components — works on both client and server
+            .add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
     }
 }
 
+// ── systems ───────────────────────────────────────────────────────────────────
+
+/// Inserts a fixed physics body on each entity that has a StaticCollider component.
+/// Reacts to Added<StaticCollider>, so it works regardless of how the entity was spawned.
 pub fn spawn_static_colliders(
+    new_colliders: Query<(Entity, &StaticCollider, &Transform), Added<StaticCollider>>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut pending: ResMut<PendingHullColliders>,
     asset_server: Res<AssetServer>,
-    level: Res<Map>,
 ) {
-    for sc in &level.static_colliders {
+    for (entity, sc, transform) in new_colliders.iter() {
         let s = sc.scale;
+        let pos = transform.translation;
+        let rot = transform.rotation;
         if let ColliderShape::ConvexHulls(path) = &sc.shape {
             let handle = asset_server.load_with_settings(path.clone(), move |settings: &mut f32| *settings = s);
-            pending.0.push((sc.position, sc.rotation, handle));
+            pending.0.push((entity, pos, rot, handle));
             continue;
         }
         let collider = match &sc.shape {
             ColliderShape::Cuboid(he) => ColliderBuilder::cuboid(he.x * s, he.y * s, he.z * s).build(),
-            ColliderShape::Ball(r) => ColliderBuilder::ball(r * s).build(),
-            ColliderShape::Capsule { half_height, radius } => {
-                ColliderBuilder::capsule_y(half_height * s, radius * s).build()
-            }
+            ColliderShape::Ball(r)    => ColliderBuilder::ball(r * s).build(),
+            ColliderShape::Capsule { half_height, radius } => ColliderBuilder::capsule_y(half_height * s, radius * s).build(),
             ColliderShape::ConvexHulls(_) => unreachable!(),
         };
-        spawn_fixed_body(sc.position, sc.rotation, collider, &mut commands, &mut world);
+        attach_fixed_body(entity, pos, rot, collider, &mut commands, &mut world);
     }
 }
 
@@ -140,22 +156,22 @@ pub fn spawn_hull_colliders(
     hull_assets: Res<Assets<ConvexHullAsset>>,
 ) {
     let ready: Vec<_> = pending.0.iter()
-        .filter_map(|(pos, rot, h)| hull_assets.get(h).map(|a| (*pos, *rot, a.0.clone())))
+        .filter_map(|(entity, pos, rot, h)| hull_assets.get(h).map(|a| (*entity, *pos, *rot, a.0.clone())))
         .collect();
-    pending.0.retain(|(_, _, h)| hull_assets.get(h).is_none());
-    for (pos, rot, collider) in ready {
-        spawn_fixed_body(pos, rot, collider, &mut commands, &mut world);
+    pending.0.retain(|(_, _, _, h)| hull_assets.get(h).is_none());
+    for (entity, pos, rot, collider) in ready {
+        attach_fixed_body(entity, pos, rot, collider, &mut commands, &mut world);
     }
 }
 
-fn spawn_fixed_body(
+fn attach_fixed_body(
+    entity: Entity,
     position: Vec3,
     rotation: Quat,
     collider: Collider,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
-    let entity = commands.spawn_empty().id();
     let rb = RigidBodyBuilder::fixed()
         .translation(Vector3::new(position.x, position.y, position.z))
         .build();
@@ -165,45 +181,35 @@ fn spawn_fixed_body(
     }
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands.entity(entity).insert((RigidBodyHandleComponent(handle), LevelEntity));
+    commands.entity(entity).insert(RigidBodyHandleComponent(handle));
 }
 
-/// Spawns planet entities from the map's initial_spawns. Run on the client when
-/// the Map resource is first added (both singleplayer and multiplayer).
-pub fn spawn_level_planets(
-    mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
-    level: Res<Map>,
-) {
-    for req in &level.initial_spawns {
-        if req.kind != GameObjectKind::Planet { continue; }
-        let Some(params) = req.planet_params.clone() else { continue; };
-        let transform = Transform::from_translation(req.position).with_rotation(req.rotation);
-        crate::planet::spawn(params, transform, &mut commands, &mut world);
-    }
-}
-
+/// Spawns the GLB visual scene when MapMeta is available. Client-only.
 pub fn load_level_scene(
+    scene_root: Query<Entity, With<LevelSceneRoot>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    level: Res<Map>,
+    meta: Res<MapMeta>,
 ) {
-    commands.spawn((
-        SceneRoot(asset_server.load(level.scene_path.clone())),
-        Transform::from_scale(level.scene_scale),
-        LevelEntity,
-    ));
+    let Ok(root) = scene_root.single() else { return };
+    let visual = commands.spawn((
+        SceneRoot(asset_server.load(meta.scene_path.clone())),
+        Transform::from_scale(meta.scene_scale),
+    )).id();
+    // parent to the scene root so it despawns with it
+    commands.entity(root).add_child(visual);
 }
 
+/// Despawns the level scene and removes level resources.
+/// Bevy's DynamicSceneRoot component hook handles scene-entity cleanup on entity despawn.
 pub fn cleanup_level(
     mut commands: Commands,
-    level_entities: Query<Entity, With<LevelEntity>>,
+    scene_roots: Query<Entity, With<LevelSceneRoot>>,
     mut pending: ResMut<PendingHullColliders>,
 ) {
-    for entity in level_entities.iter() {
+    for entity in scene_roots.iter() {
         commands.entity(entity).despawn();
     }
     pending.0.clear();
-    commands.remove_resource::<Map>();
+    commands.remove_resource::<MapMeta>();
 }
-

@@ -3,6 +3,10 @@ name = "game_objects"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Enable client-only visual spawning (meshes, materials, camera rig).
+client = []
+
 [lints]
 workspace = true
 

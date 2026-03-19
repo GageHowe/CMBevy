@@ -56,8 +56,10 @@ pub struct PawnInput {
 }
 
 /// update this as needed; it defines types of game objects that can be spawned
-#[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]
+#[reflect(Component, Default)]
 pub enum GameObjectKind {
+    #[default]
     Biped,
     Spaceship,
     Planet,

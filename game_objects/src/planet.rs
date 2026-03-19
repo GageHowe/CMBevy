@@ -8,14 +8,20 @@ use physics::physics_world::{self, *};
 /// this should depend on the individual component instance
 pub const GRAVITY_STRENGTH: f32 = 9.81;
 
-#[derive(Component, Serialize, Deserialize, Clone)]
+#[derive(Component, Serialize, Deserialize, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub enum GravityProfile {
     InverseSquare(f32),
     Linear(f32),
     Constant(f32),
 }
 
-#[derive(Component, Serialize, Deserialize, Clone)]
+impl Default for GravityProfile {
+    fn default() -> Self { Self::Constant(0.0) }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
 pub struct PlanetComponent {
     /// skips gravity application completely when within this radius
     pub inner_radius: u32,
@@ -228,10 +234,35 @@ pub fn draw_planet_radii(
     }
 }
 
+/// Inserts a fixed physics body on PlanetComponent entities that don't yet have one.
+/// Reacts to Added<PlanetComponent>, so it works for both scene-loaded and programmatic planets.
+fn setup_planet_physics(
+    new_planets: Query<(Entity, &PlanetComponent, &Transform), Added<PlanetComponent>>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+) {
+    for (entity, planet, transform) in new_planets.iter() {
+        if world.entity_to_handle.contains_key(&entity) { continue; } // already has physics
+        let pos = transform.translation;
+        let rb_handle = world.insert_body(entity, RigidBodyBuilder::fixed()
+            .translation(Vector3::new(pos.x, pos.y, pos.z)).build());
+        let collider_radius = planet.inner_radius as f32;
+        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+        collider_set.insert_with_parent(
+            ColliderBuilder::ball(collider_radius).friction(3.0).restitution(0.0).build(),
+            rb_handle, rigid_body_set,
+        );
+        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+    }
+}
+
 pub struct PlanetPlugin;
 
 impl Plugin for PlanetPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, (apply_gravity, orient_bipeds_to_planets).before(step_physics));
+        app.register_type::<GravityProfile>()
+            .register_type::<PlanetComponent>()
+            .add_systems(Update, setup_planet_physics)
+            .add_systems(FixedUpdate, (apply_gravity, orient_bipeds_to_planets).before(step_physics));
     }
 }

@@ -48,7 +48,9 @@
       "WebFetch(domain:api.github.com)",
       "Bash(wait:*)",
       "Bash(cd:*)",
-      "Bash(cargo clean:*)"
+      "Bash(cargo clean:*)",
+      "WebFetch(domain:taintedcoders.com)",
+      "Bash(curl:*)"
     ],
     "deny": []
   }

@@ -10,11 +10,27 @@ use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use rapier3d::prelude::*;
 use super::*;
 
+pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
+const CAPSULE_RADIUS:      f32 = 0.3;
+/// half-height of the standing capsule (total height = 2*(0.5+0.3) = 1.6 m)
+const CAPSULE_HALF_HEIGHT: f32 = 0.5;
+/// half-height of the sliding capsule (total height = 2*(0.1+0.3) = 0.8 m)
+const SLIDE_HALF_HEIGHT:   f32 = 0.1;
+const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS; // 0.8
+const SLIDE_BOTTOM:   f32 = SLIDE_HALF_HEIGHT   + CAPSULE_RADIUS; // 0.4
+const MAX_WALK_SPEED:  f32 = 40.0;
+const MAX_SPRINT_SPEED: f32 = 60.0;
+/// max speed gained per tick when accelerating on the ground
+const GROUND_ACCEL:    f32 = 10.0;
+const JUMP_IMPULSE:    f32 = 30.0;
+const AIR_CONTROL:     f32 = 0.5;
+const GROUND_DIST:     f32 = 0.01;  // must be nearly touching to count as grounded
+const JUMP_COOLDOWN:   u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jump
+
+
 #[derive(Component, Default)]
 pub struct BipedPawnComponent {
     pub flashlight_on: bool,
-    /// handle to the foot-sphere rigid body. None until physics are inserted.
-    pub foot_sphere: Option<RigidBodyHandle>,
     /// ticks remaining before another jump is allowed.
     pub jump_cooldown: u8,
     /// Look yaw/pitch (radians). Set from input; used for server-side movement simulation.
@@ -23,6 +39,7 @@ pub struct BipedPawnComponent {
     /// Ccached pivot entities set by setup_camera_rig; None on the server.
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
+    pub is_sliding: bool,
 }
 impl Pawn for BipedPawnComponent {
     fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
@@ -36,8 +53,8 @@ impl GameObject for BipedPawnComponent {
             Health::new(100.0),
             Transform::from(transform),
         )).id();
-        let sphere_handle = insert_biped_physics(entity, &transform, commands, world);
-        commands.entity(entity).insert(BipedPawnComponent { foot_sphere: Some(sphere_handle), ..default() });
+        insert_biped_physics(entity, &transform, commands, world);
+        commands.entity(entity).insert(BipedPawnComponent::default());
         entity
     }
     fn cleanup() {}
@@ -49,8 +66,8 @@ impl GameObject for BipedPawnComponent {
 pub struct BipedPlugin;
 impl Plugin for BipedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_remove_biped);
         app.init_resource::<MouseSensitivity>();
+        app.add_systems(FixedUpdate, update_slide_camera);
         app.add_systems(FixedPreUpdate, (
             move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
             biped_fire::<rifle::RifleComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
@@ -75,8 +92,6 @@ pub struct YawPivot {
 pub struct PitchPivot {
     pub pitch: f32,
 }
-
-pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
 /// moves the biped's yaw and pitch components on Update
 fn mouse_look(
@@ -128,17 +143,6 @@ fn switch_weapon_slot(
     }
 }
 
-pub fn on_remove_biped(
-    trigger: On<Remove, BipedPawnComponent>,
-    bipeds: Query<&BipedPawnComponent>,
-    mut world: ResMut<PhysicsWorld>,
-) {
-    let Ok(biped) = bipeds.get(trigger.entity) else { return };
-    let Some(sphere_handle) = biped.foot_sphere else { return };
-    let PhysicsWorld { rigid_body_set, island_manager, collider_set, impulse_joint_set, multibody_joint_set, .. } = &mut *world;
-    rigid_body_set.remove(sphere_handle, island_manager, collider_set, impulse_joint_set, multibody_joint_set, true);
-}
-
 /// Two weapon slots on a biped pawn, stored on the entity.
 /// Each slot holds the NetworkID and (client-only) the local weapon entity for the viewmodel.
 #[derive(Component, Default)]
@@ -147,11 +151,7 @@ pub struct WeaponSlots {
     pub active: usize,
 }
 
-const SPHERE_RADIUS: f32 = 0.25;
-/// offset from capsule center to its bottom (half-height + radius)
-const CAPSULE_BOTTOM: f32 = 0.8;
-
-fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> RigidBodyHandle {
+fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Commands, world: &mut PhysicsWorld) {
     let capsule_rb = RigidBodyBuilder::dynamic()
         .translation(transform.translation)
         .angular_damping(10.0)
@@ -161,50 +161,17 @@ fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Co
     // collision_groups: detect all (so projectile narrow_phase pairs are generated)
     // solver_groups: exclude projectiles so they don't physically push the player
     // let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
-    let player_solver    = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
-    let capsule_collider = ColliderBuilder::capsule_y(0.5, 0.3)
-        .friction(0.0)
+    let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
+    let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
+        .friction(20.0)
         .restitution(0.0)
         .restitution_combine_rule(CoefficientCombineRule::Min)
         // .collision_groups(player_collision)
         .solver_groups(player_solver)
         .build();
     commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
-    {
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
-    }
-
-    // foot sphere: high friction, zero external torque influence (overridden each tick)
-    let sphere_pos = transform.translation - Vec3::Y * CAPSULE_BOTTOM;
-    let sphere_rb = RigidBodyBuilder::dynamic()
-        .translation(sphere_pos)
-        .lock_rotations()
-        .gravity_scale(0.0)
-        .build();
-    let sphere_handle = world.rigid_body_set.insert(sphere_rb);
-    {
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        let sphere_collider = ColliderBuilder::ball(SPHERE_RADIUS)
-            .friction(3.0)
-            .restitution(0.0)
-            .restitution_combine_rule(CoefficientCombineRule::Min)
-            // .collision_groups(player_collision)
-            .solver_groups(player_solver)
-            .build();
-        collider_set.insert_with_parent(sphere_collider, sphere_handle, rigid_body_set);
-    }
-
-    // SphericalJoint: anchors at capsule bottom (body1) and sphere center (body2),
-    // contacts disabled so capsule and sphere don't collide with each other
-    let joint = SphericalJointBuilder::new()
-        .local_anchor1(Vector::new(0.0, -CAPSULE_BOTTOM, 0.0))
-        .local_anchor2(Vector::new(0.0, 0.0, 0.0))
-        .contacts_enabled(false)
-        .build();
-    world.impulse_joint_set.insert(rb_handle, sphere_handle, joint, true);
-
-    sphere_handle
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
 }
 
 
@@ -270,12 +237,9 @@ pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, light: Entity, c
 /// Returns the entity. Caller is responsible for inserting any local-only components (e.g. Possessed).
 pub fn spawn_from_command(
     cmd: &SpawnCommand,
-    owned: bool,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
     world: &mut PhysicsWorld,
-    camera: Option<Entity>,
+    visual: &mut crate::VisualSpawnParams,
 ) -> Entity {
     let transform = Transform {
         translation: cmd.position.into(),
@@ -283,59 +247,71 @@ pub fn spawn_from_command(
         ..default()
     };
     let entity = BipedPawnComponent::spawn_physics(transform, commands, world);
-    let color = if owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
-    let light = add_visuals(entity, color, commands, meshes, materials);
-    let cam = if owned { camera } else { None };
-    let (yaw_pivot, pitch_pivot) = setup_camera_rig(entity, cam, light, commands);
     commands.entity(entity).insert(cmd.net_id.clone());
-    commands.queue(move |world: &mut World| {
-        if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
-            biped.yaw_pivot = Some(yaw_pivot);
-            biped.pitch_pivot = Some(pitch_pivot);
-        }
-    });
+    #[cfg(feature = "client")]
+    {
+        let color = if cmd.owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
+        let light = add_visuals(entity, color, commands, visual.meshes, visual.materials);
+        let cam = if cmd.owned { visual.camera } else { None };
+        let (yaw_pivot, pitch_pivot) = setup_camera_rig(entity, cam, light, commands);
+        commands.queue(move |world: &mut World| {
+            if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
+                biped.yaw_pivot = Some(yaw_pivot);
+                biped.pitch_pivot = Some(pitch_pivot);
+            }
+        });
+    }
     entity
 }
 
 pub fn draw_biped_debug(
     world: Res<PhysicsWorld>,
-    bipeds: Query<(&BipedPawnComponent, &RigidBodyHandleComponent)>,
+    bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     mut gizmos: Gizmos,
 ) {
     use physics::debug::{draw_collider, rb_iso};
-    for (biped, body_handle) in bipeds.iter() {
-        let Some(sphere_handle) = biped.foot_sphere else { continue };
-
-        if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
-            let iso = rb_iso(rb);
-            for ch in rb.colliders() {
-                if let Some(col) = world.collider_set.get(*ch) {
-                    draw_collider(col, iso, Color::srgba(0.3, 0.6, 1.0, 0.1), &mut gizmos);
-                }
-            }
-        }
-
-        if let Some(rb) = world.rigid_body_set.get(sphere_handle) {
-            let iso = rb_iso(rb);
-            for ch in rb.colliders() {
-                if let Some(col) = world.collider_set.get(*ch) {
-                    draw_collider(col, iso, Color::srgba(0.2, 0.9, 0.3, 0.1), &mut gizmos);
-                }
-            }
-            if let Some(cap_rb) = world.rigid_body_set.get(body_handle.0) {
-                let cap_t = cap_rb.position().translation;
-                gizmos.line(Vec3::new(cap_t.x, cap_t.y, cap_t.z), iso.translation.into(), Color::srgba(0.2, 0.9, 0.3, 0.4));
+    for body_handle in bipeds.iter() {
+        let Some(rb) = world.rigid_body_set.get(body_handle.0) else { continue };
+        let iso = rb_iso(rb);
+        for ch in rb.colliders() {
+            if let Some(col) = world.collider_set.get(*ch) {
+                draw_collider(col, iso, Color::srgba(0.3, 0.6, 1.0, 0.1), &mut gizmos);
             }
         }
     }
 }
 
-const WALK_ANGULAR:   f32 = 80.0;   // rad/s → friction drives capsule ~2 m/s
-const SPRINT_ANGULAR: f32 = 160.0;
-const JUMP_IMPULSE:      f32 = 30.0;
-const AIR_CONTROL:       f32 = 0.5;
-const GROUND_DIST:    f32 = 0.01;  // must be nearly touching to count as grounded
-const JUMP_COOLDOWN:  u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jump
+/// Adjusts the YawPivot Y position to match the current slide state.
+/// No-op on the server (yaw_pivot is None).
+fn update_slide_camera(
+    bipeds: Query<&BipedPawnComponent>,
+    mut pivots: Query<&mut Transform, With<YawPivot>>,
+) {
+    for biped in bipeds.iter() {
+        let Some(yaw_e) = biped.yaw_pivot else { continue };
+        let Ok(mut t) = pivots.get_mut(yaw_e) else { continue };
+        t.translation.y = if biped.is_sliding { -0.1 } else { 0.4 };
+    }
+}
+
+/// Replaces the capsule collider on a biped rigid body.
+/// Called only when slide state changes, not every tick.
+fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle, half_height: f32, friction: f32) {
+    let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
+    // remove old collider
+    if let Some(&old_ch) = world.rigid_body_set.get(rb_handle).and_then(|rb| rb.colliders().first()) {
+        let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
+        collider_set.remove(old_ch, island_manager, rigid_body_set, false);
+    }
+    let new_col = ColliderBuilder::capsule_y(half_height, CAPSULE_RADIUS)
+        .friction(friction)
+        .restitution(0.0)
+        .restitution_combine_rule(CoefficientCombineRule::Min)
+        .solver_groups(player_solver)
+        .build();
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    collider_set.insert_with_parent(new_col, rb_handle, rigid_body_set);
+}
 
 pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
@@ -343,13 +319,18 @@ pub fn apply_biped_movement(
     input: PawnInput,
     biped: &mut BipedPawnComponent,
 ) {
-    let Some(sphere_handle) = biped.foot_sphere else { return };
-
     // --- read phase ---
-    let (body_rot, capsule_mass) = {
+    let (body_rot, capsule_pos, capsule_linvel, capsule_mass) = {
         let Some(body) = world.rigid_body_set.get(body_handle.0) else { return };
         let r = body.rotation();
-        (Quat::from_xyzw(r.x, r.y, r.z, r.w), body.mass())
+        let t = body.position().translation;
+        let v = body.linvel();
+        (
+            Quat::from_xyzw(r.x, r.y, r.z, r.w),
+            Vec3::new(t.x, t.y, t.z),
+            Vec3::new(v.x, v.y, v.z),
+            body.mass(),
+        )
     };
 
     let planet_up = body_rot * Vec3::Y;
@@ -361,15 +342,22 @@ pub fn apply_biped_movement(
     let is_slide  = input.up < -0.5;
     let is_sprint = input.ability1;
 
-    // grounded check: ray downward from sphere center
-    let grounded = {
-        let sphere_t = {
-            let Some(rb) = world.rigid_body_set.get(sphere_handle) else { return };
-            rb.position().translation
-        };
+    // swap collider shape when slide state changes (not every tick)
+    if is_slide != biped.is_sliding {
+        biped.is_sliding = is_slide;
+        let (half_height, friction) = if is_slide { (SLIDE_HALF_HEIGHT, 0.0) } else { (CAPSULE_HALF_HEIGHT, 20.0) };
+        replace_capsule_collider(world, body_handle.0, half_height, friction);
+    }
+
+    // use the correct capsule bottom for the current shape
+    let cur_bottom = if biped.is_sliding { SLIDE_BOTTOM } else { CAPSULE_BOTTOM };
+
+    // grounded check: ray from capsule bottom downward; also fetch surface velocity for relative movement
+    let (grounded, ground_linvel) = {
+        let ray_origin = capsule_pos - planet_up * cur_bottom;
         let capsule_handle = body_handle.0;
         let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
-            col.parent().map_or(true, |rb| rb != capsule_handle && rb != sphere_handle)
+            col.parent().map_or(true, |rb| rb != capsule_handle)
         };
         let filter = QueryFilter::new().predicate(&exclude);
         let qp = world.broad_phase.as_query_pipeline(
@@ -378,63 +366,43 @@ pub fn apply_biped_movement(
             &world.collider_set,
             filter,
         );
-        let ray = Ray::new(
-            Vec3::new(sphere_t.x, sphere_t.y, sphere_t.z),
-            -planet_up,
-        );
-        qp.cast_ray(&ray, SPHERE_RADIUS + GROUND_DIST, true).is_some()
+        let ray = Ray::new(ray_origin, -planet_up);
+        if let Some((ch, _)) = qp.cast_ray(&ray, GROUND_DIST, true) {
+            // surface velocity — zero for static geometry, nonzero for moving planets/platforms
+            let vel = world.collider_set.get(ch)
+                .and_then(|col| col.parent())
+                .and_then(|rb_h| world.rigid_body_set.get(rb_h))
+                .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+                .unwrap_or(Vec3::ZERO);
+            (true, vel)
+        } else {
+            (false, Vec3::ZERO)
+        }
     };
 
-    // --- write phase ---
+    biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
-    let sphere_collider_h = world.rigid_body_set.get(sphere_handle)
-        .and_then(|rb| rb.colliders().first().copied());
+    // relative horizontal velocity — used for speed cap so movement is correct on moving planets/platforms
+    let horiz_vel    = capsule_linvel - planet_up * planet_up.dot(capsule_linvel);
+    let ground_horiz = ground_linvel  - planet_up * planet_up.dot(ground_linvel);
+    let rel_horiz    = horiz_vel - ground_horiz;
 
-    if grounded {
-        // sphere angular velocity drives friction-based movement
-        let desired = forward * input.forward + right * input.right;
-        let speed = if is_sprint && input.forward >= 0.0 { SPRINT_ANGULAR } else { WALK_ANGULAR };
-        let angvel = if !is_slide && desired.length_squared() > 1e-6 {
-            let axis = planet_up.cross(desired.normalize());
-            axis * speed
-        } else {
-            Vec3::ZERO
-        };
+    if grounded && !is_slide {
+        let desired = (forward * input.forward + right * input.right).normalize_or_zero();
+        let max_speed = if is_sprint && input.forward >= 0.0 { MAX_SPRINT_SPEED } else { MAX_WALK_SPEED };
 
-        // disable sphere when sliding so the capsule's zero-friction collider takes over
-        let was_sliding = sphere_collider_h
-            .and_then(|ch| world.collider_set.get(ch))
-            .map(|col| !col.is_enabled())
-            .unwrap_or(false);
-        if let Some(ch) = sphere_collider_h {
-            if let Some(col) = world.collider_set.get_mut(ch) {
-                col.set_enabled(!is_slide);
+        if desired.length_squared() > 1e-6 {
+            // accelerate toward desired direction up to max_speed relative to surface
+            let cur = rel_horiz.dot(desired);
+            if cur < max_speed {
+                let delta = (max_speed - cur).min(GROUND_ACCEL);
+                let impulse = desired * delta * capsule_mass;
+                if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
+                    rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+                }
             }
-        }
-
-        let capsule_linvel = world.rigid_body_set.get(body_handle.0)
-            .map(|rb| { let v = rb.linvel(); Vector::new(v.x, v.y, v.z) })
-            .unwrap_or(Vector::ZERO);
-
-        if let Some(rb) = world.rigid_body_set.get_mut(sphere_handle) {
-            if is_slide || (was_sliding && !is_slide) {
-                rb.set_linvel(capsule_linvel, false);
-            }
-            rb.set_angvel(Vector::new(angvel.x, angvel.y, angvel.z), true);
-        }
-    } else {
-        // re-enable sphere collider in case we left the ground while sliding
-        if let Some(ch) = sphere_collider_h {
-            if let Some(col) = world.collider_set.get_mut(ch) {
-                col.set_enabled(true);
-            }
-        }
-        if let Some(rb) = world.rigid_body_set.get_mut(sphere_handle) {
-            rb.set_angvel(Vector::ZERO, true);
         }
     }
-
-    biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
     if is_jump && grounded && biped.jump_cooldown == 0 {
         biped.jump_cooldown = JUMP_COOLDOWN;
