@@ -6,6 +6,7 @@ use std::fs;
 // use serde::
 
 use game_objects::pawn::MouseSensitivity;
+use physics::physics_world::PhysicsInterpMode;
 
 const SETTINGS_FILE: &str = "settings.toml";
 
@@ -63,6 +64,7 @@ fn change_settings(
     settings: Res<Settings>,
     mut sensitivity: ResMut<MouseSensitivity>,
     mut projection: Query<&mut Projection, With<Camera3d>>,
+    mut interp_mode: ResMut<PhysicsInterpMode>,
 ) {
     if settings.is_changed() {
         sensitivity.0 = settings.mouse_sensitivity;
@@ -71,6 +73,11 @@ fn change_settings(
                 p.fov = settings.fov.to_radians();
             }
         }
+        *interp_mode = match settings.physics_interp {
+            PhysicsInterp::Off => PhysicsInterpMode::Off,
+            PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
+            PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
+        };
         if !settings.is_added() {
             save_settings(&settings);
         }

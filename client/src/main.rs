@@ -1,7 +1,6 @@
 // client executable
 
 use bevy::core_pipeline::Skybox;
-use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
@@ -12,9 +11,7 @@ use net::{
     quic::*,
 };
 use common::GameObjectKind;
-use game_objects::pawn::PitchPivot;
-use game_objects::pawn::biped;
-use game_objects::pawn::*;
+use game_objects::pawn::{self, GatherInputSet, MovePawnsSet, Possessed, PawnPlugin, BipedPawnComponent};
 use physics::physics_world::*;
 use reconciliation::{PendingReconciliation, ReconciliationPlugin};
 use tick_sync::{NetworkStats, TickSyncPlugin};
@@ -22,8 +19,8 @@ use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
-use game_objects::{spawn_game_object, VisualSpawnParams};
-use game_objects::weapon::{hail_mary, WeaponPlugin, PendingHullCollider};
+use game_objects::SpawnGameObjectCommand;
+use game_objects::weapon::{hail_mary, WeaponPlugin};
 use game_objects::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -59,16 +56,11 @@ impl HostedServer {
 }
 
 /// Bundles spawn-related parameters to stay within Bevy's 16-param SystemParam limit.
-/// ... bad job claude
 #[derive(bevy::ecs::system::SystemParam)]
 struct SpawnParams<'w, 's> {
     commands: Commands<'w, 's>,
-    meshes: ResMut<'w, Assets<Mesh>>,
-    materials: ResMut<'w, Assets<StandardMaterial>>,
-    asset_server: Res<'w, AssetServer>,
     entity_children: Query<'w, 's, &'static Children>,
     lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
-    hull_assets: Res<'w, Assets<ConvexHullAsset>>,
 }
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
@@ -76,7 +68,6 @@ use common::debug_println;
 use game_objects::health::Health;
 use master_plugin::MasterPlugin;
 use game_objects::level::{LevelPlugin, cleanup_level, load_level_scene, apply_pending_map_scene, PendingMapScene, MapMeta, LevelSceneRoot};
-use physics::convex_hull_asset::ConvexHullAsset;
 use game_objects::planet::draw_planet_radii;
 use game_objects::pawn::biped::draw_biped_debug;
 use ui::ui::GuiState;
@@ -95,11 +86,10 @@ struct HitBeams(Vec<(Vec3, Vec3, f32)>);
 
 /// Most recent server SimulationState, retained for debug visualization.
 #[derive(Resource, Default)]
-struct LastServerState(Option<net::message::SimulationState>);
+struct LastServerState(Option<SimulationState>);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub(crate) enum GameState {
-    /// the game starts into this. has Quit
     #[default]
     MainMenu,
     SinglePlayer,
@@ -112,43 +102,6 @@ pub(crate) enum UiState {
     Playing,
     Paused,
     Settings,
-}
-
-/// Syncs physics bodies to Bevy transforms every frame using velocity, decoupled from the fixed tick.
-/// EXTRAPOLATE=true: projects forward from the last step by the accumulated overstep time.
-/// EXTRAPOLATE=false: interpolates — steps back one fixed dt then forward by overstep, keeping
-///   the visual one tick behind but never overshooting.
-fn sync_physics_visual(
-    world: Res<PhysicsWorld>,
-    time: Res<Time<Fixed>>,
-    settings: Res<Settings>,
-    mut query: Query<(&RigidBodyHandleComponent, &mut Transform)>,
-) {
-    use settings::PhysicsInterp;
-    let overstep = time.overstep_fraction();
-    let fixed_dt = time.delta_secs();
-    let dt_offset = match settings.physics_interp {
-        PhysicsInterp::Off => 0.0,
-        PhysicsInterp::Extrapolate => overstep * fixed_dt,
-        PhysicsInterp::Interpolate => (overstep - 1.0) * fixed_dt,
-    };
-
-    for (body_handle, mut transform) in query.iter_mut() {
-        let Some(body) = world.rigid_body_set.get(body_handle.0) else { continue };
-        let pos = body.position();
-        let cur_pos = Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z);
-        let cur_rot = Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w);
-        let linvel = Vec3::new(body.linvel().x, body.linvel().y, body.linvel().z);
-        let angvel = Vec3::new(body.angvel().x, body.angvel().y, body.angvel().z);
-
-        transform.translation = cur_pos + linvel * dt_offset;
-        let ang_speed = angvel.length();
-        transform.rotation = if ang_speed > 1e-6 {
-            Quat::from_axis_angle(angvel / ang_speed, ang_speed * dt_offset) * cur_rot
-        } else {
-            cur_rot
-        };
-    }
 }
 
 fn parse_server_addr() -> SocketAddr {
@@ -200,7 +153,7 @@ fn main() {
         .add_plugins(LevelPlugin)
         .add_plugins(WeaponPlugin)
         .add_plugins(SoundPlugin)
-        .add_plugins(ReconciliationPlugin(GameState::Multiplayer, biped::apply_biped_movement))
+        .add_plugins(ReconciliationPlugin::<GameState, BipedPawnComponent>::new(GameState::Multiplayer))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
@@ -223,14 +176,10 @@ fn main() {
     app.add_systems(OnExit(GameState::Multiplayer), (cleanup_world, disconnect, cleanup_level, remove_script).chain());
 
     // FixedPreUpdate ordering:
-    //   maybe_reconcile → gather_pawn_input → send_pawn_input → move_bipeds
-    // (maybe_reconcile registered by ReconciliationPlugin)
-    app.add_systems(
-        FixedPreUpdate,
-        send_pawn_input
-            .after(gather_pawn_input)
-            .before(MovePawnsSet)
-            // AND OTHER PAWNS
+    //   maybe_reconcile → GatherInputSet (per-pawn-type gather) → send_X_input → MovePawnsSet
+    // (maybe_reconcile registered by ReconciliationPlugin; gather registered by each pawn plugin)
+    app.add_systems(FixedPreUpdate,
+        pawn::send_pawn_input.after(GatherInputSet).before(MovePawnsSet)
             .run_if(in_state(GameState::Multiplayer)),
     );
 
@@ -245,13 +194,11 @@ fn main() {
     // (tick increment is FixedLast)
 
     app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
-    app.add_systems(Update, toggle_flashlight.run_if(in_state(GameState::Multiplayer).or(in_state(GameState::SinglePlayer))));
     app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, draw_server_state.run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
-    app.add_systems(Update, swap_weapon_hull_colliders);
     app.add_systems(Update, draw_planet_radii);
     app.add_systems(Update, draw_biped_debug);
     app.add_systems(FixedUpdate, hail_mary::draw_projectile_debug
@@ -267,14 +214,7 @@ fn load_sp_level(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 
-fn spawn_local_player(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut world: ResMut<PhysicsWorld>,
-    mut net_ids: ResMut<NetworkIDResource>,
-    camera: Query<Entity, With<Camera3d>>,
-) {
+fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
     // scene loads async; spawn at the default map origin — scene's SpawnPoint y=800 matches
     let cmd = SpawnCommand {
         net_id: NetworkID(net_ids.next()),
@@ -283,10 +223,9 @@ fn spawn_local_player(
         starting_velocity: Vec3::ZERO,
         server_tick: 0,
         kind: GameObjectKind::Biped,
-        owned: true,
     };
-    let mut visual = VisualSpawnParams { meshes: &mut meshes, materials: &mut materials, camera: camera.single().ok() };
-    let entity = biped::spawn_from_command(&cmd, &mut commands, &mut world, &mut visual);
+    let entity = commands.spawn_empty().id();
+    commands.queue(SpawnGameObjectCommand { entity, cmd });
     commands.entity(entity).insert(Possessed::new(128));
 }
 
@@ -371,20 +310,28 @@ fn on_message(
     // pitch_pivot_q: Query<Entity, With<PitchPivot>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
+    // tracks entities spawned this on_message call (before commands flush)
+    // (entity, server_tick) so Possess can sync the client ticker
+    let mut just_spawned: std::collections::HashMap<NetworkID, (Entity, u64)> = Default::default();
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
-                let is_biped = cmd.kind == GameObjectKind::Biped;
-                let owned = cmd.owned;
-                if is_biped && owned {
-                    ticker.tick = cmd.server_tick;
-                    local_net_id.0 = Some(cmd.net_id.clone());
-                }
-                let cam = if is_biped && owned { camera.single().ok() } else { None };
-                let mut visual = VisualSpawnParams { meshes: &mut sp.meshes, materials: &mut sp.materials, camera: cam };
-                let entity = spawn_game_object(cmd, &mut sp.commands, &mut world, &sp.asset_server, &sp.hull_assets, &mut visual);
-                if is_biped && owned {
-                    if let Some(e) = entity { sp.commands.entity(e).insert(Possessed::new(128)); }
+                let net_id = cmd.net_id.clone();
+                let server_tick = cmd.server_tick;
+                let entity = sp.commands.spawn_empty().id();
+                sp.commands.queue(SpawnGameObjectCommand { entity, cmd });
+                just_spawned.insert(net_id, (entity, server_tick));
+            }
+            MsgType::Possess(net_id) => {
+                // SpawnCommand and Possess may arrive in the same batch before commands flush,
+                // so check just_spawned before falling back to the networked query.
+                local_net_id.0 = Some(net_id.clone());
+                let result = just_spawned.get(&net_id).copied()
+                    .or_else(|| networked.iter().find(|(_, nid)| **nid == net_id).map(|(e, _)| (e, ticker.tick)));
+                if let Some((entity, server_tick)) = result {
+                    // sync client tick to server so reconciliation replay covers the right range
+                    ticker.tick = server_tick;
+                    sp.commands.entity(entity).insert(Possessed::new(128));
                 }
             }
             MsgType::DespawnCommand(net_id) => {
@@ -545,53 +492,7 @@ fn on_message(
 
 
 
-/// Runs after `gather_pawn_input` (which pushed the input into Possessed.buffer) but before
-/// `move_bipeds` (which consumes it). Peeks at the newest buffered input, stamps it with the
-/// current tick, records it in the history for later replay, and sends it to the server.
-fn send_pawn_input(
-    mut quic: ResMut<QuicManager>,
-    tick: Res<Ticker>,
-    mut pawns: Query<&mut Possessed>,
-) {
-    let Ok(mut possessed) = pawns.single_mut() else { return };
-    let Some(&input) = possessed.peek_newest() else { return };
-    let t = tick.tick;
-    possessed.record_input(t, input);
-    // Keep ~2 seconds of history
-    possessed.prune_input_history(t.saturating_sub(128));
-    quic.send(
-        SendTarget::All,
-        Channel::Unreliable,
-        &MsgType::Input(PawnInputMessage { input, tick: t }),
-    );
-}
 
-
-/// Replaces a weapon entity's default cuboid collider with its convex hull once the asset loads.
-/// Triggered by `spawn_from_command` attaching a `Handle<ConvexHullAsset>` to the entity.
-fn swap_weapon_hull_colliders(
-    mut commands: Commands,
-    pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponent)>,
-    hull_assets: Res<Assets<ConvexHullAsset>>,
-    mut world: ResMut<PhysicsWorld>,
-) {
-    for (entity, hull_handle, body_handle) in pending.iter() {
-        let Some(hull) = hull_assets.get(&hull_handle.0) else { continue };
-        let hull_collider = hull.0.clone();
-        let existing: Vec<rapier3d::prelude::ColliderHandle> = world.rigid_body_set.get(body_handle.0)
-            .map(|rb| rb.colliders().to_vec())
-            .unwrap_or_default();
-        for ch in existing {
-            let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
-            collider_set.remove(ch, island_manager, rigid_body_set, true);
-        }
-        {
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-            collider_set.insert_with_parent(hull_collider, body_handle.0, rigid_body_set);
-        }
-        commands.entity(entity).try_remove::<PendingHullCollider>();
-    }
-}
 
 /// Copies the pending server snapshot into LastServerState before reconcile consumes it.
 fn snapshot_server_state(pending: Res<PendingReconciliation>, mut last: ResMut<LastServerState>) {
@@ -622,35 +523,6 @@ fn draw_hit_beams(
         *remaining -= dt;
         *remaining > 0.0
     });
-}
-
-/// On Y press, toggles the local player's flashlight and sends FlashlightToggle to the server.
-fn toggle_flashlight(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    egui_wants: Res<EguiWantsInput>,
-    local_net_id: Res<LocalNetworkID>,
-    possessed_q: Query<&BipedPawnComponent, With<Possessed>>,
-    pitch_pivot: Query<&Children, With<PitchPivot>>,
-    mut lights: Query<&mut Visibility, With<SpotLight>>,
-    mut quic: ResMut<QuicManager>,
-    mut on: Local<bool>,
-) {
-    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyY) { return; }
-    *on = !*on;
-    if let Ok(biped) = possessed_q.single() {
-        if let Some(pitch_e) = biped.pitch_pivot {
-            if let Ok(children) = pitch_pivot.get(pitch_e) {
-                for child in children.iter() {
-                    if let Ok(mut vis) = lights.get_mut(child) {
-                        *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
-                    }
-                }
-            }
-        }
-    }
-    if local_net_id.0.is_some() {
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::FlashlightToggle);
-    }
 }
 
 fn nearest_interactable(

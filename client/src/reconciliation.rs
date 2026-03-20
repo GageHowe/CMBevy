@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
 use game_objects::planet::{apply_gravity_impulses, PlanetComponent};
 use game_objects::pawn::biped::BipedPawnComponent;
 use net::message::{NetworkID, SimulationState};
 use physics::physics_world::{GravityScale, RigidBodyHandleComponent, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
-use game_objects::pawn::{gather_pawn_input, PawnInput, Possessed};
+use game_objects::pawn::{GatherInputSet, Pawn, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 
@@ -45,21 +46,22 @@ impl Default for LocalStateHistory {
     }
 }
 
-pub struct ReconciliationPlugin<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    pub S,
-    pub fn(&mut PhysicsWorld, &RigidBodyHandleComponent, PawnInput, &mut T),
-);
+/// Plugin that wires up reconciliation for any physics-controlled pawn type T.
+pub struct ReconciliationPlugin<S: States + Copy, T: Pawn>(pub S, pub PhantomData<T>);
 
-impl<S: States + Copy, T: Component<Mutability = bevy::ecs::component::Mutable>> Plugin for ReconciliationPlugin<S, T> {
+impl<S: States + Copy, T: Pawn> ReconciliationPlugin<S, T> {
+    pub fn new(state: S) -> Self { Self(state, PhantomData) }
+}
+
+impl<S: States + Copy, T: Pawn> Plugin for ReconciliationPlugin<S, T> {
     fn build(&self, app: &mut App) {
         let state = self.0;
-        let apply = self.1;
         app.init_resource::<PendingReconciliation>()
             .init_resource::<LocalStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(FixedPreUpdate,
-                (apply_physics_corrections, maybe_reconcile(apply)).chain()
-                    .before(gather_pawn_input)
+                (apply_physics_corrections, maybe_reconcile::<T>()).chain()
+                    .before(GatherInputSet)
                     .run_if(in_state(state)))
             .add_systems(FixedPostUpdate, record_world_state.run_if(in_state(state)));
     }
@@ -137,10 +139,9 @@ pub fn apply_physics_corrections(
 ///   3. Snapshot the resim result.
 ///   4. Compute per-body error = resim_result − current_state, store in PhysicsErrors.
 ///   5. Restore physics to current state — corrections are applied gradually by apply_physics_corrections.
-pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>(
-    apply: fn(&mut PhysicsWorld, &RigidBodyHandleComponent, PawnInput, &mut T),
+pub fn maybe_reconcile<T: Pawn>(
 ) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetComponent, &RigidBodyHandleComponent)>, Query<&GravityScale>, ResMut<PhysicsErrors>) {
-    move |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales, mut errors| {
+    |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales, mut errors| {
         let Some(snapshot) = pending.0.take() else { return };
 
         let Some((_, our_handle, possessed)) =
@@ -180,11 +181,13 @@ pub fn maybe_reconcile<T: Component<Mutability = bevy::ecs::component::Mutable>>
 
         let our_rb = our_handle.0;
         let current_tick = tick.tick;
-        for replay_tick in (snapshot.tick + 1)..current_tick {
-            if let Some(&input) = possessed.get_input(replay_tick) {
+        // cap replay to avoid runaway cost if ticks are badly desynced
+        let replay_end = current_tick.min(snapshot.tick.saturating_add(16));
+        for replay_tick in (snapshot.tick + 1)..replay_end {
+            if let Some(input) = possessed.get_input(replay_tick).cloned() {
                 if let Ok(mut component) = pawn_query.single_mut() {
                     let handle = RigidBodyHandleComponent(our_rb);
-                    apply(&mut world, &handle, input, &mut component);
+                    component.apply_input(&mut world, &handle, input);
                 }
             }
             apply_gravity_impulses(&mut world, &planets, &gravity_scales);

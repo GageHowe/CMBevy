@@ -1,12 +1,13 @@
 use crate::{health::Health, GameObject};
 use crate::weapon::{rifle, shotgun, hail_mary};
 use crate::weapon::Weapon;
-use net::message::{NetworkID, SpawnCommand};
+use net::message::NetworkID;
 use physics::physics_world::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy_egui::input::EguiWantsInput;
 use rapier3d::prelude::*;
 use super::*;
 
@@ -42,24 +43,67 @@ pub struct BipedPawnComponent {
     pub is_sliding: bool,
 }
 impl Pawn for BipedPawnComponent {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput) {
-        apply_biped_movement(world, body, input, self);
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind) {
+        if let PawnInputKind::Biped(i) = input { apply_biped_movement(world, body, i, self); }
     }
 }
 impl GameObject for BipedPawnComponent {
-    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
-        let entity = commands.spawn((
+    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let transform = Transform { translation: cmd.position.into(), rotation: cmd.rotation.into(), ..default() };
+        world.entity_mut(entity).insert((
             WeaponSlots::default(),
             Health::new(100.0),
             Transform::from(transform),
-        )).id();
-        insert_biped_physics(entity, &transform, commands, world);
-        commands.entity(entity).insert(BipedPawnComponent::default());
-        entity
-    }
-    fn cleanup() {}
-    fn get_rigidbody() -> Option<RigidBody> {
-        Some(RigidBodyBuilder::dynamic().angular_damping(10.0).lock_rotations().build())
+            BipedPawnComponent::default(),
+            cmd.net_id.clone(),
+        ));
+        // physics
+        let rb_handle = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            let capsule_rb = RigidBodyBuilder::dynamic()
+                .translation(transform.translation)
+                .angular_damping(10.0)
+                .lock_rotations()
+                .ccd_enabled(true)
+                .build();
+            let rb_handle = physics.insert_body(entity, capsule_rb);
+            let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
+            let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
+                .friction(5.0)
+                .restitution(0.0)
+                .restitution_combine_rule(CoefficientCombineRule::Min)
+                .solver_groups(player_solver)
+                .build();
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
+            rb_handle
+        };
+        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        #[cfg(feature = "client")]
+        {
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(bevy::math::primitives::Capsule3d::new(0.3, 1.0));
+            let material = world.resource_mut::<Assets<StandardMaterial>>().add(Color::srgb(0.9, 0.4, 0.1));
+            world.entity_mut(entity).insert((Mesh3d(mesh), MeshMaterial3d(material), Visibility::default()));
+            let light = world.spawn((
+                SpotLight { intensity: 20000.0, range: 500.0, outer_angle: 0.4, inner_angle: 0.3, shadows_enabled: true, ..default() },
+                Transform::default(),
+                Visibility::Hidden,
+            )).id();
+            let pitch_pivot = world.spawn((PitchPivot { pitch: 0.0 }, Transform::default(), Visibility::default())).id();
+            world.entity_mut(pitch_pivot).add_child(light);
+            let yaw_pivot = world.spawn((
+                YawPivot { yaw: 0.0 },
+                Transform::from_translation(Vec3::new(0.0, 0.4, 0.0)),
+                Visibility::default(),
+            )).id();
+            world.entity_mut(yaw_pivot).add_child(pitch_pivot);
+            world.entity_mut(entity).add_child(yaw_pivot);
+            // cache pivot entities so input and camera logic can find them
+            if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
+                biped.yaw_pivot = Some(yaw_pivot);
+                biped.pitch_pivot = Some(pitch_pivot);
+            }
+        }
     }
 }
 
@@ -69,16 +113,26 @@ impl Plugin for BipedPlugin {
         app.init_resource::<MouseSensitivity>();
         app.add_systems(FixedUpdate, update_slide_camera);
         app.add_systems(FixedPreUpdate, (
+            gather_biped_input
+                .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                .in_set(GatherInputSet),
             move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
             biped_fire::<rifle::RifleComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
             biped_fire::<shotgun::ShotgunComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
             biped_fire::<hail_mary::HailMaryComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
-        ).after(gather_pawn_input));
+        ).chain());
         app.add_systems(PostUpdate, mouse_look
             .before(TransformSystems::Propagate)
             .run_if(resource_exists::<AccumulatedMouseMotion>));
         app.add_systems(Update, switch_weapon_slot
             .run_if(resource_exists::<AccumulatedMouseScroll>));
+        #[cfg(feature = "client")]
+        {
+            // re-parent camera under pitch pivot when a biped is possessed
+            app.add_systems(Update, attach_camera_on_possess);
+            // Y key toggles flashlight; sends FlashlightToggle to server when connected
+            app.add_systems(Update, toggle_flashlight);
+        }
     }
 }
 
@@ -91,6 +145,38 @@ pub struct YawPivot {
 #[derive(Component)]
 pub struct PitchPivot {
     pub pitch: f32,
+}
+
+/// Gathers keyboard + look-pivot state into a BipedInput each FixedPreUpdate.
+/// look_yaw/pitch are 1-frame stale (mouse_look runs in Update) — acceptable for movement.
+fn gather_biped_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants_input: Option<Res<EguiWantsInput>>,
+    mut pawns: Query<(&mut Possessed, &BipedPawnComponent)>,
+    yaw_pivots: Query<&YawPivot>,
+    pitch_pivots: Query<&PitchPivot>,
+) {
+    if egui_wants_input.map_or(false, |e| e.wants_any_input()) { return; }
+    let Ok((mut possessed, biped)) = pawns.single_mut() else { return };
+
+    let mut input = BipedInput::default();
+    if keyboard.pressed(KeyCode::KeyW) { input.forward += 1.0; }
+    if keyboard.pressed(KeyCode::KeyS) { input.forward -= 1.0; }
+    if keyboard.pressed(KeyCode::KeyD) { input.right += 1.0; }
+    if keyboard.pressed(KeyCode::KeyA) { input.right -= 1.0; }
+    input.jump = keyboard.pressed(KeyCode::Space);
+    input.slide = keyboard.pressed(KeyCode::ControlLeft);
+    input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
+    input.ability2 = keyboard.pressed(KeyCode::KeyE);
+
+    if let Some(yaw_e) = biped.yaw_pivot {
+        if let Ok(yp) = yaw_pivots.get(yaw_e) { input.look_yaw = yp.yaw; }
+    }
+    if let Some(pitch_e) = biped.pitch_pivot {
+        if let Ok(pp) = pitch_pivots.get(pitch_e) { input.look_pitch = pp.pitch; }
+    }
+
+    possessed.push(PawnInputKind::Biped(input));
 }
 
 /// moves the biped's yaw and pitch components on Update
@@ -151,118 +237,6 @@ pub struct WeaponSlots {
     pub active: usize,
 }
 
-fn insert_biped_physics(entity: Entity, transform: &Transform, commands: &mut Commands, world: &mut PhysicsWorld) {
-    let capsule_rb = RigidBodyBuilder::dynamic()
-        .translation(transform.translation)
-        .angular_damping(10.0)
-        .lock_rotations()
-        .build();
-    let rb_handle = world.insert_body(entity, capsule_rb);
-    // collision_groups: detect all (so projectile narrow_phase pairs are generated)
-    // solver_groups: exclude projectiles so they don't physically push the player
-    // let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
-    let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
-    let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
-        .friction(20.0)
-        .restitution(0.0)
-        .restitution_combine_rule(CoefficientCombineRule::Min)
-        // .collision_groups(player_collision)
-        .solver_groups(player_solver)
-        .build();
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-    collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
-}
-
-
-/// Adds a mesh, material, and a hidden flashlight to an existing biped entity.
-/// Returns the flashlight entity so callers can re-parent it (e.g. under PitchPivot).
-pub fn add_visuals(
-    entity: Entity,
-    color: Color,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-) -> Entity {
-    commands.entity(entity).insert((
-        Mesh3d(meshes.add(bevy::math::primitives::Capsule3d::new(0.3, 1.0))),
-        MeshMaterial3d(materials.add(color)),
-        Visibility::default(),
-    ));
-    let light = commands.spawn((
-        SpotLight {
-            intensity: 20000.0,
-            range: 500.0,
-            outer_angle: 0.4,
-            inner_angle: 0.3,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::default(),
-        Visibility::Hidden,
-    )).id();
-    commands.entity(entity).add_child(light);
-    light
-}
-
-/// Sets up the YawPivot → PitchPivot → Camera hierarchy on an existing biped entity.
-/// Pass the pre-existing Camera3d entity so it gets re-parented rather than re-spawned.
-/// Pass the flashlight entity to attach it under PitchPivot so it tracks camera look direction.
-/// Returns (yaw_pivot, pitch_pivot) entity IDs for caching.
-pub fn setup_camera_rig(entity: Entity, camera: Option<Entity>, light: Entity, commands: &mut Commands) -> (Entity, Entity) {
-    let pitch_pivot = commands.spawn((
-        PitchPivot { pitch: 0.0 },
-        Transform::default(),
-        Visibility::default(),
-    )).id();
-
-    commands.entity(pitch_pivot).add_child(light);
-
-    if let Some(cam) = camera {
-        commands.entity(cam).insert(Transform::default());
-        commands.entity(pitch_pivot).add_child(cam);
-    }
-
-    let yaw_pivot = commands.spawn((
-        YawPivot { yaw: 0.0 },
-        Transform::from_translation(Vec3::new(0.0, 0.4, 0.0)),
-        Visibility::default(),
-    )).add_child(pitch_pivot).id();
-
-    commands.entity(entity).add_child(yaw_pivot);
-    (yaw_pivot, pitch_pivot)
-}
-
-/// Spawns a biped from a server SpawnCommand, adds visuals, and optionally attaches the camera rig.
-/// Returns the entity. Caller is responsible for inserting any local-only components (e.g. Possessed).
-pub fn spawn_from_command(
-    cmd: &SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    visual: &mut crate::VisualSpawnParams,
-) -> Entity {
-    let transform = Transform {
-        translation: cmd.position.into(),
-        rotation: cmd.rotation.into(),
-        ..default()
-    };
-    let entity = BipedPawnComponent::initialize(transform, commands, world);
-    commands.entity(entity).insert(cmd.net_id.clone());
-    #[cfg(feature = "client")]
-    {
-        let color = if cmd.owned { Color::srgb(0.8, 0.8, 0.8) } else { Color::srgb(0.9, 0.4, 0.1) };
-        let light = add_visuals(entity, color, commands, visual.meshes, visual.materials);
-        let cam = if cmd.owned { visual.camera } else { None };
-        let (yaw_pivot, pitch_pivot) = setup_camera_rig(entity, cam, light, commands);
-        commands.queue(move |world: &mut World| {
-            if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
-                biped.yaw_pivot = Some(yaw_pivot);
-                biped.pitch_pivot = Some(pitch_pivot);
-            }
-        });
-    }
-    entity
-}
 
 #[cfg(feature = "client")]
 pub fn draw_biped_debug(
@@ -296,7 +270,7 @@ fn update_slide_camera(
 }
 
 /// Replaces the capsule collider on a biped rigid body.
-/// Called only when slide state changes, not every tick.
+/// does this play nicely with reconciliation and the global map?
 fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle, half_height: f32, friction: f32) {
     let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
     // remove old collider
@@ -304,7 +278,10 @@ fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle
         let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
         collider_set.remove(old_ch, island_manager, rigid_body_set, false);
     }
+    // offset the collider so its bottom stays at foot level (body center is always CAPSULE_BOTTOM above ground)
+    let y_offset = (half_height + CAPSULE_RADIUS) - CAPSULE_BOTTOM;
     let new_col = ColliderBuilder::capsule_y(half_height, CAPSULE_RADIUS)
+        .translation(Vector3::new(0.0, y_offset, 0.0))
         .friction(friction)
         .restitution(0.0)
         .restitution_combine_rule(CoefficientCombineRule::Min)
@@ -317,10 +294,9 @@ fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle
 pub fn apply_biped_movement(
     world: &mut PhysicsWorld,
     body_handle: &RigidBodyHandleComponent,
-    input: PawnInput,
+    input: BipedInput,
     biped: &mut BipedPawnComponent,
 ) {
-    // --- read phase ---
     let (body_rot, capsule_pos, capsule_linvel, capsule_mass) = {
         let Some(body) = world.rigid_body_set.get(body_handle.0) else { return };
         let r = body.rotation();
@@ -339,8 +315,8 @@ pub fn apply_biped_movement(
     let forward   = facing * Vec3::NEG_Z;
     let right     = facing * Vec3::X;
 
-    let is_jump   = input.up > 0.5;
-    let is_slide  = input.up < -0.5;
+    let is_jump  = input.jump;
+    let is_slide = input.slide;
     let is_sprint = input.ability1;
 
     // swap collider shape when slide state changes (not every tick)
@@ -350,12 +326,9 @@ pub fn apply_biped_movement(
         replace_capsule_collider(world, body_handle.0, half_height, friction);
     }
 
-    // use the correct capsule bottom for the current shape
-    let cur_bottom = if biped.is_sliding { SLIDE_BOTTOM } else { CAPSULE_BOTTOM };
-
-    // grounded check: ray from capsule bottom downward; also fetch surface velocity for relative movement
+    // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
     let (grounded, ground_linvel) = {
-        let ray_origin = capsule_pos - planet_up * cur_bottom;
+        let ray_origin = capsule_pos - planet_up * CAPSULE_BOTTOM;
         let capsule_handle = body_handle.0;
         let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
             col.parent().map_or(true, |rb| rb != capsule_handle)
@@ -414,13 +387,59 @@ pub fn apply_biped_movement(
     }
 
     if !grounded {
-        let air_dir = forward * input.forward + right * input.right + planet_up * input.up;
+        let up = input.jump as i8 as f32 - input.slide as i8 as f32;
+        let air_dir = forward * input.forward + right * input.right + planet_up * up;
         if air_dir.length_squared() > 1e-6 {
             let impulse = air_dir.normalize() * AIR_CONTROL * capsule_mass;
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
             }
         }
+    }
+}
+
+/// Re-parents the Camera3d under the biped's pitch pivot when Possessed is added.
+/// Runs in Update so commands from OnEnter/FixedPostUpdate have already flushed.
+#[cfg(feature = "client")]
+fn attach_camera_on_possess(
+    bipeds: Query<&BipedPawnComponent, Added<Possessed>>,
+    camera: Query<Entity, With<Camera3d>>,
+    mut commands: Commands,
+) {
+    let Ok(biped) = bipeds.single() else { return };
+    let Ok(cam) = camera.single() else { return };
+    let Some(pitch_e) = biped.pitch_pivot else { return };
+    commands.entity(cam).insert(Transform::default());
+    commands.entity(pitch_e).add_child(cam);
+}
+
+/// Y key toggles the local player's flashlight. Sends FlashlightToggle to server when connected.
+#[cfg(feature = "client")]
+fn toggle_flashlight(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Res<EguiWantsInput>,
+    possessed_q: Query<&BipedPawnComponent, With<Possessed>>,
+    pitch_pivot: Query<&Children, With<PitchPivot>>,
+    mut lights: Query<&mut Visibility, With<SpotLight>>,
+    mut quic: ResMut<net::quic::QuicManager>,
+    mut on: Local<bool>,
+) {
+    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyY) { return; }
+    *on = !*on;
+    if let Ok(biped) = possessed_q.single() {
+        if let Some(pitch_e) = biped.pitch_pivot {
+            if let Ok(children) = pitch_pivot.get(pitch_e) {
+                for child in children.iter() {
+                    if let Ok(mut vis) = lights.get_mut(child) {
+                        *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
+                    }
+                }
+            }
+        }
+    }
+    // no-op in singleplayer (client_connected is false)
+    if quic.client_connected {
+        quic.send(net::quic::SendTarget::All, net::quic::Channel::Ordered, &net::message::MsgType::FlashlightToggle);
     }
 }
 
@@ -439,6 +458,7 @@ pub fn biped_fire<W: Weapon>(
     mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
 ) {
+    // hardcodes fire as left click, bad, this should be handled individually by weapons.
     let want_fire = !egui_wants.map_or(false, |e| e.wants_any_input()) && mouse.pressed(MouseButton::Left);
     let Ok((pawn_entity, slots, biped)) = pawn.single() else { return };
     let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
@@ -447,6 +467,7 @@ pub fn biped_fire<W: Weapon>(
     let Ok(gt) = pitch_pivot.get(pitch_e) else { return };
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
     let aim_dir = rotation * Vec3::NEG_Z;
+
     if weapon.fixed_update(&mut world, &mut commands, origin, aim_dir, Some(pawn_entity), ticker.tick, want_fire) {
         if let (Some(sq), Some(event)) = (sound_queue.as_mut(), weapon.fire_sound()) {
             // shooter velocity for doppler
@@ -457,6 +478,8 @@ pub fn biped_fire<W: Weapon>(
             // own weapon fire is 2D — no spatialization, always sounds centered
             sq.0.push(crate::sound::SoundRequest { event, position: None, velocity: Vec3::ZERO });
         }
+
+        // ... wtf? firing should be handled by weapons
         if let (Some(quic), Ok(net_id)) = (quic.as_mut(), net_ids.get(weapon_entity)) {
             quic.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
                       &net::message::MsgType::Fire(net_id.clone(), origin.into(), aim_dir.into(), ticker.tick));

@@ -9,13 +9,14 @@ use net::{
     quic::*,
     message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand},
 };
+use net::message::PawnInputKind;
 use common::tick::Ticker;
 #[derive(Resource)]
 struct BindAddr(SocketAddr);
 use master_plugin::MasterPlugin;
-use game_objects::pawn::biped;
-use game_objects::GameObject;
-use game_objects::pawn::BipedPawnComponent;
+use game_objects::pawn::{biped, spaceship};
+use game_objects::pawn::{BipedPawnComponent, SpaceshipPawnComponent};
+use game_objects::SpawnGameObjectCommand;
 use game_objects::health::{Health, handle_deaths};
 use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
 use game_objects::pawn::biped::WeaponSlots;
@@ -96,8 +97,9 @@ fn main() {
     app.add_systems(Startup, (load_server_level, start_server, init_mode_config).chain());
     app.add_systems(FixedUpdate, on_message.before(step_physics));
     app.add_systems(FixedUpdate, broadcast_health_updates.after(step_physics).before(broadcast_tick));
-    app.add_systems(FixedUpdate, (handle_player_deaths, handle_deaths).chain().after(step_physics).before(broadcast_tick));
-    app.add_systems(FixedUpdate, broadcast_tick.after(step_physics));
+    // handle_deaths is registered by HealthPlugin; order handle_player_deaths before it
+    app.add_systems(FixedUpdate, handle_player_deaths.after(step_physics).before(handle_deaths));
+    app.add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
 
     println!("starting server...\n");
     app.run();
@@ -157,21 +159,25 @@ fn spawn_scene_weapons(
     // Without<NetworkID>: scene placeholders never have a network ID; real spawned entities always do
     query: Query<(Entity, &GameObjectKind, &Transform), (Added<GameObjectKind>, Without<NetworkID>)>,
     mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut weapon_registry: ResMut<WeaponRegistry>,
 ) {
     for (scene_entity, kind, transform) in query.iter() {
-        let transform = *transform;
-        let net_id = NetworkID(net_ids.next());
-        let weapon_entity = match kind {
-            GameObjectKind::Rifle    => rifle::RifleComponent::initialize(transform, &mut commands, &mut world),
-            GameObjectKind::Shotgun  => shotgun::ShotgunComponent::initialize(transform, &mut commands, &mut world),
-            GameObjectKind::HailMary => hail_mary::HailMaryComponent::initialize(transform, &mut commands, &mut world),
+        match kind {
+            GameObjectKind::Rifle | GameObjectKind::Shotgun | GameObjectKind::HailMary => {}
             _ => { commands.entity(scene_entity).despawn(); continue; }
-        };
-        commands.entity(weapon_entity).insert(net_id.clone());
-        weapon_registry.free.insert(net_id, weapon_entity);
+        }
+        let net_id = NetworkID(net_ids.next());
+        let entity = commands.spawn_empty().id();
+        commands.queue(SpawnGameObjectCommand { entity, cmd: SpawnCommand {
+            net_id: net_id.clone(),
+            position: transform.translation,
+            rotation: transform.rotation,
+            starting_velocity: Vec3::ZERO,
+            server_tick: 0,
+            kind: kind.clone(),
+        }});
+        weapon_registry.free.insert(net_id, entity);
         commands.entity(scene_entity).despawn();
     }
 }
@@ -215,34 +221,27 @@ fn spawn_player(
     registry: &mut PlayerRegistry,
     net_ids: &mut NetworkIDResource,
     commands: &mut Commands,
-    world: &mut PhysicsWorld,
     tick: u64,
 ) {
     let net_id = NetworkID(net_ids.next());
-    let entity = match kind {
-        GameObjectKind::Biped => biped::BipedPawnComponent::initialize(Transform::from_translation(spawn_pos).with_rotation(spawn_rot), commands, world),
-        _ => unreachable!("spawn_player called with non-pawn kind"),
-    };
-    commands.entity(entity).insert(net_id.clone());
-
-    let spawn_cmd = |owned: bool| SpawnCommand {
+    let spawn_cmd = SpawnCommand {
         net_id: net_id.clone(),
         position: spawn_pos.into(),
         starting_velocity: Vec3::ZERO.into(),
         rotation: spawn_rot.into(),
         server_tick: tick,
-        kind: kind.clone(),
-        owned,
+        kind,
     };
+    let entity = commands.spawn_empty().id();
+    commands.queue(SpawnGameObjectCommand { entity, cmd: spawn_cmd.clone() });
 
-    // Tell all currently connected players about the new pawn (not owned by them).
+    // Tell all currently connected players (including the new one) about the pawn.
     for (&other_conn_id, _) in registry.0.iter() {
-        quic.send(SendTarget::One(other_conn_id), Channel::Ordered,
-            &MsgType::SpawnCommand(spawn_cmd(false)));
+        quic.send(SendTarget::One(other_conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd.clone()));
     }
-    // Tell the client it owns this pawn.
-    quic.send(SendTarget::One(conn_id), Channel::Ordered,
-        &MsgType::SpawnCommand(spawn_cmd(true)));
+    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+    // Tell the owning client to possess this pawn.
+    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id.clone()));
 
     registry.0.insert(conn_id, (entity, net_id));
 }
@@ -307,6 +306,7 @@ fn on_message(
     weapon_kinds: Query<&GameObjectKind>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
+    mut spaceships: Query<&mut SpaceshipPawnComponent>,
     mut hs: HitscanParams,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
@@ -334,7 +334,6 @@ fn on_message(
                         rotation: Quat::IDENTITY.into(),
                         server_tick: tick.tick,
                         kind: GameObjectKind::Biped,
-                        owned: false,
                     }));
                 }
 
@@ -351,7 +350,6 @@ fn on_message(
                         rotation: Quat::IDENTITY.into(),
                         server_tick: tick.tick,
                         kind: weapon_kinds.get(weapon_entity).cloned().unwrap_or(GameObjectKind::Rifle),
-                        owned: false,
                     }));
                 }
 
@@ -359,7 +357,7 @@ fn on_message(
                 let team = (registry.0.len() % num_teams) as u8;
                 let (sp, sr) = pick_spawn_point(&spawn_points, team, registry.0.len());
                 spawn_player(msg.conn_id, GameObjectKind::Biped, sp, sr, &mut quic, &mut registry, &mut net_ids,
-                    &mut commands, &mut world, tick.tick);
+                    &mut commands, tick.tick);
             }
 
             // if server receives a Disconnected message...
@@ -371,13 +369,22 @@ fn on_message(
                                 &mut commands, &mut world, tick.tick);
                 }
             }
-            MsgType::Input(pawn_input) => {
+            MsgType::Input(_, kind) => {
                 if let Some(&(entity, _)) = registry.0.get(&msg.conn_id) {
                     if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
-                        if let Ok(mut biped) = bipeds.get_mut(entity) {
-                            biped.look_yaw   = pawn_input.input.look_yaw;
-                            biped.look_pitch = pawn_input.input.look_pitch;
-                            biped::apply_biped_movement(&mut world, &RigidBodyHandleComponent(handle), pawn_input.input, &mut biped);
+                        match kind {
+                            PawnInputKind::Biped(input) => {
+                                if let Ok(mut biped) = bipeds.get_mut(entity) {
+                                    biped.look_yaw   = input.look_yaw;
+                                    biped.look_pitch = input.look_pitch;
+                                    biped::apply_biped_movement(&mut world, &RigidBodyHandleComponent(handle), input, &mut biped);
+                                }
+                            }
+                            PawnInputKind::Spaceship(input) => {
+                                if let Ok(mut ship) = spaceships.get_mut(entity) {
+                                    spaceship::apply_spaceship_movement(&mut world, &RigidBodyHandleComponent(handle), input, &mut ship);
+                                }
+                            }
                         }
                     }
                 }
@@ -512,7 +519,6 @@ fn tick_respawns(
     mut registry: ResMut<PlayerRegistry>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
     spawn_points: Query<(&SpawnPoint, &Transform)>,
 ) {
@@ -524,7 +530,7 @@ fn tick_respawns(
         pending.0.remove(&conn_id);
         let (sp, sr) = pick_spawn_point(&spawn_points, 0, registry.0.len());
         spawn_player(conn_id, kind, sp, sr, &mut quic, &mut registry, &mut net_ids,
-            &mut commands, &mut world, tick.tick);
+            &mut commands, tick.tick);
     }
 }
 

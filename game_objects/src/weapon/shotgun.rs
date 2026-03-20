@@ -1,9 +1,7 @@
 use bevy::prelude::*;
 use crate::{GameObjectKind, GameObject};
 use common::interaction::Interactable;
-use net::message::SpawnCommand;
 use physics::physics_world::*;
-use physics::convex_hull_asset::ConvexHullAsset;
 use rapier3d::prelude::*;
 use super::{Weapon, WeaponComponent};
 
@@ -37,39 +35,29 @@ impl Weapon for ShotgunComponent {
 }
 
 impl GameObject for ShotgunComponent {
-    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
-        let entity = commands.spawn((
+    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE };
+        world.entity_mut(entity).insert((
             WeaponComponent,
             ShotgunComponent::default(),
             GameObjectKind::Shotgun,
             Interactable { range: 2.0 },
             Transform::from(transform),
-        )).id();
-        let rb = RigidBodyBuilder::dynamic()
-            .translation(transform.translation)
-            .angular_damping(2.0)
-            .build();
-        let rb_handle = world.insert_body(entity, rb);
-        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
-        entity
+            cmd.net_id.clone(),
+        ));
+        let rb_handle = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            let rb = RigidBodyBuilder::dynamic().translation(transform.translation).angular_damping(2.0).build();
+            let rb_handle = physics.insert_body(entity, rb);
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
+            rb_handle
+        };
+        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        #[cfg(feature = "client")]
+        {
+            let scene = world.resource::<AssetServer>().load("models/shotgun.glb#Scene0");
+            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+        }
     }
-    fn cleanup() {}
-    fn get_rigidbody() -> Option<RigidBody> {
-        Some(RigidBodyBuilder::dynamic().angular_damping(2.0).build())
-    }
-}
-
-pub fn spawn_from_command(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    asset_server: &AssetServer,
-    _hull_assets: &Assets<ConvexHullAsset>,
-) -> Entity {
-    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE };
-    let entity = ShotgunComponent::initialize(transform, commands, world);
-    commands.entity(entity).insert((SceneRoot(asset_server.load("models/shotgun.glb#Scene0")), Visibility::default(), cmd.net_id));
-    entity
 }

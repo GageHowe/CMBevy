@@ -38,24 +38,8 @@ pub struct SimulationState {
     pub bodies: HashMap<NetworkID, BodyState>,
 }
 
-/// Input state consumed by movement systems each tick.
-#[derive(Component, Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub struct PawnInput {
-    pub forward: f32,
-    pub right: f32,
-    pub up: f32,
-    pub pitch: f32,
-    pub yaw: f32,
-    pub roll: f32,
-    pub ability1: bool,
-    pub ability2: bool,
-    /// Pawn-local yaw angle (radians) from the YawPivot at input time.
-    pub look_yaw: f32,
-    /// Camera pitch (radians) from the PitchPivot at input time.
-    pub look_pitch: f32,
-}
-
 /// update this as needed; it defines types of game objects that can be spawned
+/// this needs to stay in common since both net and game_objects access it
 #[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
 pub enum GameObjectKind {

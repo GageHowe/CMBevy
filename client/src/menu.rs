@@ -312,7 +312,8 @@ fn main_menu(
                         if ui.add_enabled(can_host, egui::Button::new("Start & Join")).clicked() {
                             let port: u16 = host.port.parse().unwrap_or(42070);
                             let base = asset_base();
-                            let map = format!("{base}/maps/{}.ron", host.maps[host.map_idx]);
+                            // map is asset-relative; gameserver prepends the asset dir itself
+                            let map = format!("maps/{}.ron", host.maps[host.map_idx]);
                             let gametype = format!("{base}/gametypes/{}.lua", host.gametypes[host.gametype_idx]);
                             match std::process::Command::new(gameserver_exe())
                                 .args(["--port", &port.to_string(), "--map", &map, "--gametype", &gametype])

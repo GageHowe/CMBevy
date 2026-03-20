@@ -6,30 +6,29 @@ pub mod spaceship;
 use physics::physics_world::*;
 use physics::physics_world::PhysicsWorld;
 use common::ring_buffer::RingBuffer;
-pub use common::PawnInput;
+use net::message::MsgType;
 use bevy::prelude::*;
-use bevy_egui::input::EguiWantsInput;
 use std::collections::HashMap;
 use crate::GameObject;
 
 pub use biped::BipedPawnComponent;
 pub use biped::{YawPivot, PitchPivot};
 pub use spaceship::SpaceshipPawnComponent;
+pub use common::{BipedInput, SpaceshipInput, PawnInputKind};
+
+// PAWN TRAIT
+
+/// Per-pawn movement logic. Implement on each pawn component.
+pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind);
+}
 
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(biped::BipedPlugin);
-        app.add_systems(FixedPreUpdate, (
-            gather_pawn_input.run_if(resource_exists::<ButtonInput<KeyCode>>),
-            move_pawns::<SpaceshipPawnComponent>().in_set(MovePawnsSet),
-        ).chain());
+        app.add_plugins(spaceship::SpaceshipPlugin);
     }
-}
-
-/// Per-pawn movement logic. Implement on each pawn component.
-pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInput);
 }
 
 // CAMERA
@@ -48,11 +47,11 @@ impl Default for MouseSensitivity {
 /// Marks a pawn as possessed and owns its input history for prediction + reconciliation.
 ///
 /// - Client: added to the pawn the local player controls
-/// - Server: added to every pawn a client is controlling
+/// - Server: not used (server applies inputs directly from network messages)
 #[derive(Component)]
 pub struct Possessed {
-    input_buffer: RingBuffer<PawnInput>,
-    input_history: HashMap<u64, PawnInput>, // is this even needed?
+    input_buffer: RingBuffer<PawnInputKind>,
+    input_history: HashMap<u64, PawnInputKind>,
 }
 impl Possessed {
     pub fn new(capacity: usize) -> Self {
@@ -61,85 +60,35 @@ impl Possessed {
             input_history: HashMap::new(),
         }
     }
-    pub fn push(&mut self, input: PawnInput) {
+    pub fn push(&mut self, input: PawnInputKind) {
         self.input_buffer.push(input);
     }
-    pub fn consume(&mut self) -> Option<PawnInput> {
+    pub fn consume(&mut self) -> Option<PawnInputKind> {
         self.input_buffer.pop()
     }
     /// peek at the most recently pushed input without consuming it.
-    pub fn peek_newest(&self) -> Option<&PawnInput> {
+    pub fn peek_newest(&self) -> Option<&PawnInputKind> {
         self.input_buffer.get_newest()
     }
     /// record input for the given tick (used by client for reconciliation replay).
-    pub fn record_input(&mut self, tick: u64, input: PawnInput) {
+    pub fn record_input(&mut self, tick: u64, input: PawnInputKind) {
         self.input_history.insert(tick, input);
     }
     /// look up the recorded input for a tick.
-    pub fn get_input(&self, tick: u64) -> Option<&PawnInput> {
+    pub fn get_input(&self, tick: u64) -> Option<&PawnInputKind> {
         self.input_history.get(&tick)
     }
     /// drop input history older than `before_tick` to bound memory.
-    /// (what is this even for?)
     pub fn prune_input_history(&mut self, before_tick: u64) {
         self.input_history.retain(|&t, _| t >= before_tick);
     }
-
 }
 
 // SYSTEMS
 
-/// gathers keyboard input for the locally possessed pawn(s)
-pub fn gather_pawn_input(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut pawns: Query<(&mut Possessed, Option<&BipedPawnComponent>)>,
-    yaw_pivots: Query<&YawPivot>,
-    pitch_pivots: Query<&PitchPivot>,
-    egui_wants_input: Option<Res<EguiWantsInput>>,
-) {
-    if egui_wants_input.map_or(false, |e| e.wants_any_input()) { return; }
-    let Ok((mut possessed, biped)) = pawns.single_mut() else { return };
-
-    let mut input = PawnInput::default();
-    if keyboard.pressed(KeyCode::KeyW) { input.forward += 1.0; }
-    if keyboard.pressed(KeyCode::KeyS) { input.forward -= 1.0; }
-    if keyboard.pressed(KeyCode::KeyD) { input.right += 1.0; }
-    if keyboard.pressed(KeyCode::KeyA) { input.right -= 1.0; }
-    if keyboard.pressed(KeyCode::Space) { input.up += 1.0; }
-    if keyboard.pressed(KeyCode::ControlLeft) { input.up -= 1.0; }
-    if keyboard.pressed(KeyCode::ArrowUp) { input.pitch += 1.0; }
-    if keyboard.pressed(KeyCode::ArrowDown) { input.pitch -= 1.0; }
-    if keyboard.pressed(KeyCode::ArrowRight) { input.yaw += 1.0; }
-    if keyboard.pressed(KeyCode::ArrowLeft) { input.yaw -= 1.0; }
-    if keyboard.pressed(KeyCode::KeyQ) { input.roll -= 1.0; }
-    if keyboard.pressed(KeyCode::KeyE) { input.roll += 1.0; }
-    input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
-    input.ability2 = keyboard.pressed(KeyCode::KeyE);
-
-    // biped yaw/pitch are on Update (smooth camera), so these are 1-frame stale — acceptable
-    if let Some(biped) = biped {
-        if let Some(yaw_e) = biped.yaw_pivot {
-            if let Ok(yp) = yaw_pivots.get(yaw_e) { input.look_yaw = yp.yaw; }
-        }
-        if let Some(pitch_e) = biped.pitch_pivot {
-            if let Ok(pp) = pitch_pivots.get(pitch_e) { input.look_pitch = pp.pitch; }
-        }
-    }
-
-    possessed.push(input);
-}
-
-/// transfers possession from the current pawn to a new target
-pub fn possess_pawn(
-    mut commands: Commands,
-    current: Query<Entity, With<Possessed>>,
-    target: Entity,
-) {
-    if let Ok(entity) = current.single() {
-        commands.entity(entity).remove::<Possessed>();
-    }
-    commands.entity(target).insert(Possessed::new(60));
-}
+/// System set covering all gather-input systems. Reconciliation runs before this.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GatherInputSet;
 
 /// System set covering all `move_pawns` systems. Use for ordering against pawn movement.
 #[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -153,4 +102,26 @@ pub fn move_pawns<T: Pawn>() -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Posses
             component.apply_input(&mut world, handle, input);
         }
     }
+}
+
+/// Peeks the newest buffered input, stamps it with the current tick,
+/// records it for replay, and sends it serialized over the unreliable channel.
+/// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
+pub fn send_pawn_input(
+    quic: Option<ResMut<net::quic::QuicManager>>,
+    tick: Res<common::tick::Ticker>,
+    mut pawns: Query<&mut Possessed>,
+) {
+    let Some(mut quic) = quic else { return };
+    let Ok(mut possessed) = pawns.single_mut() else { return };
+    let Some(input) = possessed.peek_newest().cloned() else { return };
+    let t = tick.tick;
+    possessed.record_input(t, input.clone());
+    // keep ~2 seconds of history
+    possessed.prune_input_history(t.saturating_sub(128));
+    quic.send(
+        net::quic::SendTarget::All,
+        net::quic::Channel::Unreliable,
+        &MsgType::Input(t, input),
+    );
 }

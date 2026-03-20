@@ -7,5 +7,7 @@ pub mod tick;
 pub mod slow_update;
 pub mod interaction;
 pub mod types;
+pub mod input;
 
 pub use types::*;
+pub use input::*;

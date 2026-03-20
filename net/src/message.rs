@@ -1,9 +1,10 @@
 use bevy::math::{Quat, Vec3};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-pub use common::{NetworkID, NetworkIDResource, BodyState, SimulationState, GameObjectKind};
-use common::PawnInput;
+pub use common::{NetworkID, NetworkIDResource, BodyState, SimulationState, GameObjectKind, PawnInputKind};
 
+/// Server -> Client message to spawn some object
+/// with some position, rotation, and velocity
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
     pub net_id: NetworkID,
@@ -14,15 +15,6 @@ pub struct SpawnCommand {
     /// do we actually need this?
     pub server_tick: u64,
     pub kind: GameObjectKind,
-    /// True only for the single recipient that owns/possesses this object.
-    /// let's refactor this so that Owner is a NetworkID
-    pub owned: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct PawnInputMessage {
-    pub input: PawnInput,
-    pub tick: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -34,11 +26,14 @@ pub enum MsgType {
     ChatMessage(String, String),
     Ping(String),
     Pong(String),
-    Input(PawnInputMessage),
-    /// collection of BodyStates with corresponding network ids
+    Input(u64, PawnInputKind),
+    /// a collection of BodyStates with corresponding NetworkIDs
+    /// sent from server -> client
     State(SimulationState),
     SpawnCommand(SpawnCommand),
     DespawnCommand(NetworkID),
+    /// Server → Client (Ordered, reliable): take possession of the pawn with this NetworkID.
+    Possess(NetworkID),
     /// Client → Server: request to interact with the entity identified by NetworkID.
     /// Depending on the entity's implementation(s), this could be equipping a weapon,
     /// getting into a vehicle, etc.

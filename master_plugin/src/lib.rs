@@ -12,7 +12,7 @@ use common::NetworkIDResource;
 use common::slow_update::SlowSchedulePlugin;
 use game_objects::planet::PlanetPlugin;
 use game_objects::atmosphere::AtmospherePlugin;
-use game_objects::health::apply_collision_damage;
+use game_objects::health::HealthPlugin;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
@@ -27,8 +27,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(PlanetPlugin);
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
-
-        app.add_systems(FixedUpdate, apply_collision_damage.after(step_physics));
+        app.add_plugins(HealthPlugin);
 
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedLast, increment_tick);

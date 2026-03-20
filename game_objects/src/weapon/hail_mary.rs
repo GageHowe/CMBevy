@@ -4,7 +4,6 @@ use crate::{GameObjectKind, GameObject};
 use crate::health::Health;
 use physics::debug::{draw_collider, rb_iso};
 use common::interaction::Interactable;
-use net::message::SpawnCommand;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullAsset;
 use super::{Weapon, WeaponComponent, PendingHullCollider};
@@ -55,82 +54,57 @@ impl Weapon for HailMaryComponent {
 }
 
 impl GameObject for HailMaryComponent {
-    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
-        let light = commands.spawn((
-            PointLight {
-                intensity: 20000.0,
-                range: 15.0,
-                color: Color::srgb(1.0, 0.6, 0.2),
-                shadows_enabled: false,
-                ..default()
-            },
+    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(SCALE) };
+        let light = world.spawn((
+            PointLight { intensity: 20000.0, range: 15.0, color: Color::srgb(1.0, 0.6, 0.2), shadows_enabled: false, ..default() },
             Transform::from_xyz(0.0, 0.0, -0.6),
             Visibility::Hidden,
         )).id();
-        let entity = commands.spawn((
+        world.entity_mut(entity).insert((
             WeaponComponent,
             HailMaryComponent { muzzle_flash_light: Some(light), ..default() },
             GameObjectKind::HailMary,
             Interactable { range: 2.0 },
             Transform::from(transform),
-        )).id();
-        let rb = RigidBodyBuilder::dynamic()
-            .translation(transform.translation)
-            .angular_damping(2.0)
-            .build();
-        let rb_handle = world.insert_body(entity, rb);
-        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
-        {
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+            cmd.net_id.clone(),
+        ));
+        let rb_handle = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            let rb = RigidBodyBuilder::dynamic().translation(transform.translation).angular_damping(2.0).build();
+            let rb_handle = physics.insert_body(entity, rb);
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
             collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
-        }
-        commands.entity(entity).add_child(light);
-        entity
-    }
-    fn cleanup() {}
-    fn get_rigidbody() -> Option<RigidBody> {
-        Some(RigidBodyBuilder::dynamic().angular_damping(2.0).build())
-    }
-}
-
-impl GameObject for HailMaryProjectileState {
-    fn initialize(transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
-        spawn_projectile(transform.translation, Vec3::NEG_Z, commands, world, DAMAGE, None).0
-    }
-    fn cleanup() {}
-    fn get_rigidbody() -> Option<RigidBody> {
-        Some(RigidBodyBuilder::kinematic_velocity_based().ccd_enabled(true).build())
-    }
-}
-
-pub fn spawn_from_command(
-    cmd: SpawnCommand,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    asset_server: &AssetServer,
-    hull_assets: &Assets<ConvexHullAsset>,
-) -> Entity {
-    let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(SCALE) };
-    let entity = HailMaryComponent::initialize(transform, commands, world);
-    commands.entity(entity).insert((SceneRoot(asset_server.load("models/hail_mary_placeholder_2.glb#Scene0")), Visibility::default(), cmd.net_id));
-    let s = SCALE;
-    let handle = asset_server.load_with_settings(HULL_PATH, move |settings: &mut f32| *settings = s);
-    if let Some(hull) = hull_assets.get(&handle) {
-        if let Some(rb_handle) = world.entity_to_handle.get(&entity).copied() {
-            let existing: Vec<ColliderHandle> = world.rigid_body_set.get(rb_handle)
-                .map(|rb| rb.colliders().to_vec())
-                .unwrap_or_default();
-            for ch in existing {
-                let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
-                collider_set.remove(ch, island_manager, rigid_body_set, true);
+            rb_handle
+        };
+        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        world.entity_mut(entity).add_child(light);
+        #[cfg(feature = "client")]
+        {
+            let s = SCALE;
+            let (scene, handle) = {
+                let server = world.resource::<AssetServer>();
+                (server.load("models/hail_mary_placeholder_2.glb#Scene0"),
+                 server.load_with_settings(HULL_PATH, move |settings: &mut f32| *settings = s))
+            };
+            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+            // swap cuboid for convex hull immediately if already loaded, else defer
+            let hull = world.resource::<Assets<ConvexHullAsset>>().get(&handle).map(|h| h.0.clone());
+            if let Some(hull) = hull {
+                let existing: Vec<ColliderHandle> = world.resource::<PhysicsWorld>()
+                    .rigid_body_set.get(rb_handle).map(|rb| rb.colliders().to_vec()).unwrap_or_default();
+                let mut physics = world.resource_mut::<PhysicsWorld>();
+                for ch in existing {
+                    let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *physics;
+                    collider_set.remove(ch, island_manager, rigid_body_set, true);
+                }
+                let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+                collider_set.insert_with_parent(hull, rb_handle, rigid_body_set);
+            } else {
+                world.entity_mut(entity).insert(PendingHullCollider(handle));
             }
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-            collider_set.insert_with_parent(hull.0.clone(), rb_handle, rigid_body_set);
         }
-    } else {
-        commands.entity(entity).insert(PendingHullCollider(handle));
     }
-    entity
 }
 
 /// Tracks damage and shooter on a live projectile entity.

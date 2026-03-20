@@ -11,7 +11,11 @@ pub fn rb_iso(rb: &RigidBody) -> Isometry3d {
 
 /// Draws a Rapier collider's shape at the given world isometry using Bevy gizmos.
 /// Supports Ball, Capsule, and Cuboid; silently skips unsupported shapes.
+#[cfg(feature = "client")]
 pub fn draw_collider(collider: &Collider, iso: Isometry3d, color: Color, gizmos: &mut Gizmos) {
+
+    // add the debug setting check here in the most simple/efficient/performant way
+
     let shape = collider.shape();
     if let Some(ball) = shape.as_ball() {
         gizmos.sphere(iso, ball.radius, color);

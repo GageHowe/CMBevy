@@ -206,10 +206,21 @@ impl PhysicsWorld {
     }
 }
 
+/// Controls how physics body positions are mapped to Bevy Transforms each frame.
+/// Off: snap to last-tick position. Extrapolate: project forward by overstep. Interpolate: one tick behind, interpolated.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicsInterpMode {
+    Off,
+    Interpolate,
+    #[default]
+    Extrapolate,
+}
+
 pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
+            .init_resource::<PhysicsInterpMode>()
             .add_observer(on_remove_physics_body);
     }
 }
@@ -283,6 +294,38 @@ pub fn restore_snapshot(
             true,
         );
         rb.wake_up(true);
+    }
+}
+
+/// Syncs physics bodies to Bevy transforms every frame, decoupled from the fixed tick.
+/// Register in Update (client-only); for server-side exact sync use sync_physics_to_transforms.
+pub fn sync_physics_visual(
+    world: Res<PhysicsWorld>,
+    time: Res<Time<Fixed>>,
+    interp: Res<PhysicsInterpMode>,
+    mut query: Query<(&RigidBodyHandleComponent, &mut Transform)>,
+) {
+    let overstep = time.overstep_fraction();
+    let fixed_dt = time.delta_secs();
+    let dt_offset = match *interp {
+        PhysicsInterpMode::Off => 0.0,
+        PhysicsInterpMode::Extrapolate => overstep * fixed_dt,
+        PhysicsInterpMode::Interpolate => (overstep - 1.0) * fixed_dt,
+    };
+    for (body_handle, mut transform) in query.iter_mut() {
+        let Some(body) = world.rigid_body_set.get(body_handle.0) else { continue };
+        let pos = body.position();
+        let cur_pos = Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z);
+        let cur_rot = Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w);
+        let linvel = Vec3::new(body.linvel().x, body.linvel().y, body.linvel().z);
+        let angvel = Vec3::new(body.angvel().x, body.angvel().y, body.angvel().z);
+        transform.translation = cur_pos + linvel * dt_offset;
+        let ang_speed = angvel.length();
+        transform.rotation = if ang_speed > 1e-6 {
+            Quat::from_axis_angle(angvel / ang_speed, ang_speed * dt_offset) * cur_rot
+        } else {
+            cur_rot
+        };
     }
 }
 
