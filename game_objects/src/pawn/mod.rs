@@ -16,13 +16,6 @@ pub use biped::{YawPivot, PitchPivot};
 pub use spaceship::SpaceshipPawnComponent;
 pub use common::{BipedInput, SpaceshipInput, PawnInputKind};
 
-// PAWN TRAIT
-
-/// Per-pawn movement logic. Implement on each pawn component.
-pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind);
-}
-
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
@@ -31,18 +24,19 @@ impl Plugin for PawnPlugin {
     }
 }
 
+/// all pawns implement this; defines input and movement
+pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
+    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind);
+}
+
 // CAMERA
 
-/// Runtime mouse sensitivity, set from the Settings resource by SettingsPlugin.
-/// Defaults to 0.002 so the server (which never sets it) doesn't need it at all.
+/// runtime mouse sensitivity, set from the Settings resource by SettingsPlugin. Only needed by client.
 #[derive(Resource)]
 pub struct MouseSensitivity(pub f32);
-
 impl Default for MouseSensitivity {
     fn default() -> Self { Self(0.002) }
 }
-
-// CORE
 
 /// Marks a pawn as possessed and owns its input history for prediction + reconciliation.
 ///

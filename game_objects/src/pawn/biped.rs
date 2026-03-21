@@ -1,6 +1,6 @@
 use crate::{health::Health, GameObject};
 use crate::weapon::{rifle, shotgun, hail_mary};
-use crate::weapon::Weapon;
+use crate::weapon::{Weapon, FireCtx};
 use net::message::NetworkID;
 use physics::physics_world::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
@@ -12,6 +12,32 @@ use rapier3d::prelude::*;
 use super::*;
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
+
+/// Spring-damper recoil + procedural shake + zoom applied on top of gameplay aim.
+/// Placed on the Camera3d entity; unused on the server (never inserted there).
+#[derive(Component)]
+pub struct CameraEffects {
+    pub pitch_offset: f32,
+    /// Pitch velocity impulse (rad/s). Negative = kick up.
+    pub pitch_vel: f32,
+    /// Shake intensity; decays toward zero each frame.
+    pub shake: f32,
+    /// User's base FOV in degrees. Set at possession; updated when settings change.
+    pub base_fov: f32,
+    /// Zoom multiplier for this tick (1.0 = no zoom). Weapons write this; no auto-reset.
+    pub zoom_multiplier: f32,
+    /// Smoothly lerped FOV in degrees, written to Projection each frame.
+    pub current_fov: f32,
+}
+impl Default for CameraEffects {
+    fn default() -> Self {
+        Self { pitch_offset: 0.0, pitch_vel: 0.0, shake: 0.0, base_fov: 90.0, zoom_multiplier: 1.0, current_fov: 90.0 }
+    }
+}
+impl CameraEffects {
+    pub fn add_kick(&mut self, vel: f32) { self.pitch_vel += vel; }
+    pub fn add_shake(&mut self, amount: f32) { self.shake += amount; }
+}
 const CAPSULE_RADIUS:      f32 = 0.3;
 /// half-height of the standing capsule (total height = 2*(0.5+0.3) = 1.6 m)
 const CAPSULE_HALF_HEIGHT: f32 = 0.5;
@@ -121,9 +147,10 @@ impl Plugin for BipedPlugin {
             biped_fire::<shotgun::ShotgunComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
             biped_fire::<hail_mary::HailMaryComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
         ).chain());
-        app.add_systems(PostUpdate, mouse_look
-            .before(TransformSystems::Propagate)
-            .run_if(resource_exists::<AccumulatedMouseMotion>));
+        app.add_systems(PostUpdate, (
+            mouse_look.run_if(resource_exists::<AccumulatedMouseMotion>),
+            apply_camera_effects,
+        ).chain().before(TransformSystems::Propagate));
         app.add_systems(Update, switch_weapon_slot
             .run_if(resource_exists::<AccumulatedMouseScroll>));
         #[cfg(feature = "client")]
@@ -208,6 +235,42 @@ fn mouse_look(
             t.rotation = Quat::from_rotation_x(pivot.pitch);
         }
     }
+}
+
+const KICK_SPRING_K: f32 = 18.0;  // stiffness (rad/s^2 per rad)
+const KICK_DAMPING:  f32 = 0.88;  // velocity multiplier per tick at 60 Hz
+const SHAKE_DECAY:   f32 = 6.0;   // intensity units per second
+const FOV_LERP_SPEED: f32 = 8.0;  // how fast zoom eases in/out
+
+/// Integrates spring recoil, shake, and FOV zoom. Writes Camera3d local Transform and Projection.
+fn apply_camera_effects(
+    time: Res<Time>,
+    mut camera_q: Query<(&mut Transform, &mut CameraEffects, &mut Projection), With<Camera3d>>,
+) {
+    let Ok((mut transform, mut fx, mut proj)) = camera_q.single_mut() else { return };
+    let dt = time.delta_secs();
+
+    // spring toward zero
+    fx.pitch_vel -= KICK_SPRING_K * fx.pitch_offset * dt;
+    fx.pitch_vel *= KICK_DAMPING.powf(dt * 60.0);
+    fx.pitch_offset += fx.pitch_vel * dt;
+
+    // shake decays over time; harmonics approximate random without pulling in rand
+    fx.shake = (fx.shake - SHAKE_DECAY * dt).max(0.0);
+    let t = time.elapsed_secs();
+    let (sp, sy) = if fx.shake > 0.001 {
+        let s = fx.shake * 0.015;
+        (s * (t * 53.1).sin(), s * (t * 37.7).cos())
+    } else {
+        (0.0, 0.0)
+    };
+
+    transform.rotation = Quat::from_euler(EulerRot::XYZ, fx.pitch_offset + sp, sy, 0.0);
+
+    // FOV zoom: target = 2 * atan(tan(base/2) / multiplier) — correct optics
+    let target_fov = ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier).atan().to_degrees() * 2.0;
+    fx.current_fov += (target_fov - fx.current_fov) * (1.0 - (-FOV_LERP_SPEED * dt).exp());
+    if let Projection::Perspective(ref mut p) = *proj { p.fov = fx.current_fov.to_radians(); }
 }
 
 fn switch_weapon_slot(
@@ -402,13 +465,15 @@ pub fn apply_biped_movement(
 #[cfg(feature = "client")]
 fn attach_camera_on_possess(
     bipeds: Query<&BipedPawnComponent, Added<Possessed>>,
-    camera: Query<Entity, With<Camera3d>>,
+    camera: Query<(Entity, &Projection), With<Camera3d>>,
     mut commands: Commands,
 ) {
     let Ok(biped) = bipeds.single() else { return };
-    let Ok(cam) = camera.single() else { return };
+    let Ok((cam, proj)) = camera.single() else { return };
     let Some(pitch_e) = biped.pitch_pivot else { return };
-    commands.entity(cam).insert(Transform::default());
+    // read current projection FOV so CameraEffects starts in sync with settings
+    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
+    commands.entity(cam).insert((Transform::default(), CameraEffects { base_fov, current_fov: base_fov, ..default() }));
     commands.entity(pitch_e).add_child(cam);
 }
 
@@ -442,8 +507,8 @@ fn toggle_flashlight(
     }
 }
 
-/// System: every FixedPreUpdate tick, fires the possessed biped's active weapon if mouse is pressed.
-/// Sends MsgType::Fire when the weapon discharges (for multiplayer).
+/// Forwards input to the possessed biped's active weapon each FixedPreUpdate tick.
+/// All fire logic (projectiles, sound, camera kick, networking) is handled by the weapon.
 pub fn biped_fire<W: Weapon>(
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
@@ -456,32 +521,28 @@ pub fn biped_fire<W: Weapon>(
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
+    mut camera_fx: Query<&mut CameraEffects, With<Camera3d>>,
 ) {
-    // hardcodes fire as left click, bad, this should be handled individually by weapons.
-    let want_fire = !egui_wants.map_or(false, |e| e.wants_any_input()) && mouse.pressed(MouseButton::Left);
+    let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
     let Ok((pawn_entity, slots, biped)) = pawn.single() else { return };
     let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
     let Ok(mut weapon) = weapons.get_mut(weapon_entity) else { return };
     let Some(pitch_e) = biped.pitch_pivot else { return };
     let Ok(gt) = pitch_pivot.get(pitch_e) else { return };
     let (_, rotation, origin) = gt.to_scale_rotation_translation();
-    let aim_dir = rotation * Vec3::NEG_Z;
 
-    if weapon.fixed_update(&mut world, &mut commands, origin, aim_dir, Some(pawn_entity), ticker.tick, want_fire) {
-        if let (Some(sq), Some(event)) = (sound_queue.as_mut(), weapon.fire_sound()) {
-            // shooter velocity for doppler
-            let vel = world.entity_to_handle.get(&pawn_entity)
-                .and_then(|&h| world.rigid_body_set.get(h))
-                .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
-                .unwrap_or(Vec3::ZERO);
-            // own weapon fire is 2D — no spatialization, always sounds centered
-            sq.0.push(crate::sound::SoundRequest { event, position: None, velocity: Vec3::ZERO });
-        }
-
-        // ... wtf? firing should be handled by weapons
-        if let (Some(quic), Ok(net_id)) = (quic.as_mut(), net_ids.get(weapon_entity)) {
-            quic.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
-                      &net::message::MsgType::Fire(net_id.clone(), origin.into(), aim_dir.into(), ticker.tick));
-        }
-    }
+    let mut cam = camera_fx.single_mut().ok();
+    let mut ctx = FireCtx {
+        want_fire:     !blocked && mouse.pressed(MouseButton::Left),
+        want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
+        origin,
+        aim_dir: rotation * Vec3::NEG_Z,
+        shooter: Some(pawn_entity),
+        tick: ticker.tick,
+        net_id: net_ids.get(weapon_entity).ok(),
+        sound: sound_queue.as_deref_mut(),
+        camera: cam.as_deref_mut(),
+        quic: quic.as_deref_mut(),
+    };
+    weapon.fixed_update(&mut world, &mut commands, &mut ctx);
 }

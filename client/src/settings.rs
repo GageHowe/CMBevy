@@ -4,6 +4,7 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use game_objects::pawn::MouseSensitivity;
+use game_objects::pawn::biped::CameraEffects;
 use physics::physics_world::PhysicsInterpMode;
 
 // to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called
@@ -74,6 +75,7 @@ fn apply_settings(
     mut sensitivity: ResMut<MouseSensitivity>,
     mut projection: Query<&mut Projection, With<Camera3d>>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
+    mut cam_effects: Query<&mut CameraEffects, With<Camera3d>>,
 ) {
     sensitivity.0 = settings.mouse_sensitivity;
     if let Ok(mut proj) = projection.single_mut() {
@@ -81,6 +83,8 @@ fn apply_settings(
             p.fov = settings.fov.to_radians();
         }
     }
+    // keep CameraEffects base_fov in sync so zoom is always relative to the user's chosen FOV
+    if let Ok(mut fx) = cam_effects.single_mut() { fx.base_fov = settings.fov; }
     *interp_mode = match settings.physics_interp {
         PhysicsInterp::Off => PhysicsInterpMode::Off,
         PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,

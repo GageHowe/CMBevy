@@ -3,7 +3,7 @@ use crate::{GameObjectKind, GameObject};
 use common::interaction::Interactable;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
-use super::{Weapon, WeaponComponent};
+use super::{Weapon, WeaponComponent, FireCtx};
 
 pub const RANGE: f32 = 25.0;
 /// Total damage split evenly across all pellets on a direct hit.
@@ -24,13 +24,16 @@ pub struct ShotgunComponent {
 }
 
 impl Weapon for ShotgunComponent {
-    fn fixed_update(&mut self, _world: &mut PhysicsWorld, _commands: &mut Commands, _origin: Vec3, _aim_dir: Vec3, _shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
-        if want_fire { self.fire_requested = true; }
+    fn fixed_update(&mut self, _world: &mut PhysicsWorld, _commands: &mut Commands, ctx: &mut FireCtx) {
+        if ctx.want_fire { self.fire_requested = true; }
         self.cooldown = self.cooldown.saturating_sub(1);
-        if !self.fire_requested || self.cooldown > 0 { return false; }
+        if !self.fire_requested || self.cooldown > 0 { return; }
         self.cooldown = COOLDOWN_TICKS;
         self.fire_requested = false;
-        true
+        if let (Some(q), Some(id)) = (ctx.quic.as_mut(), ctx.net_id) {
+            q.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
+                   &net::message::MsgType::Fire(id.clone(), ctx.origin.into(), ctx.aim_dir.into(), ctx.tick));
+        }
     }
 }
 

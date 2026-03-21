@@ -6,7 +6,7 @@ use physics::debug::{draw_collider, rb_iso};
 use common::interaction::Interactable;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullAsset;
-use super::{Weapon, WeaponComponent, PendingHullCollider};
+use super::{Weapon, WeaponComponent, PendingHullCollider, FireCtx};
 use crate::sound::SoundEmitter;
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
@@ -42,16 +42,24 @@ pub struct HailMaryComponent {
     pub muzzle_flash_light: Option<Entity>,
 }
 impl Weapon for HailMaryComponent {
-    fn fire_sound(&self) -> Option<&'static str> { Some("event:/SniperShot") }
-    fn fixed_update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, origin: Vec3, aim_dir: Vec3, shooter: Option<Entity>, _tick: u64, want_fire: bool) -> bool {
+    fn fixed_update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, ctx: &mut FireCtx) {
+        // hold right-click to scope in at 5x
+        if let Some(cam) = ctx.camera.as_mut() {
+            cam.zoom_multiplier = if ctx.want_alt_fire { 5.0 } else { 1.0 };
+        }
         self.cooldown = self.cooldown.saturating_sub(1);
-        if want_fire && self.cooldown == 0 { self.fire_requested = true; }
-        if !self.fire_requested { return false; }
+        if ctx.want_fire && self.cooldown == 0 { self.fire_requested = true; }
+        if !self.fire_requested { return; }
         self.cooldown = COOLDOWN_TICKS;
         self.fire_requested = false;
         self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
-        spawn_projectile(origin, aim_dir, commands, world, DAMAGE, shooter);
-        true
+        spawn_projectile(ctx.origin, ctx.aim_dir, commands, world, DAMAGE, ctx.shooter);
+        if let Some(sq) = ctx.sound.as_mut() { sq.0.push(crate::sound::SoundRequest { event: "event:/SniperShot", position: None, velocity: Vec3::ZERO }); }
+        if let Some(cam) = ctx.camera.as_mut() { cam.add_kick(0.5); }
+        if let (Some(q), Some(id)) = (ctx.quic.as_mut(), ctx.net_id) {
+            q.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
+                   &net::message::MsgType::Fire(id.clone(), ctx.origin.into(), ctx.aim_dir.into(), ctx.tick));
+        }
     }
 }
 

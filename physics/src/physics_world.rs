@@ -208,12 +208,14 @@ impl PhysicsWorld {
 
 /// Controls how physics body positions are mapped to Bevy Transforms each frame.
 /// Off: snap to last-tick position. Extrapolate: project forward by overstep. Interpolate: one tick behind, interpolated.
+/// RotationOnly: same as Extrapolate but skips writing translation (e.g. for bodies whose position is owned by the hierarchy).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicsInterpMode {
     Off,
     Interpolate,
-    #[default]
     Extrapolate,
+    #[default]
+    RotationOnly,
 }
 
 pub struct PhysicsPlugin;
@@ -309,7 +311,7 @@ pub fn sync_physics_visual(
     let fixed_dt = time.delta_secs();
     let dt_offset = match *interp {
         PhysicsInterpMode::Off => 0.0,
-        PhysicsInterpMode::Extrapolate => overstep * fixed_dt,
+        PhysicsInterpMode::Extrapolate | PhysicsInterpMode::RotationOnly => overstep * fixed_dt,
         PhysicsInterpMode::Interpolate => (overstep - 1.0) * fixed_dt,
     };
     for (body_handle, mut transform) in query.iter_mut() {
@@ -319,7 +321,9 @@ pub fn sync_physics_visual(
         let cur_rot = Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w);
         let linvel = Vec3::new(body.linvel().x, body.linvel().y, body.linvel().z);
         let angvel = Vec3::new(body.angvel().x, body.angvel().y, body.angvel().z);
-        transform.translation = cur_pos + linvel * dt_offset;
+        if *interp != PhysicsInterpMode::RotationOnly {
+            transform.translation = cur_pos + linvel * dt_offset;
+        }
         let ang_speed = angvel.length();
         transform.rotation = if ang_speed > 1e-6 {
             Quat::from_axis_angle(angvel / ang_speed, ang_speed * dt_offset) * cur_rot
