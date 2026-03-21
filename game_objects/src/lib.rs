@@ -43,7 +43,6 @@ impl Command for SpawnGameObjectCommand {
         match self.cmd.kind {
             GameObjectKind::Biped    => pawn::biped::BipedPawnComponent::spawn(self.entity, &self.cmd, world),
             GameObjectKind::Rifle    => weapon::rifle::RifleComponent::spawn(self.entity, &self.cmd, world),
-            GameObjectKind::Shotgun  => weapon::shotgun::ShotgunComponent::spawn(self.entity, &self.cmd, world),
             GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent::spawn(self.entity, &self.cmd, world),
             _ => { world.entity_mut(self.entity).despawn(); }
         }

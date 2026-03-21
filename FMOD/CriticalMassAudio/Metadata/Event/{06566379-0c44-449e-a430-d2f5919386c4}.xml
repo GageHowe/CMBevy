@@ -59,7 +59,17 @@
 			<destination>{9d8424e5-8cfe-4ed0-8f2f-de1479c16c18}</destination>
 		</relationship>
 	</object>
-	<object class="EventAutomatableProperties" id="{80828807-53c1-43b8-9226-4403c18ed262}" />
+	<object class="EventAutomatableProperties" id="{80828807-53c1-43b8-9226-4403c18ed262}">
+		<property name="dopplerEnabled">
+			<value>true</value>
+		</property>
+		<property name="minimumDistance">
+			<value>0</value>
+		</property>
+		<property name="maximumDistance">
+			<value>100</value>
+		</property>
+	</object>
 	<object class="MarkerTrack" id="{a4bbd235-ede1-45e9-abca-595c86ef3b62}" />
 	<object class="Timeline" id="{0a8c6837-fa52-4c20-bad4-c3220b7485c9}">
 		<property name="isProxyEnabled">
@@ -72,6 +82,9 @@
 		</relationship>
 	</object>
 	<object class="EventMixerMaster" id="{474b785b-b72f-473c-ae83-7b89abd6a62a}">
+		<property name="color">
+			<value>Blue</value>
+		</property>
 		<relationship name="effectChain">
 			<destination>{60f5d8ed-e218-43e4-a297-1ff5b4e61bfe}</destination>
 		</relationship>
@@ -96,7 +109,7 @@
 	<object class="MixerBusEffectChain" id="{60f5d8ed-e218-43e4-a297-1ff5b4e61bfe}">
 		<relationship name="effects">
 			<destination>{f79ad4b5-d7b9-4630-877f-4c4369273603}</destination>
-			<destination>{1370c514-4f97-4de3-a378-323736b56748}</destination>
+			<destination>{f0efe498-c4b1-404a-be90-63f7c927a54d}</destination>
 		</relationship>
 	</object>
 	<object class="MixerBusPanner" id="{cb326d0f-c3d3-4c31-b29a-51824d6f588b}" />
@@ -110,7 +123,7 @@
 	</object>
 	<object class="MixerBusFader" id="{c44a7652-dd27-4322-8ffc-e057d4b381f4}" />
 	<object class="MixerBusFader" id="{f79ad4b5-d7b9-4630-877f-4c4369273603}" />
-	<object class="SpatialiserEffect" id="{1370c514-4f97-4de3-a378-323736b56748}" />
+	<object class="SpatialiserEffect" id="{f0efe498-c4b1-404a-be90-63f7c927a54d}" />
 	<object class="SingleSound" id="{c75eeca6-a6d9-4da2-b885-47ec225b0968}">
 		<relationship name="audioFile">
 			<destination>{b8c9984a-d677-46d6-a153-cc99408cacd1}</destination>

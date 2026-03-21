@@ -17,6 +17,8 @@
   * I prefer simple-looking imperative code over "elegant" functional programming or clever one-liners.
   * We need single-player and multiplayer to work without fuss.
 
+We use make to build the project.
+
 Also see: README.md for project description
 
 ## Permissions

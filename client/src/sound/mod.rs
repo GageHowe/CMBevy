@@ -98,6 +98,7 @@ fn update_instances(
 
 /// Drains SoundQueue and fires one-shot instances: create → set attrs → start → release.
 /// FMOD destroys the instance once it finishes playing.
+/// position: None = 2D event (no 3D attrs needed); position: Some = 3D spatialized.
 fn flush_queue(fmod: Option<Res<FmodStudio>>, mut queue: ResMut<SoundQueue>) {
     let Some(fmod) = fmod else { queue.0.clear(); return };
     for req in queue.0.drain(..) {

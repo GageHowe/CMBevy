@@ -5,7 +5,7 @@
 			<value>SniperReload</value>
 		</property>
 		<property name="outputFormat">
-			<value>1</value>
+			<value>2</value>
 		</property>
 		<relationship name="folder">
 			<destination>{8b4a0e46-8e3e-4d5c-baf8-f43c23cae9de}</destination>
@@ -59,7 +59,11 @@
 			<destination>{9d8424e5-8cfe-4ed0-8f2f-de1479c16c18}</destination>
 		</relationship>
 	</object>
-	<object class="EventAutomatableProperties" id="{582249ce-e682-4694-bff4-10bb76189eb3}" />
+	<object class="EventAutomatableProperties" id="{582249ce-e682-4694-bff4-10bb76189eb3}">
+		<property name="dopplerEnabled">
+			<value>true</value>
+		</property>
+	</object>
 	<object class="MarkerTrack" id="{e9dfb36b-e014-4c68-a168-0c73ad63faaf}" />
 	<object class="Timeline" id="{c897ff94-b789-4d1d-bb78-7b75da6388e3}">
 		<property name="isProxyEnabled">
@@ -96,6 +100,7 @@
 	<object class="MixerBusEffectChain" id="{a07f643c-f60c-4989-879c-845af87066dc}">
 		<relationship name="effects">
 			<destination>{dc767103-89f0-4fe0-9d55-49e391d0343d}</destination>
+			<destination>{c42bee88-ccbc-48e3-9476-129fe0b0be86}</destination>
 		</relationship>
 	</object>
 	<object class="MixerBusPanner" id="{5051abbd-e82f-4064-b8d0-0436d3a04ac2}" />
@@ -107,6 +112,7 @@
 	</object>
 	<object class="MixerBusFader" id="{f9a429b4-9f50-4fad-bb27-be172b8e5adc}" />
 	<object class="MixerBusFader" id="{dc767103-89f0-4fe0-9d55-49e391d0343d}" />
+	<object class="SpatialiserEffect" id="{c42bee88-ccbc-48e3-9476-129fe0b0be86}" />
 	<object class="SingleSound" id="{7847d050-8d92-4bf3-9aa8-d40d1fb7e7b0}">
 		<relationship name="audioFile">
 			<destination>{99ec0ebf-1f5c-47de-91d7-179809defa6b}</destination>

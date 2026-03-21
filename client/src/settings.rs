@@ -4,7 +4,7 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use game_objects::pawn::MouseSensitivity;
-use game_objects::pawn::biped::CameraEffects;
+use game_objects::pawn::CameraEffects;
 use physics::physics_world::PhysicsInterpMode;
 
 // to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called

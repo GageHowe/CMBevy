@@ -20,7 +20,7 @@ use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 use common::interaction::Interactable;
 use game_objects::SpawnGameObjectCommand;
-use game_objects::weapon::{hail_mary, WeaponPlugin};
+use game_objects::weapon::{hail_mary, rifle, WeaponPlugin, RemoteFireQueue};
 use game_objects::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -201,7 +201,7 @@ fn main() {
     app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(Update, spawn_scene_weapons_sp.run_if(in_state(GameState::SinglePlayer)));
     app.add_systems(Update, draw_planet_radii.run_if(debug_render_on));
-    app.add_systems(FixedUpdate, hail_mary::draw_projectile_debug
+    app.add_systems(FixedUpdate, (hail_mary::draw_projectile_debug, rifle::draw_projectile_debug)
         .after(step_physics)
         .run_if(debug_render_on)
         .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
@@ -343,6 +343,7 @@ fn on_message(
     camera: Query<Entity, With<Camera3d>>,
     // pitch_pivot_q: Query<Entity, With<PitchPivot>>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut queue: ResMut<RemoteFireQueue>,
 ) {
     // tracks entities spawned this on_message call (before commands flush)
     // (entity, server_tick) so Possess can sync the client ticker
@@ -460,8 +461,11 @@ fn on_message(
             MsgType::HitResult(origin, end, _hit_net_id) => {
                 hit_beams.0.push((origin.into(), end.into(), 0.3));
             }
-            MsgType::Fire(_, origin, velocity, _tick) => {
-                hail_mary::spawn_projectile(Vec3::from(origin), Vec3::from(velocity), &mut sp.commands, &mut world, 0.0, None);
+            MsgType::RifleFire { weapon, shooter, origin, dir, tick } => {
+                queue.rifle.push((weapon, shooter, origin, dir, tick));
+            }
+            MsgType::HailMaryFire { weapon, shooter, origin, dir, tick, zoomed } => {
+                queue.hail_mary.push((weapon, shooter, origin, dir, tick, zoomed));
             }
             MsgType::HealthUpdate(net_id, current) => {
                 for (nid, mut health) in health_q.iter_mut() {

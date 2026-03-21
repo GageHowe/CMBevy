@@ -1,7 +1,10 @@
 // generic.rs — spawns arbitrary physics objects with an optional mesh and network ID.
 use bevy::prelude::*;
 use rapier3d::prelude::*;
-use crate::weapon::PendingHullCollider;
+/// Attached to an entity when its convex hull collider is still loading.
+/// Processed by `swap_hull_collider` in generic.rs once the asset is ready.
+#[derive(bevy::prelude::Component)]
+pub struct PendingHullCollider(pub bevy::asset::Handle<physics::convex_hull_asset::ConvexHullAsset>);
 use common::NetworkID;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::*;

@@ -1,5 +1,5 @@
 use crate::{health::Health, GameObject};
-use crate::weapon::{rifle, shotgun, hail_mary};
+use crate::weapon::{rifle, hail_mary};
 use crate::weapon::{Weapon, FireCtx};
 use net::message::NetworkID;
 use physics::physics_world::*;
@@ -13,31 +13,7 @@ use super::*;
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
-/// Spring-damper recoil + procedural shake + zoom applied on top of gameplay aim.
-/// Placed on the Camera3d entity; unused on the server (never inserted there).
-#[derive(Component)]
-pub struct CameraEffects {
-    pub pitch_offset: f32,
-    /// Pitch velocity impulse (rad/s). Negative = kick up.
-    pub pitch_vel: f32,
-    /// Shake intensity; decays toward zero each frame.
-    pub shake: f32,
-    /// User's base FOV in degrees. Set at possession; updated when settings change.
-    pub base_fov: f32,
-    /// Zoom multiplier for this tick (1.0 = no zoom). Weapons write this; no auto-reset.
-    pub zoom_multiplier: f32,
-    /// Smoothly lerped FOV in degrees, written to Projection each frame.
-    pub current_fov: f32,
-}
-impl Default for CameraEffects {
-    fn default() -> Self {
-        Self { pitch_offset: 0.0, pitch_vel: 0.0, shake: 0.0, base_fov: 90.0, zoom_multiplier: 1.0, current_fov: 90.0 }
-    }
-}
-impl CameraEffects {
-    pub fn add_kick(&mut self, vel: f32) { self.pitch_vel += vel; }
-    pub fn add_shake(&mut self, amount: f32) { self.shake += amount; }
-}
+use super::CameraEffects;
 const CAPSULE_RADIUS:      f32 = 0.3;
 /// half-height of the standing capsule (total height = 2*(0.5+0.3) = 1.6 m)
 const CAPSULE_HALF_HEIGHT: f32 = 0.5;
@@ -107,7 +83,8 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
-            let mesh = world.resource_mut::<Assets<Mesh>>().add(bevy::math::primitives::Capsule3d::new(0.3, 1.0));
+            // placeholder — matches physics capsule dimensions exactly; swap for a real model later
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(bevy::math::primitives::Capsule3d::new(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT));
             let material = world.resource_mut::<Assets<StandardMaterial>>().add(Color::srgb(0.9, 0.4, 0.1));
             world.entity_mut(entity).insert((Mesh3d(mesh), MeshMaterial3d(material), Visibility::default()));
             let light = world.spawn((
@@ -144,7 +121,6 @@ impl Plugin for BipedPlugin {
                 .in_set(GatherInputSet),
             move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
             biped_fire::<rifle::RifleComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
-            biped_fire::<shotgun::ShotgunComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
             biped_fire::<hail_mary::HailMaryComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
         ).chain());
         app.add_systems(PostUpdate, (
@@ -237,12 +213,11 @@ fn mouse_look(
     }
 }
 
-const KICK_SPRING_K: f32 = 18.0;  // stiffness (rad/s^2 per rad)
-const KICK_DAMPING:  f32 = 0.88;  // velocity multiplier per tick at 60 Hz
+const KICK_DAMPING: f32 = 0.88;  // velocity multiplier per tick at 60 Hz
 const SHAKE_DECAY:   f32 = 6.0;   // intensity units per second
 const FOV_LERP_SPEED: f32 = 8.0;  // how fast zoom eases in/out
 
-/// Integrates spring recoil, shake, and FOV zoom. Writes Camera3d local Transform and Projection.
+/// Integrates recoil, shake, and FOV zoom. Writes Camera3d local Transform and Projection.
 fn apply_camera_effects(
     time: Res<Time>,
     mut camera_q: Query<(&mut Transform, &mut CameraEffects, &mut Projection), With<Camera3d>>,
@@ -250,10 +225,13 @@ fn apply_camera_effects(
     let Ok((mut transform, mut fx, mut proj)) = camera_q.single_mut() else { return };
     let dt = time.delta_secs();
 
-    // spring toward zero
-    fx.pitch_vel -= KICK_SPRING_K * fx.pitch_offset * dt;
-    fx.pitch_vel *= KICK_DAMPING.powf(dt * 60.0);
-    fx.pitch_offset += fx.pitch_vel * dt;
+    // velocity contributes to offset, then both decay — no spring force so no overshoot
+    let damp = KICK_DAMPING.powf(dt * 60.0);
+    let decay = (-fx.recovery_speed * dt).exp();
+    fx.pitch_vel *= damp;
+    fx.pitch_offset = (fx.pitch_offset + fx.pitch_vel * dt) * decay;
+    fx.yaw_vel *= damp;
+    fx.yaw_offset = (fx.yaw_offset + fx.yaw_vel * dt) * decay;
 
     // shake decays over time; harmonics approximate random without pulling in rand
     fx.shake = (fx.shake - SHAKE_DECAY * dt).max(0.0);
@@ -265,7 +243,7 @@ fn apply_camera_effects(
         (0.0, 0.0)
     };
 
-    transform.rotation = Quat::from_euler(EulerRot::XYZ, fx.pitch_offset + sp, sy, 0.0);
+    transform.rotation = Quat::from_euler(EulerRot::XYZ, fx.pitch_offset + sp, fx.yaw_offset + sy, 0.0);
 
     // FOV zoom: target = 2 * atan(tan(base/2) / multiplier) — correct optics
     let target_fov = ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier).atan().to_degrees() * 2.0;
@@ -521,27 +499,30 @@ pub fn biped_fire<W: Weapon>(
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
-    mut camera_fx: Query<&mut CameraEffects, With<Camera3d>>,
+    mut camera_fx: Query<(&mut CameraEffects, &GlobalTransform), With<Camera3d>>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
     let Ok((pawn_entity, slots, biped)) = pawn.single() else { return };
     let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
     let Ok(mut weapon) = weapons.get_mut(weapon_entity) else { return };
     let Some(pitch_e) = biped.pitch_pivot else { return };
-    let Ok(gt) = pitch_pivot.get(pitch_e) else { return };
-    let (_, rotation, origin) = gt.to_scale_rotation_translation();
+    let Ok(pivot_gt) = pitch_pivot.get(pitch_e) else { return };
+    let (_, _, origin) = pivot_gt.to_scale_rotation_translation();
 
-    let mut cam = camera_fx.single_mut().ok();
+    // use camera's GlobalTransform for aim so kick offsets affect projectile direction
+    let Ok((mut cam_fx, cam_gt)) = camera_fx.single_mut() else { return };
+    let (_, cam_rot, _) = cam_gt.to_scale_rotation_translation();
     let mut ctx = FireCtx {
         want_fire:     !blocked && mouse.pressed(MouseButton::Left),
         want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
         origin,
-        aim_dir: rotation * Vec3::NEG_Z,
+        aim_dir: cam_rot * Vec3::NEG_Z,
         shooter: Some(pawn_entity),
         tick: ticker.tick,
         net_id: net_ids.get(weapon_entity).ok(),
+        shooter_net_id: net_ids.get(pawn_entity).ok(),
         sound: sound_queue.as_deref_mut(),
-        camera: cam.as_deref_mut(),
+        camera: Some(&mut *cam_fx),
         quic: quic.as_deref_mut(),
     };
     weapon.fixed_update(&mut world, &mut commands, &mut ctx);

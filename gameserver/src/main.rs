@@ -18,7 +18,7 @@ use game_objects::pawn::{biped, spaceship};
 use game_objects::pawn::{BipedPawnComponent, SpaceshipPawnComponent};
 use game_objects::SpawnGameObjectCommand;
 use game_objects::health::{Health, handle_deaths};
-use game_objects::weapon::{rifle, shotgun, hail_mary, WeaponPlugin};
+use game_objects::weapon::{rifle, hail_mary, WeaponPlugin};
 use game_objects::pawn::biped::WeaponSlots;
 use common::debug_println;
 use game_objects::level::{LevelPlugin, LevelBytes, SpawnPoint, read_and_compress_level};
@@ -283,14 +283,6 @@ fn kill_player (
     quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(net_id));
 }
 
-#[derive(bevy::ecs::system::SystemParam)]
-struct HitscanParams<'w, 's> {
-    networked: Query<'w, 's, (Entity, &'static NetworkID)>,
-    body_query: Query<'w, 's, (&'static NetworkID, &'static RigidBodyHandleComponent)>,
-    health_q: Query<'w, 's, (&'static mut Health, &'static NetworkID)>,
-    history: Res<'w, BodyHistory>,
-}
-
 fn on_message(
     mut quic: ResMut<QuicManager>,
     script_config: Option<Res<ScriptConfig>>,
@@ -307,7 +299,6 @@ fn on_message(
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
     mut spaceships: Query<&mut SpaceshipPawnComponent>,
-    mut hs: HitscanParams,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -448,53 +439,25 @@ fn on_message(
                         &MsgType::WeaponPickup(target_net_id, player_net_id));
                 }
             }
-            MsgType::Fire(weapon_net_id, origin, direction, fire_tick) => {
+            MsgType::RifleFire { weapon: weapon_net_id, shooter: _, origin, dir, tick: fire_tick } => {
                 let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else { continue };
-                let weapon_entity = match weapon_registry.held.get(&weapon_net_id) {
-                    Some(&(we, carrier)) if carrier == shooter_entity => we,
-                    _ => continue,
-                };
-                let dir_v = Vec3::from(direction).normalize_or_zero();
-                let origin_v: Vec3 = origin.into();
+                if !weapon_registry.held.get(&weapon_net_id).map(|&(_, c)| c == shooter_entity).unwrap_or(false) { continue; }
+                let dir_v = dir.normalize_or_zero();
                 if dir_v == Vec3::ZERO { continue; }
-
-                let is_hailmary_projectile = weapon_kinds.get(weapon_entity).map(|k| matches!(k, GameObjectKind::HailMary)).unwrap_or(false);
-                if is_hailmary_projectile {
-                    // spawn projectile physics body on server for authoritative hit detection
-                    hail_mary::spawn_projectile(origin_v, dir_v, &mut commands, &mut world, hail_mary::DAMAGE, Some(shooter_entity));
-                    quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered, &MsgType::Fire(weapon_net_id, origin, direction, fire_tick));
-                } else {
-                    // Hitscan: lag-comp raycast inline.
-                    let pairs: Vec<(NetworkID, RigidBodyHandle)> = hs.body_query.iter()
-                        .map(|(nid, rbh)| (nid.clone(), rbh.0))
-                        .collect();
-                    let current = snapshot_bodies(&world, tick.tick, hs.body_query.iter());
-                    if let Some(historical) = hs.history.0.get(&fire_tick) {
-                        restore_snapshot(&mut world, historical, &pairs);
-                    }
-                    let (range, damage) = match weapon_kinds.get(weapon_entity) {
-                        Ok(GameObjectKind::Rifle)   => (rifle::RANGE, rifle::DAMAGE),
-                        Ok(GameObjectKind::Shotgun) => (shotgun::RANGE, shotgun::DAMAGE),
-                        _ => { restore_snapshot(&mut world, &current, &pairs); continue; }
-                    };
-                    let hit = world.cast_ray(origin_v, dir_v, range, Some(shooter_entity));
-                    restore_snapshot(&mut world, &current, &pairs);
-                    let (end, hit_net_id) = match hit {
-                        Some((hit_entity, toi)) => {
-                            let hit_net_id = hs.networked.iter().find(|(e, _)| *e == hit_entity).map(|(_, nid)| nid.clone());
-                            (origin_v + dir_v * toi, hit_net_id)
-                        }
-                        None => (origin_v + dir_v * range, None),
-                    };
-                    quic.send(SendTarget::All, Channel::Unreliable,
-                        &MsgType::HitResult(origin_v.into(), end.into(), hit_net_id.clone()));
-                    // damage only; handle_deaths handles kill logic via Changed<Health>
-                    if let Some(hit_nid) = hit_net_id {
-                        if let Some((mut health, _)) = hs.health_q.iter_mut().find(|(_, nid)| **nid == hit_nid) {
-                            health.apply_damage(damage);
-                        }
-                    }
-                }
+                // spawn authoritative projectile on server for hit detection
+                rifle::spawn_rifle_projectile(origin, dir_v, &mut commands, &mut world, Some(shooter_entity));
+                quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered,
+                    &MsgType::RifleFire { weapon: weapon_net_id, shooter: registry.0[&msg.conn_id].1.clone(), origin, dir: dir_v, tick: fire_tick });
+            }
+            MsgType::HailMaryFire { weapon: weapon_net_id, shooter: _, origin, dir, tick: fire_tick, zoomed } => {
+                let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else { continue };
+                if !weapon_registry.held.get(&weapon_net_id).map(|&(_, c)| c == shooter_entity).unwrap_or(false) { continue; }
+                let dir_v = dir.normalize_or_zero();
+                if dir_v == Vec3::ZERO { continue; }
+                // spawn authoritative projectile on server for hit detection
+                hail_mary::spawn_projectile(origin, dir_v, &mut commands, &mut world, Some(shooter_entity));
+                quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered,
+                    &MsgType::HailMaryFire { weapon: weapon_net_id, shooter: registry.0[&msg.conn_id].1.clone(), origin, dir: dir_v, tick: fire_tick, zoomed });
             }
             MsgType::TimePing(bits) => {
                 quic.send(SendTarget::One(msg.conn_id), Channel::Unreliable, &MsgType::TimePong(bits));
