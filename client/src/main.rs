@@ -69,7 +69,7 @@ use game_objects::health::Health;
 use master_plugin::MasterPlugin;
 use game_objects::level::{LevelPlugin, cleanup_level, load_level_scene, apply_pending_map_scene, PendingMapScene, MapMeta, LevelSceneRoot};
 use game_objects::planet::draw_planet_radii;
-use game_objects::pawn::biped::draw_biped_debug;
+// use game_objects::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
 use ui::ui::GuiState;
 mod settings;
 mod steam;
@@ -195,14 +195,15 @@ fn main() {
 
     app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
     app.add_systems(Update, draw_hit_beams);
-    app.add_systems(Update, draw_server_state.run_if(in_state(GameState::Multiplayer)));
+    app.add_systems(Update, draw_server_state.run_if(debug_render_on).run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
-    app.add_systems(Update, draw_planet_radii);
-    app.add_systems(Update, draw_biped_debug);
+    app.add_systems(Update, spawn_scene_weapons_sp.run_if(in_state(GameState::SinglePlayer)));
+    app.add_systems(Update, draw_planet_radii.run_if(debug_render_on));
     app.add_systems(FixedUpdate, hail_mary::draw_projectile_debug
         .after(step_physics)
+        .run_if(debug_render_on)
         .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
     debug_println!("starting client...\n");
@@ -236,11 +237,43 @@ fn load_skybox(
     camera: Query<Entity, With<Camera3d>>,
 ) {
     let (Some(path), Ok(cam)) = (&meta.skybox, camera.single()) else { return };
-    commands.entity(cam).insert(Skybox {
-        image: asset_server.load(path.clone()),
-        brightness: meta.skybox_brightness,
-        ..default()
-    });
+    let image: Handle<Image> = asset_server.load(path.clone());
+    commands.entity(cam).insert((
+        Skybox { image: image.clone(), brightness: meta.skybox_brightness, ..default() },
+        EnvironmentMapLight {
+            diffuse_map: image.clone(),
+            specular_map: image,
+            intensity: meta.env_light_intensity,
+            affects_lightmapped_mesh_diffuse: true,
+            ..default()
+        },
+    ));
+}
+
+/// Spawns weapons placed in the level scene for single player.
+/// In multiplayer the server handles this via spawn_scene_weapons.
+fn spawn_scene_weapons_sp(
+    query: Query<(Entity, &GameObjectKind, &Transform), (Added<GameObjectKind>, Without<NetworkID>)>,
+    mut commands: Commands,
+    mut net_ids: ResMut<NetworkIDResource>,
+) {
+    for (scene_entity, kind, transform) in query.iter() {
+        match kind {
+            GameObjectKind::Rifle | GameObjectKind::Shotgun | GameObjectKind::HailMary => {}
+            _ => { commands.entity(scene_entity).despawn(); continue; }
+        }
+        let net_id = NetworkID(net_ids.next());
+        let entity = commands.spawn_empty().id();
+        commands.queue(SpawnGameObjectCommand { entity, cmd: SpawnCommand {
+            net_id,
+            position: transform.translation,
+            rotation: transform.rotation,
+            starting_velocity: Vec3::ZERO,
+            server_tick: 0,
+            kind: kind.clone(),
+        }});
+        commands.entity(scene_entity).despawn();
+    }
 }
 
 fn cleanup_world(
@@ -524,6 +557,8 @@ fn draw_hit_beams(
         *remaining > 0.0
     });
 }
+
+fn debug_render_on(s: Res<Settings>) -> bool { s.debug_render }
 
 fn nearest_interactable(
     player_pos: Vec3,

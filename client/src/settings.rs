@@ -3,18 +3,27 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 use std::fs;
-// use serde::
-
 use game_objects::pawn::MouseSensitivity;
 use physics::physics_world::PhysicsInterpMode;
 
+// to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called
 const SETTINGS_FILE: &str = "settings.toml";
+
+pub struct SettingsPlugin;
+impl Plugin for SettingsPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_type::<Settings>()
+            .add_systems(Startup, load_settings)
+            .add_systems(PostUpdate, apply_settings.run_if(resource_changed::<Settings>))
+            .add_systems(PostUpdate, save_settings.run_if(resource_changed::<Settings>));
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
 pub enum PhysicsInterp {
     Off,
-    Interpolate,
     #[default]
+    Interpolate,
     Extrapolate,
 }
 
@@ -24,6 +33,7 @@ pub struct Settings {
     pub mouse_sensitivity: f32,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
+    pub debug_render: bool,
 }
 
 impl Default for Settings {
@@ -32,11 +42,10 @@ impl Default for Settings {
             mouse_sensitivity: 0.002,
             fov: 90.0,
             physics_interp: PhysicsInterp::Extrapolate,
+            debug_render: false,
         }
     }
 }
-
-// to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called
 
 fn load_settings(mut commands: Commands) {
     // todo: change this to the app install directory
@@ -60,36 +69,33 @@ fn load_settings(mut commands: Commands) {
     commands.insert_resource(settings);
 }
 
-fn change_settings(
+fn apply_settings(
     settings: Res<Settings>,
     mut sensitivity: ResMut<MouseSensitivity>,
     mut projection: Query<&mut Projection, With<Camera3d>>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
 ) {
-    if settings.is_changed() {
-        sensitivity.0 = settings.mouse_sensitivity;
-        if let Ok(mut proj) = projection.single_mut() {
-            if let Projection::Perspective(ref mut p) = *proj {
-                p.fov = settings.fov.to_radians();
-            }
-        }
-        *interp_mode = match settings.physics_interp {
-            PhysicsInterp::Off => PhysicsInterpMode::Off,
-            PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
-            PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
-        };
-        if !settings.is_added() {
-            save_settings(&settings);
+    sensitivity.0 = settings.mouse_sensitivity;
+    if let Ok(mut proj) = projection.single_mut() {
+        if let Projection::Perspective(ref mut p) = *proj {
+            p.fov = settings.fov.to_radians();
         }
     }
+    *interp_mode = match settings.physics_interp {
+        PhysicsInterp::Off => PhysicsInterpMode::Off,
+        PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
+        PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
+    };
 }
 
-fn save_settings(settings: &Settings) {
+// skip the first run since load_settings already wrote the file (or it already existed)
+fn save_settings(settings: Res<Settings>) {
+    if settings.is_added() { return; }
     let path = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("CMBevy")
         .join(SETTINGS_FILE);
-    if let Ok(s) = toml::to_string_pretty(settings) {
+    if let Ok(s) = toml::to_string_pretty(&*settings) {
         fs::write(path, s).ok();
     }
 }
@@ -121,16 +127,6 @@ pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings) {
         ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Interpolate, "Interpolate");
         ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Extrapolate, "Extrapolate");
     });
-}
 
-// ── Plugin ────────────────────────────────────────────────────────────────────
-
-pub struct SettingsPlugin;
-
-impl Plugin for SettingsPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_type::<Settings>()
-            .add_systems(Startup, load_settings)
-            .add_systems(PostUpdate, change_settings);
-    }
+    ui.checkbox(&mut settings.debug_render, "Debug rendering");
 }

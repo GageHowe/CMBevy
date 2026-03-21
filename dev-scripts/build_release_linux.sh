@@ -10,7 +10,7 @@ DIST_DIR="$REPO_ROOT/dist/linux"
 
 echo "Building release binaries..."
 cd "$REPO_ROOT"
-cargo build --release --bin client --bin gameserver
+make build-release
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/assets"

@@ -27,7 +27,7 @@ impl BodyError {
     }
 }
 
-/// Accumulated per-body physics errors, exponentially drained each tick.
+/// accumulated per-body physics errors, exponentially drained each tick.
 #[derive(Resource, Default)]
 pub struct PhysicsErrors(HashMap<NetworkID, BodyError>);
 

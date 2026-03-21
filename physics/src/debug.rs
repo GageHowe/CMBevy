@@ -1,6 +1,7 @@
 use bevy::math::primitives::Cuboid as BevyCuboid;
 use bevy::prelude::*;
 use rapier3d::prelude::*;
+use common::debug_println;
 
 /// Extracts a Bevy Isometry3d from a Rapier rigid body's current position.
 pub fn rb_iso(rb: &RigidBody) -> Isometry3d {
@@ -11,10 +12,8 @@ pub fn rb_iso(rb: &RigidBody) -> Isometry3d {
 
 /// Draws a Rapier collider's shape at the given world isometry using Bevy gizmos.
 /// Supports Ball, Capsule, and Cuboid; silently skips unsupported shapes.
-#[cfg(feature = "client")]
+/// Gate the calling system with debug_render_on (or equivalent) rather than checking here.
 pub fn draw_collider(collider: &Collider, iso: Isometry3d, color: Color, gizmos: &mut Gizmos) {
-
-    // add the debug setting check here in the most simple/efficient/performant way
 
     let shape = collider.shape();
     if let Some(ball) = shape.as_ball() {
@@ -24,5 +23,7 @@ pub fn draw_collider(collider: &Collider, iso: Isometry3d, color: Color, gizmos:
     } else if let Some(cub) = shape.as_cuboid() {
         let he = cub.half_extents;
         gizmos.primitive_3d(&BevyCuboid::new(he.x * 2.0, he.y * 2.0, he.z * 2.0), iso, color);
+    } else {
+        debug_println!("draw_collider: No matching type!")
     }
 }

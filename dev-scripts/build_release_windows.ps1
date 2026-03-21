@@ -13,10 +13,9 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $DistDir = "$RepoRoot\dist\windows"
 
-Write-Host "Building release binaries..."
 Push-Location $RepoRoot
-cargo build --release --bin client --bin gameserver
-if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+make build-release
+if ($LASTEXITCODE -ne 0) { throw "make build-release failed" }
 Pop-Location
 
 if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }

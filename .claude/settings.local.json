@@ -50,7 +50,12 @@
       "Bash(cd:*)",
       "Bash(cargo clean:*)",
       "WebFetch(domain:taintedcoders.com)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cargo +nightly metadata --format-version 1)",
+      "Bash(cargo --version)",
+      "Bash(rustc --version)",
+      "Bash(cargo metadata:*)",
+      "Bash(del C:/Users/howeg/Downloads/CMBevy/justfile)"
     ],
     "deny": []
   }

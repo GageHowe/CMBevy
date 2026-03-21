@@ -46,7 +46,10 @@ pub struct MapMeta {
     pub scene_scale: Vec3,
     /// Optional cubemap path (e.g. KTX2) for the skybox. Client-only.
     pub skybox: Option<String>,
+    /// Rendered skybox background brightness.
     pub skybox_brightness: f32,
+    /// EnvironmentMapLight intensity (scene PBR lighting from the skybox). Client-only.
+    pub env_light_intensity: f32,
 }
 
 // ── scene-root marker ─────────────────────────────────────────────────────────
