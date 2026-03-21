@@ -1,6 +1,10 @@
 CLIENT_FEATURES := --features game_objects/client
 
-.PHONY: server client server-release client-release build build-release check
+.PHONY: default server client server-release client-release build build-release check
+
+default:
+	cargo build --bin gameserver
+	cargo build --bin client $(CLIENT_FEATURES)
 
 server:
 	cargo run --bin gameserver

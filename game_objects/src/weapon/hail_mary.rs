@@ -26,6 +26,8 @@ impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, tick_projectile_hits.after(step_physics));
         app.add_systems(FixedUpdate, tick_muzzle_flash);
+        #[cfg(feature = "client")]
+        app.add_systems(Update, add_projectile_visual);
     }
 }
 
@@ -224,6 +226,26 @@ pub fn tick_muzzle_flash(
                 *vis = Visibility::Hidden;
             }
         }
+    }
+}
+
+/// Adds a visible sphere mesh to newly spawned projectile entities (client-only).
+#[cfg(feature = "client")]
+fn add_projectile_visual(
+    q: Query<Entity, Added<HailMaryProjectileState>>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for entity in &q {
+        let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.08));
+        let mat = materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 0.5, 0.0),
+            emissive: LinearRgba::new(4.0, 2.0, 0.0, 1.0),
+            unlit: true,
+            ..default()
+        });
+        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }
 

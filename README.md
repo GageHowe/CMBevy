@@ -4,12 +4,14 @@
 TODO: https://claude.ai/chat/3c747893-7084-41b4-9b23-757215f1fc80
 
 To run:
-* Server: `cargo run --bin gameserver`
-* Client: `cargo run --bin client`
+* Server: `make server`
+* Client: `make client`
 
 To build release:
-* `cargo build --release --bin gameserver`
-* `cargo build --release --bin client`
+* `make server-release`
+* `make client-release`
+
+Or, just run dev-scripts/build_release_windows.ps1 and the build will appear in dist/
 
 ## Implementation inspiration
 

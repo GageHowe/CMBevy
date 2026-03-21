@@ -260,7 +260,8 @@ fn spawn_scene_weapons_sp(
     for (scene_entity, kind, transform) in query.iter() {
         match kind {
             GameObjectKind::Rifle | GameObjectKind::Shotgun | GameObjectKind::HailMary => {}
-            _ => { commands.entity(scene_entity).despawn(); continue; }
+            // not a scene-placed weapon; leave it alone (avoid despawning runtime-spawned entities like projectiles)
+            _ => continue,
         }
         let net_id = NetworkID(net_ids.next());
         let entity = commands.spawn_empty().id();

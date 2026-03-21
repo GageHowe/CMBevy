@@ -1,3 +1,3 @@
 # FMOD
 
-FMOD project folder
+FMOD project folder. Build directory is set to assets/fmod-out.

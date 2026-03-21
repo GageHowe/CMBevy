@@ -237,7 +237,6 @@ pub struct WeaponSlots {
     pub active: usize,
 }
 
-
 #[cfg(feature = "client")]
 pub fn draw_biped_debug(
     world: Res<PhysicsWorld>,

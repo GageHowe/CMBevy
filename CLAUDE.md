@@ -15,6 +15,7 @@
   * Do NOT fundamentally change how things work without asking me first.
   * When you add or change things, leave comments justifying why.
   * I prefer simple-looking imperative code over "elegant" functional programming or clever one-liners.
+  * We need single-player and multiplayer to work without fuss.
 
 Also see: README.md for project description
 
