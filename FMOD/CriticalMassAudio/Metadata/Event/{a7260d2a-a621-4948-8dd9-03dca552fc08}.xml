@@ -8,7 +8,7 @@
 			<value>2</value>
 		</property>
 		<relationship name="folder">
-			<destination>{8b4a0e46-8e3e-4d5c-baf8-f43c23cae9de}</destination>
+			<destination>{9bc224cd-4955-4a12-b144-c760abbe62da}</destination>
 		</relationship>
 		<relationship name="mixer">
 			<destination>{f19c8b03-cc97-4bd9-85fb-19ec9171d84d}</destination>
@@ -80,7 +80,7 @@
 	</object>
 	<object class="EventMixerMaster" id="{88ba29b9-211d-48fb-8061-74db74535856}">
 		<property name="volume">
-			<value>-5.5</value>
+			<value>-3.5</value>
 		</property>
 		<relationship name="effectChain">
 			<destination>{67d397fe-7aa1-4e61-8d49-cffcb708b1c3}</destination>

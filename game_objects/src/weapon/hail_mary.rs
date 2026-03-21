@@ -59,9 +59,9 @@ impl Weapon for HailMaryComponent {
         if let Some(sq) = ctx.sound.as_mut() {
             // local player: 2D event (no spatialization); remote: 3D at their position
             if ctx.camera.is_some() {
-                sq.0.push(crate::sound::SoundRequest { event: "event:/SniperShotLocal", position: None, velocity: Vec3::ZERO });
+                sq.0.push(crate::sound::SoundRequest { event: "event:/Weapons/SniperShotLocal", position: None, velocity: Vec3::ZERO });
             } else {
-                sq.0.push(crate::sound::SoundRequest { event: "event:/SniperShot", position: Some(ctx.origin), velocity: Vec3::ZERO });
+                sq.0.push(crate::sound::SoundRequest { event: "event:/Weapons/SniperShot", position: Some(ctx.origin), velocity: Vec3::ZERO });
             }
         }
         if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((1.0, 1.0), (-0.1, 0.1), 20.0); }
@@ -138,7 +138,7 @@ pub fn spawn_projectile(
         GameObjectKind::HailMaryProjectile,
         HailMaryProjectileState { shooter, lifetime: PROJECTILE_LIFETIME },
         Transform::from_translation(origin),
-        SoundEmitter { event: "event:/SniperProjectileSound" },
+        SoundEmitter { event: "event:/Weapons/SniperProjectileSound" },
         // GravityScale(0.5),
     )).id();
     let rb = RigidBodyBuilder::kinematic_velocity_based()

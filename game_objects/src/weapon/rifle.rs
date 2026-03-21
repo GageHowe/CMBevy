@@ -39,9 +39,9 @@ impl Weapon for RifleComponent {
         if let Some(sq) = ctx.sound.as_mut() {
             // local player: 2D event (no spatialization); remote: 3D at their position
             if ctx.camera.is_some() {
-                sq.0.push(SoundRequest { event: "event:/RifleShotLocal", position: None, velocity: Vec3::ZERO });
+                sq.0.push(SoundRequest { event: "event:/Weapons/RifleShotLocal", position: None, velocity: Vec3::ZERO });
             } else {
-                sq.0.push(SoundRequest { event: "event:/RifleShot", position: Some(ctx.origin), velocity: Vec3::ZERO });
+                sq.0.push(SoundRequest { event: "event:/Weapons/RifleShot", position: Some(ctx.origin), velocity: Vec3::ZERO });
             }
         }
         if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((1.5, 1.0), (-0.5, 0.5), 10.0); }
