@@ -17,7 +17,7 @@
   * I prefer simple-looking imperative code over "elegant" functional programming or clever one-liners.
   * We need single-player and multiplayer to work without fuss.
 
-We use make to build the project.
+Use make, not cargo to build and test the project.
 
 Also see: README.md for project description
 
@@ -33,7 +33,7 @@ Also see: README.md for project description
   * any Cargo.toml or config.toml
 
 ## random other info
-* We use postcard for encoding, since bincode is dead.
+* We use postcard for encoding.
 * It's probably ok to put modules in `client` if they will absolutely not ever be used or referenced from gameserver. But as a default, put things in common
 * Hitscan weapon input/fire should be handled with bevy mesh raycasts, not rapier.
 * Biped: no special logic except has weapons, and has a Yaw component with a Pitch component which has the Camera attached to it.

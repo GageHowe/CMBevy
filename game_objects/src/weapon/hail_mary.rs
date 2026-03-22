@@ -64,7 +64,7 @@ impl Weapon for HailMaryComponent {
                 sq.0.push(crate::sound::SoundRequest { event: "event:/Weapons/SniperShot", position: Some(ctx.origin), velocity: Vec3::ZERO });
             }
         }
-        if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((1.0, 1.0), (-0.1, 0.1), 20.0); }
+        if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0); }
         if let (Some(q), Some(id), Some(sid)) = (ctx.quic.as_mut(), ctx.net_id, ctx.shooter_net_id) {
             q.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
                    &net::message::MsgType::HailMaryFire { weapon: id.clone(), shooter: sid.clone(), origin: ctx.origin, dir: ctx.aim_dir, tick: ctx.tick, zoomed: ctx.want_alt_fire });

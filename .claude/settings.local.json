@@ -55,7 +55,12 @@
       "Bash(cargo --version)",
       "Bash(rustc --version)",
       "Bash(cargo metadata:*)",
-      "Bash(del C:/Users/howeg/Downloads/CMBevy/justfile)"
+      "Bash(del C:/Users/howeg/Downloads/CMBevy/justfile)",
+      "Bash(xargs -I{} sh -c 'rustdoc --edition 2021 {} 2>/dev/null')",
+      "WebSearch",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(p[''''name''''], p[''''id'''']\\) for p in d[''''packages''''] if p[''''name'''']==''''net'''']\")",
+      "Bash(python -c \"import sys,json; [print\\(json.loads\\(l\\).get\\(''''message'''',{}\\).get\\(''''message'''',''''''''\\)\\) for l in sys.stdin if l.startswith\\(''''{''''\\)]\")",
+      "Bash(make check:*)"
     ],
     "deny": []
   }

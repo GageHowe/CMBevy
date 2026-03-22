@@ -44,7 +44,7 @@ impl Weapon for RifleComponent {
                 sq.0.push(SoundRequest { event: "event:/Weapons/RifleShot", position: Some(ctx.origin), velocity: Vec3::ZERO });
             }
         }
-        if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((1.5, 1.0), (-0.5, 0.5), 10.0); }
+        if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((2.0, 0.5), (-1.0, 1.0), 20.0); }
         if let (Some(q), Some(id), Some(sid)) = (ctx.quic.as_mut(), ctx.net_id, ctx.shooter_net_id) {
             q.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
                    &net::message::MsgType::RifleFire { weapon: id.clone(), shooter: sid.clone(), origin: ctx.origin, dir: ctx.aim_dir, tick: ctx.tick });

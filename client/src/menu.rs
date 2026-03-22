@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use crate::{GameState, UiState, ServerAddr, HostedServer};
+use crate::{GameState, UiState, ServerAddr, HostedServer, SinglePlayerConfig};
 use crate::settings::{show_settings_ui, Settings};
 use common::config::BEACON_URL;
 
@@ -127,6 +127,7 @@ fn main_menu(
     mut next_state: ResMut<NextState<GameState>>,
     mut server_addr: ResMut<ServerAddr>,
     mut hosted: ResMut<HostedServer>,
+    mut sp_config: ResMut<SinglePlayerConfig>,
     mut screen: Local<Screen>,
     mut host: Local<HostState>,
     mut browser: Local<LobbyBrowser>,
@@ -155,14 +156,56 @@ fn main_menu(
                 ui.add_space(8.0);
                 match *screen {
                     Screen::Root => {
-                        if ui.button("Singleplayer").clicked() { *screen = Screen::SinglePlayer; }
+                        if ui.button("Singleplayer").clicked() {
+                            let base = asset_base();
+                            host.maps = scan_dir(&format!("{base}/maps"), "ron");
+                            host.gametypes = scan_dir(&format!("{base}/gametypes"), "lua");
+                            host.map_idx = 0;
+                            host.gametype_idx = 0;
+                            *screen = Screen::SinglePlayer;
+                        }
                         ui.add_space(4.0);
                         if ui.button("Multiplayer").clicked() { *screen = Screen::Multiplayer; }
                         ui.add_space(4.0);
                         if ui.button("Exit").clicked() { std::process::exit(0); }
                     }
                     Screen::SinglePlayer => {
-                        if ui.button("Quick Start").clicked() {
+                        egui::Grid::new("sp_grid")
+                            .num_columns(2)
+                            .spacing([8.0, 4.0])
+                            .show(ui, |ui| {
+                                ui.label("Map");
+                                let map_label = host.maps.get(host.map_idx).cloned().unwrap_or_else(|| "—".into());
+                                egui::ComboBox::from_id_salt("sp_map_combo")
+                                    .selected_text(&map_label)
+                                    .show_ui(ui, |ui| {
+                                        for i in 0..host.maps.len() {
+                                            let label = host.maps[i].clone();
+                                            ui.selectable_value(&mut host.map_idx, i, label);
+                                        }
+                                    });
+                                ui.end_row();
+
+                                ui.label("Mode");
+                                let mode_label = host.gametypes.get(host.gametype_idx).cloned().unwrap_or_else(|| "—".into());
+                                egui::ComboBox::from_id_salt("sp_mode_combo")
+                                    .selected_text(&mode_label)
+                                    .show_ui(ui, |ui| {
+                                        for i in 0..host.gametypes.len() {
+                                            let label = host.gametypes[i].clone();
+                                            ui.selectable_value(&mut host.gametype_idx, i, label);
+                                        }
+                                    });
+                                ui.end_row();
+                            });
+
+                        ui.add_space(8.0);
+
+                        let can_start = !host.maps.is_empty() && !host.gametypes.is_empty();
+                        if ui.add_enabled(can_start, egui::Button::new("Start")).clicked() {
+                            let base = asset_base();
+                            sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
+                            sp_config.gametype = format!("{base}/gametypes/{}.lua", host.gametypes[host.gametype_idx]);
                             *screen = Screen::Root;
                             next_state.set(GameState::SinglePlayer);
                         }

@@ -76,6 +76,15 @@ mod steam;
 mod sound;
 use sound::SoundPlugin;
 
+/// Map and gametype selected in the singleplayer setup screen.
+#[derive(Resource, Default)]
+pub(crate) struct SinglePlayerConfig {
+    /// Asset-relative map path, e.g. "maps/default.scn.ron"
+    pub map: String,
+    /// Absolute gametype path for ScriptConfig
+    pub gametype: String,
+}
+
 /// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
 #[derive(Resource, Default)]
 struct LocalNetworkID(Option<NetworkID>);
@@ -157,6 +166,7 @@ fn main() {
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<LocalNetworkID>()
+        .init_resource::<SinglePlayerConfig>()
         .init_resource::<HostedServer>()
         .init_resource::<HitBeams>()
         .init_resource::<LastServerState>()
@@ -210,8 +220,12 @@ fn main() {
     app.run();
 }
 
-fn load_sp_level(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((bevy::scene::DynamicSceneRoot(asset_server.load("maps/default.scn.ron")), LevelSceneRoot));
+fn load_sp_level(mut commands: Commands, asset_server: Res<AssetServer>, sp: Res<SinglePlayerConfig>) {
+    let map = if sp.map.is_empty() { "maps/default.scn.ron".to_string() } else { sp.map.clone() };
+    if !sp.gametype.is_empty() {
+        commands.insert_resource(scripting::ScriptConfig { path: sp.gametype.clone(), is_server: false, source: None });
+    }
+    commands.spawn((bevy::scene::DynamicSceneRoot(asset_server.load(map)), LevelSceneRoot));
 }
 
 

@@ -20,16 +20,52 @@
 	<object class="MixerBusEffectChain" id="{24f01902-7fcd-4436-a106-aff728d99127}">
 		<relationship name="effects">
 			<destination>{74b55d32-f6fa-4821-85f0-4c7b3e11f9ec}</destination>
+			<destination>{ed37f7df-f943-4c02-9b35-9c45ae7fd1ca}</destination>
+			<destination>{b40a21db-ac12-42cb-ab89-15b1b6ce09c3}</destination>
+			<destination>{a26830cd-16c7-4e85-8397-bd719a0a9df4}</destination>
 			<destination>{f23d136e-7c63-42b8-9dd9-84338f40ceb8}</destination>
 		</relationship>
 	</object>
 	<object class="MixerBusPanner" id="{b46baa22-a38d-4b25-81b5-819cd80ac627}" />
 	<object class="SFXReverbEffect" id="{74b55d32-f6fa-4821-85f0-4c7b3e11f9ec}">
+		<property name="decayTime">
+			<value>9000</value>
+		</property>
+		<property name="earlyDelay">
+			<value>46</value>
+		</property>
+		<property name="lateDelay">
+			<value>90</value>
+		</property>
+		<property name="HFReference">
+			<value>5200</value>
+		</property>
+		<property name="lowShelfFrequency">
+			<value>510</value>
+		</property>
+		<property name="earlyLateMix">
+			<value>100</value>
+		</property>
 		<property name="wetLevel">
 			<value>0</value>
 		</property>
 		<property name="dryLevel">
 			<value>-80</value>
+		</property>
+	</object>
+	<object class="ConvolutionReverbEffect" id="{ed37f7df-f943-4c02-9b35-9c45ae7fd1ca}">
+		<property name="bypass">
+			<value>true</value>
+		</property>
+	</object>
+	<object class="LoudnessMeter" id="{b40a21db-ac12-42cb-ab89-15b1b6ce09c3}">
+		<property name="loudnessTarget">
+			<value>-19</value>
+		</property>
+	</object>
+	<object class="GainEffect" id="{a26830cd-16c7-4e85-8397-bd719a0a9df4}">
+		<property name="gain">
+			<value>-12</value>
 		</property>
 	</object>
 	<object class="MixerBusFader" id="{f23d136e-7c63-42b8-9dd9-84338f40ceb8}" />

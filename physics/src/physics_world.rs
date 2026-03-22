@@ -321,9 +321,12 @@ pub fn sync_physics_visual(
         let cur_rot = Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w);
         let linvel = Vec3::new(body.linvel().x, body.linvel().y, body.linvel().z);
         let angvel = Vec3::new(body.angvel().x, body.angvel().y, body.angvel().z);
-        if *interp != PhysicsInterpMode::RotationOnly {
-            transform.translation = cur_pos + linvel * dt_offset;
-        }
+        // RotationOnly: write last-known position (no extrapolation), extrapolate rotation only
+        transform.translation = if *interp == PhysicsInterpMode::RotationOnly {
+            cur_pos
+        } else {
+            cur_pos + linvel * dt_offset
+        };
         let ang_speed = angvel.length();
         transform.rotation = if ang_speed > 1e-6 {
             Quat::from_axis_angle(angvel / ang_speed, ang_speed * dt_offset) * cur_rot

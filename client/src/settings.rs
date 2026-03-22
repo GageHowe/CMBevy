@@ -23,9 +23,10 @@ impl Plugin for SettingsPlugin {
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
 pub enum PhysicsInterp {
     Off,
-    #[default]
     Interpolate,
     Extrapolate,
+    #[default]
+    RotationOnly,
 }
 
 #[derive(Resource, Serialize, Deserialize, Clone, Reflect)]
@@ -42,7 +43,7 @@ impl Default for Settings {
         Self {
             mouse_sensitivity: 0.002,
             fov: 90.0,
-            physics_interp: PhysicsInterp::Extrapolate,
+            physics_interp: PhysicsInterp::RotationOnly,
             debug_render: false,
         }
     }
@@ -89,6 +90,7 @@ fn apply_settings(
         PhysicsInterp::Off => PhysicsInterpMode::Off,
         PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
         PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
+        PhysicsInterp::RotationOnly => PhysicsInterpMode::RotationOnly,
     };
 }
 
@@ -130,6 +132,7 @@ pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings) {
         ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Off, "Off");
         ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Interpolate, "Interpolate");
         ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Extrapolate, "Extrapolate");
+        ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::RotationOnly, "Rotation only");
     });
 
     ui.checkbox(&mut settings.debug_render, "Debug rendering");

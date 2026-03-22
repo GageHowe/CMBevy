@@ -13,16 +13,31 @@ use physics::physics_world::{*};
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, apply_wind_resistance.before(step_physics));
+        app.register_type::<ReverbSettings>()
+            .register_type::<AtmosphereComponent>()
+            .add_systems(FixedUpdate, apply_wind_resistance.before(step_physics));
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone)]
+/// Reverb zone distances. Reverb properties live in FMOD Studio; we just drive
+/// the global "atmosphere_reverb" parameter (0–1) based on listener proximity.
+/// min_distance: full-effect radius; max_distance: fade-out radius.
+#[derive(Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Default)]
+pub struct ReverbSettings {
+    pub min_distance: f32,
+    pub max_distance: f32,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
 pub struct AtmosphereComponent {
     /// radius of influence
     pub radius: u32,
     /// drag coefficient
     pub strength: f32,
+    /// optional reverb sphere (client-only, ignored on server)
+    pub reverb: Option<ReverbSettings>,
 }
 
 /// Inner function callable during reconciliation replay (mirrors apply_gravity_impulses).

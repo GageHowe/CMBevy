@@ -310,7 +310,6 @@ fn update_slide_camera(
 }
 
 /// Replaces the capsule collider on a biped rigid body.
-/// does this play nicely with reconciliation and the global map?
 fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle, half_height: f32, friction: f32) {
     let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
     // remove old collider
