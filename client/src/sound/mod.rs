@@ -145,7 +145,7 @@ fn update_atmosphere_reverb(
 ) {
     let fmod_present = fmod.is_some();
     let (Some(fmod), Ok(cam_gt)) = (fmod, camera.single()) else {
-        warn!("atmosphere_reverb: fmod={} camera={}", fmod_present, camera.single().is_ok());
+        // warn!("atmosphere_reverb: fmod={} camera={}", fmod_present, camera.single().is_ok());
         return;
     };
     let listener_pos = cam_gt.translation();
@@ -158,13 +158,13 @@ fn update_atmosphere_reverb(
         .filter_map(|(atmo, gt)| {
             let rs = atmo.reverb.as_ref()?;
             let dist = listener_pos.distance(gt.translation());
-            warn!("atmosphere dist={dist:.1} min={} max={}", rs.min_distance, rs.max_distance);
+            // warn!("atmosphere dist={dist:.1} min={} max={}", rs.min_distance, rs.max_distance);
             // 1.0 inside min_distance, fades to 0.0 at max_distance
             Some(1.0 - ((dist - rs.min_distance) / (rs.max_distance - rs.min_distance)).clamp(0.0, 1.0))
         })
         .fold(0.0_f32, f32::max);
 
-    warn!("atmosphere_reverb: atmos={atmo_count} with_reverb={reverb_count} listener={listener_pos:.0?} blend={blend:.3}");
+    // warn!("atmosphere_reverb: atmos={atmo_count} with_reverb={reverb_count} listener={listener_pos:.0?} blend={blend:.3}");
     let Ok(bname) = lanyard::Utf8CString::new("bus:/Reverb")
         .inspect_err(|e| warn!("FMOD: bad bus name: {e:?}"))
     else { return };
