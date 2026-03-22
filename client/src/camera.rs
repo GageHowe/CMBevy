@@ -10,6 +10,8 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::core_pipeline::Skybox;
 use bevy::pbr::ScreenSpaceAmbientOcclusion;
 use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
+// use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
+use bevy::post_process::effect_stack::ChromaticAberration;
 
 pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
@@ -39,12 +41,11 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
 
-        // tonemapping — override the Camera3d default (ReinhardLuminance).
-        // AgX: neutral, filmic, good for HDR. TonyMcMapface: more contrasty/stylized.
-        // BlenderFilmic: similar to ACES but less harsh. AcesFitted: punchy, saturated.
-        Tonemapping::TonyMcMapface,
+        // Tonemapping::TonyMcMapface, // too washed out for me
+        Tonemapping::AcesFitted, // punchy and dark/contrasty, maybe too much so
+        // Tonemapping::Reinhard, // also washed out
+        // Tonemapping::AgX, // good middle ground
 
-        // prepasses — required by SSAO and outline
         DepthPrepass,
         NormalPrepass,
         // MotionVectorPrepass, // required by MotionBlur and TAA
@@ -56,7 +57,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
                 range: -12.0..=4.0,
                 speed_brighten: 0.2,
                 speed_darken: 0.1,
-                filter: 0.0..=0.50, // ignore 50% brighest pixels
+                filter: 0.0..=0.50, // ignore 50% brightest pixels
                 ..default()
             },
             Bloom {
@@ -75,10 +76,11 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
             // ScreenSpaceReflections — disabled: requires DeferredPrepass which prevents depth copy to prepass texture
             // MotionBlur { shutter_angle: 0.5, samples: 4, ..default() },
             // ContrastAdaptiveSharpening { sharpening_strength: 0.6, ..default() },
+            // ChromaticAberration::default(),
         ),
     ))
     .insert(crate::outline::OutlineSettings {
         threshold: 0.10,
-        color: Vec4::new(0.5, 0.5, 0.5, 0.05),
+        color: Vec4::new(0.5, 0.5, 0.5, 0.03),
     });
 }

@@ -48,6 +48,8 @@ pub enum MsgType {
     RifleFire { weapon: NetworkID, shooter: NetworkID, origin: Vec3, dir: Vec3, tick: u64 },
     /// Client → Server → All: hail mary projectile fire. zoomed = was right-click held.
     HailMaryFire { weapon: NetworkID, shooter: NetworkID, origin: Vec3, dir: Vec3, tick: u64, zoomed: bool },
+    /// Client → Server → All: RPG rocket fire.
+    RpgFire { weapon: NetworkID, shooter: NetworkID, origin: Vec3, dir: Vec3, tick: u64 },
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
     /// wtf? why vfx? this will be outdated and since clients move very fast this will not be a good solution.
     /// instead, send the shooter entity (the gun) and the direction/magnitude vector, plus the target.

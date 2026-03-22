@@ -293,10 +293,14 @@ fn spawn_scene_weapons_sp(
 
 fn cleanup_world(
     mut commands: Commands,
-    camera: Query<Entity, With<Camera3d>>,
+    camera: Query<(Entity, Option<&Children>), With<Camera3d>>,
     roots: Query<Entity, (With<Transform>, Without<Camera3d>, Without<ChildOf>)>,
 ) {
-    if let Ok(cam) = camera.single() {
+    if let Ok((cam, children)) = camera.single() {
+        // despawn weapon viewmodels (children of camera) before detaching
+        if let Some(ch) = children {
+            for child in ch.iter() { commands.entity(child).despawn(); }
+        }
         commands.entity(cam).remove_parent_in_place();
     }
     for entity in roots.iter() {
@@ -351,7 +355,10 @@ fn on_message(
     time: Res<Time>,
     mut local_net_id: ResMut<LocalNetworkID>,
     mut hit_beams: ResMut<HitBeams>,
-    mut possessed_q: Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+    mut biped_q: ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
     networked: Query<(Entity, &NetworkID)>,
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
@@ -395,23 +402,17 @@ fn on_message(
                             }
                             // Despawn held weapon viewmodels explicitly so the
                             // recursive pawn despawn doesn't hit them a second time.
-                            if let Ok((mut slots, _)) = possessed_q.single_mut() {
-                                for i in 0..2 {
-                                    let ent = slots.slots[i].1.take();
-                                    slots.slots[i].0 = None;
-                                    if let Some(w) = ent {
-                                        sp.commands.entity(w).despawn();
-                                    }
+                            if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+                                for ent in [slots.primary.1.take(), slots.pocket.1.take()] {
+                                    if let Some(w) = ent { sp.commands.entity(w).despawn(); }
                                 }
+                                slots.primary.0 = None;
+                                slots.pocket.0 = None;
                             }
                             local_net_id.0 = None;
-                        } else if let Ok((mut slots, _)) = possessed_q.single_mut() {
-                            // If this was a weapon viewmodel in a slot, clear the slot.
-                            for i in 0..2 {
-                                if slots.slots[i].0.as_ref() == Some(&net_id) {
-                                    slots.slots[i] = (None, None);
-                                }
-                            }
+                        } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+                            // if this was a weapon viewmodel in a slot, clear the slot
+                            slots.remove_by_net_id(&net_id);
                         }
                         sp.commands.entity(entity).despawn();
                         break;
@@ -427,24 +428,39 @@ fn on_message(
                 let Some(weapon_entity) = weapon_entity else { continue };
                 world.set_body_enabled(weapon_entity, false);
                 if is_local {
-                    let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = possessed_q.single_mut() {
-                        let slot_result = slots.slots.iter().position(|s| s.0.is_none()).map(|idx| {
-                            slots.slots[idx] = (Some(weapon_id.clone()), Some(weapon_entity));
-                            (idx, slots.active == idx)
-                        });
-                        (slot_result, biped.pitch_pivot)
+                    let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
+                        let result = if slots.primary.0.is_none() {
+                            slots.primary = (Some(weapon_id.clone()), Some(weapon_entity));
+                            Some((true, None))
+                        } else if slots.pocket.0.is_none() {
+                            let prev = slots.active().1; // hide whatever is currently shown
+                            slots.pocket = (Some(weapon_id.clone()), Some(weapon_entity));
+                            slots.active_primary = false;
+                            Some((false, prev))
+                        } else { None };
+                        (result, biped.pitch_pivot)
                     } else { (None, None) };
-                    if let (Some((slot_idx, is_active)), Some(pivot)) = (slot_result, pivot_e) {
+                    if let Some((is_primary, prev_to_hide)) = slot_result {
+                        if let Some(prev) = prev_to_hide {
+                            sp.commands.entity(prev).insert(Visibility::Hidden);
+                        }
+                        let parent = camera.single().ok().or(pivot_e).unwrap();
                         sp.commands.entity(weapon_entity)
                             .remove::<(RigidBodyHandleComponent, Interactable)>()
-                            .set_parent_in_place(pivot)
-                            .insert(viewmodel_offset(slot_idx))
-                            .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
+                            .set_parent_in_place(parent)
+                            .insert(viewmodel_offset(is_primary))
+                            .insert(Visibility::Inherited);
                     }
                 } else {
-                    sp.commands.entity(weapon_entity)
-                        .remove::<Interactable>()
-                        .insert(Visibility::Hidden);
+                    // attach to carrier's pitch pivot so the weapon moves with them
+                    let carrier = networked.iter().find(|(_, nid)| *nid == &carrier_net_id).map(|(e, _)| e);
+                    let pivot_e = { let q = biped_q.p1(); carrier.and_then(|e| q.get(e).ok().and_then(|b| b.pitch_pivot)) };
+                    sp.commands.entity(weapon_entity).remove::<Interactable>();
+                    if let Some(pivot) = pivot_e {
+                        sp.commands.entity(weapon_entity)
+                            .set_parent_in_place(pivot)
+                            .insert(viewmodel_offset(true));
+                    }
                 }
             }
             MsgType::WeaponDrop(weapon_id, carrier_id, drop_pos) => {
@@ -454,12 +470,8 @@ fn on_message(
                 world.teleport_body(weapon_entity, drop_pos);
                 world.set_body_enabled(weapon_entity, true);
                 if is_carrier {
-                    if let Ok((mut slots, _)) = possessed_q.single_mut() {
-                        for i in 0..2 {
-                            if slots.slots[i].0.as_ref() == Some(&weapon_id) {
-                                slots.slots[i] = (None, None);
-                            }
-                        }
+                    if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+                        slots.remove_by_net_id(&weapon_id);
                     }
                     let handle = world.entity_to_handle.get(&weapon_entity).copied();
                     sp.commands.entity(weapon_entity)
@@ -601,6 +613,7 @@ fn interact(
     state: Res<State<GameState>>,
     player: Query<(&RigidBodyHandleComponent, &Transform, &BipedPawnComponent), With<Possessed>>,
     interactables: Query<(Entity, &RigidBodyHandleComponent, &NetworkID), With<Interactable>>,
+    camera: Query<Entity, With<Camera3d>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
@@ -614,17 +627,26 @@ fn interact(
     let Some((weapon_entity, weapon_net_id)) = nearest_interactable(player_pos, &interactables, &world) else { return };
     match state.get() {
         GameState::SinglePlayer => {
-            let Some(pivot_entity) = biped.pitch_pivot else { return };
             let Ok(mut slots) = possessed_q.single_mut() else { return };
-            let Some(slot_idx) = slots.slots.iter().position(|s| s.0.is_none()) else { return };
-            slots.slots[slot_idx] = (Some(weapon_net_id), Some(weapon_entity));
-            let is_active = slots.active == slot_idx;
+            let (is_primary, prev_to_hide) = if slots.primary.0.is_none() {
+                slots.primary = (Some(weapon_net_id.clone()), Some(weapon_entity));
+                (true, None)
+            } else if slots.pocket.0.is_none() {
+                let prev = slots.active().1;
+                slots.pocket = (Some(weapon_net_id.clone()), Some(weapon_entity));
+                slots.active_primary = false;
+                (false, prev)
+            } else { return };
+            if let Some(prev) = prev_to_hide {
+                commands.entity(prev).insert(Visibility::Hidden);
+            }
+            let parent = camera.single().ok().or(biped.pitch_pivot).unwrap();
             world.set_body_enabled(weapon_entity, false);
             commands.entity(weapon_entity)
                 .remove::<(RigidBodyHandleComponent, Interactable)>()
-                .set_parent_in_place(pivot_entity)
-                .insert(viewmodel_offset(slot_idx))
-                .insert(if is_active { Visibility::Inherited } else { Visibility::Hidden });
+                .set_parent_in_place(parent)
+                .insert(viewmodel_offset(is_primary))
+                .insert(Visibility::Inherited);
         }
         GameState::Multiplayer => {
             quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(weapon_net_id));
@@ -633,12 +655,8 @@ fn interact(
     }
 }
 
-/// Local-space transform offset for the viewmodel depending on which slot it's in.
-fn viewmodel_offset(slot_idx: usize) -> Transform {
-    match slot_idx {
-        0 => Transform::from_xyz(0.3, -0.25, -0.5),
-        _ => Transform::from_xyz(-0.3, -0.25, -0.5),
-    }
+fn viewmodel_offset(_is_primary: bool) -> Transform {
+    Transform::from_xyz(0.4 /* right */, -0.3 /* up */, 0.0)
 }
 //
 // /// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.

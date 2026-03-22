@@ -7,12 +7,12 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-common = { path = "../common" }
-physics = { path = "../physics" }
-net = { path = "../net" }
-game_objects = { path = "../game_objects" }
-scripting = { path = "../scripting" }
-master_plugin = { path = "../master_plugin" }
+common = { path = "../crates/common" }
+physics = { path = "../crates/physics" }
+net = { path = "../crates/net" }
+game_objects = { path = "../crates/game_objects" }
+scripting = { path = "../crates/scripting" }
+master_plugin = { path = "../crates/master_plugin" }
 bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", "multi_threaded"] }
 bevy_egui = "0.39.1"
 zstd = "0.13.3"

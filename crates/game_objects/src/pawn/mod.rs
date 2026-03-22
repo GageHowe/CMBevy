@@ -2,17 +2,17 @@
 pub mod biped;
 pub mod spaceship;
 
-/// Spring-damper recoil + procedural shake + zoom applied on top of gameplay aim.
+/// spring-damping recoil + procedural shake + zoom applied on top of gameplay aim.
 /// Placed on the Camera3d entity by biped possession; any pawn system can write to it.
 #[derive(bevy::prelude::Component)]
-pub struct CameraEffects {
+pub struct CameraEffector {
     pub pitch_offset: f32,
     pub pitch_vel:    f32,
     pub yaw_offset:   f32,
     pub yaw_vel:      f32,
     /// Shake intensity; decays toward zero each frame.
     pub shake: f32,
-    /// Spring stiffness for recoil recovery. Set per-kick — pistol ~25, rifle ~18, sniper ~10.
+    /// for recoil recovery
     pub recovery_speed: f32,
     /// User's base FOV in degrees. Set at possession; updated when settings change.
     pub base_fov: f32,
@@ -21,7 +21,7 @@ pub struct CameraEffects {
     /// Smoothly lerped FOV in degrees, written to Projection each frame.
     pub current_fov: f32,
 }
-impl Default for CameraEffects {
+impl Default for CameraEffector {
     fn default() -> Self {
         Self {
             pitch_offset: 0.0, pitch_vel: 0.0,
@@ -31,13 +31,7 @@ impl Default for CameraEffects {
         }
     }
 }
-impl CameraEffects {
-    /// Simple upward kick with default recovery speed. Use for explosions, collisions, etc.
-    pub fn add_simple_vertical_kick(&mut self, vel: f32) { self.pitch_vel += vel; }
-    /// Kick with per-weapon recovery speed.
-    /// `vertical`/`horizontal`: (min, max) impulse range (rad/s); a random value is sampled each shot.
-    /// Negative vertical = kick up. e.g. vertical: (-0.3, -0.1), horizontal: (-0.05, 0.05)
-    /// `recovery_speed`: spring stiffness — higher returns faster (pistol ~25, sniper ~10).
+impl CameraEffector {
     pub fn add_kick(&mut self, vertical: (f32, f32), horizontal: (f32, f32), recovery_speed: f32) {
         self.pitch_vel += vertical.0 + fastrand::f32() * (vertical.1 - vertical.0);
         self.yaw_vel   += horizontal.0 + fastrand::f32() * (horizontal.1 - horizontal.0);

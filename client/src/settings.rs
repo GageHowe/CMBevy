@@ -4,7 +4,7 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use game_objects::pawn::MouseSensitivity;
-use game_objects::pawn::CameraEffects;
+use game_objects::pawn::CameraEffector;
 use physics::physics_world::PhysicsInterpMode;
 
 // to sync settings file, we'll just use steam Auto-Cloud, Cloud Sync or whatever it's called
@@ -74,18 +74,12 @@ fn load_settings(mut commands: Commands) {
 fn apply_settings(
     settings: Res<Settings>,
     mut sensitivity: ResMut<MouseSensitivity>,
-    mut projection: Query<&mut Projection, With<Camera3d>>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
-    mut cam_effects: Query<&mut CameraEffects, With<Camera3d>>,
+    mut cam_effects: Query<&mut CameraEffector, With<Camera3d>>,
 ) {
     sensitivity.0 = settings.mouse_sensitivity;
-    if let Ok(mut proj) = projection.single_mut() {
-        if let Projection::Perspective(ref mut p) = *proj {
-            p.fov = settings.fov.to_radians();
-        }
-    }
-    // keep CameraEffects base_fov in sync so zoom is always relative to the user's chosen FOV
-    if let Ok(mut fx) = cam_effects.single_mut() { fx.base_fov = settings.fov; }
+    // apply_camera_effects owns the projection write; just sync base and current so it converges instantly
+    if let Ok(mut fx) = cam_effects.single_mut() { fx.base_fov = settings.fov; fx.current_fov = settings.fov; }
     *interp_mode = match settings.physics_interp {
         PhysicsInterp::Off => PhysicsInterpMode::Off,
         PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,

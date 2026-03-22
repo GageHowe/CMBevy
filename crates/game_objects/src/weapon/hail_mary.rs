@@ -18,8 +18,10 @@ pub const COOLDOWN_TICKS: u32 = 120; // fixed ticks between shots
 pub const PROJECTILE_SPEED: f32 = 300.0; // projectile speed in m/s
 pub const PROJECTILE_LIFETIME: u32 = 300; // in ticks
 
-const HULL_PATH: &str = "collision/hail_mary_placeholder_2.obj";
-const SCALE: f32 = 10.0;
+const HULL_PATH: &str = "collision/placeholder_ar.obj";
+
+/// we can remove this
+const SCALE: f32 = 1.0;
 
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
@@ -30,7 +32,9 @@ impl Plugin for HailMaryPlugin {
             tick_muzzle_flash,
         ));
         #[cfg(feature = "client")]
-        app.add_systems(Update, add_projectile_visual);
+        app.add_systems(Update, (add_projectile_visual, update_impact_indicator));
+        #[cfg(feature = "client")]
+        app.add_systems(Startup, spawn_impact_indicator);
     }
 }
 
@@ -91,12 +95,16 @@ impl GameObject for HailMaryComponent {
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic().translation(transform.translation).angular_damping(2.0).build();
-            let rb_handle = physics.insert_body(entity, rb);
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-            collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
-            rb_handle
+            physics.insert_body(entity, rb)
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        let handle = world.resource::<AssetServer>().load_with_settings(HULL_PATH, |s: &mut f32| *s = SCALE);
+        let col = world.resource::<Assets<ConvexHullAsset>>().get(&handle)
+            .map(|h| h.0.clone())
+            .unwrap_or_else(|| ColliderBuilder::cuboid(0.2, 0.05, 0.4).build());
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
         world.entity_mut(entity).add_child(light);
         #[cfg(feature = "client")]
         {
@@ -265,6 +273,68 @@ fn add_projectile_visual(
             ..default()
         });
         commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+    }
+}
+
+/// Marker for the Hail Mary impact indicator UI node.
+#[cfg(feature = "client")]
+#[derive(Component)]
+pub struct ImpactIndicator;
+
+/// Spawns the persistent impact indicator UI node (hidden until Hail Mary is active).
+#[cfg(feature = "client")]
+fn spawn_impact_indicator(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        ImpactIndicator,
+        ImageNode::new(asset_server.load("textures/ui/impact_indicator.png")),
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Px(24.0),
+            height: Val::Px(24.0),
+            ..default()
+        },
+        ZIndex(10),
+        Visibility::Hidden,
+    ));
+}
+
+/// Projects the Hail Mary's predicted impact point to screen space and moves the indicator UI node.
+/// Raycasts along the actual projectile travel direction (aim + shooter velocity), matching spawn_projectile.
+#[cfg(feature = "client")]
+fn update_impact_indicator(
+    pawn: Query<(Entity, &crate::pawn::biped::WeaponSlots), With<crate::pawn::Possessed>>,
+    weapons: Query<&HailMaryComponent>,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    world: Res<PhysicsWorld>,
+    mut indicator: Query<(&mut Node, &mut Visibility), With<ImpactIndicator>>,
+) {
+    let Ok((mut node, mut vis)) = indicator.single_mut() else { return };
+    let show = (|| -> Option<Vec2> {
+        let (pawn_entity, slots) = pawn.single().ok()?;
+        let weapon_entity = slots.active().1?;
+        weapons.get(weapon_entity).ok()?;
+        let (cam, cam_gt) = camera.single().ok()?;
+        let origin = cam_gt.translation();
+        let aim_dir = *cam_gt.forward();
+        let shooter_vel = world.entity_to_handle.get(&pawn_entity)
+            .and_then(|&h| world.rigid_body_set.get(h))
+            .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+            .unwrap_or(Vec3::ZERO);
+        let actual_dir = (aim_dir * PROJECTILE_SPEED + shooter_vel).normalize_or_zero();
+        const MAX_RANGE: f32 = 500.0;
+        let hit_dist = world.cast_ray(origin, actual_dir, MAX_RANGE, Some(pawn_entity))
+            .map(|(_, t)| t)
+            .unwrap_or(MAX_RANGE);
+        cam.world_to_viewport(cam_gt, origin + actual_dir * hit_dist).ok()
+    })();
+    match show {
+        Some(pos) => {
+            // offset by half the node size to center it on the impact point
+            node.left = Val::Px(pos.x - 12.0);
+            node.top  = Val::Px(pos.y - 12.0);
+            *vis = Visibility::Inherited;
+        }
+        None => *vis = Visibility::Hidden,
     }
 }
 

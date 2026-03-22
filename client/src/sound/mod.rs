@@ -1,3 +1,4 @@
+use bevy::ecs::error::warn;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use lanyard::Utf8CString;
@@ -145,7 +146,7 @@ fn update_atmosphere_reverb(
 ) {
     let fmod_present = fmod.is_some();
     let (Some(fmod), Ok(cam_gt)) = (fmod, camera.single()) else {
-        // warn!("atmosphere_reverb: fmod={} camera={}", fmod_present, camera.single().is_ok());
+        warn!("update_planet_atmosphere: FMOD is None");
         return;
     };
     let listener_pos = cam_gt.translation();

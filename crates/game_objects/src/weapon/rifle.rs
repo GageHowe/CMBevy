@@ -3,10 +3,13 @@ use crate::{GameObjectKind, GameObject};
 use crate::health::Health;
 use crate::sound::SoundRequest;
 use common::interaction::Interactable;
+use physics::convex_hull_asset::ConvexHullAsset;
 use physics::debug::{draw_collider, rb_iso};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 use super::{Weapon, WeaponComponent, FireCtx, RemoteFireQueue};
+
+const HULL_PATH: &str = "collision/placeholder_ar.obj";
 
 pub const DAMAGE: f32 = 25.0;
 pub const COOLDOWN_TICKS: u32 = 6;      // 10 rounds/sec at 60 Hz
@@ -66,15 +69,19 @@ impl GameObject for RifleComponent {
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic().translation(transform.translation).angular_damping(2.0).build();
-            let rb_handle = physics.insert_body(entity, rb);
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-            collider_set.insert_with_parent(ColliderBuilder::cuboid(0.2, 0.05, 0.4).build(), rb_handle, rigid_body_set);
-            rb_handle
+            physics.insert_body(entity, rb)
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        let handle = world.resource::<AssetServer>().load_with_settings(HULL_PATH, |s: &mut f32| *s = 1.0);
+        let col = world.resource::<Assets<ConvexHullAsset>>().get(&handle)
+            .map(|h| h.0.clone())
+            .unwrap_or_else(|| ColliderBuilder::cuboid(0.2, 0.05, 0.4).build());
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
         #[cfg(feature = "client")]
         {
-            let scene = world.resource::<AssetServer>().load("models/ar.glb#Scene0");
+            let scene = world.resource::<AssetServer>().load("models/placeholder_ar.glb#Scene0");
             world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
         }
     }

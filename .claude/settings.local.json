@@ -60,7 +60,9 @@
       "WebSearch",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(p[''''name''''], p[''''id'''']\\) for p in d[''''packages''''] if p[''''name'''']==''''net'''']\")",
       "Bash(python -c \"import sys,json; [print\\(json.loads\\(l\\).get\\(''''message'''',{}\\).get\\(''''message'''',''''''''\\)\\) for l in sys.stdin if l.startswith\\(''''{''''\\)]\")",
-      "Bash(make check:*)"
+      "Bash(make check:*)",
+      "Bash(make build:*)",
+      "Bash(make)"
     ],
     "deny": []
   }

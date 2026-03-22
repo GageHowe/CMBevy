@@ -3,9 +3,11 @@ use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use game_objects::health::Health;
+use game_objects::weapon::{rifle, hail_mary};
 use net::quic::{QuicManager, SendTarget, Channel};
 use net::message::MsgType;
 use game_objects::pawn::Possessed;
+use game_objects::pawn::biped::WeaponSlots;
 use crate::GameState;
 use crate::steam::SteamClient;
 use crate::tick_sync::NetworkStats;
@@ -27,6 +29,13 @@ impl GuiState {
     }
 }
 
+/// Current crosshair image path; written by update_reticle, read by apply_reticle.
+#[derive(Resource)]
+pub struct ReticleConfig(pub &'static str);
+impl Default for ReticleConfig {
+    fn default() -> Self { Self("textures/crosshairs/crosshair041.png") }
+}
+
 pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
@@ -34,11 +43,13 @@ impl Plugin for UIPlugin {
         app.add_systems(Startup, spawn_crosshair)
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
             .insert_resource(GuiState::default())
+            .insert_resource(ReticleConfig::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
             .add_systems(EguiPrimaryContextPass, gui_chat.run_if(in_state(GameState::Multiplayer)))
-            .add_systems(EguiPrimaryContextPass, gui_health);
+            .add_systems(EguiPrimaryContextPass, gui_health)
+            .add_systems(Update, (update_reticle, apply_reticle).chain());
     }
 }
 
@@ -183,13 +194,41 @@ fn gui_health(
 }
 
 
+/// Updates ReticleConfig when the active weapon slot changes.
+/// Add new weapon types here when they need distinct reticles.
+fn update_reticle(
+    possessed: Query<&WeaponSlots, (With<Possessed>, Changed<WeaponSlots>)>,
+    rifles:     Query<(), With<rifle::RifleComponent>>,
+    hail_marys: Query<(), With<hail_mary::HailMaryComponent>>,
+    mut config: ResMut<ReticleConfig>,
+) {
+    let Ok(slots) = possessed.single() else { return };
+    config.0 = if let Some(e) = slots.active().1 {
+        if      rifles.contains(e)     { "textures/crosshairs/crosshair007.png" }
+        else if hail_marys.contains(e) { "textures/crosshairs/crosshair010.png" }
+        else                           { "textures/crosshairs/crosshair013.png" }
+    } else { "textures/crosshairs/crosshair041.png" };
+}
+
+/// Swaps the crosshair image whenever ReticleConfig changes.
+fn apply_reticle(
+    config: Res<ReticleConfig>,
+    mut crosshair: Query<&mut ImageNode, With<Crosshair>>,
+    asset_server: Res<AssetServer>,
+) {
+    if !config.is_changed() { return; }
+    if let Ok(mut img) = crosshair.single_mut() {
+        img.image = asset_server.load(config.0);
+    }
+}
+
 #[derive(Component)] // query for this component when removing it
 pub struct Crosshair;
 pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Crosshair,
-            ImageNode::new(asset_server.load("crosshairs/crosshair010.png")),
+            ImageNode::new(asset_server.load("textures/crosshairs/crosshair022.png")),
             Node {
                 width: Val::Px(32.0),
                 height: Val::Px(32.0),

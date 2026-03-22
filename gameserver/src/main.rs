@@ -415,9 +415,8 @@ fn on_message(
                 if in_range {
                     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else { continue };
 
-                    if slots.slots.iter().all(|s| s.0.is_some()) {
-                        let active = slots.active;
-                        let drop_id = slots.slots[active].0.take().unwrap();
+                    if slots.is_full() {
+                        let drop_id = slots.active_mut().0.take().unwrap();
                         if let Some((drop_entity, _)) = weapon_registry.held.remove(&drop_id) {
                             let drop_pos = player_pos.map(|t| Vec3::new(t.x, t.y, t.z)).unwrap_or(Vec3::ZERO);
                             world.teleport_body(drop_entity, drop_pos);
@@ -428,8 +427,9 @@ fn on_message(
                         }
                     }
 
-                    let slot_idx = slots.slots.iter().position(|s| s.0.is_none()).unwrap();
-                    slots.slots[slot_idx].0 = Some(target_net_id.clone());
+                    // put the new weapon in the first empty slot (active if we just dropped)
+                    if slots.primary.0.is_none() { slots.primary.0 = Some(target_net_id.clone()); }
+                    else                         { slots.pocket.0  = Some(target_net_id.clone()); }
                     drop(slots);
 
                     weapon_registry.free.remove(&target_net_id);

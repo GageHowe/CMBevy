@@ -13,7 +13,7 @@ use super::*;
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
-use super::CameraEffects;
+use super::CameraEffector;
 const CAPSULE_RADIUS:      f32 = 0.3;
 /// half-height of the standing capsule (total height = 2*(0.5+0.3) = 1.6 m)
 const CAPSULE_HALF_HEIGHT: f32 = 0.5;
@@ -215,12 +215,12 @@ fn mouse_look(
 
 const KICK_DAMPING: f32 = 0.88;  // velocity multiplier per tick at 60 Hz
 const SHAKE_DECAY:   f32 = 6.0;   // intensity units per second
-const FOV_LERP_SPEED: f32 = 8.0;  // how fast zoom eases in/out
+const FOV_LERP_SPEED: f32 = 15.0;  // how fast zoom eases in/out
 
 /// Integrates recoil, shake, and FOV zoom. Writes Camera3d local Transform and Projection.
 fn apply_camera_effects(
     time: Res<Time>,
-    mut camera_q: Query<(&mut Transform, &mut CameraEffects, &mut Projection), With<Camera3d>>,
+    mut camera_q: Query<(&mut Transform, &mut CameraEffector, &mut Projection), With<Camera3d>>,
 ) {
     let Ok((mut transform, mut fx, mut proj)) = camera_q.single_mut() else { return };
     let dt = time.delta_secs();
@@ -255,27 +255,45 @@ fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
     mut visibility: Query<&mut Visibility>,
+    mut camera: Query<&mut CameraEffector, With<Camera3d>>,
 ) {
-    let delta: f32 = scroll.delta.y;
-    if delta == 0.0 { return; }
+    if scroll.delta.y == 0.0 { return; }
     let Ok(mut slots) = pawn.single_mut() else { return };
-    let prev = slots.active;
-    slots.active = if delta > 0.0 { (slots.active + 1) % 2 } else { slots.active.checked_sub(1).unwrap_or(1) };
-    if slots.active == prev { return; }
-    if let Some(e) = slots.slots[prev].1 {
+    if let Some(e) = slots.active().1 {
         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
     }
-    if let Some(e) = slots.slots[slots.active].1 {
+    slots.active_primary = !slots.active_primary;
+    if let Some(e) = slots.active().1 {
         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
     }
+    if let Ok(mut cc) = camera.single_mut() { cc.zoom_multiplier = 1.0; }
 }
 
-/// Two weapon slots on a biped pawn, stored on the entity.
-/// Each slot holds the NetworkID and (client-only) the local weapon entity for the viewmodel.
-#[derive(Component, Default)]
+/// Two weapon slots on a biped pawn. Each slot: (NetworkID, client-only viewmodel Entity).
+/// primary = right-hand slot, pocket = left-hand slot.
+#[derive(Component)]
 pub struct WeaponSlots {
-    pub slots: [(Option<NetworkID>, Option<Entity>); 2],
-    pub active: usize,
+    pub primary: (Option<NetworkID>, Option<Entity>),
+    pub pocket:  (Option<NetworkID>, Option<Entity>),
+    /// true = primary active, false = pocket active.
+    pub active_primary: bool,
+}
+impl Default for WeaponSlots {
+    fn default() -> Self { Self { primary: (None, None), pocket: (None, None), active_primary: true } }
+}
+impl WeaponSlots {
+    pub fn active(&self) -> &(Option<NetworkID>, Option<Entity>) {
+        if self.active_primary { &self.primary } else { &self.pocket }
+    }
+    pub fn active_mut(&mut self) -> &mut (Option<NetworkID>, Option<Entity>) {
+        if self.active_primary { &mut self.primary } else { &mut self.pocket }
+    }
+    pub fn is_full(&self) -> bool { self.primary.0.is_some() && self.pocket.0.is_some() }
+    /// Clears whichever slot holds this id (both NetworkID and Entity).
+    pub fn remove_by_net_id(&mut self, id: &NetworkID) {
+        if self.primary.0.as_ref() == Some(id) { self.primary = (None, None); }
+        if self.pocket.0.as_ref()  == Some(id) { self.pocket  = (None, None); }
+    }
 }
 
 #[cfg(feature = "client")]
@@ -450,7 +468,7 @@ fn attach_camera_on_possess(
     let Some(pitch_e) = biped.pitch_pivot else { return };
     // read current projection FOV so CameraEffects starts in sync with settings
     let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
-    commands.entity(cam).insert((Transform::default(), CameraEffects { base_fov, current_fov: base_fov, ..default() }));
+    commands.entity(cam).insert((Transform::default(), CameraEffector { base_fov, current_fov: base_fov, ..default() }));
     commands.entity(pitch_e).add_child(cam);
 }
 
@@ -498,11 +516,11 @@ pub fn biped_fire<W: Weapon>(
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
-    mut camera_fx: Query<(&mut CameraEffects, &GlobalTransform), With<Camera3d>>,
+    mut camera_fx: Query<(&mut CameraEffector, &GlobalTransform), With<Camera3d>>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
     let Ok((pawn_entity, slots, biped)) = pawn.single() else { return };
-    let Some(weapon_entity) = slots.slots[slots.active].1 else { return };
+    let Some(weapon_entity) = slots.active().1 else { return };
     let Ok(mut weapon) = weapons.get_mut(weapon_entity) else { return };
     let Some(pitch_e) = biped.pitch_pivot else { return };
     let Ok(pivot_gt) = pitch_pivot.get(pitch_e) else { return };

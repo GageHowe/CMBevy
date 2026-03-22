@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use physics::physics_world::PhysicsWorld;
 use net::message::NetworkID;
 use crate::sound::SoundQueue;
-use crate::pawn::CameraEffects;
+use crate::pawn::CameraEffector;
 
 pub mod rifle;
 pub mod hail_mary;
@@ -40,7 +40,7 @@ pub struct FireCtx<'a> {
     /// Push to play a one-shot sound this frame.
     pub sound: Option<&'a mut SoundQueue>,
     /// Local player camera; None on server or before possession.
-    pub camera: Option<&'a mut CameraEffects>,
+    pub camera: Option<&'a mut CameraEffector>,
     /// QUIC manager for sending Fire messages; None in singleplayer.
     pub quic: Option<&'a mut net::quic::QuicManager>,
 }
