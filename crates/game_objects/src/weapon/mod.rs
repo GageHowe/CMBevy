@@ -12,13 +12,13 @@ pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((rifle::RiflePlugin, hail_mary::HailMaryPlugin));
-        app.init_resource::<RemoteFireQueue>();
+        app.add_plugins((
+            rifle::RiflePlugin,
+            hail_mary::HailMaryPlugin,
+            crate::projectile::ProjectilePlugin,
+        ));
     }
 }
-
-// TODO: make a weapon that's KinematicVelocityBased like a plasma launcher
-// can this be affected by add_impulse?
 
 /// Marker component present on every weapon entity regardless of type.
 #[derive(Component)]
@@ -43,6 +43,8 @@ pub struct FireCtx<'a> {
     pub camera: Option<&'a mut CameraEffector>,
     /// QUIC manager for sending Fire messages; None in singleplayer.
     pub quic: Option<&'a mut net::quic::QuicManager>,
+    /// Projectile id counter for client-side prediction; None in singleplayer / on server.
+    pub id_counter: Option<&'a mut u32>,
 }
 
 /// Per-weapon-type firing logic. Implement on each weapon component.
@@ -51,12 +53,4 @@ pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Defaul
     /// Called every FixedPreUpdate tick when this weapon is the active slot.
     /// The weapon reads input from ctx, spawns projectiles/effects, and calls ctx helpers as needed.
     fn fixed_update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, ctx: &mut FireCtx);
-}
-
-/// Fire events received from the network. Populated by on_message; drained by per-weapon FixedUpdate systems.
-/// Tuple fields: (weapon NetworkID, shooter NetworkID, origin, dir, tick)
-#[derive(Resource, Default)]
-pub struct RemoteFireQueue {
-    pub rifle:     Vec<(NetworkID, NetworkID, Vec3, Vec3, u64)>,
-    pub hail_mary: Vec<(NetworkID, NetworkID, Vec3, Vec3, u64, bool)>,
 }

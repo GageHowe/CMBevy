@@ -51,5 +51,6 @@ pub enum GameObjectKind {
     Shotgun,
     HailMary,
     HailMaryProjectile,
+    RifleProjectile,
     Rpg,
 }

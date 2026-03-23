@@ -1,6 +1,7 @@
 // pub mod kinds;
 pub mod biped;
 pub mod spaceship;
+pub mod vehicle;
 
 /// spring-damping recoil + procedural shake + zoom applied on top of gameplay aim.
 /// Placed on the Camera3d entity by biped possession; any pawn system can write to it.
@@ -52,6 +53,7 @@ use crate::GameObject;
 pub use biped::BipedPawnComponent;
 pub use biped::{YawPivot, PitchPivot};
 pub use spaceship::SpaceshipPawnComponent;
+pub use vehicle::VehicleComponent;
 pub use common::{BipedInput, SpaceshipInput, PawnInputKind};
 
 pub struct PawnPlugin;
@@ -59,6 +61,7 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
+        app.add_plugins(vehicle::VehiclePlugin);
     }
 }
 

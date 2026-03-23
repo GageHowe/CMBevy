@@ -56,8 +56,8 @@ pub fn apply_gravity_impulses(
 
     let planet_data: Vec<(Vec3, &PlanetComponent, RigidBodyHandle)> = planets.iter()
         .filter_map(|(planet, handle)| {
-            let t = world.rigid_body_set.get(handle.0)?.position().translation;
-            Some((Vec3::new(t.x, t.y, t.z), planet, handle.0))
+            let rb = world.rigid_body_set.get(handle.0)?;
+            Some((rb_pos(rb), planet, handle.0))
         })
         .collect();
 
@@ -95,8 +95,7 @@ pub fn apply_gravity_impulses(
             let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
             if !rb.is_enabled() { continue; }
 
-            let t = rb.position().translation;
-            let to_planet = *planet_center - Vec3::new(t.x, t.y, t.z);
+            let to_planet = *planet_center - rb_pos(rb);
             let dist = to_planet.length();
             if dist < inner_radius || dist < 0.001 { continue; }
 
@@ -163,8 +162,8 @@ pub fn orient_bipeds_to_planets(
 
     let planet_data: Vec<(Vec3, f32)> = planets.iter()
         .filter_map(|(planet, handle)| {
-            let t = world.rigid_body_set.get(handle.0)?.position().translation;
-            Some((Vec3::new(t.x, t.y, t.z), planet.snap_radius as f32))
+            let rb = world.rigid_body_set.get(handle.0)?;
+            Some((rb_pos(rb), planet.snap_radius as f32))
         })
         .collect();
 
@@ -173,9 +172,7 @@ pub fn orient_bipeds_to_planets(
     for rb_handle in biped_handles {
         let (pos, current_rot) = {
             let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
-            let t = rb.position().translation;
-            let r = rb.rotation();
-            (Vec3::new(t.x, t.y, t.z), Quat::from_xyzw(r.x, r.y, r.z, r.w))
+            (rb_pos(rb), rb_rot(rb))
         };
 
         let nearest = planet_data.iter()

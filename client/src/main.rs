@@ -4,23 +4,27 @@ use bevy::core_pipeline::Skybox;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
-use bevy_egui::input::EguiWantsInput;
 use camera::spawn_camera;
+use common::interaction::Interactable;
 use net::{
     message::*,
     quic::*,
 };
 use common::GameObjectKind;
+pub use common::game_state::GameState;
 use game_objects::pawn::{self, GatherInputSet, MovePawnsSet, Possessed, PawnPlugin, BipedPawnComponent};
+use game_objects::pawn::biped::viewmodel_offset;
 use physics::physics_world::*;
 use reconciliation::{PendingReconciliation, ReconciliationPlugin};
 use tick_sync::{NetworkStats, TickSyncPlugin};
 use common::tick::Ticker;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
-use common::interaction::Interactable;
 use game_objects::SpawnGameObjectCommand;
-use game_objects::weapon::{hail_mary, rifle, WeaponPlugin, RemoteFireQueue};
+use game_objects::weapon::WeaponPlugin;
+use game_objects::projectile::{ProjectileState, draw_projectile_debug};
+use game_objects::projectile::rifle::RifleProjectile;
+use game_objects::projectile::hail_mary::HailMaryProjectile;
 use game_objects::pawn::biped::WeaponSlots;
 use std::net::SocketAddr;
 
@@ -79,31 +83,14 @@ use sound::SoundPlugin;
 /// Map and gametype selected in the singleplayer setup screen.
 #[derive(Resource, Default)]
 pub(crate) struct SinglePlayerConfig {
-    /// Asset-relative map path, e.g. "maps/default.scn.ron"
     pub map: String,
-    /// Absolute gametype path for ScriptConfig
     pub gametype: String,
 }
 
-/// The local player's own NetworkID, set when the server's owned SpawnCommand arrives.
-#[derive(Resource, Default)]
-struct LocalNetworkID(Option<NetworkID>);
-
-/// Active hitscan beams to draw as gizmos. Each entry is (origin, end, seconds_remaining).
-#[derive(Resource, Default)]
-struct HitBeams(Vec<(Vec3, Vec3, f32)>);
 
 /// Most recent server SimulationState, retained for debug visualization.
 #[derive(Resource, Default)]
 struct LastServerState(Option<SimulationState>);
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
-pub(crate) enum GameState {
-    #[default]
-    MainMenu,
-    SinglePlayer,
-    Multiplayer,
-}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub(crate) enum UiState {
@@ -162,13 +149,11 @@ fn main() {
         .add_plugins(LevelPlugin)
         .add_plugins(WeaponPlugin)
         .add_plugins(SoundPlugin)
-        .add_plugins(ReconciliationPlugin::<GameState, BipedPawnComponent>::new(GameState::Multiplayer))
+        .add_plugins(ReconciliationPlugin::<GameState>::new(GameState::Multiplayer))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
-        .init_resource::<LocalNetworkID>()
         .init_resource::<SinglePlayerConfig>()
         .init_resource::<HostedServer>()
-        .init_resource::<HitBeams>()
         .init_resource::<LastServerState>()
         // PendingHullColliders now managed by LevelPlugin
         .add_systems(FixedUpdate, step_physics
@@ -187,7 +172,7 @@ fn main() {
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → GatherInputSet (per-pawn-type gather) → send_X_input → MovePawnsSet
-    // (maybe_reconcile registered by ReconciliationPlugin; gather registered by each pawn plugin)
+    // (maybe_reconcile registered by ReconciliationPlugin)
     app.add_systems(FixedPreUpdate,
         pawn::send_pawn_input.after(GatherInputSet).before(MovePawnsSet)
             .run_if(in_state(GameState::Multiplayer)),
@@ -203,18 +188,17 @@ fn main() {
 
     // (tick increment is FixedLast)
 
-    app.add_systems(Update, interact.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
-    app.add_systems(Update, draw_hit_beams);
     app.add_systems(Update, draw_server_state.run_if(debug_render_on).run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
-    app.add_systems(Update, spawn_scene_weapons_sp.run_if(in_state(GameState::SinglePlayer)));
     app.add_systems(Update, draw_planet_radii.run_if(debug_render_on));
-    app.add_systems(FixedUpdate, (hail_mary::draw_projectile_debug, rifle::draw_projectile_debug)
-        .after(step_physics)
-        .run_if(debug_render_on)
-        .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
+    app.add_systems(FixedUpdate, (
+        draw_projectile_debug::<HailMaryProjectile>(Color::srgba(1.0, 0.3, 0.1, 0.9)),
+        draw_projectile_debug::<RifleProjectile>(Color::srgba(1.0, 0.9, 0.2, 0.9)),
+    ).after(step_physics)
+     .run_if(debug_render_on)
+     .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
 
     debug_println!("starting client...\n");
     app.run();
@@ -264,33 +248,6 @@ fn load_skybox(
     ));
 }
 
-/// Spawns weapons placed in the level scene for single player.
-/// In multiplayer the server handles this via spawn_scene_weapons.
-fn spawn_scene_weapons_sp(
-    query: Query<(Entity, &GameObjectKind, &Transform), (Added<GameObjectKind>, Without<NetworkID>)>,
-    mut commands: Commands,
-    mut net_ids: ResMut<NetworkIDResource>,
-) {
-    for (scene_entity, kind, transform) in query.iter() {
-        match kind {
-            GameObjectKind::Rifle | GameObjectKind::Shotgun | GameObjectKind::HailMary => {}
-            // not a scene-placed weapon; leave it alone (avoid despawning runtime-spawned entities like projectiles)
-            _ => continue,
-        }
-        let net_id = NetworkID(net_ids.next());
-        let entity = commands.spawn_empty().id();
-        commands.queue(SpawnGameObjectCommand { entity, cmd: SpawnCommand {
-            net_id,
-            position: transform.translation,
-            rotation: transform.rotation,
-            starting_velocity: Vec3::ZERO,
-            server_tick: 0,
-            kind: kind.clone(),
-        }});
-        commands.entity(scene_entity).despawn();
-    }
-}
-
 fn cleanup_world(
     mut commands: Commands,
     camera: Query<(Entity, Option<&Children>), With<Camera3d>>,
@@ -315,7 +272,6 @@ fn connect(mut quic: ResMut<QuicManager>, mut client: ResMut<QuinnetClient>, add
 fn disconnect(
     mut quic: ResMut<QuicManager>,
     mut client: ResMut<QuinnetClient>,
-    mut local_net_id: ResMut<LocalNetworkID>,
     mut pending: ResMut<PendingReconciliation>,
     mut hosted: ResMut<HostedServer>,
 ) {
@@ -333,7 +289,6 @@ fn disconnect(
     }
     quic.inbound.clear();
     quic.client_connected = false;
-    local_net_id.0 = None;
     pending.0 = None;
 }
 
@@ -353,22 +308,23 @@ fn on_message(
     mut pending: ResMut<PendingReconciliation>,
     mut net_stats: ResMut<NetworkStats>,
     time: Res<Time>,
-    mut local_net_id: ResMut<LocalNetworkID>,
-    mut hit_beams: ResMut<HitBeams>,
     mut biped_q: ParamSet<(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
         Query<&BipedPawnComponent>,
     )>,
     networked: Query<(Entity, &NetworkID)>,
+    possessed_net_id: Query<&NetworkID, With<Possessed>>,
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
     // pitch_pivot_q: Query<Entity, With<PitchPivot>>,
     mut next_state: ResMut<NextState<GameState>>,
-    mut queue: ResMut<RemoteFireQueue>,
+    projectile_q: Query<(Entity, &ProjectileState)>,
 ) {
     // tracks entities spawned this on_message call (before commands flush)
     // (entity, server_tick) so Possess can sync the client ticker
     let mut just_spawned: std::collections::HashMap<NetworkID, (Entity, u64)> = Default::default();
+    // resolved once at the start; updated inline as Possess / DespawnCommand arrive
+    let mut local_net_id: Option<NetworkID> = possessed_net_id.single().ok().cloned();
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
@@ -381,7 +337,7 @@ fn on_message(
             MsgType::Possess(net_id) => {
                 // SpawnCommand and Possess may arrive in the same batch before commands flush,
                 // so check just_spawned before falling back to the networked query.
-                local_net_id.0 = Some(net_id.clone());
+                local_net_id = Some(net_id.clone());
                 let result = just_spawned.get(&net_id).copied()
                     .or_else(|| networked.iter().find(|(_, nid)| **nid == net_id).map(|(e, _)| (e, ticker.tick)));
                 if let Some((entity, server_tick)) = result {
@@ -391,7 +347,7 @@ fn on_message(
                 }
             }
             MsgType::DespawnCommand(net_id) => {
-                let is_local = local_net_id.0.as_ref() == Some(&net_id);
+                let is_local = local_net_id.as_ref() == Some(&net_id);
                 for (entity, nid) in networked.iter() {
                     if *nid == net_id {
                         if is_local {
@@ -409,7 +365,7 @@ fn on_message(
                                 slots.primary.0 = None;
                                 slots.pocket.0 = None;
                             }
-                            local_net_id.0 = None;
+                            local_net_id = None;
                         } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
                             // if this was a weapon viewmodel in a slot, clear the slot
                             slots.remove_by_net_id(&net_id);
@@ -423,7 +379,7 @@ fn on_message(
                 next_state.set(GameState::MainMenu);
             }
             MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
-                let is_local = local_net_id.0.as_ref() == Some(&carrier_net_id);
+                let is_local = local_net_id.as_ref() == Some(&carrier_net_id);
                 let weapon_entity = networked.iter().find(|(_, nid)| *nid == &weapon_id).map(|(e, _)| e);
                 let Some(weapon_entity) = weapon_entity else { continue };
                 world.set_body_enabled(weapon_entity, false);
@@ -444,12 +400,13 @@ fn on_message(
                         if let Some(prev) = prev_to_hide {
                             sp.commands.entity(prev).insert(Visibility::Hidden);
                         }
-                        let parent = camera.single().ok().or(pivot_e).unwrap();
-                        sp.commands.entity(weapon_entity)
-                            .remove::<(RigidBodyHandleComponent, Interactable)>()
-                            .set_parent_in_place(parent)
-                            .insert(viewmodel_offset(is_primary))
-                            .insert(Visibility::Inherited);
+                        if let Some(parent) = camera.single().ok().or(pivot_e) {
+                            sp.commands.entity(weapon_entity)
+                                .remove::<(RigidBodyHandleComponent, Interactable)>()
+                                .set_parent_in_place(parent)
+                                .insert(viewmodel_offset(is_primary))
+                                .insert(Visibility::Inherited);
+                        }
                     }
                 } else {
                     // attach to carrier's pitch pivot so the weapon moves with them
@@ -464,7 +421,7 @@ fn on_message(
                 }
             }
             MsgType::WeaponDrop(weapon_id, carrier_id, drop_pos) => {
-                let is_carrier = local_net_id.0.as_ref() == Some(&carrier_id);
+                let is_carrier = local_net_id.as_ref() == Some(&carrier_id);
                 let weapon_entity = networked.iter().find(|(_, nid)| *nid == &weapon_id).map(|(e, _)| e);
                 let Some(weapon_entity) = weapon_entity else { continue };
                 world.teleport_body(weapon_entity, drop_pos);
@@ -484,14 +441,15 @@ fn on_message(
                     sp.commands.entity(weapon_entity).insert((Interactable { range: 2.0 }, Visibility::Inherited));
                 }
             }
-            MsgType::HitResult(origin, end, _hit_net_id) => {
-                hit_beams.0.push((origin.into(), end.into(), 0.3));
-            }
-            MsgType::RifleFire { weapon, shooter, origin, dir, tick } => {
-                queue.rifle.push((weapon, shooter, origin, dir, tick));
-            }
-            MsgType::HailMaryFire { weapon, shooter, origin, dir, tick, zoomed } => {
-                queue.hail_mary.push((weapon, shooter, origin, dir, tick, zoomed));
+            MsgType::HitResult(_, _, _) => {}
+            MsgType::ProjectileConfirm { temp_id, net_id } => {
+                // find the locally predicted projectile and attach its server-assigned NetworkID
+                for (entity, state) in projectile_q.iter() {
+                    if state.temp_id == temp_id {
+                        sp.commands.entity(entity).insert(net_id);
+                        break;
+                    }
+                }
             }
             MsgType::HealthUpdate(net_id, current) => {
                 for (nid, mut health) in health_q.iter_mut() {
@@ -538,7 +496,7 @@ fn on_message(
             }
             MsgType::FlashlightState(net_id, on) => {
                 // Local player is updated immediately by toggle_flashlight; skip to avoid flicker.
-                if local_net_id.0.as_ref() == Some(&net_id) { continue; }
+                if local_net_id.as_ref() == Some(&net_id) { continue; }
                 if let Some((entity, _)) = networked.iter().find(|(_, nid)| *nid == &net_id) {
                     if let Ok(children) = sp.entity_children.get(entity) {
                         for child in children.iter() {
@@ -554,17 +512,12 @@ fn on_message(
     }
 }
 
-
-
-
-
 /// Copies the pending server snapshot into LastServerState before reconcile consumes it.
 fn snapshot_server_state(pending: Res<PendingReconciliation>, mut last: ResMut<LastServerState>) {
     if let Some(st) = &pending.0 {
         last.0 = Some(st.clone());
     }
 }
-
 
 /// Draws a point gizmo at each body position from the latest server state.
 fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
@@ -575,89 +528,8 @@ fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
     }
 }
 
-/// Draws active hitscan beams as gizmos and ticks down their lifetime.
-fn draw_hit_beams(
-    mut beams: ResMut<HitBeams>,
-    mut gizmos: Gizmos,
-    time: Res<Time>,
-) {
-    let dt = time.delta_secs();
-    beams.0.retain_mut(|(origin, end, remaining)| {
-        gizmos.line(*origin, *end, Color::srgb(1.0, 0.8, 0.0));
-        *remaining -= dt;
-        *remaining > 0.0
-    });
-}
-
 fn debug_render_on(s: Res<Settings>) -> bool { s.debug_render }
 
-fn nearest_interactable(
-    player_pos: Vec3,
-    interactables: &Query<(Entity, &RigidBodyHandleComponent, &NetworkID), With<Interactable>>,
-    world: &PhysicsWorld,
-) -> Option<(Entity, NetworkID)> {
-    interactables.iter()
-        .filter_map(|(e, handle, net_id)| {
-            let rb = world.rigid_body_set.get(handle.0)?;
-            let t = rb.position().translation;
-            let dist = Vec3::new(t.x, t.y, t.z).distance(player_pos);
-            (dist < 3.0).then_some((e, net_id.clone(), dist))
-        })
-        .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(e, net_id, _)| (e, net_id))
-}
-
-fn interact(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    egui_wants: Res<EguiWantsInput>,
-    state: Res<State<GameState>>,
-    player: Query<(&RigidBodyHandleComponent, &Transform, &BipedPawnComponent), With<Possessed>>,
-    interactables: Query<(Entity, &RigidBodyHandleComponent, &NetworkID), With<Interactable>>,
-    camera: Query<Entity, With<Camera3d>>,
-    mut world: ResMut<PhysicsWorld>,
-    mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
-    mut commands: Commands,
-    mut quic: ResMut<QuicManager>,
-) {
-    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
-    let Ok((h, t, biped)) = player.single() else { return };
-    let player_pos = world.rigid_body_set.get(h.0)
-        .map(|rb| { let p = rb.position().translation; Vec3::new(p.x, p.y, p.z) })
-        .unwrap_or(t.translation);
-    let Some((weapon_entity, weapon_net_id)) = nearest_interactable(player_pos, &interactables, &world) else { return };
-    match state.get() {
-        GameState::SinglePlayer => {
-            let Ok(mut slots) = possessed_q.single_mut() else { return };
-            let (is_primary, prev_to_hide) = if slots.primary.0.is_none() {
-                slots.primary = (Some(weapon_net_id.clone()), Some(weapon_entity));
-                (true, None)
-            } else if slots.pocket.0.is_none() {
-                let prev = slots.active().1;
-                slots.pocket = (Some(weapon_net_id.clone()), Some(weapon_entity));
-                slots.active_primary = false;
-                (false, prev)
-            } else { return };
-            if let Some(prev) = prev_to_hide {
-                commands.entity(prev).insert(Visibility::Hidden);
-            }
-            let parent = camera.single().ok().or(biped.pitch_pivot).unwrap();
-            world.set_body_enabled(weapon_entity, false);
-            commands.entity(weapon_entity)
-                .remove::<(RigidBodyHandleComponent, Interactable)>()
-                .set_parent_in_place(parent)
-                .insert(viewmodel_offset(is_primary))
-                .insert(Visibility::Inherited);
-        }
-        GameState::Multiplayer => {
-            quic.send(SendTarget::All, Channel::Ordered, &MsgType::Interact(weapon_net_id));
-        }
-        _ => {}
-    }
-}
-
-fn viewmodel_offset(_is_primary: bool) -> Transform {
-    Transform::from_xyz(0.4 /* right */, -0.3 /* up */, 0.0)
-}
 //
 // /// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.
 // fn switch_weapon_slot(

@@ -120,6 +120,39 @@ impl Plugin for LevelPlugin {
             .init_resource::<PendingHullColliders>()
             // react to scene-spawned components — works on both client and server
             .add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
+        #[cfg(feature = "client")]
+        app.add_systems(Update, spawn_scene_objects_sp
+            .run_if(in_state(common::game_state::GameState::SinglePlayer)));
+    }
+}
+
+/// Spawns GameObjectKind entities placed in the level scene for single player.
+/// In multiplayer the server handles this via spawn_scene_weapons.
+#[cfg(feature = "client")]
+fn spawn_scene_objects_sp(
+    query: Query<(Entity, &common::GameObjectKind, &Transform), (Added<common::GameObjectKind>, Without<net::message::NetworkID>)>,
+    mut commands: Commands,
+    mut net_ids: ResMut<net::message::NetworkIDResource>,
+) {
+    for (scene_entity, kind, transform) in query.iter() {
+        match kind {
+            common::GameObjectKind::Biped
+            | common::GameObjectKind::Rifle
+            | common::GameObjectKind::Shotgun
+            | common::GameObjectKind::HailMary => {}
+            _ => continue,
+        }
+        let net_id = net::message::NetworkID(net_ids.next());
+        let entity = commands.spawn_empty().id();
+        commands.queue(crate::SpawnGameObjectCommand { entity, cmd: net::message::SpawnCommand {
+            net_id,
+            position: transform.translation,
+            rotation: transform.rotation,
+            starting_velocity: Vec3::ZERO,
+            server_tick: 0,
+            kind: kind.clone(),
+        }});
+        commands.entity(scene_entity).despawn();
     }
 }
 

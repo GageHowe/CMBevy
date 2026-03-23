@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 use common::{debug_println, NetworkID};
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, RigidBodyHandle, step_physics};
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, step_physics};
 use net::quic::{QuicManager, SendTarget, Channel};
 use net::message::MsgType;
 
@@ -46,8 +46,8 @@ pub fn apply_collision_damage(
     const FORCE_SCALE:     f32 = 3.0;
     // dynamic vs static: delta-v threshold (fall damage). filters out wall-pressing and
     // penetration-correction forces (both capped at ~10 m/s by Rapier's corrective velocity)
-    const VELOCITY_THRESHOLD: f32 = 35.0;
-    const VELOCITY_SCALE:     f32 = 1.5;
+    // const VELOCITY_THRESHOLD: f32 = 35.0;
+    // const VELOCITY_SCALE:     f32 = 1.5;
 
     let mut damage_map: HashMap<Entity, f32> = HashMap::new();
     for pair in world.narrow_phase.contact_pairs() {

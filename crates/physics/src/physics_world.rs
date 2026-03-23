@@ -14,6 +14,11 @@ pub const GROUP_PLAYER: Group = Group::GROUP_1;
 /// Collision group for projectiles. Excluded from player-group solver contacts.
 pub const GROUP_PROJECTILE: Group = Group::GROUP_2;
 
+#[inline] pub fn rb_pos(rb: &RigidBody) -> Vec3    { let t = rb.position().translation; Vec3::new(t.x, t.y, t.z) }
+#[inline] pub fn rb_rot(rb: &RigidBody) -> Quat    { let r = rb.rotation(); Quat::from_xyzw(r.x, r.y, r.z, r.w) }
+#[inline] pub fn rb_vel(rb: &RigidBody) -> Vec3    { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) }
+#[inline] pub fn rb_angvel(rb: &RigidBody) -> Vec3 { let v = rb.angvel(); Vec3::new(v.x, v.y, v.z) }
+
 /// scales how strongly planetary gravity affects this body. Defaults to 1.0 if absent.
 #[derive(Component, Clone, Copy)]
 pub struct GravityScale(pub f32);
@@ -252,12 +257,11 @@ pub fn snapshot_bodies<'a>(
     let mut bodies = HashMap::new();
     for (net_id, body_handle) in pairs {
         if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
-            let pos = rb.position();
             bodies.insert(net_id.clone(), BodyState {
-                position: Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z).into(),
-                rotation: Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w).into(),
-                linvel:   Vec3::new(rb.linvel().x, rb.linvel().y, rb.linvel().z).into(),
-                angvel:   Vec3::new(rb.angvel().x, rb.angvel().y, rb.angvel().z).into(),
+                position: rb_pos(rb).into(),
+                rotation: rb_rot(rb).into(),
+                linvel:   rb_vel(rb).into(),
+                angvel:   rb_angvel(rb).into(),
             });
         }
     }
@@ -316,11 +320,10 @@ pub fn sync_physics_visual(
     };
     for (body_handle, mut transform) in query.iter_mut() {
         let Some(body) = world.rigid_body_set.get(body_handle.0) else { continue };
-        let pos = body.position();
-        let cur_pos = Vec3::new(pos.translation.x, pos.translation.y, pos.translation.z);
-        let cur_rot = Quat::from_xyzw(pos.rotation.x, pos.rotation.y, pos.rotation.z, pos.rotation.w);
-        let linvel = Vec3::new(body.linvel().x, body.linvel().y, body.linvel().z);
-        let angvel = Vec3::new(body.angvel().x, body.angvel().y, body.angvel().z);
+        let cur_pos = rb_pos(body);
+        let cur_rot = rb_rot(body);
+        let linvel  = rb_vel(body);
+        let angvel  = rb_angvel(body);
         // RotationOnly: write last-known position (no extrapolation), extrapolate rotation only
         transform.translation = if *interp == PhysicsInterpMode::RotationOnly {
             cur_pos
@@ -343,12 +346,8 @@ pub fn sync_physics_to_transforms(
 ) {
     for (body_handle, mut transform) in query.iter_mut() {
         if let Some(body) = world.rigid_body_set.get(body_handle.0) {
-            let pos = body.position();
-            let translation = pos.translation;
-            let rotation = pos.rotation;
-
-            transform.translation = Vec3::new(translation.x, translation.y, translation.z);
-            transform.rotation = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w);
+            transform.translation = rb_pos(body);
+            transform.rotation    = rb_rot(body);
         }
     }
 }

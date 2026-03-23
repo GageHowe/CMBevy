@@ -3,10 +3,10 @@ use bevy::prelude::*;
 use mlua::prelude::*;
 // use game_objects::pawn::biped;
 // use game_objects::weapon::{rifle, shotgun};
-use game_objects::{GameObject, GenericShape, spawn_generic};
+use game_objects::{/*GameObject,*/ GenericShape, spawn_generic};
 use game_objects::health::Health;
 use common::{NetworkID, NetworkIDResource};
-use physics::convex_hull_asset::ConvexHullAsset;
+// use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::PhysicsWorld;
 use rapier3d::prelude::ColliderBuilder;
 
@@ -120,28 +120,28 @@ fn register_script_functions(world: &mut World) {
         Ok(entity.to_bits() as i64)
     }).unwrap()).unwrap();
 
-    // spawn_hull(x, y, z, hull_path, scale, friction, restitution, mesh_path) → entity_id
-    // mesh_path is optional (nil to skip visuals)
-    // e.g. local e = spawn_hull(0, 0, 0, "collision/rock.obj", 5.0, 0.8, 0.2, "models/rock.glb#Scene0")
-    runtime.lua.globals().set("spawn_hull", runtime.lua.create_function(|lua, (x, y, z, path, scale, friction, restitution, mesh_path): (f64, f64, f64, String, f64, f64, f64, Option<String>)| {
-        let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
-        let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
-        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
-        let mut state: SystemState<(Commands, ResMut<PhysicsWorld>, Option<Res<AssetServer>>, Option<Res<Assets<ConvexHullAsset>>>)> = SystemState::new(world);
-        let (mut commands, mut physics, asset_server, hull_assets) = state.get_mut(world);
-        let (Some(asset_server), Some(hull_assets)) = (asset_server.as_deref(), hull_assets.as_deref()) else {
-            error!("spawn_hull: asset pipeline unavailable");
-            return Ok(-1i64);
-        };
-        let leaked: &'static str = Box::leak(path.into_boxed_str());
-        let shape = GenericShape::Hull { path: leaked, scale: scale as f32, asset_server, hull_assets };
-        let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
-        if let Some(mesh_path) = mesh_path {
-            commands.entity(entity).insert((SceneRoot(asset_server.load(mesh_path)), Visibility::default()));
-        }
-        state.apply(world);
-        Ok(entity.to_bits() as i64)
-    }).unwrap()).unwrap();
+    // // spawn_hull(x, y, z, hull_path, scale, friction, restitution, mesh_path) → entity_id
+    // // mesh_path is optional (nil to skip visuals)
+    // // e.g. local e = spawn_hull(0, 0, 0, "collision/rock.obj", 5.0, 0.8, 0.2, "models/rock.glb#Scene0")
+    // runtime.lua.globals().set("spawn_hull", runtime.lua.create_function(|lua, (x, y, z, path, scale, friction, restitution, mesh_path): (f64, f64, f64, String, f64, f64, f64, Option<String>)| {
+    //         let world = unsafe { &mut **lua.app_data_ref::<*mut World>().unwrap() };
+    //         let transform = Transform::from_translation(Vec3::new(x as f32, y as f32, z as f32));
+    //         let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+    //         let mut state: SystemState<(Commands, ResMut<PhysicsWorld>, Option<Res<AssetServer>>, Option<Res<Assets<ConvexHullAsset>>>)> = SystemState::new(world);
+    //         let (mut commands, mut physics, asset_server, hull_assets) = state.get_mut(world);
+    //         let (Some(asset_server), Some(hull_assets)) = (asset_server.as_deref(), hull_assets.as_deref()) else {
+    //             error!("spawn_hull: asset pipeline unavailable");
+    //             return Ok(-1i64);
+    //         };
+    //         let leaked: &'static str = Box::leak(path.into_boxed_str());
+    //         let shape = GenericShape::Hull { path: leaked, scale: scale as f32, asset_server, hull_assets };
+    //         let entity = spawn_generic(transform, shape, None, Some(net_id), &mut commands, &mut physics);
+    //         if let Some(mesh_path) = mesh_path {
+    //             commands.entity(entity).insert((SceneRoot(asset_server.load(mesh_path)), Visibility::default()));
+    //         }
+    //         state.apply(world);
+    //     Ok(entity.to_bits() as i64)
+    // }).unwrap()).unwrap();
 
     // despawn(entity_id)
     runtime.lua.globals().set("despawn", runtime.lua.create_function(|lua, entity_id: i64| {

@@ -7,6 +7,7 @@ pub mod health;
 pub mod sound;
 pub mod pawn;
 pub mod weapon;
+pub mod projectile;
 pub mod planet;
 pub mod generic;
 pub mod level;
@@ -41,9 +42,12 @@ pub struct SpawnGameObjectCommand {
 impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
         match self.cmd.kind {
-            GameObjectKind::Biped    => pawn::biped::BipedPawnComponent::spawn(self.entity, &self.cmd, world),
-            GameObjectKind::Rifle    => weapon::rifle::RifleComponent::spawn(self.entity, &self.cmd, world),
-            GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent::spawn(self.entity, &self.cmd, world),
+            GameObjectKind::Biped              => pawn::biped::BipedPawnComponent::spawn(self.entity, &self.cmd, world),
+            GameObjectKind::Spaceship          => pawn::spaceship::SpaceshipPawnComponent::spawn(self.entity, &self.cmd, world),
+            GameObjectKind::Rifle              => weapon::rifle::RifleComponent::spawn(self.entity, &self.cmd, world),
+            GameObjectKind::HailMary           => weapon::hail_mary::HailMaryComponent::spawn(self.entity, &self.cmd, world),
+            GameObjectKind::RifleProjectile    => projectile::rifle::RifleProjectile::spawn(self.entity, &self.cmd, world),
+            GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile::spawn(self.entity, &self.cmd, world),
             _ => { world.entity_mut(self.entity).despawn(); }
         }
     }

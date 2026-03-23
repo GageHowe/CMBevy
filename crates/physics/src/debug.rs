@@ -5,9 +5,8 @@ use common::debug_println;
 
 /// Extracts a Bevy Isometry3d from a Rapier rigid body's current position.
 pub fn rb_iso(rb: &RigidBody) -> Isometry3d {
-    let t = rb.position().translation;
-    let r = rb.rotation();
-    Isometry3d::new(Vec3::new(t.x, t.y, t.z), Quat::from_xyzw(r.x, r.y, r.z, r.w))
+    use crate::physics_world::{rb_pos, rb_rot};
+    Isometry3d::new(rb_pos(rb), rb_rot(rb))
 }
 
 /// Draws a Rapier collider's shape at the given world isometry using Bevy gizmos.

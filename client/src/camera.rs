@@ -11,7 +11,7 @@ use bevy::core_pipeline::Skybox;
 use bevy::pbr::ScreenSpaceAmbientOcclusion;
 use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
-use bevy::post_process::effect_stack::ChromaticAberration;
+// use bevy::post_process::effect_stack::ChromaticAberration;
 
 pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((

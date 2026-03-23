@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::{GameState, UiState, ServerAddr, HostedServer, SinglePlayerConfig};
 use crate::settings::{show_settings_ui, Settings};
-use common::config::BEACON_URL;
+use common::config::{BEACON_URL, LAN_DISCOVERY_PORT};
 
 pub struct MenuPlugin;
 
@@ -21,6 +21,7 @@ enum Screen {
     SinglePlayer,
     Multiplayer,
     CustomGames,
+    JoinLan,
     Matchmaking,
     Host,
 }
@@ -80,6 +81,8 @@ struct LobbyBrowser {
     lobbies: Vec<Lobby>,
     error: String,
     fetching: bool,
+    /// Set once the first result arrives; prevents the trigger from re-scanning every frame.
+    done: bool,
 }
 
 fn beacon_register(req: RegisterRequest, id_slot: std::sync::Arc<std::sync::Mutex<Option<String>>>) {
@@ -98,6 +101,36 @@ fn fetch_lobbies() -> Result<Vec<Lobby>, String> {
         .map_err(|e| e.to_string())?
         .into_json()
         .map_err(|e| e.to_string())
+}
+
+/// Broadcasts a UDP discover probe and collects responses from LAN servers.
+fn fetch_lan_lobbies() -> Result<Vec<Lobby>, String> {
+    use std::net::UdpSocket;
+    use std::time::Duration;
+    let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+    sock.set_broadcast(true).map_err(|e| e.to_string())?;
+    sock.set_read_timeout(Some(Duration::from_millis(1500))).map_err(|e| e.to_string())?;
+    // probe broadcast + localhost explicitly (broadcast may be blocked on the loopback)
+    let _ = sock.send_to(b"discover", format!("255.255.255.255:{LAN_DISCOVERY_PORT}"));
+    let _ = sock.send_to(b"discover", format!("127.0.0.1:{LAN_DISCOVERY_PORT}"));
+    let mut lobbies = Vec::new();
+    let mut buf = [0u8; 16];
+    loop {
+        match sock.recv_from(&mut buf) {
+            Ok((n, from)) => {
+                if let Ok(port) = std::str::from_utf8(&buf[..n]).unwrap_or("").parse::<u16>() {
+                    lobbies.push(Lobby {
+                        name: format!("LAN @ {}", from.ip()),
+                        host: format!("{}:{}", from.ip(), port),
+                        player_count: 0,
+                        max_players: 0,
+                    });
+                }
+            }
+            Err(_) => break, // timeout — done collecting
+        }
+    }
+    Ok(lobbies)
 }
 
 fn asset_base() -> &'static str {
@@ -139,6 +172,7 @@ fn main_menu(
         Screen::SinglePlayer => "Singleplayer",
         Screen::Multiplayer  => "Multiplayer",
         Screen::CustomGames  => "Custom Games",
+        Screen::JoinLan      => "LAN Games",
         Screen::Matchmaking  => "Matchmaking",
         Screen::Host         => "Host",
     };
@@ -213,7 +247,9 @@ fn main_menu(
                         if ui.button("Back").clicked() { *screen = Screen::Root; }
                     }
                     Screen::Multiplayer => {
-                        if ui.button("Custom Games").clicked() { *screen = Screen::CustomGames; }
+                        if ui.button("Join LAN").clicked() { *browser = LobbyBrowser::default(); *screen = Screen::JoinLan; }
+                        ui.add_space(4.0);
+                        if ui.button("Custom Games").clicked() { *browser = LobbyBrowser::default(); *screen = Screen::CustomGames; }
                         ui.add_space(4.0);
                         if ui.button("Matchmaking").clicked() { *screen = Screen::Matchmaking; }
                         ui.add_space(4.0);
@@ -230,7 +266,7 @@ fn main_menu(
                     }
                     Screen::CustomGames => {
                         // Start fetch when entering with no pending request
-                        if !browser.fetching && browser.rx.is_none() {
+                        if !browser.fetching && browser.rx.is_none() && !browser.done {
                             let (tx, rx) = std::sync::mpsc::channel();
                             browser.rx = Some(rx);
                             browser.fetching = true;
@@ -245,6 +281,7 @@ fn main_menu(
                                     browser.lobbies = lobbies;
                                     browser.rx = None;
                                     browser.fetching = false;
+                                    browser.done = true;
                                 }
                                 Ok(Err(e)) => {
                                     browser.error = e;
@@ -293,6 +330,59 @@ fn main_menu(
                             *browser = LobbyBrowser::default();
                             *screen = Screen::Multiplayer;
                         }
+                    }
+                    Screen::JoinLan => {
+                        if !browser.fetching && browser.rx.is_none() && !browser.done {
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            browser.rx = Some(rx);
+                            browser.fetching = true;
+                            browser.error.clear();
+                            // 1.5 s blocking scan; must be on a thread
+                            std::thread::spawn(move || { let _ = tx.send(fetch_lan_lobbies()); });
+                        }
+
+                        if let Some(rx) = &browser.rx {
+                            match rx.try_recv() {
+                                Ok(Ok(lobbies))  => { browser.lobbies = lobbies; browser.rx = None; browser.fetching = false; browser.done = true; }
+                                Ok(Err(e))       => { browser.error = e; browser.lobbies.clear(); browser.rx = None; browser.fetching = false; }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                                Err(_)           => { browser.rx = None; browser.fetching = false; }
+                            }
+                        }
+
+                        if browser.fetching {
+                            ui.spinner();
+                            ui.label("Scanning LAN…");
+                        } else if !browser.error.is_empty() {
+                            ui.colored_label(egui::Color32::RED, &browser.error);
+                        } else if browser.lobbies.is_empty() {
+                            ui.label("No servers found on LAN.");
+                        } else {
+                            let mut connect_to: Option<String> = None;
+                            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                                for lobby in &browser.lobbies {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{} · {}", lobby.name, lobby.host));
+                                        if ui.button("Connect").clicked() {
+                                            connect_to = Some(lobby.host.clone());
+                                        }
+                                    });
+                                }
+                            });
+                            if let Some(addr) = connect_to {
+                                if let Ok(sa) = addr.parse() {
+                                    server_addr.0 = sa;
+                                    *screen = Screen::Root;
+                                    next_state.set(GameState::Multiplayer);
+                                    *browser = LobbyBrowser::default();
+                                }
+                            }
+                        }
+
+                        ui.add_space(4.0);
+                        if ui.button("Scan again").clicked() { *browser = LobbyBrowser::default(); }
+                        ui.add_space(4.0);
+                        if ui.button("Back").clicked() { *browser = LobbyBrowser::default(); *screen = Screen::Multiplayer; }
                     }
                     Screen::Matchmaking => {
                         ui.label("Matchmaking coming soon.");

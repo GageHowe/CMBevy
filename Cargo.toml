@@ -1,4 +1,4 @@
-cargo-features = ["codegen-backend"]
+#cargo-features = ["codegen-backend"]
 
 [workspace]
 members = ["crates/*", "gameserver", "client", "beacon", "tools/*"]
@@ -12,3 +12,8 @@ unwrap_used = "warn"
 todo = "warn"
 too_many_arguments = "allow"
 type_complexity = "allow"
+
+[profile.release]
+opt-level = 3
+debug = false
+codegen-units = 1

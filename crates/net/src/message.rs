@@ -44,12 +44,11 @@ pub enum MsgType {
     /// reliably server -> all (weapon_id, carrier_net_id, drop_position)
     /// TODO: add velocity, should inherit the velocity of the player who dropped or was killed
     WeaponDrop(NetworkID, NetworkID, Vec3),
-    /// Client → Server → All: rifle projectile fire. shooter = pawn that fired.
-    RifleFire { weapon: NetworkID, shooter: NetworkID, origin: Vec3, dir: Vec3, tick: u64 },
-    /// Client → Server → All: hail mary projectile fire. zoomed = was right-click held.
-    HailMaryFire { weapon: NetworkID, shooter: NetworkID, origin: Vec3, dir: Vec3, tick: u64, zoomed: bool },
-    /// Client → Server → All: RPG rocket fire.
-    RpgFire { weapon: NetworkID, shooter: NetworkID, origin: Vec3, dir: Vec3, tick: u64 },
+    /// Client → Server: request to fire a projectile. Server validates, spawns authoritatively,
+    /// sends SpawnCommand to other clients, and replies with ProjectileConfirm to shooter.
+    FireRequest { weapon: NetworkID, kind: GameObjectKind, temp_id: u32, origin: Vec3, dir: Vec3 },
+    /// Server → Client (shooter only): confirms a predicted projectile with its network id.
+    ProjectileConfirm { temp_id: u32, net_id: NetworkID },
     /// Server → All: (origin, end, hit_net_id). Hitscan result for visual effects.
     /// wtf? why vfx? this will be outdated and since clients move very fast this will not be a good solution.
     /// instead, send the shooter entity (the gun) and the direction/magnitude vector, plus the target.

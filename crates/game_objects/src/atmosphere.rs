@@ -52,9 +52,7 @@ pub fn apply_wind_resistance_impulses(
         .filter_map(|(atmo, transform, handle)| {
             let (center, vel) = if let Some(h) = handle {
                 let rb = world.rigid_body_set.get(h.0)?;
-                let t = rb.position().translation;
-                let v = rb.linvel();
-                (Vec3::new(t.x, t.y, t.z), Vec3::new(v.x, v.y, v.z))
+                (rb_pos(rb), rb_vel(rb))
             } else {
                 (transform.translation, Vec3::ZERO)
             };
@@ -84,8 +82,7 @@ pub fn apply_wind_resistance_impulses(
             let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
             if !rb.is_dynamic() || !rb.is_enabled() { continue; }
 
-            let v = rb.linvel();
-            let body_vel = Vec3::new(v.x, v.y, v.z);
+            let body_vel = rb_vel(rb);
             // relative velocity of the body with respect to the atmosphere
             let rel_vel = body_vel - *atmo_vel;
             // drag impulse opposes relative motion

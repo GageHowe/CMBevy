@@ -7,12 +7,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-common = { path = "../crates/common" }
-physics = { path = "../crates/physics" }
-net = { path = "../crates/net" }
-game_objects = { path = "../crates/game_objects" }
-scripting = { path = "../crates/scripting" }
-master_plugin = { path = "../crates/master_plugin" }
 bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", "multi_threaded"] }
 bevy_egui = "0.39.1"
 zstd = "0.13.3"
@@ -24,3 +18,12 @@ toml = { version = "1.0.6", features = ["preserve_order"] }
 fmod-oxide = { version = "0.2", features = ["studio"] }
 lanyard = "0.1"
 ureq = { version = "2", features = ["json"] }
+
+# custom crates
+
+common = { path = "../crates/common" }
+physics = { path = "../crates/physics" }
+net = { path = "../crates/net" }
+game_objects = { path = "../crates/game_objects", features = ["client"] }
+scripting = { path = "../crates/scripting" }
+master_plugin = { path = "../crates/master_plugin" }

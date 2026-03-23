@@ -14,22 +14,21 @@ use super::*;
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
 use super::CameraEffector;
-const CAPSULE_RADIUS:      f32 = 0.3;
+pub const CAPSULE_RADIUS:      f32 = 0.3;
 /// half-height of the standing capsule (total height = 2*(0.5+0.3) = 1.6 m)
-const CAPSULE_HALF_HEIGHT: f32 = 0.5;
+pub const CAPSULE_HALF_HEIGHT: f32 = 0.5;
 /// half-height of the sliding capsule (total height = 2*(0.1+0.3) = 0.8 m)
 const SLIDE_HALF_HEIGHT:   f32 = 0.1;
 const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS; // 0.8
-const SLIDE_BOTTOM:   f32 = SLIDE_HALF_HEIGHT   + CAPSULE_RADIUS; // 0.4
-const MAX_WALK_SPEED:  f32 = 40.0;
-const MAX_SPRINT_SPEED: f32 = 60.0;
+// const SLIDE_BOTTOM:   f32 = SLIDE_HALF_HEIGHT   + CAPSULE_RADIUS; // 0.4
+const MAX_WALK_SPEED:  f32 = 4.0;
+const MAX_SPRINT_SPEED: f32 = 6.0;
 /// max speed gained per tick when accelerating on the ground
-const GROUND_ACCEL:    f32 = 10.0;
-const JUMP_IMPULSE:    f32 = 30.0;
-const AIR_CONTROL:     f32 = 0.5;
+const GROUND_ACCEL:    f32 = 1.0;
+const JUMP_IMPULSE:    f32 = 5.0;
+const AIR_CONTROL:     f32 = 0.2;
 const GROUND_DIST:     f32 = 0.01;  // must be nearly touching to count as grounded
 const JUMP_COOLDOWN:   u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jump
-
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -43,6 +42,9 @@ pub struct BipedPawnComponent {
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
     pub is_sliding: bool,
+    /// set server-side while this biped is inside a vehicle; cleared on exit.
+    /// never set on clients — do not read this client-side.
+    pub in_vehicle: Option<Entity>,
 }
 impl Pawn for BipedPawnComponent {
     fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind) {
@@ -69,11 +71,13 @@ impl GameObject for BipedPawnComponent {
                 .ccd_enabled(true)
                 .build();
             let rb_handle = physics.insert_body(entity, capsule_rb);
-            let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
+            let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
+            let player_solver    = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
             let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
                 .friction(5.0)
                 .restitution(0.0)
                 .restitution_combine_rule(CoefficientCombineRule::Min)
+                .collision_groups(player_collision)
                 .solver_groups(player_solver)
                 .build();
             let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
@@ -131,10 +135,13 @@ impl Plugin for BipedPlugin {
             .run_if(resource_exists::<AccumulatedMouseScroll>));
         #[cfg(feature = "client")]
         {
+            use common::game_state::GameState;
             // re-parent camera under pitch pivot when a biped is possessed
             app.add_systems(Update, attach_camera_on_possess);
             // Y key toggles flashlight; sends FlashlightToggle to server when connected
             app.add_systems(Update, toggle_flashlight);
+            app.add_systems(Update, interact
+                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))));
         }
     }
 }
@@ -329,7 +336,8 @@ fn update_slide_camera(
 
 /// Replaces the capsule collider on a biped rigid body.
 fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle, half_height: f32, friction: f32) {
-    let player_solver = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
+    let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
+    let player_solver    = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
     // remove old collider
     if let Some(&old_ch) = world.rigid_body_set.get(rb_handle).and_then(|rb| rb.colliders().first()) {
         let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
@@ -342,6 +350,7 @@ fn replace_capsule_collider(world: &mut PhysicsWorld, rb_handle: RigidBodyHandle
         .friction(friction)
         .restitution(0.0)
         .restitution_combine_rule(CoefficientCombineRule::Min)
+        .collision_groups(player_collision)
         .solver_groups(player_solver)
         .build();
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
@@ -356,15 +365,7 @@ pub fn apply_biped_movement(
 ) {
     let (body_rot, capsule_pos, capsule_linvel, capsule_mass) = {
         let Some(body) = world.rigid_body_set.get(body_handle.0) else { return };
-        let r = body.rotation();
-        let t = body.position().translation;
-        let v = body.linvel();
-        (
-            Quat::from_xyzw(r.x, r.y, r.z, r.w),
-            Vec3::new(t.x, t.y, t.z),
-            Vec3::new(v.x, v.y, v.z),
-            body.mass(),
-        )
+        (rb_rot(body), rb_pos(body), rb_vel(body), body.mass())
     };
 
     let planet_up = body_rot * Vec3::Y;
@@ -403,7 +404,7 @@ pub fn apply_biped_movement(
             let vel = world.collider_set.get(ch)
                 .and_then(|col| col.parent())
                 .and_then(|rb_h| world.rigid_body_set.get(rb_h))
-                .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+                .map(rb_vel)
                 .unwrap_or(Vec3::ZERO);
             (true, vel)
         } else {
@@ -517,6 +518,7 @@ pub fn biped_fire<W: Weapon>(
     mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
     mut camera_fx: Query<(&mut CameraEffector, &GlobalTransform), With<Camera3d>>,
+    mut id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
     let Ok((pawn_entity, slots, biped)) = pawn.single() else { return };
@@ -541,6 +543,68 @@ pub fn biped_fire<W: Weapon>(
         sound: sound_queue.as_deref_mut(),
         camera: Some(&mut *cam_fx),
         quic: quic.as_deref_mut(),
+        id_counter: id_counter.as_mut().map(|c| &mut c.count),
     };
     weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+}
+
+/// Viewmodel transform offset relative to the camera/pitch pivot.
+pub fn viewmodel_offset(_is_primary: bool) -> Transform {
+    Transform::from_xyz(0.4 /* right */, -0.3 /* up */, 0.0)
+}
+
+#[cfg(feature = "client")]
+fn interact(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Res<EguiWantsInput>,
+    state: Res<State<common::game_state::GameState>>,
+    player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
+    interactables: Query<&net::message::NetworkID, With<common::interaction::Interactable>>,
+    pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
+    camera: Query<Entity, With<Camera3d>>,
+    mut world: ResMut<PhysicsWorld>,
+    mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
+    mut commands: Commands,
+    mut quic: ResMut<net::quic::QuicManager>,
+) {
+    use common::game_state::GameState;
+    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
+    let Ok((pawn_entity, biped)) = player.single() else { return };
+    let Some(pitch_e) = biped.pitch_pivot else { return };
+    let Ok(pivot_gt) = pitch_pivots.get(pitch_e) else { return };
+    let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
+    let forward = rot * Vec3::NEG_Z;
+
+    let Some((hit_entity, _)) = world.cast_ray(origin, forward, 4.0, Some(pawn_entity)) else { return };
+    let Ok(interact_net_id) = interactables.get(hit_entity) else { return };
+    let interact_net_id = interact_net_id.clone();
+
+    match state.get() {
+        GameState::SinglePlayer => {
+            let Ok(mut slots) = possessed_q.single_mut() else { return };
+            let (is_primary, prev_to_hide) = if slots.primary.0.is_none() {
+                slots.primary = (Some(interact_net_id.clone()), Some(hit_entity));
+                (true, None)
+            } else if slots.pocket.0.is_none() {
+                let prev = slots.active().1;
+                slots.pocket = (Some(interact_net_id.clone()), Some(hit_entity));
+                slots.active_primary = false;
+                (false, prev)
+            } else { return };
+            if let Some(prev) = prev_to_hide {
+                commands.entity(prev).insert(Visibility::Hidden);
+            }
+            let parent = camera.single().ok().or(biped.pitch_pivot).unwrap();
+            world.set_body_enabled(hit_entity, false);
+            commands.entity(hit_entity)
+                .remove::<(RigidBodyHandleComponent, common::interaction::Interactable)>()
+                .set_parent_in_place(parent)
+                .insert(viewmodel_offset(is_primary))
+                .insert(Visibility::Inherited);
+        }
+        GameState::Multiplayer => {
+            quic.send(net::quic::SendTarget::All, net::quic::Channel::Ordered, &net::message::MsgType::Interact(interact_net_id));
+        }
+        _ => {}
+    }
 }

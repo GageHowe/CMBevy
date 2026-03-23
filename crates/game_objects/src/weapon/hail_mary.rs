@@ -1,38 +1,27 @@
 use bevy::prelude::*;
 use rapier3d::prelude::*;
 use crate::{GameObjectKind, GameObject};
-use crate::health::Health;
-use physics::debug::{draw_collider, rb_iso};
 use common::interaction::Interactable;
 use physics::physics_world::*;
 use physics::convex_hull_asset::ConvexHullAsset;
-use super::{Weapon, WeaponComponent, FireCtx, RemoteFireQueue};
-use crate::sound::SoundEmitter;
+use super::{Weapon, WeaponComponent, FireCtx};
+use crate::projectile::hail_mary;
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
 
 const MUZZLE_FLASH_TICKS: u8 = 3;
-pub const DAMAGE: f32 = 100.0;
 pub const COOLDOWN_TICKS: u32 = 120; // fixed ticks between shots
-pub const PROJECTILE_SPEED: f32 = 300.0; // projectile speed in m/s
-pub const PROJECTILE_LIFETIME: u32 = 300; // in ticks
 
 const HULL_PATH: &str = "collision/placeholder_ar.obj";
 
-/// we can remove this
-const SCALE: f32 = 1.0;
 
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, (
-            apply_remote_hail_mary_fires.before(step_physics),
-            tick_projectile_hits.after(step_physics),
-            tick_muzzle_flash,
-        ));
+        app.add_systems(FixedUpdate, tick_muzzle_flash);
         #[cfg(feature = "client")]
-        app.add_systems(Update, (add_projectile_visual, update_impact_indicator));
+        app.add_systems(Update, update_impact_indicator);
         #[cfg(feature = "client")]
         app.add_systems(Startup, spawn_impact_indicator);
     }
@@ -59,7 +48,16 @@ impl Weapon for HailMaryComponent {
         self.cooldown = COOLDOWN_TICKS;
         self.fire_requested = false;
         self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
-        spawn_projectile(ctx.origin, ctx.aim_dir, commands, world, ctx.shooter);
+
+        let sv = ctx.shooter
+            .and_then(|e| world.entity_to_handle.get(&e).copied())
+            .and_then(|h| world.rigid_body_set.get(h))
+            .map(rb_vel)
+            .unwrap_or(Vec3::ZERO);
+        let velocity = ctx.aim_dir * hail_mary::SPEED + sv;
+        let temp_id = ctx.id_counter.as_mut().map(|c| { **c = c.wrapping_add(1); **c }).unwrap_or(0);
+        hail_mary::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
+
         if let Some(sq) = ctx.sound.as_mut() {
             // local player: 2D event (no spatialization); remote: 3D at their position
             if ctx.camera.is_some() {
@@ -69,16 +67,16 @@ impl Weapon for HailMaryComponent {
             }
         }
         if let Some(cam) = ctx.camera.as_mut() { cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0); }
-        if let (Some(q), Some(id), Some(sid)) = (ctx.quic.as_mut(), ctx.net_id, ctx.shooter_net_id) {
+        if let (Some(q), Some(id)) = (ctx.quic.as_mut(), ctx.net_id) {
             q.send(net::quic::SendTarget::All, net::quic::Channel::Unordered,
-                   &net::message::MsgType::HailMaryFire { weapon: id.clone(), shooter: sid.clone(), origin: ctx.origin, dir: ctx.aim_dir, tick: ctx.tick, zoomed: ctx.want_alt_fire });
+                &net::message::MsgType::FireRequest { weapon: id.clone(), kind: net::message::GameObjectKind::HailMaryProjectile, temp_id, origin: ctx.origin, dir: ctx.aim_dir });
         }
     }
 }
 
 impl GameObject for HailMaryComponent {
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let transform = Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::splat(SCALE) };
+        let transform = Transform { translation: cmd.position, rotation: cmd.rotation, ..default() };
         let light = world.spawn((
             PointLight { intensity: 20000.0, range: 15.0, color: Color::srgb(1.0, 0.6, 0.2), shadows_enabled: false, ..default() },
             Transform::from_xyz(0.0, 0.0, -0.6),
@@ -98,7 +96,7 @@ impl GameObject for HailMaryComponent {
             physics.insert_body(entity, rb)
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
-        let handle = world.resource::<AssetServer>().load_with_settings(HULL_PATH, |s: &mut f32| *s = SCALE);
+        let handle = world.resource::<AssetServer>().load_with_settings(HULL_PATH, |s: &mut f32| *s = 1.0);
         let col = world.resource::<Assets<ConvexHullAsset>>().get(&handle)
             .map(|h| h.0.clone())
             .unwrap_or_else(|| ColliderBuilder::cuboid(0.2, 0.05, 0.4).build());
@@ -110,130 +108,6 @@ impl GameObject for HailMaryComponent {
         {
             let scene = world.resource::<AssetServer>().load("models/hail_mary_placeholder_2.glb#Scene0");
             world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
-        }
-    }
-}
-
-/// Tracks damage and shooter on a live projectile entity.
-#[derive(Component, Default, Reflect)]
-pub struct HailMaryProjectileState {
-    pub shooter: Option<Entity>,
-    /// ticks remaining before auto-despawn
-    pub lifetime: u32,
-}
-
-/// Spawns a Hail Mary projectile physics body. Returns `(entity, actual_velocity)`.
-/// The projectile inherits the shooter's velocity if the shooter entity is found in the world.
-pub fn spawn_projectile(
-    origin: Vec3,
-    direction: Vec3,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    shooter: Option<Entity>,
-) -> (Entity, Vec3) {
-    // When shooter is None (ghost), direction is treated as a pre-computed velocity.
-    let vel = match shooter {
-        Some(e) => {
-            let sv = world.entity_to_handle.get(&e)
-                .and_then(|&h| world.rigid_body_set.get(h))
-                .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
-                .unwrap_or(Vec3::ZERO);
-            direction * PROJECTILE_SPEED + sv
-        }
-        None => direction,
-    };
-    let entity = commands.spawn((
-        GameObjectKind::HailMaryProjectile,
-        HailMaryProjectileState { shooter, lifetime: PROJECTILE_LIFETIME },
-        Transform::from_translation(origin),
-        SoundEmitter { event: "event:/Weapons/SniperProjectileSound" },
-        // GravityScale(0.5),
-    )).id();
-    let rb = RigidBodyBuilder::kinematic_velocity_based()
-        .translation(origin)
-        .linvel(Vector::new(vel.x, vel.y, vel.z))
-        .ccd_enabled(true)
-        .build();
-    let rb_handle = world.insert_body(entity, rb);
-    {
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        // collision_groups: detect against all groups (needed for narrow_phase contact pairs)
-        // solver_groups: exclude players so projectiles don't physically push them
-        let proj_collision = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL, InteractionTestMode::And);
-        let proj_solver    = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
-        collider_set.insert_with_parent(
-            ColliderBuilder::ball(0.05)
-                .collision_groups(proj_collision)
-                .solver_groups(proj_solver)
-                .build(),
-            rb_handle, rigid_body_set,
-        );
-    }
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
-    let light = commands.spawn((
-        PointLight { intensity: 8000.0, range: 50.0, color: Color::srgb(1.0, 0.0, 0.0), shadows_enabled: true, ..default() },
-        Transform::default(),
-    )).id();
-    commands.entity(entity).add_child(light);
-    (entity, vel)
-}
-
-/// Drains remote hail mary fire events (from other clients) and calls fixed_update to spawn projectiles + play sound.
-fn apply_remote_hail_mary_fires(
-    mut queue: ResMut<RemoteFireQueue>,
-    mut weapons: Query<(&net::message::NetworkID, &mut HailMaryComponent)>,
-    networked: Query<(Entity, &net::message::NetworkID)>,
-    mut world: ResMut<PhysicsWorld>,
-    mut commands: Commands,
-    mut sound: Option<ResMut<crate::sound::SoundQueue>>,
-) {
-    for (weapon_nid, shooter_nid, origin, dir, tick, zoomed) in queue.hail_mary.drain(..) {
-        let Some((_, mut comp)) = weapons.iter_mut().find(|(nid, _)| **nid == weapon_nid) else { continue };
-        let shooter = networked.iter().find(|(_, nid)| **nid == shooter_nid).map(|(e, _)| e);
-        let mut ctx = FireCtx {
-            want_fire: true, want_alt_fire: zoomed,
-            origin, aim_dir: dir,
-            shooter, tick,
-            net_id: None, shooter_net_id: None,
-            sound: sound.as_deref_mut(),
-            camera: None, quic: None,
-        };
-        comp.fixed_update(&mut world, &mut commands, &mut ctx);
-    }
-}
-
-/// Detects narrow_phase contacts for live projectiles, applies damage, and despawns on hit or expiry.
-pub fn tick_projectile_hits(
-    world: Res<PhysicsWorld>,
-    mut commands: Commands,
-    mut projectiles: Query<(Entity, &mut HailMaryProjectileState, &RigidBodyHandleComponent)>,
-    mut health_q: Query<&mut Health>,
-) {
-    // collect hits first to avoid reborrowing world
-    let mut hits: Vec<(Entity, Entity, f32)> = Vec::new();
-
-    for (proj_entity, mut state, rb_handle) in projectiles.iter_mut() {
-        state.lifetime = state.lifetime.saturating_sub(1);
-        if state.lifetime == 0 { commands.entity(proj_entity).despawn(); continue; }
-
-        let Some(rb) = world.rigid_body_set.get(rb_handle.0) else { continue };
-        'outer: for &ch in rb.colliders() {
-            for pair in world.narrow_phase.contact_pairs_with(ch) {
-                if !pair.has_any_active_contact() { continue; }
-                let other_ch = if pair.collider1 == ch { pair.collider2 } else { pair.collider1 };
-                let Some(other_rb) = world.collider_set.get(other_ch).and_then(|c| c.parent()) else { continue };
-                let Some(&hit_entity) = world.handle_to_entity.get(&other_rb) else { continue };
-                if state.shooter == Some(hit_entity) { continue; }
-                hits.push((proj_entity, hit_entity, DAMAGE));
-                break 'outer;
-            }
-        }
-    }
-
-    for (proj, target, damage) in hits {
-        commands.entity(proj).despawn();
-        if let Ok(mut health) = health_q.get_mut(target) {
-            health.apply_damage(damage);
         }
     }
 }
@@ -253,26 +127,6 @@ pub fn tick_muzzle_flash(
                 *vis = Visibility::Hidden;
             }
         }
-    }
-}
-
-/// Adds a visible sphere mesh to newly spawned projectile entities (client-only).
-#[cfg(feature = "client")]
-fn add_projectile_visual(
-    q: Query<Entity, Added<HailMaryProjectileState>>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    for entity in &q {
-        let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.08));
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.5, 0.0),
-            emissive: LinearRgba::new(4.0, 2.0, 0.0, 1.0),
-            unlit: true,
-            ..default()
-        });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }
 
@@ -318,9 +172,9 @@ fn update_impact_indicator(
         let aim_dir = *cam_gt.forward();
         let shooter_vel = world.entity_to_handle.get(&pawn_entity)
             .and_then(|&h| world.rigid_body_set.get(h))
-            .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+            .map(rb_vel)
             .unwrap_or(Vec3::ZERO);
-        let actual_dir = (aim_dir * PROJECTILE_SPEED + shooter_vel).normalize_or_zero();
+        let actual_dir = (aim_dir * hail_mary::SPEED + shooter_vel).normalize_or_zero();
         const MAX_RANGE: f32 = 500.0;
         let hit_dist = world.cast_ray(origin, actual_dir, MAX_RANGE, Some(pawn_entity))
             .map(|(_, t)| t)
@@ -338,18 +192,3 @@ fn update_impact_indicator(
     }
 }
 
-pub fn draw_projectile_debug(
-    world: Res<PhysicsWorld>,
-    projectiles: Query<(&HailMaryProjectileState, &RigidBodyHandleComponent)>,
-    mut gizmos: Gizmos,
-) {
-    for (_, body_handle) in projectiles.iter() {
-        let Some(rb) = world.rigid_body_set.get(body_handle.0) else { continue };
-        let iso = rb_iso(rb);
-        for ch in rb.colliders() {
-            if let Some(col) = world.collider_set.get(*ch) {
-                draw_collider(col, iso, Color::srgba(1.0, 0.3, 0.1, 0.9), &mut gizmos);
-            }
-        }
-    }
-}

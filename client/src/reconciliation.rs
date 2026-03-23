@@ -1,13 +1,14 @@
 use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
 
 use game_objects::planet::{apply_gravity_impulses, PlanetComponent};
 use game_objects::pawn::biped::BipedPawnComponent;
+use game_objects::pawn::spaceship::SpaceshipPawnComponent;
+use game_objects::pawn::Pawn;
 use net::message::{NetworkID, SimulationState};
-use physics::physics_world::{GravityScale, RigidBodyHandleComponent, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world};
-use game_objects::pawn::{GatherInputSet, Pawn, Possessed};
+use physics::physics_world::{GravityScale, RigidBodyHandleComponent, PhysicsWorld, restore_snapshot, snapshot_bodies, step_world, rb_pos, rb_rot, rb_vel, rb_angvel};
+use game_objects::pawn::{GatherInputSet, Possessed};
 use common::ring_buffer::RingBuffer;
 use common::tick::Ticker;
 
@@ -46,21 +47,20 @@ impl Default for LocalStateHistory {
     }
 }
 
-/// Plugin that wires up reconciliation for any physics-controlled pawn type T.
-pub struct ReconciliationPlugin<S: States + Copy, T: Pawn>(pub S, pub PhantomData<T>);
+pub struct ReconciliationPlugin<S: States + Copy>(pub S);
 
-impl<S: States + Copy, T: Pawn> ReconciliationPlugin<S, T> {
-    pub fn new(state: S) -> Self { Self(state, PhantomData) }
+impl<S: States + Copy> ReconciliationPlugin<S> {
+    pub fn new(state: S) -> Self { Self(state) }
 }
 
-impl<S: States + Copy, T: Pawn> Plugin for ReconciliationPlugin<S, T> {
+impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
         app.init_resource::<PendingReconciliation>()
             .init_resource::<LocalStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(FixedPreUpdate,
-                (apply_physics_corrections, maybe_reconcile::<T>()).chain()
+                (apply_physics_corrections, maybe_reconcile).chain()
                     .before(GatherInputSet)
                     .run_if(in_state(state)))
             .add_systems(FixedPostUpdate, record_world_state.run_if(in_state(state)));
@@ -85,7 +85,7 @@ pub fn apply_physics_corrections(
     mut world: ResMut<PhysicsWorld>,
     bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&BipedPawnComponent>)>,
 ) {
-    const ALPHA: f32 = 0.2; // how quickly it corrects
+    const ALPHA: f32 = 0.2;
     if errors.0.is_empty() { return; }
     let handles: HashMap<NetworkID, (RigidBodyHandle, bool)> = bodies.iter()
         .map(|(nid, h, biped)| (nid.clone(), (h.0, biped.is_some())))
@@ -100,27 +100,25 @@ pub fn apply_physics_corrections(
         let dav = error.angvel * ALPHA;
         let dr = error.rot * ALPHA;
 
-        let t = rb.position().translation;
-        rb.set_translation(Vector::new(t.x + dp.x, t.y + dp.y, t.z + dp.z), true);
+        let t = rb_pos(rb) + dp;
+        rb.set_translation(Vector::new(t.x, t.y, t.z), true);
 
         // Biped rotation is owned by orient_bipeds_to_planets — skip rotation/angvel corrections
         // to prevent stale server look_yaw from leaking into the camera.
         if !is_biped {
             let ang = dr.length();
             if ang > 1e-6 {
-                let r = rb.rotation();
-                let cur = Quat::from_xyzw(r.x, r.y, r.z, r.w);
+                let cur = rb_rot(rb);
                 let delta = Quat::from_axis_angle(dr / ang, ang);
                 rb.set_rotation(delta * cur, true);
             }
-            let av = rb.angvel();
-            rb.set_angvel(Vector::new(av.x + dav.x, av.y + dav.y, av.z + dav.z), true);
+            let av = rb_angvel(rb) + dav;
+            rb.set_angvel(Vector::new(av.x, av.y, av.z), true);
         }
 
-        let v = rb.linvel();
-        rb.set_linvel(Vector::new(v.x + dv.x, v.y + dv.y, v.z + dv.z), true);
+        let v = rb_vel(rb) + dv;
+        rb.set_linvel(Vector::new(v.x, v.y, v.z), true);
 
-        // Decay the remaining error
         let keep = 1.0 - ALPHA;
         error.pos    *= keep;
         error.rot    *= keep;
@@ -131,90 +129,82 @@ pub fn apply_physics_corrections(
     });
 }
 
-/// Runs at the start of `FixedPreUpdate`, after apply_physics_corrections.
-///
-/// For every pending server snapshot:
-///   1. Snapshot current physics state.
-///   2. Fast-forward: restore to server state, replay buffered inputs from snapshot.tick+1..current.
-///   3. Snapshot the resim result.
-///   4. Compute per-body error = resim_result − current_state, store in PhysicsErrors.
-///   5. Restore physics to current state — corrections are applied gradually by apply_physics_corrections.
-pub fn maybe_reconcile<T: Pawn>(
-) -> impl Fn(ResMut<PendingReconciliation>, ResMut<PhysicsWorld>, Res<Ticker>, Res<LocalStateHistory>, Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>, Query<&mut T, With<Possessed>>, Query<(&PlanetComponent, &RigidBodyHandleComponent)>, Query<&GravityScale>, ResMut<PhysicsErrors>) {
-    |mut pending, mut world, tick, history, bodies, mut pawn_query, planets, gravity_scales, mut errors| {
-        let Some(snapshot) = pending.0.take() else { return };
+pub fn maybe_reconcile(
+    mut pending: ResMut<PendingReconciliation>,
+    mut world: ResMut<PhysicsWorld>,
+    tick: Res<Ticker>,
+    history: Res<LocalStateHistory>,
+    bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>,
+    planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    gravity_scales: Query<&GravityScale>,
+    mut errors: ResMut<PhysicsErrors>,
+    mut biped_q: Query<&mut BipedPawnComponent, With<Possessed>>,
+    mut spaceship_q: Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+) {
+    let Some(snapshot) = pending.0.take() else { return };
 
-        let Some((_, our_handle, possessed)) =
-            bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
-        else {
-            return;
-        };
+    let Some((_, our_handle, possessed)) =
+        bodies.iter().find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
+    else {
+        return;
+    };
 
-        let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
-            .iter()
-            .map(|(nid, h, _)| (nid.clone(), h.0))
+    let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
+        .iter()
+        .map(|(nid, h, _)| (nid.clone(), h.0))
+        .collect();
+
+    let current_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+
+    restore_snapshot(&mut world, &snapshot, &pairs);
+
+    if let Some(local) = history.0.iter().find(|s| s.tick == snapshot.tick) {
+        let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
+            .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
+            .cloned()
             .collect();
+        restore_snapshot(&mut world, local, &unmentioned);
+    }
 
-        // Snapshot what physics currently looks like (pre-correction baseline)
-        let current_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+    let tracked: HashSet<RigidBodyHandle> = pairs.iter().map(|(_, h)| *h).collect();
+    let to_freeze: Vec<RigidBodyHandle> = world.rigid_body_set.iter()
+        .filter(|(h, rb)| !tracked.contains(h) && !rb.is_fixed() && rb.is_enabled())
+        .map(|(h, _)| h)
+        .collect();
+    for &h in &to_freeze {
+        if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.set_enabled(false); }
+    }
 
-        // Fast-forward: restore to server authoritative state and replay inputs
-        restore_snapshot(&mut world, &snapshot, &pairs);
-
-        if let Some(local) = history.0.iter().find(|s| s.tick == snapshot.tick) {
-            let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs.iter()
-                .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
-                .cloned()
-                .collect();
-            restore_snapshot(&mut world, local, &unmentioned);
+    let our_rb = our_handle.0;
+    let current_tick = tick.tick;
+    let replay_end = current_tick.min(snapshot.tick.saturating_add(16));
+    for replay_tick in (snapshot.tick + 1)..replay_end {
+        if let Some(input) = possessed.get_input(replay_tick).cloned() {
+            let handle = RigidBodyHandleComponent(our_rb);
+            if let Ok(mut b) = biped_q.single_mut() { b.apply_input(&mut world, &handle, input); }
+            else if let Ok(mut s) = spaceship_q.single_mut() { s.apply_input(&mut world, &handle, input); }
         }
+        apply_gravity_impulses(&mut world, &planets, &gravity_scales);
+        step_world(&mut world);
+    }
 
-        // Freeze non-networked bodies (e.g. projectiles) so they aren't stepped during replay.
-        let tracked: HashSet<RigidBodyHandle> = pairs.iter().map(|(_, h)| *h).collect();
-        let to_freeze: Vec<RigidBodyHandle> = world.rigid_body_set.iter()
-            .filter(|(h, rb)| !tracked.contains(h) && !rb.is_fixed() && rb.is_enabled())
-            .map(|(h, _)| h)
-            .collect();
-        for &h in &to_freeze {
-            if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.set_enabled(false); }
-        }
+    for &h in &to_freeze {
+        if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.set_enabled(true); }
+    }
 
-        let our_rb = our_handle.0;
-        let current_tick = tick.tick;
-        // cap replay to avoid runaway cost if ticks are badly desynced
-        let replay_end = current_tick.min(snapshot.tick.saturating_add(16));
-        for replay_tick in (snapshot.tick + 1)..replay_end {
-            if let Some(input) = possessed.get_input(replay_tick).cloned() {
-                if let Ok(mut component) = pawn_query.single_mut() {
-                    let handle = RigidBodyHandleComponent(our_rb);
-                    component.apply_input(&mut world, &handle, input);
-                }
-            }
-            apply_gravity_impulses(&mut world, &planets, &gravity_scales);
-            step_world(&mut world);
-        }
+    let resim_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+    restore_snapshot(&mut world, &current_state, &pairs);
 
-        // Re-enable frozen non-networked bodies.
-        for &h in &to_freeze {
-            if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.set_enabled(true); }
-        }
+    for (net_id, resim) in &resim_state.bodies {
+        let Some(cur) = current_state.bodies.get(net_id) else { continue };
 
-        // Snapshot resim result, then restore current state
-        let resim_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
-        restore_snapshot(&mut world, &current_state, &pairs);
+        let rot_err = resim.rotation * cur.rotation.conjugate();
+        let (axis, angle) = rot_err.to_axis_angle();
 
-        // Compute and store per-body errors (resim − current)
-        for (net_id, resim) in &resim_state.bodies {
-            let Some(cur) = current_state.bodies.get(net_id) else { continue };
-
-            let rot_err = resim.rotation * cur.rotation.conjugate();
-            let (axis, angle) = rot_err.to_axis_angle();
-
-            let entry = errors.0.entry(net_id.clone()).or_default();
-            entry.pos    = resim.position - cur.position;
-            entry.rot    = axis * angle;
-            entry.linvel = resim.linvel - cur.linvel;
-            entry.angvel = resim.angvel - cur.angvel;
-        }
+        let entry = errors.0.entry(net_id.clone()).or_default();
+        entry.pos    = resim.position - cur.position;
+        entry.rot    = axis * angle;
+        entry.linvel = resim.linvel - cur.linvel;
+        entry.angvel = resim.angvel - cur.angvel;
     }
 }

@@ -1,11 +1,10 @@
-use bevy::ecs::error::warn;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use lanyard::Utf8CString;
 use game_objects::sound::{SoundEmitter, SoundQueue};
 use game_objects::atmosphere::AtmosphereComponent;
 use game_objects::pawn::Possessed;
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
 
 /// FMOD Studio .bank files to load at startup, relative to the working directory.
 const BANK_PATHS: &[&str] = &[
@@ -93,7 +92,7 @@ fn update_instances(
         let (_, rot, pos) = gt.to_scale_rotation_translation();
         let vel = rb
             .and_then(|h| world.rigid_body_set.get(h.0))
-            .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+            .map(rb_vel)
             .unwrap_or(Vec3::ZERO);
         let _ = inst.0.set_3d_attributes(attrs(pos, vel, rot));
     }
@@ -144,15 +143,15 @@ fn update_atmosphere_reverb(
     camera: Query<&GlobalTransform, With<Camera3d>>,
     atmospheres: Query<(&AtmosphereComponent, &GlobalTransform)>,
 ) {
-    let fmod_present = fmod.is_some();
+    let _fmod_present = fmod.is_some();
     let (Some(fmod), Ok(cam_gt)) = (fmod, camera.single()) else {
         warn!("update_planet_atmosphere: FMOD is None");
         return;
     };
     let listener_pos = cam_gt.translation();
 
-    let atmo_count = atmospheres.iter().count();
-    let reverb_count = atmospheres.iter().filter(|(a, _)| a.reverb.is_some()).count();
+    let _atmo_count = atmospheres.iter().count();
+    let _reverb_count = atmospheres.iter().filter(|(a, _)| a.reverb.is_some()).count();
 
     // take the strongest blend across all reverb zones
     let blend = atmospheres.iter()
