@@ -128,7 +128,7 @@ fn main() {
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "client".into(),
+                    title: "Critical Mass".into(),
                     present_mode: PresentMode::FifoRelaxed,
                     ..default()
                 }),
@@ -313,7 +313,7 @@ fn on_message(
         Query<&BipedPawnComponent>,
     )>,
     networked: Query<(Entity, &NetworkID)>,
-    possessed_net_id: Query<&NetworkID, With<Possessed>>,
+    possessed_q: Query<(Entity, &NetworkID), With<Possessed>>,
     mut health_q: Query<(&NetworkID, &mut Health)>,
     camera: Query<Entity, With<Camera3d>>,
     // pitch_pivot_q: Query<Entity, With<PitchPivot>>,
@@ -324,7 +324,7 @@ fn on_message(
     // (entity, server_tick) so Possess can sync the client ticker
     let mut just_spawned: std::collections::HashMap<NetworkID, (Entity, u64)> = Default::default();
     // resolved once at the start; updated inline as Possess / DespawnCommand arrive
-    let mut local_net_id: Option<NetworkID> = possessed_net_id.single().ok().cloned();
+    let mut local_net_id: Option<NetworkID> = possessed_q.single().ok().map(|(_, nid)| nid.clone());
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::SpawnCommand(cmd) => {
@@ -341,6 +341,11 @@ fn on_message(
                 let result = just_spawned.get(&net_id).copied()
                     .or_else(|| networked.iter().find(|(_, nid)| **nid == net_id).map(|(e, _)| (e, ticker.tick)));
                 if let Some((entity, server_tick)) = result {
+                    // strip Possessed from the previous pawn so Added<Possessed> fires
+                    // cleanly on the new one and interact/camera systems don't double-fire
+                    for (old, _) in possessed_q.iter() {
+                        if old != entity { sp.commands.entity(old).remove::<Possessed>(); }
+                    }
                     // sync client tick to server so reconciliation replay covers the right range
                     ticker.tick = server_tick;
                     sp.commands.entity(entity).insert(Possessed::new(128));

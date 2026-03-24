@@ -3,7 +3,7 @@ use rapier3d::prelude::*;
 use crate::{GameObjectKind, GameObject};
 use common::interaction::Interactable;
 use physics::physics_world::*;
-use physics::convex_hull_asset::ConvexHullAsset;
+use crate::generic::hull_or;
 use super::{Weapon, WeaponComponent, FireCtx};
 use crate::projectile::hail_mary;
 
@@ -96,10 +96,7 @@ impl GameObject for HailMaryComponent {
             physics.insert_body(entity, rb)
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
-        let handle = world.resource::<AssetServer>().load_with_settings(HULL_PATH, |s: &mut f32| *s = 1.0);
-        let col = world.resource::<Assets<ConvexHullAsset>>().get(&handle)
-            .map(|h| h.0.clone())
-            .unwrap_or_else(|| ColliderBuilder::cuboid(0.2, 0.05, 0.4).build());
+        let col = hull_or(HULL_PATH, ColliderBuilder::cuboid(0.2, 0.05, 0.4), world);
         let mut physics = world.resource_mut::<PhysicsWorld>();
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
         collider_set.insert_with_parent(col, rb_handle, rigid_body_set);

@@ -1,20 +1,35 @@
 use crate::{GameObjectKind, GameObject};
 use common::interaction::Interactable;
 use physics::physics_world::*;
+use crate::generic::hull_or;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+#[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 use rapier3d::prelude::*;
 use super::*;
 use super::vehicle::VehicleComponent;
 
-const THRUST:      f32 = 0.2;
-const ROLL_SPEED:  f32 = 1.5;
+const HULL_PATH:      &str = "collision/placeholder_carrier.obj";
+const CAMERA_OFFSET:  Vec3 = Vec3::new(0.0, 0.5, -2.5);
+const THRUST:         f32 = 0.2;
+const ROLL_SPEED:     f32 = 1.5;
+
+pub struct SpaceshipPlugin;
+impl Plugin for SpaceshipPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(FixedPreUpdate, (
+            gather_spaceship_input
+                .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                .in_set(GatherInputSet),
+            move_pawns::<SpaceshipPawnComponent>().in_set(MovePawnsSet),
+        ).chain());
+    }
+}
 
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipPawnComponent;
-
 impl Pawn for SpaceshipPawnComponent {
     fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind) {
         if let PawnInputKind::Spaceship(i) = input { apply_spaceship_movement(world, body, i, self); }
@@ -26,8 +41,7 @@ impl GameObject for SpaceshipPawnComponent {
         let transform = Transform { translation: cmd.position.into(), rotation: cmd.rotation.into(), ..default() };
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
-            // marks this entity as a driveable vehicle for enter/exit mechanics
-            VehicleComponent::default(),
+            VehicleComponent { camera_offset: CAMERA_OFFSET },
             GameObjectKind::Spaceship,
             Transform::from(transform),
             cmd.net_id.clone(),
@@ -36,31 +50,18 @@ impl GameObject for SpaceshipPawnComponent {
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
-            let rb_handle = physics.insert_body(entity, rb);
-            let col = ColliderBuilder::cuboid(1.5, 1.0, 3.0).build();
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-            collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
-            rb_handle
+            physics.insert_body(entity, rb)
         };
+        let col = hull_or(HULL_PATH, ColliderBuilder::cuboid(1.5, 1.0, 3.0), world);
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
-            let mesh = world.resource_mut::<Assets<Mesh>>().add(bevy::math::primitives::Cuboid::new(3.0, 2.0, 6.0));
-            let material = world.resource_mut::<Assets<StandardMaterial>>().add(Color::srgb(0.2, 0.5, 0.8));
-            world.entity_mut(entity).insert((Mesh3d(mesh), MeshMaterial3d(material), Visibility::default()));
+            let scene = world.resource::<AssetServer>().load("models/placeholder_carrier.glb#Scene0");
+            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
         }
-    }
-}
-
-pub struct SpaceshipPlugin;
-impl Plugin for SpaceshipPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(FixedPreUpdate, (
-            gather_spaceship_input
-                .run_if(resource_exists::<ButtonInput<KeyCode>>)
-                .in_set(GatherInputSet),
-            move_pawns::<SpaceshipPawnComponent>().in_set(MovePawnsSet),
-        ).chain());
     }
 }
 

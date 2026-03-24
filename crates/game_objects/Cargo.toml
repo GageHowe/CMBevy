@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-client = []
+client = ["bevy/jpeg", "dep:bevy_egui"]
 
 [lints]
 workspace = true
@@ -13,9 +13,9 @@ workspace = true
 common = { path = "../common" }
 physics = { path = "../physics" }
 net = { path = "../net" }
-bevy = { version = "0.18", features = ["serialize", "jpeg", "std", "multi_threaded"] }
+bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
-bevy_egui = "0.39.1"
+bevy_egui = { version = "0.39.1", optional = true }
 postcard = { version = "1", features = ["alloc"] }
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
 serde = { version = "1", features = ["derive"] }

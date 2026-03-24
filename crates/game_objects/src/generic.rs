@@ -9,6 +9,15 @@ use common::NetworkID;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::*;
 
+/// Loads a convex hull collider from `path`, falling back to `fallback` if the asset
+/// isn't ready yet. Scale is passed as the load setting expected by `ConvexHullAssetLoader`.
+pub fn hull_or(path: &'static str, fallback: ColliderBuilder, world: &World) -> Collider {
+    let handle = world.resource::<AssetServer>().load_with_settings(path, |s: &mut f32| *s = 1.0);
+    world.resource::<Assets<ConvexHullAsset>>().get(&handle)
+        .map(|h| h.0.clone())
+        .unwrap_or_else(|| fallback.build())
+}
+
 /// Collider source for `spawn_generic`. Either a primitive rapier shape (with friction/restitution
 /// set directly on the builder) or a convex hull .obj loaded via the asset system.
 pub enum GenericShape<'a> {

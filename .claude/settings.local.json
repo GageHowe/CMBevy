@@ -62,7 +62,22 @@
       "Bash(python -c \"import sys,json; [print\\(json.loads\\(l\\).get\\(''''message'''',{}\\).get\\(''''message'''',''''''''\\)\\) for l in sys.stdin if l.startswith\\(''''{''''\\)]\")",
       "Bash(make check:*)",
       "Bash(make build:*)",
-      "Bash(make)"
+      "Bash(make)",
+      "WebFetch(domain:blog.wolfire.com)",
+      "WebFetch(domain:slidetodoc.com)",
+      "WebFetch(domain:www.wolfire.com)",
+      "WebFetch(domain:documen.site)",
+      "WebFetch(domain:slidegur.com)",
+      "WebFetch(domain:ng.cs.ucl.ac.uk)",
+      "WebFetch(domain:anthonybarranco.com)",
+      "WebFetch(domain:www.tsingloo.com)",
+      "WebFetch(domain:www.gdcvault.com)",
+      "WebFetch(domain:archive.org)",
+      "WebFetch(domain:bevy.org)",
+      "WebFetch(domain:*)",
+      "Bash(make client:*)",
+      "Bash(make:*)"
+
     ],
     "deny": []
   }

@@ -16,6 +16,7 @@ struct BindAddr(SocketAddr);
 use master_plugin::MasterPlugin;
 use game_objects::pawn::{biped, spaceship};
 use game_objects::pawn::{BipedPawnComponent, SpaceshipPawnComponent, VehicleComponent};
+use game_objects::pawn::vehicle::Cockpit;
 use game_objects::SpawnGameObjectCommand;
 use game_objects::health::{Health, handle_deaths};
 use game_objects::weapon::WeaponPlugin;
@@ -108,7 +109,7 @@ fn main() {
     app.init_resource::<BodyHistory>();
 
     app.add_systems(PreUpdate, process_inbound_server);
-    app.add_systems(Update, (tick_respawns, process_console_commands, spawn_scene_game_objects, assign_planet_network_ids));
+    app.add_systems(Update, (tick_respawns, process_console_commands, assign_planet_network_ids));
     // load_server_level: read file bytes → LevelBytes, spawn DynamicSceneRoot
     app.add_systems(Startup, (load_server_level, start_server, init_mode_config).chain());
     app.add_systems(FixedUpdate, on_message.before(step_physics));
@@ -159,32 +160,6 @@ fn load_server_level(
     commands.spawn(bevy::scene::DynamicSceneRoot(handle));
 }
 
-/// Spawns physics bodies for GameObjectKind scene entities (weapons placed in the level).
-/// Assigns NetworkIDs and registers in WeaponRegistry. Server-only.
-fn spawn_scene_game_objects(
-    // Without<NetworkID>: scene placeholders never have a network ID; real spawned entities always do
-    query: Query<(Entity, &GameObjectKind, &Transform), (Added<GameObjectKind>, Without<NetworkID>)>,
-    mut commands: Commands,
-    mut net_ids: ResMut<NetworkIDResource>,
-) {
-    for (scene_entity, kind, transform) in query.iter() {
-        match kind {
-            GameObjectKind::Rifle | GameObjectKind::Shotgun | GameObjectKind::HailMary | GameObjectKind::Biped | GameObjectKind::Spaceship => {}
-            _ => { commands.entity(scene_entity).despawn(); continue; }
-        }
-        let net_id = NetworkID(net_ids.next());
-        let entity = commands.spawn_empty().id();
-        commands.queue(SpawnGameObjectCommand { entity, cmd: SpawnCommand {
-            net_id,
-            position: transform.translation,
-            rotation: transform.rotation,
-            starting_velocity: Vec3::ZERO,
-            server_tick: 0,
-            kind: kind.clone(),
-        }});
-        commands.entity(scene_entity).despawn();
-    }
-}
 
 /// Assigns NetworkIDs to planets once their physics body is ready. Server-only.
 fn assign_planet_network_ids(
@@ -299,7 +274,7 @@ fn on_message(
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
     mut spaceships: Query<&mut SpaceshipPawnComponent>,
-    mut vehicles: Query<&mut VehicleComponent>,
+    mut cockpits: Query<&mut Cockpit, With<VehicleComponent>>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -412,7 +387,7 @@ fn on_message(
                 let Some(target_entity) = target_entity else { continue };
 
                 // ---- vehicle enter / exit ----
-                if let Ok(mut vehicle) = vehicles.get_mut(target_entity) {
+                if let Ok(mut cockpit) = cockpits.get_mut(target_entity) {
                     if let Ok(mut biped) = bipeds.get_mut(player_entity) {
                         if biped.in_vehicle == Some(target_entity) {
                             // exit: eject biped along the vehicle's local right vector
@@ -421,18 +396,18 @@ fn on_message(
                                 .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::X * 4.0)
                                 .unwrap_or(Vec3::ZERO);
                             biped.in_vehicle = None;
-                            vehicle.driver = None;
+                            cockpit.occupant = None;
                             world.set_body_enabled(player_entity, true);
                             world.teleport_body(player_entity, eject_pos);
                             quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Possess(player_net_id));
-                        } else if biped.in_vehicle.is_none() && vehicle.driver.is_none() {
+                        } else if biped.in_vehicle.is_none() && cockpit.occupant.is_none() {
                             // enter: validate range then transfer possession
                             let pp = world.entity_to_handle.get(&player_entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| rb.position().translation);
                             let vp = world.entity_to_handle.get(&target_entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| rb.position().translation);
                             let in_range = matches!((pp, vp), (Some(a), Some(b)) if { let d = a - b; d.x*d.x + d.y*d.y + d.z*d.z < 36.0 });
                             if in_range {
                                 biped.in_vehicle = Some(target_entity);
-                                vehicle.driver = Some(player_entity);
+                                cockpit.occupant = Some(player_entity);
                                 world.set_body_enabled(player_entity, false);
                                 quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Possess(target_net_id));
                             }

@@ -7,9 +7,11 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+#[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 use rapier3d::prelude::*;
 use super::*;
+use super::vehicle::{Cockpit, VehicleComponent};
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
@@ -29,6 +31,8 @@ const JUMP_IMPULSE:    f32 = 5.0;
 const AIR_CONTROL:     f32 = 0.2;
 const GROUND_DIST:     f32 = 0.01;  // must be nearly touching to count as grounded
 const JUMP_COOLDOWN:   u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jump
+const MAIN_RESTITUTION: f32 = 0.0;
+
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -66,7 +70,7 @@ impl GameObject for BipedPawnComponent {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let capsule_rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
-                .angular_damping(10.0)
+                .angular_damping(5.0)
                 .lock_rotations()
                 .ccd_enabled(true)
                 .build();
@@ -74,8 +78,8 @@ impl GameObject for BipedPawnComponent {
             let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
             let player_solver    = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
             let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
-                .friction(5.0)
-                .restitution(0.0)
+                .friction(1.0)
+                .restitution(MAIN_RESTITUTION)
                 .restitution_combine_rule(CoefficientCombineRule::Min)
                 .collision_groups(player_collision)
                 .solver_groups(player_solver)
@@ -566,6 +570,7 @@ fn interact(
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
+    mut cockpits: Query<&mut Cockpit, With<VehicleComponent>>,
 ) {
     use common::game_state::GameState;
     if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) { return; }
@@ -581,6 +586,15 @@ fn interact(
 
     match state.get() {
         GameState::SinglePlayer => {
+            // vehicle entry takes priority over weapon pickup
+            if let Ok(mut cockpit) = cockpits.get_mut(hit_entity) {
+                if cockpit.occupant.is_some() { return; }
+                cockpit.occupant = Some(pawn_entity);
+                world.set_body_enabled(pawn_entity, false);
+                commands.entity(pawn_entity).remove::<Possessed>();
+                commands.entity(hit_entity).insert(Possessed::new(128));
+                return;
+            }
             let Ok(mut slots) = possessed_q.single_mut() else { return };
             let (is_primary, prev_to_hide) = if slots.primary.0.is_none() {
                 slots.primary = (Some(interact_net_id.clone()), Some(hit_entity));

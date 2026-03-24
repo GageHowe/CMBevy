@@ -41,6 +41,9 @@ pub struct SpawnGameObjectCommand {
 
 impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
+        // Insert NetworkID before type-specific spawn so the on_add hook for GameObjectKind
+        // can use its presence as a guard to skip already-spawned entities.
+        world.entity_mut(self.entity).insert(self.cmd.net_id.clone());
         match self.cmd.kind {
             GameObjectKind::Biped              => pawn::biped::BipedPawnComponent::spawn(self.entity, &self.cmd, world),
             GameObjectKind::Spaceship          => pawn::spaceship::SpaceshipPawnComponent::spawn(self.entity, &self.cmd, world),
