@@ -1,7 +1,13 @@
 # Critical Mass
-### Rewritten with Bevy
+### Rewritten with bevy
 
-TODO: https://claude.ai/chat/3c747893-7084-41b4-9b23-757215f1fc80
+Critical Mass is a multiplayer and singleplayer physics-based space combat game.
+
+## Social
+* Discord: https://discord.gg/ZcKdnnbfXF
+* Instagram: https://www.instagram.com/criticalmassdev/
+
+## Build
 
 To run:
 * Server: `make server`
@@ -11,20 +17,13 @@ To build release:
 * `make server-release`
 * `make client-release`
 
-Or, just run dev-scripts/build_release_windows.ps1 and the build will appear in dist/
+Or, just run dev-scripts/build_release_windows.ps1 and the Windows build will appear in dist/
 
 ## Implementation inspiration
-
-Codebases to reference as a sanity check
 * https://github.com/Henauxg/bevy_quinnet/
 * https://github.com/floco2025/cuboid-wars/
 
-## Timing
-* Physics runs on FixedUpdate
-* Planet/Atmosphere forces are on FixedUpdate before physics, and also run during reconciliation
-* 
-
-## Links
+## Dev Links
 * https://vercel.com/gagehowetamus-projects/off-by-three-website
 * https://off-by-three.itch.io/critical-mass
 * storefront: https://store.steampowered.com/app/3526510
