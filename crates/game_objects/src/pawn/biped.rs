@@ -32,6 +32,8 @@ const AIR_CONTROL:     f32 = 0.2;
 const GROUND_DIST:     f32 = 0.01;  // must be nearly touching to count as grounded
 const JUMP_COOLDOWN:   u8  = 25;    // ticks (~0.4 s at 60 Hz) before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
+const MAIN_FRICTION: f32 = 1.0;
+const SLIDE_FRICTION: f32 = 1.0;
 
 
 #[derive(Component, Default, Reflect)]
@@ -78,7 +80,7 @@ impl GameObject for BipedPawnComponent {
             let player_collision = InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
             let player_solver    = InteractionGroups::new(GROUP_PLAYER, Group::ALL & !GROUP_PROJECTILE, InteractionTestMode::And);
             let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
-                .friction(1.0)
+                .friction(MAIN_FRICTION)
                 .restitution(MAIN_RESTITUTION)
                 .restitution_combine_rule(CoefficientCombineRule::Min)
                 .collision_groups(player_collision)
@@ -384,7 +386,7 @@ pub fn apply_biped_movement(
     // swap collider shape when slide state changes (not every tick)
     if is_slide != biped.is_sliding {
         biped.is_sliding = is_slide;
-        let (half_height, friction) = if is_slide { (SLIDE_HALF_HEIGHT, 0.0) } else { (CAPSULE_HALF_HEIGHT, 20.0) };
+        let (half_height, friction) = if is_slide { (SLIDE_HALF_HEIGHT, SLIDE_FRICTION) } else { (CAPSULE_HALF_HEIGHT, MAIN_FRICTION) };
         replace_capsule_collider(world, body_handle.0, half_height, friction);
     }
 
