@@ -1,19 +1,19 @@
 mod config;
 
 use axum::{
+    Json, Router,
     extract::{ConnectInfo, Path, State},
     http::StatusCode,
     response::Html,
     routing::{delete, get, post},
-    Json, Router,
 };
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
-use axum::response::Response;
 use axum::http::header;
+use axum::response::Response;
 use http_common::*;
 
 #[derive(Clone)]
@@ -44,7 +44,12 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
     println!("Listening on http://0.0.0.0:8000");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn register_lobby(
@@ -94,11 +99,14 @@ async fn list_lobbies_partial(State(state): State<AppState>) -> Html<String> {
         return Html(r#"<div class="empty">No active lobbies right now.</div>"#.into());
     }
 
-    let html = lobbies.values().map(|l| {
-        let full = l.player_count >= l.max_players;
-        let badge_class = if full { "badge full" } else { "badge open" };
-        let badge_text = if full { "Full" } else { "Open" };
-        format!(r#"
+    let html = lobbies
+        .values()
+        .map(|l| {
+            let full = l.player_count >= l.max_players;
+            let badge_class = if full { "badge full" } else { "badge open" };
+            let badge_text = if full { "Full" } else { "Open" };
+            format!(
+                r#"
             <div class="lobby-card" data-name="{name}">
                 <span class="lobby-name">{name}</span>
                 <span class="lobby-host">hosted by {host}</span>
@@ -115,8 +123,9 @@ async fn list_lobbies_partial(State(state): State<AppState>) -> Html<String> {
                 pc = l.player_count,
                 mp = l.max_players,
                 id = l.id,
-        )
-    }).collect();
+            )
+        })
+        .collect();
 
     Html(html)
 }

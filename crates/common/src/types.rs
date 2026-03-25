@@ -38,6 +38,12 @@ pub struct SimulationState {
     pub bodies: HashMap<NetworkID, BodyState>,
 }
 
+/// Marker resource inserted only by the dedicated server binary.
+/// Use `resource_exists::<IsServer>` as a run condition for server-only systems,
+/// and `|s: Option<Res<IsServer>>| s.is_none()` for client-only systems.
+#[derive(Resource)]
+pub struct IsServer;
+
 /// update this as needed; it defines types of game objects that can be spawned
 /// this needs to stay in common since both net and game_objects access it
 #[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]

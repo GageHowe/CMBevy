@@ -35,11 +35,11 @@ impl Projectile for RifleProjectile {
         if step < 0.001 { return; }
         let curr = rb_pos(rb);
         let prev = curr - vel * dt;
-        let Some((hit, _)) = world.cast_ray(prev, vel.normalize(), step, Some(entity)) else { return };
-        if Some(hit) != self.shooter {
-            commands.entity(entity).despawn();
-            if let Ok(mut health) = health_q.get_mut(hit) { health.apply_damage(DAMAGE); }
-        }
+        // exclude both self and shooter so the ray isn't blocked by the shooter's capsule on spawn
+        let exclude = [entity, self.shooter.unwrap_or(entity)];
+        let Some((hit, _)) = world.cast_ray(prev, vel.normalize(), step, &exclude) else { return };
+        commands.entity(entity).despawn();
+        if let Ok(mut health) = health_q.get_mut(hit) { health.apply_damage(DAMAGE); }
     }
 }
 
@@ -66,7 +66,8 @@ pub fn spawn(
         .build());
     {
         let proj_collision = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL, InteractionTestMode::And);
-        let proj_solver    = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
+        // no solver contacts — hit detection is manual via cast_ray
+        let proj_solver    = InteractionGroups::new(GROUP_PROJECTILE, Group::NONE, InteractionTestMode::And);
         let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
         collider_set.insert_with_parent(
             ColliderBuilder::ball(RADIUS).collision_groups(proj_collision).solver_groups(proj_solver).build(),
@@ -116,16 +117,15 @@ impl GameObject for RifleProjectile {
 pub struct RifleProjectilePlugin;
 impl Plugin for RifleProjectilePlugin {
     fn build(&self, app: &mut App) {
-        // both systems are server-only; client registers them for singleplayer in main.rs
-        #[cfg(not(feature = "client"))]
-        app.add_systems(FixedUpdate, tick_projectiles::<RifleProjectile>.after(step_physics));
+        use common::game_state::GameState;
+        // run on the server (no GameState resource) and in singleplayer; skip on multiplayer client
+        app.add_systems(FixedUpdate, tick_projectiles::<RifleProjectile>
+            .after(step_physics)
+            .run_if(|state: Option<Res<State<GameState>>>| {
+                state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
+            }));
         #[cfg(feature = "client")]
-        {
-            use common::game_state::GameState;
-            app.add_systems(FixedUpdate, tick_projectiles::<RifleProjectile>
-                .after(step_physics).run_if(bevy::prelude::in_state(GameState::SinglePlayer)));
-            app.add_systems(bevy::prelude::Update, add_visual);
-        }
+        app.add_systems(bevy::prelude::Update, add_visual);
     }
 }
 

@@ -1,30 +1,31 @@
-CLIENT_FEATURES := --features game_objects/client
+# feature-unification = "package" in .cargo/config.toml means each binary gets its own
+# feature set — no unification across workspace members. Use -p <package> to be explicit.
 
 .PHONY: default server client server-release client-release build build-release check
 
 build:
-	cargo build --bin gameserver
-	cargo build --bin client $(CLIENT_FEATURES)
+	cargo build -p gameserver
+	cargo build -p client
 
 server:
-	cargo run --bin gameserver
+	cargo run -p gameserver
 
 client:
-	cargo run --bin client $(CLIENT_FEATURES)
+	cargo run -p client
 
 server-release:
-	cargo run --bin gameserver --release
+	cargo run -p gameserver --release
 
 client-release:
-	cargo run --bin client $(CLIENT_FEATURES) --release
+	cargo run -p client --release
 
 build-release:
-	cargo build --bin gameserver --release
-	cargo build --bin client $(CLIENT_FEATURES) --release
+	cargo build -p gameserver --release
+	cargo build -p client --release
 
 check:
-	cargo check --bin gameserver
-	cargo check --bin client $(CLIENT_FEATURES)
+	cargo check -p gameserver
+	cargo check -p client
 
 clean:
 	cargo clean

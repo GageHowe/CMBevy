@@ -1,26 +1,25 @@
-// this is for plugins and systems needed by both server and client
+// this plugin is for organizing the plugins used by both server and client.
 // we can do timing-dependent stuff here thanks to .before() etc
+// this will get compiled twice due the disaled feature unification in game_objects
 
 use bevy::prelude::*;
 use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
-use net::quic::QuicManager;
-use physics::physics_world::*;
-use physics::convex_hull_asset::ConvexHullPlugin;
-use scripting::ScriptingPlugin;
-use common::tick::*;
 use common::NetworkIDResource;
 use common::slow_update::SlowSchedulePlugin;
-use game_objects::planet::PlanetPlugin;
+use common::tick::*;
 use game_objects::atmosphere::AtmospherePlugin;
 use game_objects::health::HealthPlugin;
+use game_objects::planet::PlanetPlugin;
+use net::quic::QuicManager;
+use physics::convex_hull_asset::ConvexHullPlugin;
+use physics::physics_world::*;
+use scripting::ScriptingPlugin;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(common::config::FIXED_TICK_RATE));
-        app.insert_resource(Ticker {
-            tick: 0
-        });
+        app.insert_resource(Ticker { tick: 0 });
         // step executes on FixedUpdate
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(ConvexHullPlugin);

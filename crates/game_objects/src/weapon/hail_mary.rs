@@ -173,7 +173,7 @@ fn update_impact_indicator(
             .unwrap_or(Vec3::ZERO);
         let actual_dir = (aim_dir * hail_mary::SPEED + shooter_vel).normalize_or_zero();
         const MAX_RANGE: f32 = 500.0;
-        let hit_dist = world.cast_ray(origin, actual_dir, MAX_RANGE, Some(pawn_entity))
+        let hit_dist = world.cast_ray(origin, actual_dir, MAX_RANGE, &[pawn_entity])
             .map(|(_, t)| t)
             .unwrap_or(MAX_RANGE);
         cam.world_to_viewport(cam_gt, origin + actual_dir * hit_dist).ok()

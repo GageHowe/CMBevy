@@ -19,6 +19,7 @@ const ROLL_SPEED:     f32 = 1.5;
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "client")]
         app.add_systems(FixedPreUpdate, (
             gather_spaceship_input
                 .run_if(resource_exists::<ButtonInput<KeyCode>>)
@@ -65,6 +66,7 @@ impl GameObject for SpaceshipPawnComponent {
     }
 }
 
+#[cfg(feature = "client")]
 fn gather_spaceship_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<AccumulatedMouseMotion>,

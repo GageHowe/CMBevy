@@ -95,6 +95,7 @@ fn main() {
         }
     });
 
+    app.insert_resource(common::IsServer);
     app.add_plugins(MasterPlugin);
     app.add_plugins(LevelPlugin);
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());

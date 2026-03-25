@@ -5,15 +5,10 @@ members = ["crates/*", "gameserver", "client", "beacon", "tools/*"]
 resolver = "3"
 
 [workspace.lints.rust]
-#unsafe_code = "forbid"
 
 [workspace.lints.clippy]
-unwrap_used = "warn"
+unwrap_used = "deny"
 todo = "warn"
 too_many_arguments = "allow"
 type_complexity = "allow"
-
-[profile.release]
-opt-level = 3
-debug = false
-codegen-units = 1
+unused_results = "deny"

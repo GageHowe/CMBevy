@@ -6,10 +6,14 @@ edition = "2024"
 [lints]
 workspace = true
 
+[features]
+client = ["bevy_quinnet/client"]
+server = ["bevy_quinnet/server"]
+
 [dependencies]
 common = { path = "../common" }
 bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
-bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false, features = ["client", "server"] }
+bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false }
 postcard = { version = "1", features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
 zstd = "0.13.3"

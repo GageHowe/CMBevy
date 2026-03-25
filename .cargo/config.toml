@@ -1,3 +1,9 @@
+# allows unique package features per binary
+[unstable]
+feature-unification = true
+[resolver]
+feature-unification = "package"
+
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
 

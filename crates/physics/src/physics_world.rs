@@ -2,22 +2,38 @@
 // this manages the physics simulation and syncs it with clients
 
 use bevy::prelude::*;
+use common::debug_println;
 use common::{BodyState, NetworkID, SimulationState};
+pub use rapier3d::prelude::RigidBodyHandle;
 use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
-pub use rapier3d::prelude::RigidBodyHandle;
 use std::collections::HashMap;
-use common::debug_println;
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
 /// Collision group for projectiles. Excluded from player-group solver contacts.
 pub const GROUP_PROJECTILE: Group = Group::GROUP_2;
 
-#[inline] pub fn rb_pos(rb: &RigidBody) -> Vec3    { let t = rb.position().translation; Vec3::new(t.x, t.y, t.z) }
-#[inline] pub fn rb_rot(rb: &RigidBody) -> Quat    { let r = rb.rotation(); Quat::from_xyzw(r.x, r.y, r.z, r.w) }
-#[inline] pub fn rb_vel(rb: &RigidBody) -> Vec3    { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) }
-#[inline] pub fn rb_angvel(rb: &RigidBody) -> Vec3 { let v = rb.angvel(); Vec3::new(v.x, v.y, v.z) }
+#[inline]
+pub fn rb_pos(rb: &RigidBody) -> Vec3 {
+    let t = rb.position().translation;
+    Vec3::new(t.x, t.y, t.z)
+}
+#[inline]
+pub fn rb_rot(rb: &RigidBody) -> Quat {
+    let r = rb.rotation();
+    Quat::from_xyzw(r.x, r.y, r.z, r.w)
+}
+#[inline]
+pub fn rb_vel(rb: &RigidBody) -> Vec3 {
+    let v = rb.linvel();
+    Vec3::new(v.x, v.y, v.z)
+}
+#[inline]
+pub fn rb_angvel(rb: &RigidBody) -> Vec3 {
+    let v = rb.angvel();
+    Vec3::new(v.x, v.y, v.z)
+}
 
 /// scales how strongly planetary gravity affects this body. Defaults to 1.0 if absent.
 #[derive(Component, Clone, Copy)]
@@ -126,7 +142,9 @@ impl PhysicsWorld {
                 true,
             );
         } else {
-            debug_println!("Warning: tried to remove_rigidbody but entity {entity} is not in entity_to_handle")
+            debug_println!(
+                "Warning: tried to remove_rigidbody but entity {entity} is not in entity_to_handle"
+            )
         }
     }
 
@@ -153,19 +171,24 @@ impl PhysicsWorld {
 
 impl PhysicsWorld {
     /// Cast a sphere and return the first entity hit.
+    /// `exclude` lists entities whose colliders are skipped (e.g. shooter + self).
     pub fn cast_sphere(
         &self,
         origin: Vec3,
         direction: Vec3,
         radius: f32,
         max_distance: f32,
-        exclude_entity: Option<Entity>,
+        exclude: &[Entity],
     ) -> Option<Entity> {
         use rapier3d::parry::query::ShapeCastOptions;
-        let filter = match exclude_entity.and_then(|e| self.entity_to_handle.get(&e).copied()) {
-            Some(handle) => QueryFilter::default().exclude_rigid_body(handle),
-            None => QueryFilter::default(),
+        let excluded: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|e| self.entity_to_handle.get(e).copied())
+            .collect();
+        let pred = |_: ColliderHandle, col: &Collider| {
+            col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
+        let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(
             self.narrow_phase.query_dispatcher(),
             &self.rigid_body_set,
@@ -175,26 +198,35 @@ impl PhysicsWorld {
         let shape = Ball::new(radius);
         let iso = Pose::translation(origin.x, origin.y, origin.z);
         let vel = Vector::new(direction.x, direction.y, direction.z);
-        qp.cast_shape(&iso, vel, &shape, ShapeCastOptions::with_max_time_of_impact(max_distance))
-            .and_then(|(ch, _)| {
-                let rb_handle = self.collider_set.get(ch)?.parent()?;
-                Some(*self.handle_to_entity.get(&rb_handle)?)
-            })
+        qp.cast_shape(
+            &iso,
+            vel,
+            &shape,
+            ShapeCastOptions::with_max_time_of_impact(max_distance),
+        )
+        .and_then(|(ch, _)| {
+            let rb_handle = self.collider_set.get(ch)?.parent()?;
+            Some(*self.handle_to_entity.get(&rb_handle)?)
+        })
     }
 
     /// Cast a ray and return the first entity hit and the distance to impact.
-    /// Optionally excludes `exclude_entity`'s colliders (e.g. the shooter).
+    /// `exclude` lists entities whose colliders are skipped (e.g. shooter + projectile self).
     pub fn cast_ray(
         &self,
         origin: Vec3,
         direction: Vec3,
         max_distance: f32,
-        exclude_entity: Option<Entity>,
+        exclude: &[Entity],
     ) -> Option<(Entity, f32)> {
-        let filter = match exclude_entity.and_then(|e| self.entity_to_handle.get(&e).copied()) {
-            Some(handle) => QueryFilter::default().exclude_rigid_body(handle),
-            None => QueryFilter::default(),
+        let excluded: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|e| self.entity_to_handle.get(e).copied())
+            .collect();
+        let pred = |_: ColliderHandle, col: &Collider| {
+            col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
+        let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(
             self.narrow_phase.query_dispatcher(),
             &self.rigid_body_set,
@@ -202,12 +234,11 @@ impl PhysicsWorld {
             filter,
         );
         let ray = Ray::new(origin, direction);
-        qp.cast_ray(&ray, max_distance, true)
-            .and_then(|(ch, toi)| {
-                let rb_handle = self.collider_set.get(ch)?.parent()?;
-                let entity = self.handle_to_entity.get(&rb_handle)?;
-                Some((*entity, toi))
-            })
+        qp.cast_ray(&ray, max_distance, true).and_then(|(ch, toi)| {
+            let rb_handle = self.collider_set.get(ch)?.parent()?;
+            let entity = self.handle_to_entity.get(&rb_handle)?;
+            Some((*entity, toi))
+        })
     }
 }
 
@@ -232,7 +263,10 @@ impl Plugin for PhysicsPlugin {
     }
 }
 
-fn on_remove_physics_body(event: On<Remove, RigidBodyHandleComponent>, mut world: ResMut<PhysicsWorld>) {
+fn on_remove_physics_body(
+    event: On<Remove, RigidBodyHandleComponent>,
+    mut world: ResMut<PhysicsWorld>,
+) {
     world.remove_rigidbody(event.entity);
 }
 
@@ -248,7 +282,6 @@ pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
 
 /// Snapshot the current physics state for all networked bodies.
 /// Returns a `SimulationState` stamped with `tick`.
-#[rustfmt::skip]
 pub fn snapshot_bodies<'a>(
     world: &PhysicsWorld,
     tick: u64,
@@ -257,12 +290,15 @@ pub fn snapshot_bodies<'a>(
     let mut bodies = HashMap::new();
     for (net_id, body_handle) in pairs {
         if let Some(rb) = world.rigid_body_set.get(body_handle.0) {
-            bodies.insert(net_id.clone(), BodyState {
-                position: rb_pos(rb).into(),
-                rotation: rb_rot(rb).into(),
-                linvel:   rb_vel(rb).into(),
-                angvel:   rb_angvel(rb).into(),
-            });
+            bodies.insert(
+                net_id.clone(),
+                BodyState {
+                    position: rb_pos(rb).into(),
+                    rotation: rb_rot(rb).into(),
+                    linvel: rb_vel(rb).into(),
+                    angvel: rb_angvel(rb).into(),
+                },
+            );
         }
     }
     SimulationState { tick, bodies }
@@ -276,8 +312,12 @@ pub fn restore_snapshot(
     pairs: &[(NetworkID, RigidBodyHandle)],
 ) {
     for (net_id, handle) in pairs {
-        let Some(state) = snapshot.bodies.get(net_id) else { continue };
-        let Some(rb) = world.rigid_body_set.get_mut(*handle) else { continue };
+        let Some(state) = snapshot.bodies.get(net_id) else {
+            continue;
+        };
+        let Some(rb) = world.rigid_body_set.get_mut(*handle) else {
+            continue;
+        };
         rb.set_translation(
             Vector3::new(state.position.x, state.position.y, state.position.z),
             true,
@@ -319,11 +359,13 @@ pub fn sync_physics_visual(
         PhysicsInterpMode::Interpolate => (overstep - 1.0) * fixed_dt,
     };
     for (body_handle, mut transform) in query.iter_mut() {
-        let Some(body) = world.rigid_body_set.get(body_handle.0) else { continue };
+        let Some(body) = world.rigid_body_set.get(body_handle.0) else {
+            continue;
+        };
         let cur_pos = rb_pos(body);
         let cur_rot = rb_rot(body);
-        let linvel  = rb_vel(body);
-        let angvel  = rb_angvel(body);
+        let linvel = rb_vel(body);
+        let angvel = rb_angvel(body);
         // RotationOnly: write last-known position (no extrapolation), extrapolate rotation only
         transform.translation = if *interp == PhysicsInterpMode::RotationOnly {
             cur_pos
@@ -347,7 +389,7 @@ pub fn sync_physics_to_transforms(
     for (body_handle, mut transform) in query.iter_mut() {
         if let Some(body) = world.rigid_body_set.get(body_handle.0) {
             transform.translation = rb_pos(body);
-            transform.rotation    = rb_rot(body);
+            transform.rotation = rb_rot(body);
         }
     }
 }

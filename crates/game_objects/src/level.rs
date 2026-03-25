@@ -138,10 +138,13 @@ fn spawn_scene_objects(
     query: Query<(Entity, &common::GameObjectKind, &Transform), (Added<common::GameObjectKind>, Without<net::message::NetworkID>)>,
     mut commands: Commands,
     mut net_id_res: ResMut<net::message::NetworkIDResource>,
-    #[cfg(feature = "client")] state: Option<Res<State<common::game_state::GameState>>>,
+    state: Option<Res<State<common::game_state::GameState>>>,
+    is_server: Option<Res<common::IsServer>>,
 ) {
-    #[cfg(feature = "client")]
-    if state.map_or(true, |s| *s.get() != common::game_state::GameState::SinglePlayer) { return; }
+    // On the client: only run in SinglePlayer
+    if is_server.is_none() {
+        if state.map_or(true, |s| *s.get() != common::game_state::GameState::SinglePlayer) { return; }
+    }
 
     for (entity, kind, transform) in query.iter() {
         match kind {

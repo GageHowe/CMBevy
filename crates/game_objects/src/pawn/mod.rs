@@ -8,9 +8,9 @@ pub mod vehicle;
 #[derive(bevy::prelude::Component)]
 pub struct CameraEffector {
     pub pitch_offset: f32,
-    pub pitch_vel:    f32,
-    pub yaw_offset:   f32,
-    pub yaw_vel:      f32,
+    pub pitch_vel: f32,
+    pub yaw_offset: f32,
+    pub yaw_vel: f32,
     /// Shake intensity; decays toward zero each frame.
     pub shake: f32,
     /// for recoil recovery
@@ -25,36 +25,43 @@ pub struct CameraEffector {
 impl Default for CameraEffector {
     fn default() -> Self {
         Self {
-            pitch_offset: 0.0, pitch_vel: 0.0,
-            yaw_offset:   0.0, yaw_vel:   0.0,
-            shake: 0.0, recovery_speed: 18.0,
-            base_fov: 90.0, zoom_multiplier: 1.0, current_fov: 90.0,
+            pitch_offset: 0.0,
+            pitch_vel: 0.0,
+            yaw_offset: 0.0,
+            yaw_vel: 0.0,
+            shake: 0.0,
+            recovery_speed: 18.0,
+            base_fov: 90.0,
+            zoom_multiplier: 1.0,
+            current_fov: 90.0,
         }
     }
 }
 impl CameraEffector {
     pub fn add_kick(&mut self, vertical: (f32, f32), horizontal: (f32, f32), recovery_speed: f32) {
         self.pitch_vel += vertical.0 + fastrand::f32() * (vertical.1 - vertical.0);
-        self.yaw_vel   += horizontal.0 + fastrand::f32() * (horizontal.1 - horizontal.0);
+        self.yaw_vel += horizontal.0 + fastrand::f32() * (horizontal.1 - horizontal.0);
         self.recovery_speed = recovery_speed;
     }
-    pub fn add_shake(&mut self, amount: f32) { self.shake += amount; }
+    pub fn add_shake(&mut self, amount: f32) {
+        self.shake += amount;
+    }
 }
 // pub mod dep;
 
-use physics::physics_world::*;
-use physics::physics_world::PhysicsWorld;
+use crate::GameObject;
+use bevy::prelude::*;
 use common::ring_buffer::RingBuffer;
 use net::message::MsgType;
-use bevy::prelude::*;
+use physics::physics_world::PhysicsWorld;
+use physics::physics_world::*;
 use std::collections::HashMap;
-use crate::GameObject;
 
 pub use biped::BipedPawnComponent;
-pub use biped::{YawPivot, PitchPivot};
+pub use biped::{PitchPivot, YawPivot};
+pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::VehicleComponent;
-pub use common::{BipedInput, SpaceshipInput, PawnInputKind};
 
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
@@ -67,7 +74,12 @@ impl Plugin for PawnPlugin {
 
 /// all pawns implement this; defines input and movement
 pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
-    fn apply_input(&mut self, world: &mut PhysicsWorld, body: &RigidBodyHandleComponent, input: PawnInputKind);
+    fn apply_input(
+        &mut self,
+        world: &mut PhysicsWorld,
+        body: &RigidBodyHandleComponent,
+        input: PawnInputKind,
+    );
 }
 
 // CAMERA
@@ -76,7 +88,9 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
 #[derive(Resource)]
 pub struct MouseSensitivity(pub f32);
 impl Default for MouseSensitivity {
-    fn default() -> Self { Self(0.002) }
+    fn default() -> Self {
+        Self(0.002)
+    }
 }
 
 /// Marks a pawn as possessed and owns its input history for prediction + reconciliation.
@@ -130,10 +144,13 @@ pub struct GatherInputSet;
 pub struct MovePawnsSet;
 
 /// generic input consumption function for all pawn types
-pub fn move_pawns<T: Pawn>() -> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponent, &mut T)>) {
+pub fn move_pawns<T: Pawn>()
+-> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponent, &mut T)>) {
     |mut world, mut pawns| {
         for (mut possessed, handle, mut component) in pawns.iter_mut() {
-            let Some(input) = possessed.consume() else { continue };
+            let Some(input) = possessed.consume() else {
+                continue;
+            };
             component.apply_input(&mut world, handle, input);
         }
     }
@@ -148,8 +165,12 @@ pub fn send_pawn_input(
     mut pawns: Query<&mut Possessed>,
 ) {
     let Some(mut quic) = quic else { return };
-    let Ok(mut possessed) = pawns.single_mut() else { return };
-    let Some(input) = possessed.peek_newest().cloned() else { return };
+    let Ok(mut possessed) = pawns.single_mut() else {
+        return;
+    };
+    let Some(input) = possessed.peek_newest().cloned() else {
+        return;
+    };
     let t = tick.tick;
     possessed.record_input(t, input.clone());
     // keep ~2 seconds of history

@@ -1,8 +1,8 @@
+use crate::pawn::BipedPawnComponent;
 use bevy::prelude::*;
+use physics::physics_world::{self, *};
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::pawn::BipedPawnComponent;
-use physics::physics_world::{self, *};
 
 #[deprecated]
 /// this should depend on the individual component instance
@@ -17,7 +17,9 @@ pub enum GravityProfile {
 }
 
 impl Default for GravityProfile {
-    fn default() -> Self { Self::Constant(0.0) }
+    fn default() -> Self {
+        Self::Constant(0.0)
+    }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
@@ -31,17 +33,40 @@ pub struct PlanetComponent {
     /// max radius for the spatial query. If zero, all objects are affected.
     pub gravity_radius: u32,
     /// defines how strong gravity is over time
-    pub gravity_profile: GravityProfile
+    pub gravity_profile: GravityProfile,
 }
 
-pub fn spawn(planet: PlanetComponent, transform: Transform, commands: &mut Commands, world: &mut PhysicsWorld) -> Entity {
+pub fn spawn(
+    planet: PlanetComponent,
+    transform: Transform,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) -> Entity {
     let collider_radius = planet.inner_radius as f32;
     let pos = transform.translation;
     let entity = commands.spawn((planet, transform)).id();
-    let rb_handle = world.insert_body(entity, RigidBodyBuilder::fixed().translation(Vector3::new(pos.x, pos.y, pos.z)).build());
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-    collider_set.insert_with_parent(ColliderBuilder::ball(collider_radius).friction(3.0).restitution(0.0).build(), rb_handle, rigid_body_set);
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+    let rb_handle = world.insert_body(
+        entity,
+        RigidBodyBuilder::fixed()
+            .translation(Vector3::new(pos.x, pos.y, pos.z))
+            .build(),
+    );
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
+    collider_set.insert_with_parent(
+        ColliderBuilder::ball(collider_radius)
+            .friction(3.0)
+            .restitution(0.0)
+            .build(),
+        rb_handle,
+        rigid_body_set,
+    );
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     entity
 }
 
@@ -54,7 +79,8 @@ pub fn apply_gravity_impulses(
 ) {
     let dt = world.integration_parameters.dt;
 
-    let planet_data: Vec<(Vec3, &PlanetComponent, RigidBodyHandle)> = planets.iter()
+    let planet_data: Vec<(Vec3, &PlanetComponent, RigidBodyHandle)> = planets
+        .iter()
         .filter_map(|(planet, handle)| {
             let rb = world.rigid_body_set.get(handle.0)?;
             Some((rb_pos(rb), planet, handle.0))
@@ -69,7 +95,9 @@ pub fn apply_gravity_impulses(
         let inner_radius = planet.inner_radius as f32;
 
         let affected_handles: Vec<RigidBodyHandle> = if planet.gravity_radius == 0 {
-            world.rigid_body_set.iter()
+            world
+                .rigid_body_set
+                .iter()
                 .filter(|&(h, _)| h != *planet_handle)
                 .map(|(h, _)| h)
                 .collect()
@@ -83,32 +111,50 @@ pub fn apply_gravity_impulses(
                 &world.collider_set,
                 filter,
             );
-            let collider_handles: Vec<ColliderHandle> = qp.intersect_shape(shape_pos, &shape)
+            let collider_handles: Vec<ColliderHandle> = qp
+                .intersect_shape(shape_pos, &shape)
                 .map(|(ch, _)| ch)
                 .collect();
-            collider_handles.iter()
+            collider_handles
+                .iter()
                 .filter_map(|ch| world.collider_set.get(*ch).and_then(|c| c.parent()))
                 .collect()
         };
 
         for rb_handle in affected_handles {
-            let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
-            if !rb.is_enabled() { continue; }
+            let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+                continue;
+            };
+            if !rb.is_enabled() {
+                continue;
+            }
 
             let to_planet = *planet_center - rb_pos(rb);
             let dist = to_planet.length();
-            if dist < inner_radius || dist < 0.001 { continue; }
+            if dist < inner_radius || dist < 0.001 {
+                continue;
+            }
 
             let strength = match planet.gravity_profile {
                 GravityProfile::InverseSquare(s) => s / (dist * dist),
-                GravityProfile::Linear(s)        => s * if gravity_radius > 0.0 { 1.0 - (dist / gravity_radius).min(1.0) } else { 1.0 },
-                GravityProfile::Constant(s)      => s,
+                GravityProfile::Linear(s) => {
+                    s * if gravity_radius > 0.0 {
+                        1.0 - (dist / gravity_radius).min(1.0)
+                    } else {
+                        1.0
+                    }
+                }
+                GravityProfile::Constant(s) => s,
             };
 
-            let scale = world.handle_to_entity.get(&rb_handle)
+            let scale = world
+                .handle_to_entity
+                .get(&rb_handle)
                 .and_then(|e| gravity_scales.get(*e).ok())
                 .map_or(1.0, |gs| gs.0);
-            if scale == 0.0 { continue; }
+            if scale == 0.0 {
+                continue;
+            }
 
             let dir = to_planet / dist;
             if rb.is_dynamic() {
@@ -140,18 +186,8 @@ pub fn apply_gravity(
     apply_gravity_impulses(&mut world, &planets, &gravity_scales);
 }
 
-/// Smoothly orients bipeds upright relative to the nearest planet using an
-/// orthonormal basis rebuild each tick. Avoids the roll drift that accumulates
-/// when composing rotation arcs, since the basis is reconstructed from scratch
-/// using the current forward vector projected onto the plane perpendicular to
-/// the planet's "up". snap_radius == 0 is treated as unlimited.
-/// Smoothly orients bipeds upright relative to the nearest planet using an
-/// orthonormal basis rebuild each tick. Avoids the roll drift that accumulates
-/// when composing rotation arcs, since the basis is reconstructed from scratch
-/// using the current forward vector projected onto the plane perpendicular to
-/// the planet's "up". snap_radius == 0 is treated as unlimited.
-// how fast bipeds rotate toward planet-up (radians-ish per second)
-const ORIENT_SPEED: f32 = 2.0;
+/// how fast bipeds rotate toward planet-up
+const ORIENT_SPEED: f32 = 3.0;
 
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
@@ -160,7 +196,8 @@ pub fn orient_bipeds_to_planets(
 ) {
     let dt = world.integration_parameters.dt;
 
-    let planet_data: Vec<(Vec3, f32)> = planets.iter()
+    let planet_data: Vec<(Vec3, f32)> = planets
+        .iter()
         .filter_map(|(planet, handle)| {
             let rb = world.rigid_body_set.get(handle.0)?;
             Some((rb_pos(rb), planet.snap_radius as f32))
@@ -171,40 +208,54 @@ pub fn orient_bipeds_to_planets(
 
     for rb_handle in biped_handles {
         let (pos, current_rot) = {
-            let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
+            let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+                continue;
+            };
             (rb_pos(rb), rb_rot(rb))
         };
 
-        let nearest = planet_data.iter()
+        let nearest = planet_data
+            .iter()
             .filter_map(|(center, snap_radius)| {
                 let dist = pos.distance(*center);
-                if *snap_radius == 0.0 || dist <= *snap_radius { Some((*center, dist)) } else { None }
+                if *snap_radius == 0.0 || dist <= *snap_radius {
+                    Some((*center, dist))
+                } else {
+                    None
+                }
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else { continue };
-        let Some((planet_center, _)) = nearest else { continue };
+        let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else {
+            continue;
+        };
+        let Some((planet_center, _)) = nearest else {
+            continue;
+        };
 
         rb.lock_rotations(true, false);
 
         let desired_up = (pos - planet_center).normalize();
         let current_forward = current_rot * Vec3::NEG_Z;
 
-        // Gram-Schmidt: project current forward onto the plane perpendicular to desired_up.
-        // This preserves yaw without accumulating roll across ticks.
+        // Gram-Schmidt: project current forward onto the plane perpendicular to desired_up, to avoid roll accumulating across ticks
         let forward_proj = {
             let proj = current_forward - current_forward.dot(desired_up) * desired_up;
             if proj.length_squared() > 1e-6 {
                 proj.normalize()
             } else {
-                let alt = if desired_up.abs().x < 0.9 { Vec3::X } else { Vec3::Z };
+                let alt = if desired_up.abs().x < 0.9 {
+                    Vec3::X
+                } else {
+                    Vec3::Z
+                };
                 (alt - alt.dot(desired_up) * desired_up).normalize()
             }
         };
 
         // Rebuild orthonormal basis: X=right, Y=up, Z=back
         let right = forward_proj.cross(desired_up).normalize();
-        let back  = right.cross(desired_up).normalize();
+        let back = right.cross(desired_up).normalize();
         let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
 
         // lerp toward target so orientation smoothly tracks the planet surface
@@ -213,20 +264,29 @@ pub fn orient_bipeds_to_planets(
     }
 }
 
-pub fn draw_planet_radii(
-    planets: Query<(&PlanetComponent, &GlobalTransform)>,
-    mut gizmos: Gizmos,
-) {
+pub fn draw_planet_radii(planets: Query<(&PlanetComponent, &GlobalTransform)>, mut gizmos: Gizmos) {
     for (planet, gt) in planets.iter() {
         let pos = gt.translation();
         if planet.inner_radius > 0 {
-            gizmos.sphere(Isometry3d::from_translation(pos), planet.inner_radius as f32, Color::srgba(0.8, 0.2, 0.2, 0.15));
+            gizmos.sphere(
+                Isometry3d::from_translation(pos),
+                planet.inner_radius as f32,
+                Color::srgba(0.8, 0.2, 0.2, 0.15),
+            );
         }
         if planet.snap_radius > 0 {
-            gizmos.sphere(Isometry3d::from_translation(pos), planet.snap_radius as f32, Color::srgba(0.9, 0.8, 0.1, 0.15));
+            gizmos.sphere(
+                Isometry3d::from_translation(pos),
+                planet.snap_radius as f32,
+                Color::srgba(0.9, 0.8, 0.1, 0.15),
+            );
         }
         if planet.gravity_radius > 0 {
-            gizmos.sphere(Isometry3d::from_translation(pos), planet.gravity_radius as f32, Color::srgba(0.2, 0.8, 0.2, 0.15));
+            gizmos.sphere(
+                Isometry3d::from_translation(pos),
+                planet.gravity_radius as f32,
+                Color::srgba(0.2, 0.8, 0.2, 0.15),
+            );
         }
     }
 }
@@ -239,17 +299,33 @@ fn setup_planet_physics(
     mut world: ResMut<PhysicsWorld>,
 ) {
     for (entity, planet, transform) in new_planets.iter() {
-        if world.entity_to_handle.contains_key(&entity) { continue; } // already has physics
+        if world.entity_to_handle.contains_key(&entity) {
+            continue;
+        } // already has physics
         let pos = transform.translation;
-        let rb_handle = world.insert_body(entity, RigidBodyBuilder::fixed()
-            .translation(Vector3::new(pos.x, pos.y, pos.z)).build());
-        let collider_radius = planet.inner_radius as f32;
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        collider_set.insert_with_parent(
-            ColliderBuilder::ball(collider_radius).friction(3.0).restitution(0.0).build(),
-            rb_handle, rigid_body_set,
+        let rb_handle = world.insert_body(
+            entity,
+            RigidBodyBuilder::fixed()
+                .translation(Vector3::new(pos.x, pos.y, pos.z))
+                .build(),
         );
-        commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+        let collider_radius = planet.inner_radius as f32;
+        let PhysicsWorld {
+            collider_set,
+            rigid_body_set,
+            ..
+        } = &mut *world;
+        collider_set.insert_with_parent(
+            ColliderBuilder::ball(collider_radius)
+                .friction(3.0)
+                .restitution(0.0)
+                .build(),
+            rb_handle,
+            rigid_body_set,
+        );
+        commands
+            .entity(entity)
+            .insert(RigidBodyHandleComponent(rb_handle));
     }
 }
 
@@ -260,6 +336,9 @@ impl Plugin for PlanetPlugin {
         app.register_type::<GravityProfile>()
             .register_type::<PlanetComponent>()
             .add_systems(Update, setup_planet_physics)
-            .add_systems(FixedUpdate, (apply_gravity, orient_bipeds_to_planets).before(step_physics));
+            .add_systems(
+                FixedUpdate,
+                (apply_gravity, orient_bipeds_to_planets).before(step_physics),
+            );
     }
 }
