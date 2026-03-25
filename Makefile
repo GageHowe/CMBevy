@@ -3,6 +3,9 @@
 
 .PHONY: default server client server-release client-release build build-release check
 
+dev:
+	cargo build -p gameserver && cargo run -p client
+
 build:
 	cargo build -p gameserver
 	cargo build -p client

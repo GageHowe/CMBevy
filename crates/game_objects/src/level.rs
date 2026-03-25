@@ -1,25 +1,31 @@
 use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
-use serde::de::DeserializeSeed;
-use rapier3d::prelude::*;
-use physics::physics_world::{RigidBodyHandleComponent, PhysicsWorld};
 use physics::convex_hull_asset::ConvexHullAsset;
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+use rapier3d::prelude::*;
+use serde::de::DeserializeSeed;
 
 // ── component / resource types ────────────────────────────────────────────────
 
+// TODO: can we make this a generic rapier type instead of declaring our own?
 #[derive(Clone, Reflect)]
 #[reflect(Default)]
 pub enum ColliderShape {
     Ball(f32),
     Cuboid(Vec3),
-    Capsule { half_height: f32, radius: f32 },
+    Capsule {
+        half_height: f32,
+        radius: f32,
+    },
     /// Path to an OBJ file (relative to assets/) containing VHACD convex hulls.
     ConvexHulls(String),
 }
 
 impl Default for ColliderShape {
-    fn default() -> Self { Self::Ball(1.0) }
+    fn default() -> Self {
+        Self::Ball(1.0)
+    }
 }
 
 /// Static (fixed) collider placed in the scene. Position/rotation come from Transform.
@@ -74,8 +80,8 @@ pub struct LevelBytes(pub Vec<u8>);
 
 /// Reads a .scn.ron file and returns it as compressed bytes for network transfer.
 pub fn read_and_compress_level(path: &str) -> Vec<u8> {
-    let raw = std::fs::read(path)
-        .unwrap_or_else(|e| panic!("Failed to read level \"{path}\": {e}"));
+    let raw =
+        std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read level \"{path}\": {e}"));
     zstd::stream::encode_all(raw.as_slice(), 3).expect("level: zstd compress failed")
 }
 
@@ -86,21 +92,34 @@ pub struct PendingMapScene(pub Vec<u8>);
 /// Decompresses scene bytes from the server, deserializes in-memory, and spawns the scene.
 /// Exclusive system — runs on the client whenever PendingMapScene exists.
 pub fn apply_pending_map_scene(world: &mut World) {
-    let Some(pending) = world.remove_resource::<PendingMapScene>() else { return };
+    let Some(pending) = world.remove_resource::<PendingMapScene>() else {
+        return;
+    };
     let bytes = match zstd::stream::decode_all(pending.0.as_slice()) {
         Ok(b) => b,
-        Err(e) => { error!("map decompress: {e}"); return; }
+        Err(e) => {
+            error!("map decompress: {e}");
+            return;
+        }
     };
     let registry = world.resource::<AppTypeRegistry>().clone();
     let registry_guard = registry.read();
-    let scene_de = SceneDeserializer { type_registry: &registry_guard };
+    let scene_de = SceneDeserializer {
+        type_registry: &registry_guard,
+    };
     let mut ron_de = match ron::Deserializer::from_bytes(&bytes) {
         Ok(d) => d,
-        Err(e) => { error!("map ron: {e}"); return; }
+        Err(e) => {
+            error!("map ron: {e}");
+            return;
+        }
     };
     let scene = match scene_de.deserialize(&mut ron_de) {
         Ok(s) => s,
-        Err(e) => { error!("map deserialize: {e}"); return; }
+        Err(e) => {
+            error!("map deserialize: {e}");
+            return;
+        }
     };
     drop(registry_guard);
     let handle = world.resource_mut::<Assets<DynamicScene>>().add(scene);
@@ -135,7 +154,13 @@ impl Plugin for LevelPlugin {
 /// Converts scene-placeholder GameObjectKind entities into real physics objects.
 /// On the server: always. On the client: only in SinglePlayer.
 fn spawn_scene_objects(
-    query: Query<(Entity, &common::GameObjectKind, &Transform), (Added<common::GameObjectKind>, Without<net::message::NetworkID>)>,
+    query: Query<
+        (Entity, &common::GameObjectKind, &Transform),
+        (
+            Added<common::GameObjectKind>,
+            Without<net::message::NetworkID>,
+        ),
+    >,
     mut commands: Commands,
     mut net_id_res: ResMut<net::message::NetworkIDResource>,
     state: Option<Res<State<common::game_state::GameState>>>,
@@ -143,7 +168,11 @@ fn spawn_scene_objects(
 ) {
     // On the client: only run in SinglePlayer
     if is_server.is_none() {
-        if state.map_or(true, |s| *s.get() != common::game_state::GameState::SinglePlayer) { return; }
+        if state.map_or(true, |s| {
+            *s.get() != common::game_state::GameState::SinglePlayer
+        }) {
+            return;
+        }
     }
 
     for (entity, kind, transform) in query.iter() {
@@ -157,14 +186,17 @@ fn spawn_scene_objects(
         }
         let net_id = net::message::NetworkID(net_id_res.next());
         let new_entity = commands.spawn_empty().id();
-        commands.queue(crate::SpawnGameObjectCommand { entity: new_entity, cmd: net::message::SpawnCommand {
-            net_id,
-            position: transform.translation,
-            rotation: transform.rotation,
-            starting_velocity: Vec3::ZERO,
-            server_tick: 0,
-            kind: kind.clone(),
-        }});
+        commands.queue(crate::SpawnGameObjectCommand {
+            entity: new_entity,
+            cmd: net::message::SpawnCommand {
+                net_id,
+                position: transform.translation,
+                rotation: transform.rotation,
+                starting_velocity: Vec3::ZERO,
+                server_tick: 0,
+                kind: kind.clone(),
+            },
+        });
         commands.entity(entity).despawn();
     }
 }
@@ -183,14 +215,20 @@ pub fn spawn_static_colliders(
         let pos = transform.translation;
         let rot = transform.rotation;
         if let ColliderShape::ConvexHulls(path) = &sc.shape {
-            let handle = asset_server.load_with_settings(path.clone(), move |settings: &mut f32| *settings = s);
+            let handle = asset_server
+                .load_with_settings(path.clone(), move |settings: &mut f32| *settings = s);
             pending.0.push((entity, pos, rot, handle));
             continue;
         }
         let collider = match &sc.shape {
-            ColliderShape::Cuboid(he) => ColliderBuilder::cuboid(he.x * s, he.y * s, he.z * s).build(),
-            ColliderShape::Ball(r)    => ColliderBuilder::ball(r * s).build(),
-            ColliderShape::Capsule { half_height, radius } => ColliderBuilder::capsule_y(half_height * s, radius * s).build(),
+            ColliderShape::Cuboid(he) => {
+                ColliderBuilder::cuboid(he.x * s, he.y * s, he.z * s).build()
+            }
+            ColliderShape::Ball(r) => ColliderBuilder::ball(r * s).build(),
+            ColliderShape::Capsule {
+                half_height,
+                radius,
+            } => ColliderBuilder::capsule_y(half_height * s, radius * s).build(),
             ColliderShape::ConvexHulls(_) => unreachable!(),
         };
         attach_fixed_body(entity, pos, rot, collider, &mut commands, &mut world);
@@ -203,10 +241,18 @@ pub fn spawn_hull_colliders(
     mut pending: ResMut<PendingHullColliders>,
     hull_assets: Res<Assets<ConvexHullAsset>>,
 ) {
-    let ready: Vec<_> = pending.0.iter()
-        .filter_map(|(entity, pos, rot, h)| hull_assets.get(h).map(|a| (*entity, *pos, *rot, a.0.clone())))
+    let ready: Vec<_> = pending
+        .0
+        .iter()
+        .filter_map(|(entity, pos, rot, h)| {
+            hull_assets
+                .get(h)
+                .map(|a| (*entity, *pos, *rot, a.0.clone()))
+        })
         .collect();
-    pending.0.retain(|(_, _, _, h)| hull_assets.get(h).is_none());
+    pending
+        .0
+        .retain(|(_, _, _, h)| hull_assets.get(h).is_none());
     for (entity, pos, rot, collider) in ready {
         attach_fixed_body(entity, pos, rot, collider, &mut commands, &mut world);
     }
@@ -227,9 +273,15 @@ fn attach_fixed_body(
     if let Some(rb) = world.rigid_body_set.get_mut(handle) {
         rb.set_rotation(rotation, true);
     }
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands.entity(entity).insert(RigidBodyHandleComponent(handle));
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(handle));
 }
 
 /// Spawns the GLB visual scene when MapMeta is available. Client-only.
@@ -239,11 +291,15 @@ pub fn load_level_scene(
     asset_server: Res<AssetServer>,
     meta: Res<MapMeta>,
 ) {
-    let Ok(root) = scene_root.single() else { return };
-    let visual = commands.spawn((
-        SceneRoot(asset_server.load(meta.scene_path.clone())),
-        Transform::from_scale(meta.scene_scale),
-    )).id();
+    let Ok(root) = scene_root.single() else {
+        return;
+    };
+    let visual = commands
+        .spawn((
+            SceneRoot(asset_server.load(meta.scene_path.clone())),
+            Transform::from_scale(meta.scene_scale),
+        ))
+        .id();
     // parent to the scene root so it despawns with it
     commands.entity(root).add_child(visual);
 }
@@ -256,7 +312,11 @@ pub fn cleanup_level(
     mut pending: ResMut<PendingHullColliders>,
 ) {
     for entity in scene_roots.iter() {
-        commands.entity(entity).despawn();
+        commands.queue(move |world: &mut World| {
+            if let Ok(entity) = world.get_entity_mut(entity) {
+                entity.despawn();
+            }
+        });
     }
     pending.0.clear();
     commands.remove_resource::<MapMeta>();

@@ -1,7 +1,7 @@
 use crate::{GameObjectKind, GameObject};
 use common::interaction::Interactable;
 use physics::physics_world::*;
-use crate::generic::hull_or;
+use crate::generic::attach_hull_collider;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -12,6 +12,8 @@ use super::*;
 use super::vehicle::VehicleComponent;
 
 const HULL_PATH:      &str = "collision/placeholder_carrier.obj";
+#[cfg(feature = "client")]
+const SCENE_PATH:     &str = "models/placeholder_carrier.glb#Scene0";
 const CAMERA_OFFSET:  Vec3 = Vec3::new(0.0, 0.5, -2.5);
 const THRUST:         f32 = 0.2;
 const ROLL_SPEED:     f32 = 1.5;
@@ -53,14 +55,18 @@ impl GameObject for SpaceshipPawnComponent {
             let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
             physics.insert_body(entity, rb)
         };
-        let col = hull_or(HULL_PATH, ColliderBuilder::cuboid(1.5, 1.0, 3.0), world);
-        let mut physics = world.resource_mut::<PhysicsWorld>();
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
+        attach_hull_collider(
+            entity,
+            rb_handle,
+            HULL_PATH,
+            1.0,
+            ColliderBuilder::cuboid(1.5, 1.0, 3.0),
+            world,
+        );
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
-            let scene = world.resource::<AssetServer>().load("models/placeholder_carrier.glb#Scene0");
+            let scene = world.resource::<AssetServer>().load(SCENE_PATH);
             world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
         }
     }

@@ -1,6 +1,5 @@
 // client executable
 
-use bevy::core_pipeline::Skybox;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
@@ -34,8 +33,10 @@ mod ui;
 mod reconciliation;
 mod tick_sync;
 mod menu;
+mod session;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
+use session::{ClientSessionPlugin, LastServerState};
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub SocketAddr);
@@ -87,10 +88,6 @@ pub(crate) struct SinglePlayerConfig {
     pub gametype: String,
 }
 
-
-/// Most recent server SimulationState, retained for debug visualization.
-#[derive(Resource, Default)]
-struct LastServerState(Option<SimulationState>);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub(crate) enum UiState {
@@ -149,26 +146,20 @@ fn main() {
         .add_plugins(LevelPlugin)
         .add_plugins(WeaponPlugin)
         .add_plugins(SoundPlugin)
+        .add_plugins(ClientSessionPlugin)
         .add_plugins(ReconciliationPlugin::<GameState>::new(GameState::Multiplayer))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<SinglePlayerConfig>()
         .init_resource::<HostedServer>()
-        .init_resource::<LastServerState>()
         // PendingHullColliders now managed by LevelPlugin
         .add_systems(FixedUpdate, step_physics
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Update, sync_physics_visual
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))))
         .add_systems(Startup, spawn_camera);
-
-    app.add_systems(PreUpdate, process_inbound_client.run_if(in_state(GameState::Multiplayer)));
-    app.add_systems(PostUpdate, flush_outbound.run_if(in_state(GameState::Multiplayer)));
-
-    app.add_systems(OnEnter(GameState::SinglePlayer), (load_sp_level, spawn_local_player).chain());
-    app.add_systems(OnExit(GameState::SinglePlayer), (cleanup_world, cleanup_level, remove_script).chain());
-    app.add_systems(OnEnter(GameState::Multiplayer), connect);
-    app.add_systems(OnExit(GameState::Multiplayer), (cleanup_world, disconnect, cleanup_level, remove_script).chain());
+    app.add_systems(OnExit(GameState::SinglePlayer), cleanup_level);
+    app.add_systems(OnExit(GameState::Multiplayer), cleanup_level);
 
     // FixedPreUpdate ordering:
     //   maybe_reconcile → GatherInputSet (per-pawn-type gather) → send_X_input → MovePawnsSet
@@ -183,14 +174,12 @@ fn main() {
     //   record_world_state (ReconciliationPlugin) → on_message/send_chat
     app.add_systems(FixedPostUpdate, on_message.run_if(in_state(GameState::Multiplayer)));
 
-    app.add_systems(FixedPostUpdate, snapshot_server_state.after(on_message).run_if(in_state(GameState::Multiplayer).and(resource_changed::<PendingReconciliation>)));
+    app.add_systems(FixedPostUpdate, session::snapshot_server_state.after(on_message).run_if(in_state(GameState::Multiplayer).and(resource_changed::<PendingReconciliation>)));
 
 
     // (tick increment is FixedLast)
 
-    app.add_systems(Update, draw_server_state.run_if(debug_render_on).run_if(in_state(GameState::Multiplayer)));
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
-    app.add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(Update, draw_planet_radii.run_if(debug_render_on));
     app.add_systems(FixedUpdate, (
@@ -203,15 +192,6 @@ fn main() {
     debug_println!("starting client...\n");
     app.run();
 }
-
-fn load_sp_level(mut commands: Commands, asset_server: Res<AssetServer>, sp: Res<SinglePlayerConfig>) {
-    let map = if sp.map.is_empty() { "maps/default.scn.ron".to_string() } else { sp.map.clone() };
-    if !sp.gametype.is_empty() {
-        commands.insert_resource(scripting::ScriptConfig { path: sp.gametype.clone(), is_server: false, source: None });
-    }
-    commands.spawn((bevy::scene::DynamicSceneRoot(asset_server.load(map)), LevelSceneRoot));
-}
-
 
 fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
     // scene loads async; spawn at the default map origin — scene's SpawnPoint y=800 matches
@@ -327,6 +307,7 @@ fn on_message(
     let mut local_net_id: Option<NetworkID> = possessed_q.single().ok().map(|(_, nid)| nid.clone());
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
+            MsgType::Connected => {}
             MsgType::SpawnCommand(cmd) => {
                 let net_id = cmd.net_id.clone();
                 let server_tick = cmd.server_tick;
@@ -359,13 +340,19 @@ fn on_message(
                             // Detach the camera before despawning so the hierarchy
                             // doesn't take it with it. The server will re-spawn us.
                             if let Ok(cam) = camera.single() {
-                                sp.commands.entity(cam).remove_parent_in_place();
+                                if let Ok(mut entity) = sp.commands.get_entity(cam) {
+                                    entity.remove_parent_in_place();
+                                }
                             }
                             // Despawn held weapon viewmodels explicitly so the
                             // recursive pawn despawn doesn't hit them a second time.
                             if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
                                 for ent in [slots.primary.1.take(), slots.pocket.1.take()] {
-                                    if let Some(w) = ent { sp.commands.entity(w).despawn(); }
+                                    if let Some(w) = ent {
+                                        if let Ok(mut entity) = sp.commands.get_entity(w) {
+                                            entity.despawn();
+                                        }
+                                    }
                                 }
                                 slots.primary.0 = None;
                                 slots.pocket.0 = None;
@@ -375,7 +362,9 @@ fn on_message(
                             // if this was a weapon viewmodel in a slot, clear the slot
                             slots.remove_by_net_id(&net_id);
                         }
-                        sp.commands.entity(entity).despawn();
+                        if let Ok(mut entity_commands) = sp.commands.get_entity(entity) {
+                            entity_commands.despawn();
+                        }
                         break;
                     }
                 }
@@ -559,3 +548,4 @@ fn debug_render_on(s: Res<Settings>) -> bool { s.debug_render }
 //         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
 //     }
 // }
+use bevy::core_pipeline::Skybox;

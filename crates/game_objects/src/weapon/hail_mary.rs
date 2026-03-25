@@ -3,7 +3,7 @@ use rapier3d::prelude::*;
 use crate::{GameObjectKind, GameObject};
 use common::interaction::Interactable;
 use physics::physics_world::*;
-use crate::generic::hull_or;
+use crate::generic::attach_hull_collider;
 use super::{Weapon, WeaponComponent, FireCtx};
 use crate::projectile::hail_mary;
 
@@ -14,6 +14,8 @@ const MUZZLE_FLASH_TICKS: u8 = 3;
 pub const COOLDOWN_TICKS: u32 = 120; // fixed ticks between shots
 
 const HULL_PATH: &str = "collision/placeholder_ar.obj";
+#[cfg(feature = "client")]
+const SCENE_PATH: &str = "models/hail_mary_placeholder_2.glb#Scene0";
 
 
 pub struct HailMaryPlugin;
@@ -96,14 +98,18 @@ impl GameObject for HailMaryComponent {
             physics.insert_body(entity, rb)
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
-        let col = hull_or(HULL_PATH, ColliderBuilder::cuboid(0.2, 0.05, 0.4), world);
-        let mut physics = world.resource_mut::<PhysicsWorld>();
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
+        attach_hull_collider(
+            entity,
+            rb_handle,
+            HULL_PATH,
+            1.0,
+            ColliderBuilder::cuboid(0.2, 0.05, 0.4),
+            world,
+        );
         world.entity_mut(entity).add_child(light);
         #[cfg(feature = "client")]
         {
-            let scene = world.resource::<AssetServer>().load("models/hail_mary_placeholder_2.glb#Scene0");
+            let scene = world.resource::<AssetServer>().load(SCENE_PATH);
             world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
         }
     }
@@ -188,4 +194,3 @@ fn update_impact_indicator(
         None => *vis = Visibility::Hidden,
     }
 }
-

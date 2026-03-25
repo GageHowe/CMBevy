@@ -12,7 +12,7 @@ use net::{
 use net::message::PawnInputKind;
 use common::tick::Ticker;
 #[derive(Resource)]
-struct BindAddr(SocketAddr);
+pub(crate) struct BindAddr(pub SocketAddr);
 use master_plugin::MasterPlugin;
 use game_objects::pawn::{biped, spaceship};
 use game_objects::pawn::{BipedPawnComponent, SpaceshipPawnComponent, VehicleComponent};
@@ -27,12 +27,14 @@ use game_objects::level::{LevelPlugin, LevelBytes, SpawnPoint, read_and_compress
 use game_objects::planet::PlanetComponent;
 use std::sync::{mpsc, Mutex};
 use scripting::{ScriptConfig, get_script_global};
+mod session;
+use session::ServerSessionPlugin;
 
 #[derive(Resource)]
-struct ConsoleCommands(Mutex<mpsc::Receiver<String>>);
+pub(crate) struct ConsoleCommands(pub Mutex<mpsc::Receiver<String>>);
 
 #[derive(Resource)]
-struct ModeConfig {
+pub(crate) struct ModeConfig {
     pub respawn_delay: f32,
 }
 
@@ -54,7 +56,7 @@ fn parse_args() -> (SocketAddr, String, String) {
 
 /// Resource holding the path to the level .scn.ron file.
 #[derive(Resource)]
-struct LevelPath(String);
+pub(crate) struct LevelPath(pub String);
 
 /// Responds to UDP "discover" probes so LAN clients can find this server.
 fn start_lan_discovery(quic_port: u16) {
@@ -85,39 +87,15 @@ fn main() {
         .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
-    let (cmd_tx, cmd_rx) = mpsc::channel::<String>();
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        for line in std::io::stdin().lock().lines() {
-            if let Ok(line) = line {
-                let _ = cmd_tx.send(line);
-            }
-        }
-    });
-
     app.insert_resource(common::IsServer);
     app.add_plugins(MasterPlugin);
     app.add_plugins(LevelPlugin);
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
-    app.add_systems(PostUpdate, flush_outbound);
     app.add_plugins(WeaponPlugin);
-    app.insert_resource(BindAddr(bind_addr));
-    app.insert_resource(LevelPath(map_path));
-    app.insert_resource(ScriptConfig { path: gametype_path, is_server: true, source: None });
-    app.insert_resource(ConsoleCommands(Mutex::new(cmd_rx)));
-    app.init_resource::<PlayerRegistry>();
-    app.init_resource::<PendingRespawns>();
-    app.init_resource::<BodyHistory>();
+    app.add_plugins(ServerSessionPlugin { bind_addr, map_path, gametype_path });
 
-    app.add_systems(PreUpdate, process_inbound_server);
-    app.add_systems(Update, (tick_respawns, process_console_commands, assign_planet_network_ids));
     // load_server_level: read file bytes → LevelBytes, spawn DynamicSceneRoot
-    app.add_systems(Startup, (load_server_level, start_server, init_mode_config).chain());
     app.add_systems(FixedUpdate, on_message.before(step_physics));
-    app.add_systems(FixedUpdate, broadcast_health_updates.after(step_physics).before(broadcast_tick));
-    // handle_deaths is registered by HealthPlugin; order handle_player_deaths before it
-    app.add_systems(FixedUpdate, handle_player_deaths.after(step_physics).before(handle_deaths));
-    app.add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
 
     println!("starting server...\n");
     app.run();
@@ -128,16 +106,16 @@ fn main() {
 /// TODO: how to get, say, NetworkID or ConnectionID from Entity efficiently?
 /// maybe https://github.com/lun3x/multi_index_map
 #[derive(Resource, Default)]
-struct PlayerRegistry(HashMap<ConnectionId, (Entity, NetworkID)>);
+pub(crate) struct PlayerRegistry(pub HashMap<ConnectionId, (Entity, NetworkID)>);
 
 /// Pending respawns: conn_id → (seconds_remaining, kind).
 #[derive(Resource, Default)]
-struct PendingRespawns(HashMap<ConnectionId, (f32, GameObjectKind)>);
+pub(crate) struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind)>);
 
 /// Ring buffer of per-tick body snapshots used for tick-stamped hit replay.
 /// Entries older than 128 ticks are pruned after each broadcast.
 #[derive(Resource, Default)]
-struct BodyHistory(HashMap<u64, SimulationState>);
+pub(crate) struct BodyHistory(pub HashMap<u64, SimulationState>);
 
 /// starts the quic server
 fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>, addr: Res<BindAddr>) {

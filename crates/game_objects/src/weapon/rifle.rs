@@ -3,12 +3,14 @@ use crate::{GameObjectKind, GameObject};
 use crate::sound::SoundRequest;
 use common::interaction::Interactable;
 use physics::physics_world::*;
-use crate::generic::hull_or;
+use crate::generic::attach_hull_collider;
 use rapier3d::prelude::*;
 use super::{Weapon, WeaponComponent, FireCtx};
 use crate::projectile::rifle;
 
 const HULL_PATH: &str = "collision/placeholder_ar.obj";
+#[cfg(feature = "client")]
+const SCENE_PATH: &str = "models/placeholder_ar.glb#Scene0";
 
 pub const COOLDOWN_TICKS: u32 = 6; // 10 rounds/sec at 60 Hz
 
@@ -70,15 +72,18 @@ impl GameObject for RifleComponent {
             physics.insert_body(entity, rb)
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
-        let col = hull_or(HULL_PATH, ColliderBuilder::cuboid(0.2, 0.05, 0.4), world);
-        let mut physics = world.resource_mut::<PhysicsWorld>();
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
+        attach_hull_collider(
+            entity,
+            rb_handle,
+            HULL_PATH,
+            1.0,
+            ColliderBuilder::cuboid(0.2, 0.05, 0.4),
+            world,
+        );
         #[cfg(feature = "client")]
         {
-            let scene = world.resource::<AssetServer>().load("models/placeholder_ar.glb#Scene0");
+            let scene = world.resource::<AssetServer>().load(SCENE_PATH);
             world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
         }
     }
 }
-

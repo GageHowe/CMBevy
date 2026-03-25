@@ -3,14 +3,17 @@
 // this will get compiled twice due the disaled feature unification in game_objects
 
 use bevy::prelude::*;
-use bevy_quinnet::{client::QuinnetClientPlugin, server::QuinnetServerPlugin};
 use common::NetworkIDResource;
 use common::slow_update::SlowSchedulePlugin;
 use common::tick::*;
 use game_objects::atmosphere::AtmospherePlugin;
+use game_objects::generic::swap_hull_colliders;
 use game_objects::health::HealthPlugin;
 use game_objects::planet::PlanetPlugin;
-use net::quic::QuicManager;
+#[cfg(feature = "client")]
+use net::quic::NetClientPlugin;
+#[cfg(feature = "server")]
+use net::quic::NetServerPlugin;
 use physics::convex_hull_asset::ConvexHullPlugin;
 use physics::physics_world::*;
 use scripting::ScriptingPlugin;
@@ -27,16 +30,16 @@ impl Plugin for MasterPlugin {
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
         app.add_plugins(HealthPlugin);
+        app.add_systems(Update, swap_hull_colliders);
 
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedLast, increment_tick);
 
-        app.add_plugins(QuinnetServerPlugin::default())
-            .add_plugins(QuinnetClientPlugin::default())
-            .init_resource::<QuicManager>()
-            .init_resource::<NetworkIDResource>();
-
-        // flush_outbound and process_inbound_* must be registered by each binary individually.
+        #[cfg(feature = "server")]
+        app.add_plugins(NetServerPlugin);
+        #[cfg(feature = "client")]
+        app.add_plugins(NetClientPlugin);
+        app.init_resource::<NetworkIDResource>();
 
         app.add_plugins(SlowSchedulePlugin);
     }

@@ -1,21 +1,36 @@
 // generic.rs — spawns arbitrary physics objects with an optional mesh and network ID.
 use bevy::prelude::*;
-use rapier3d::prelude::*;
-/// Attached to an entity when its convex hull collider is still loading.
-/// Processed by `swap_hull_collider` in generic.rs once the asset is ready.
-#[derive(bevy::prelude::Component)]
-pub struct PendingHullCollider(pub bevy::asset::Handle<physics::convex_hull_asset::ConvexHullAsset>);
 use common::NetworkID;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::*;
+use rapier3d::prelude::*;
 
-/// Loads a convex hull collider from `path`, falling back to `fallback` if the asset
-/// isn't ready yet. Scale is passed as the load setting expected by `ConvexHullAssetLoader`.
-pub fn hull_or(path: &'static str, fallback: ColliderBuilder, world: &World) -> Collider {
-    let handle = world.resource::<AssetServer>().load_with_settings(path, |s: &mut f32| *s = 1.0);
-    world.resource::<Assets<ConvexHullAsset>>().get(&handle)
-        .map(|h| h.0.clone())
-        .unwrap_or_else(|| fallback.build())
+/// Attached to an entity when its convex hull collider is still loading.
+#[derive(Component)]
+pub struct PendingHullCollider(pub Handle<ConvexHullAsset>);
+
+/// Attaches a convex hull if it's ready; otherwise inserts a temporary collider and
+/// marks the entity so the real hull can replace it once the asset finishes loading.
+pub fn attach_hull_collider(
+    entity: Entity,
+    body_handle: RigidBodyHandle,
+    path: &'static str,
+    scale: f32,
+    fallback: ColliderBuilder,
+    world: &mut World,
+) {
+    let handle = world.resource::<AssetServer>()
+        .load_with_settings(path, move |settings: &mut f32| *settings = scale);
+    let collider = world.resource::<Assets<ConvexHullAsset>>()
+        .get(&handle)
+        .map(|hull| hull.0.clone())
+        .unwrap_or_else(|| {
+            world.entity_mut(entity).insert(PendingHullCollider(handle.clone()));
+            fallback.build()
+        });
+    let mut physics = world.resource_mut::<PhysicsWorld>();
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+    collider_set.insert_with_parent(collider, body_handle, rigid_body_set);
 }
 
 /// Collider source for `spawn_generic`. Either a primitive rapier shape (with friction/restitution
@@ -68,4 +83,43 @@ pub fn spawn_generic(
     entity
 }
 
+pub fn swap_hull_colliders(
+    mut commands: Commands,
+    mut physics: ResMut<PhysicsWorld>,
+    hull_assets: Res<Assets<ConvexHullAsset>>,
+    pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponent)>,
+) {
+    let ready: Vec<_> = pending.iter()
+        .filter_map(|(entity, pending, body)| {
+            hull_assets.get(&pending.0).map(|asset| (entity, body.0, asset.0.clone()))
+        })
+        .collect();
 
+    for (entity, body_handle, collider) in ready {
+        let Some(body) = physics.rigid_body_set.get(body_handle) else {
+            commands.entity(entity).remove::<PendingHullCollider>();
+            continue;
+        };
+        let old_colliders: Vec<_> = body.colliders().to_vec();
+        let PhysicsWorld {
+            collider_set,
+            rigid_body_set,
+            island_manager,
+            ..
+        } = &mut *physics;
+        for collider_handle in old_colliders {
+            collider_set.remove(
+                collider_handle,
+                island_manager,
+                rigid_body_set,
+                true,
+            );
+        }
+        collider_set.insert_with_parent(
+            collider,
+            body_handle,
+            rigid_body_set,
+        );
+        commands.entity(entity).remove::<PendingHullCollider>();
+    }
+}

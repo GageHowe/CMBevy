@@ -1,25 +1,32 @@
 use bevy::prelude::*;
 use zstd::bulk::compress;
 use zstd::stream::{decode_all, encode_all};
-use bevy_quinnet::{
-    client::{
-        certificate::CertificateVerificationMode,
-        connection::ClientAddrConfiguration,
-        ClientConnectionConfiguration, ClientConnectionConfigurationDefaultables,
-    },
-    server::{
-        certificate::CertificateRetrievalMode,
-        EndpointAddrConfiguration,
-        ServerEndpointConfiguration, ServerEndpointConfigurationDefaultables,
-    },
-    shared::channels::{ChannelConfig, ChannelId, SendChannelsConfiguration},
+#[cfg(feature = "server")]
+use bevy_quinnet::server::{
+    certificate::CertificateRetrievalMode,
+    EndpointAddrConfiguration,
+    ServerEndpointConfiguration, ServerEndpointConfigurationDefaultables,
+    QuinnetServerPlugin,
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(feature = "client")]
+use bevy_quinnet::client::{
+    certificate::CertificateVerificationMode,
+    connection::ClientAddrConfiguration,
+    ClientConnectionConfiguration, ClientConnectionConfigurationDefaultables,
+    QuinnetClientPlugin,
+};
+use bevy_quinnet::shared::channels::{ChannelConfig, ChannelId, SendChannelsConfiguration};
+use std::collections::{HashMap, VecDeque};
+#[cfg(feature = "server")]
+use std::collections::HashSet;
+#[cfg(any(feature = "client", feature = "server"))]
 use std::net::SocketAddr;
 use crate::message::MsgType;
 
-pub use bevy_quinnet::client::QuinnetClient;
+#[cfg(feature = "server")]
 pub use bevy_quinnet::server::QuinnetServer;
+#[cfg(feature = "client")]
+pub use bevy_quinnet::client::QuinnetClient;
 pub use bevy_quinnet::shared::ClientId;
 
 const ZSTD_LEVEL: i32 = 3;
@@ -125,14 +132,43 @@ impl ReassemblySlot {
 #[derive(Resource, Default)]
 pub struct QuicManager {
     pub inbound: VecDeque<InboundMessage>,
+    /// Connected client IDs — server only.
+    #[cfg(feature = "server")]
     pub(crate) clients: HashSet<ConnectionId>,
+    /// Whether we are currently connected to the server — client only.
+    #[cfg(feature = "client")]
     pub client_connected: bool,
     outbound: VecDeque<(SendTarget, Channel, MsgType)>,
     /// Sequence counter for outbound unreliable fragments.
     unreliable_seq: u32,
     /// Per-connection reassembly slot for inbound unreliable fragments.
-    /// Client side uses SERVER_CONN_ID as the key.
     reassembly: HashMap<ConnectionId, ReassemblySlot>,
+}
+
+#[cfg(feature = "server")]
+pub struct NetServerPlugin;
+
+#[cfg(feature = "server")]
+impl Plugin for NetServerPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(QuinnetServerPlugin::default())
+            .init_resource::<QuicManager>()
+            .add_systems(PreUpdate, process_inbound_server)
+            .add_systems(PostUpdate, flush_outbound_server);
+    }
+}
+
+#[cfg(feature = "client")]
+pub struct NetClientPlugin;
+
+#[cfg(feature = "client")]
+impl Plugin for NetClientPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(QuinnetClientPlugin::default())
+            .init_resource::<QuicManager>()
+            .add_systems(PreUpdate, process_inbound_client)
+            .add_systems(PostUpdate, flush_outbound_client);
+    }
 }
 
 impl QuicManager {
@@ -151,6 +187,7 @@ impl QuicManager {
         }
     }
 
+    #[cfg(feature = "server")]
     pub fn start_server(&mut self, server: &mut QuinnetServer, addr: SocketAddr) {
         let result = server.start_endpoint(ServerEndpointConfiguration {
             addr_config: EndpointAddrConfiguration::from_addr(addr),
@@ -168,6 +205,7 @@ impl QuicManager {
         }
     }
 
+    #[cfg(feature = "client")]
     pub fn connect(&mut self, client: &mut QuinnetClient, server_addr: SocketAddr) {
         // Reuse an existing (disconnected) connection via reconnect() so the
         // default_connection_id doesn't drift to a stale entry.
@@ -270,6 +308,7 @@ fn try_reassemble(
 // Systems
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "server")]
 pub fn process_inbound_server(
     mut quic: ResMut<QuicManager>,
     mut server: ResMut<QuinnetServer>,
@@ -314,6 +353,7 @@ pub fn process_inbound_server(
     quic.clients = current;
 }
 
+#[cfg(feature = "client")]
 pub fn process_inbound_client(
     mut quic: ResMut<QuicManager>,
     mut client: ResMut<QuinnetClient>,
@@ -353,12 +393,11 @@ pub fn process_inbound_client(
     }
 }
 
-pub fn flush_outbound(
+#[cfg(feature = "server")]
+pub fn flush_outbound_server(
     mut quic: ResMut<QuicManager>,
     mut server: ResMut<QuinnetServer>,
-    mut client: ResMut<QuinnetClient>,
 ) {
-    // Group by (target, channel). AllExcept is pre-expanded into One sends per client.
     let outbound: Vec<_> = quic.outbound.drain(..).collect();
     let all_clients: Vec<ConnectionId> = quic.clients.iter().copied().collect();
     let mut batches: HashMap<(Option<ConnectionId>, ChannelId), Vec<MsgType>> = HashMap::new();
@@ -375,45 +414,57 @@ pub fn flush_outbound(
         }
     }
 
-    if let Some(endpoint) = server.get_endpoint_mut() {
-        for ((target_id, ch_id), msgs) in batches {
-            let data = match encode_batch(&msgs) {
-                Ok(d) => d,
-                Err(e) => { eprintln!("flush_outbound encode error: {e}"); continue; }
-            };
+    let Some(endpoint) = server.get_endpoint_mut() else { return };
+    for ((target_id, ch_id), msgs) in batches {
+        let data = match encode_batch(&msgs) {
+            Ok(d) => d,
+            Err(e) => { eprintln!("flush_outbound_server encode error: {e}"); continue; }
+        };
 
-            if ch_id == UNRELIABLE_CHANNEL {
-                let seq = quic.unreliable_seq;
-                quic.unreliable_seq = quic.unreliable_seq.wrapping_add(1);
-                for frag in make_fragments(data, seq) {
-                    match target_id {
-                        None => { endpoint.try_broadcast_payload_on(ch_id, frag); }
-                        Some(id) => { endpoint.try_send_payload_on(id, ch_id, frag); }
-                    }
-                }
-            } else {
+        if ch_id == UNRELIABLE_CHANNEL {
+            let seq = quic.unreliable_seq;
+            quic.unreliable_seq = quic.unreliable_seq.wrapping_add(1);
+            for frag in make_fragments(data, seq) {
                 match target_id {
-                    None => { endpoint.try_broadcast_payload_on(ch_id, data); }
-                    Some(id) => { endpoint.try_send_payload_on(id, ch_id, data); }
+                    None => { endpoint.try_broadcast_payload_on(ch_id, frag); }
+                    Some(id) => { endpoint.try_send_payload_on(id, ch_id, frag); }
                 }
+            }
+        } else {
+            match target_id {
+                None => { endpoint.try_broadcast_payload_on(ch_id, data); }
+                Some(id) => { endpoint.try_send_payload_on(id, ch_id, data); }
             }
         }
-    } else if let Some(conn) = client.get_connection_mut() {
-        for ((_, ch_id), msgs) in batches {
-            let data = match encode_batch(&msgs) {
-                Ok(d) => d,
-                Err(e) => { eprintln!("flush_outbound encode error: {e}"); continue; }
-            };
+    }
+}
 
-            if ch_id == UNRELIABLE_CHANNEL {
-                let seq = quic.unreliable_seq;
-                quic.unreliable_seq = quic.unreliable_seq.wrapping_add(1);
-                for frag in make_fragments(data, seq) {
-                    conn.try_send_payload_on(ch_id, frag);
-                }
-            } else {
-                conn.try_send_payload_on(ch_id, data);
+#[cfg(feature = "client")]
+pub fn flush_outbound_client(
+    mut quic: ResMut<QuicManager>,
+    mut client: ResMut<QuinnetClient>,
+) {
+    let outbound: Vec<_> = quic.outbound.drain(..).collect();
+    let mut batches: HashMap<ChannelId, Vec<MsgType>> = HashMap::new();
+    for (_, channel, msg) in outbound {
+        batches.entry(ChannelId::from(channel)).or_default().push(msg);
+    }
+
+    let Some(conn) = client.get_connection_mut() else { return };
+    for (ch_id, msgs) in batches {
+        let data = match encode_batch(&msgs) {
+            Ok(d) => d,
+            Err(e) => { eprintln!("flush_outbound_client encode error: {e}"); continue; }
+        };
+
+        if ch_id == UNRELIABLE_CHANNEL {
+            let seq = quic.unreliable_seq;
+            quic.unreliable_seq = quic.unreliable_seq.wrapping_add(1);
+            for frag in make_fragments(data, seq) {
+                conn.try_send_payload_on(ch_id, frag);
             }
+        } else {
+            conn.try_send_payload_on(ch_id, data);
         }
     }
 }
