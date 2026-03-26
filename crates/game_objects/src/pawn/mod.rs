@@ -86,10 +86,16 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
 
 /// runtime mouse sensitivity, set from the Settings resource by SettingsPlugin. Only needed by client.
 #[derive(Resource)]
-pub struct MouseSensitivity(pub f32);
+pub struct MouseSensitivity {
+    pub base: f32,
+    pub zoom_blend: f32,
+}
 impl Default for MouseSensitivity {
     fn default() -> Self {
-        Self(0.002)
+        Self {
+            base: 0.002,
+            zoom_blend: 1.0,
+        }
     }
 }
 

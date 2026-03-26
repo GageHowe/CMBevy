@@ -2,31 +2,33 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use common::tick::Ticker;
+use net::message::PawnInputKind;
+use net::{
+    message::{
+        GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand,
+    },
+    quic::*,
+};
+use physics::physics_world::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use physics::physics_world::*;
-use net::{
-    quic::*,
-    message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand},
-};
-use net::message::PawnInputKind;
-use common::tick::Ticker;
 #[derive(Resource)]
 pub(crate) struct BindAddr(pub SocketAddr);
-use master_plugin::MasterPlugin;
-use game_objects::pawn::{biped, spaceship};
-use game_objects::pawn::{BipedPawnComponent, SpaceshipPawnComponent, VehicleComponent};
-use game_objects::pawn::vehicle::Cockpit;
-use game_objects::SpawnGameObjectCommand;
-use game_objects::health::{Health, handle_deaths};
-use game_objects::weapon::WeaponPlugin;
-use game_objects::projectile::{rifle, hail_mary};
-use game_objects::pawn::biped::WeaponSlots;
 use common::debug_println;
-use game_objects::level::{LevelPlugin, LevelBytes, SpawnPoint, read_and_compress_level};
+use game_objects::health::Health;
+use game_objects::level::{LevelBytes, LevelPlugin, SpawnPoint, read_and_compress_level};
+use game_objects::pawn::biped::WeaponSlots;
+use game_objects::pawn::vehicle::*;
+use game_objects::pawn::*;
 use game_objects::planet::PlanetComponent;
-use std::sync::{mpsc, Mutex};
+use game_objects::projectile::{hail_mary, rifle};
+use game_objects::weapon::WeaponPlugin;
+use game_objects::*;
+use master_plugin::MasterPlugin;
 use scripting::{ScriptConfig, get_script_global};
+use std::sync::{Mutex, mpsc};
+
 mod session;
 use session::ServerSessionPlugin;
 
@@ -45,9 +47,21 @@ fn parse_args() -> (SocketAddr, String, String) {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--port"     => { if let Some(p) = args.next().and_then(|p| p.parse::<u16>().ok()) { addr = format!("0.0.0.0:{p}"); } }
-            "--map"      => { if let Some(v) = args.next() { map = v; } }
-            "--gametype" => { if let Some(v) = args.next() { gametype = v; } }
+            "--port" => {
+                if let Some(p) = args.next().and_then(|p| p.parse::<u16>().ok()) {
+                    addr = format!("0.0.0.0:{p}");
+                }
+            }
+            "--map" => {
+                if let Some(v) = args.next() {
+                    map = v;
+                }
+            }
+            "--gametype" => {
+                if let Some(v) = args.next() {
+                    gametype = v;
+                }
+            }
             _ => {}
         }
     }
@@ -62,10 +76,16 @@ pub(crate) struct LevelPath(pub String);
 fn start_lan_discovery(quic_port: u16) {
     let port_str = quic_port.to_string();
     std::thread::spawn(move || {
-        let Ok(sock) = std::net::UdpSocket::bind(format!("0.0.0.0:{}", common::config::LAN_DISCOVERY_PORT)) else { return };
+        let Ok(sock) =
+            std::net::UdpSocket::bind(format!("0.0.0.0:{}", common::config::LAN_DISCOVERY_PORT))
+        else {
+            return;
+        };
         let mut buf = [0u8; 16];
         loop {
-            let Ok((n, from)) = sock.recv_from(&mut buf) else { continue };
+            let Ok((n, from)) = sock.recv_from(&mut buf) else {
+                continue;
+            };
             if &buf[..n] == b"discover" {
                 let _ = sock.send_to(port_str.as_bytes(), from);
             }
@@ -81,18 +101,33 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy::asset::AssetPlugin {
-            file_path: if cfg!(debug_assertions) { "../assets" } else { "assets" }.to_string(),
+            file_path: if cfg!(debug_assertions) {
+                "../assets"
+            } else {
+                "assets"
+            }
+            .to_string(),
             ..default()
         })
         .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader
-        .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
+        .add_plugins(LogPlugin {
+            level: Level::ERROR,
+            ..default()
+        });
 
     app.insert_resource(common::IsServer);
     app.add_plugins(MasterPlugin);
     app.add_plugins(LevelPlugin);
-    app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
+    app.add_systems(
+        FixedUpdate,
+        (step_physics, sync_physics_to_transforms).chain(),
+    );
     app.add_plugins(WeaponPlugin);
-    app.add_plugins(ServerSessionPlugin { bind_addr, map_path, gametype_path });
+    app.add_plugins(ServerSessionPlugin {
+        bind_addr,
+        map_path,
+        gametype_path,
+    });
 
     // load_server_level: read file bytes → LevelBytes, spawn DynamicSceneRoot
     app.add_systems(FixedUpdate, on_message.before(step_physics));
@@ -118,7 +153,11 @@ pub(crate) struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind
 pub(crate) struct BodyHistory(pub HashMap<u64, SimulationState>);
 
 /// starts the quic server
-fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>, addr: Res<BindAddr>) {
+fn start_server(
+    mut quic: ResMut<QuicManager>,
+    mut server: ResMut<QuinnetServer>,
+    addr: Res<BindAddr>,
+) {
     quic.start_server(&mut server, addr.0);
 }
 
@@ -132,17 +171,27 @@ fn load_server_level(
 ) {
     let asset_path = &level_path.0;
     // env! gives the compile-time manifest dir; in release, assets sit next to the binary.
-    let asset_dir = if cfg!(debug_assertions) { concat!(env!("CARGO_MANIFEST_DIR"), "/../assets") } else { "assets" };
+    let asset_dir = if cfg!(debug_assertions) {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../assets")
+    } else {
+        "assets"
+    };
     let fs_path = format!("{asset_dir}/{asset_path}");
     commands.insert_resource(LevelBytes(read_and_compress_level(&fs_path)));
     let handle: Handle<DynamicScene> = asset_server.load(asset_path.clone());
     commands.spawn(bevy::scene::DynamicSceneRoot(handle));
 }
 
-
 /// Assigns NetworkIDs to planets once their physics body is ready. Server-only.
 fn assign_planet_network_ids(
-    query: Query<Entity, (With<PlanetComponent>, With<RigidBodyHandleComponent>, Without<NetworkID>)>,
+    query: Query<
+        Entity,
+        (
+            With<PlanetComponent>,
+            With<RigidBodyHandleComponent>,
+            Without<NetworkID>,
+        ),
+    >,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
 ) {
@@ -158,9 +207,20 @@ fn init_mode_config(world: &mut World) {
     world.insert_resource(ModeConfig { respawn_delay });
 }
 
-fn pick_spawn_point(spawn_points: &Query<(&SpawnPoint, &Transform)>, team: u8, counter: usize) -> (Vec3, Quat) {
-    let count = spawn_points.iter().filter(|(sp, _)| sp.team == team).count();
-    let Some((_, t)) = spawn_points.iter().filter(|(sp, _)| sp.team == team).nth(counter % count.max(1)) else {
+fn pick_spawn_point(
+    spawn_points: &Query<(&SpawnPoint, &Transform)>,
+    team: u8,
+    counter: usize,
+) -> (Vec3, Quat) {
+    let count = spawn_points
+        .iter()
+        .filter(|(sp, _)| sp.team == team)
+        .count();
+    let Some((_, t)) = spawn_points
+        .iter()
+        .filter(|(sp, _)| sp.team == team)
+        .nth(counter % count.max(1))
+    else {
         return (Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY);
     };
     (t.translation, t.rotation)
@@ -187,15 +247,30 @@ fn spawn_player(
         kind,
     };
     let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand { entity, cmd: spawn_cmd.clone() });
+    commands.queue(SpawnGameObjectCommand {
+        entity,
+        cmd: spawn_cmd.clone(),
+    });
 
     // Tell all currently connected players (including the new one) about the pawn.
     for (&other_conn_id, _) in registry.0.iter() {
-        quic.send(SendTarget::One(other_conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd.clone()));
+        quic.send(
+            SendTarget::One(other_conn_id),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(spawn_cmd.clone()),
+        );
     }
-    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+    quic.send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &MsgType::SpawnCommand(spawn_cmd),
+    );
     // Tell the owning client to possess this pawn.
-    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id.clone()));
+    quic.send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &MsgType::Possess(net_id.clone()),
+    );
 
     registry.0.insert(conn_id, (entity, net_id));
 }
@@ -204,7 +279,9 @@ fn spawn_player(
 /// Drops held weapons back into the world and despawns the pawn.
 /// Extracts (NetworkID, Entity) pairs for all weapons currently in a pawn's slots.
 fn slots_to_held(slots: &Option<&WeaponSlots>) -> Vec<(NetworkID, Entity)> {
-    let Some(slots) = slots else { return vec![]; };
+    let Some(slots) = slots else {
+        return vec![];
+    };
     [&slots.primary, &slots.pocket]
         .iter()
         .filter_map(|(nid, ent)| nid.as_ref().zip(*ent))
@@ -221,18 +298,28 @@ fn kill_player(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
-    let drop_pos = world.entity_to_handle.get(&entity)
+    let drop_pos = world
+        .entity_to_handle
+        .get(&entity)
         .and_then(|&h| world.rigid_body_set.get(h))
         .map(rb_pos)
         .unwrap_or(Vec3::ZERO);
     for (wid, weapon_entity) in held_weapons {
         world.teleport_body(weapon_entity, drop_pos);
         world.set_body_enabled(weapon_entity, true);
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos));
+        quic.send(
+            SendTarget::All,
+            Channel::Ordered,
+            &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos),
+        );
     }
     registry.0.retain(|_, (e, _)| *e != entity);
     commands.entity(entity).despawn();
-    quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(net_id));
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::DespawnCommand(net_id),
+    );
 }
 
 fn on_message(
@@ -247,7 +334,10 @@ fn on_message(
     level_bytes: Option<Res<LevelBytes>>,
     spawn_points: Query<(&SpawnPoint, &Transform)>,
     // non-pawn physics objects (weapons, vehicles, planets) — used to sync new clients
-    non_pawn_objects: Query<(&NetworkID, &GameObjectKind, &RigidBodyHandleComponent), Without<BipedPawnComponent>>,
+    non_pawn_objects: Query<
+        (&NetworkID, &GameObjectKind, &RigidBodyHandleComponent),
+        Without<BipedPawnComponent>,
+    >,
     // all networked entities — used to find entities by NetworkID
     all_networked: Query<(Entity, &NetworkID)>,
     mut pawn_slots: Query<&mut WeaponSlots>,
@@ -259,8 +349,11 @@ fn on_message(
         match msg.msg {
             MsgType::Connected => {
                 if let Some(ref lb) = level_bytes {
-                    quic.send(SendTarget::One(msg.conn_id), Channel::Ordered,
-                        &MsgType::FileData("map.scn.ron".into(), lb.0.clone()));
+                    quic.send(
+                        SendTarget::One(msg.conn_id),
+                        Channel::Ordered,
+                        &MsgType::FileData("map.scn.ron".into(), lb.0.clone()),
+                    );
                 }
                 if let Some(cfg) = &script_config {
                     if let Ok(src) = std::fs::read(&cfg.path) {
@@ -269,55 +362,96 @@ fn on_message(
                 }
                 // Tell the new client about all existing pawns (as ghosts).
                 for (_, (existing_entity, existing_net_id)) in registry.0.iter() {
-                    let existing_pos = world.entity_to_handle.get(existing_entity)
+                    let existing_pos = world
+                        .entity_to_handle
+                        .get(existing_entity)
                         .and_then(|&h| world.rigid_body_set.get(h))
                         .map(rb_pos)
                         .unwrap_or(Vec3::ZERO);
-                    quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
-                        net_id: existing_net_id.clone(),
-                        position: existing_pos.into(),
-                        starting_velocity: Vec3::ZERO.into(),
-                        rotation: Quat::IDENTITY.into(),
-                        server_tick: tick.tick,
-                        kind: GameObjectKind::Biped,
-                    }));
+                    quic.send(
+                        SendTarget::One(msg.conn_id),
+                        Channel::Ordered,
+                        &MsgType::SpawnCommand(SpawnCommand {
+                            net_id: existing_net_id.clone(),
+                            position: existing_pos.into(),
+                            starting_velocity: Vec3::ZERO.into(),
+                            rotation: Quat::IDENTITY.into(),
+                            server_tick: tick.tick,
+                            kind: GameObjectKind::Biped,
+                        }),
+                    );
                 }
 
                 // Tell the new client about all non-pawn physics objects (weapons, planets, etc.).
                 // held weapons are excluded (not in any slot = free; in slot = skip, client learns via WeaponPickup history... TODO: send held too)
-                let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots.iter()
+                let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
+                    .iter()
                     .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
                     .flatten()
                     .collect();
                 for (net_id, kind, rb) in non_pawn_objects.iter() {
-                    if held_ids.contains(net_id) { continue; }
-                    let pos = world.rigid_body_set.get(rb.0)
+                    if held_ids.contains(net_id) {
+                        continue;
+                    }
+                    let pos = world
+                        .rigid_body_set
+                        .get(rb.0)
                         .map(rb_pos)
                         .unwrap_or(Vec3::ZERO);
-                    quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::SpawnCommand(SpawnCommand {
-                        net_id: net_id.clone(),
-                        position: pos,
-                        starting_velocity: Vec3::ZERO,
-                        rotation: Quat::IDENTITY,
-                        server_tick: tick.tick,
-                        kind: kind.clone(),
-                    }));
+                    quic.send(
+                        SendTarget::One(msg.conn_id),
+                        Channel::Ordered,
+                        &MsgType::SpawnCommand(SpawnCommand {
+                            net_id: net_id.clone(),
+                            position: pos,
+                            starting_velocity: Vec3::ZERO,
+                            rotation: Quat::IDENTITY,
+                            server_tick: tick.tick,
+                            kind: kind.clone(),
+                        }),
+                    );
                 }
 
-                let num_teams = { let mut s = std::collections::HashSet::new(); for (sp, _) in spawn_points.iter() { s.insert(sp.team); } s.len().max(1) };
+                let num_teams = {
+                    let mut s = std::collections::HashSet::new();
+                    for (sp, _) in spawn_points.iter() {
+                        s.insert(sp.team);
+                    }
+                    s.len().max(1)
+                };
                 let team = (registry.0.len() % num_teams) as u8;
                 let (sp, sr) = pick_spawn_point(&spawn_points, team, registry.0.len());
-                spawn_player(msg.conn_id, GameObjectKind::Biped, sp, sr, &mut quic, &mut registry, &mut net_ids,
-                    &mut commands, tick.tick);
+                spawn_player(
+                    msg.conn_id,
+                    GameObjectKind::Biped,
+                    sp,
+                    sr,
+                    &mut quic,
+                    &mut registry,
+                    &mut net_ids,
+                    &mut commands,
+                    tick.tick,
+                );
             }
 
             // if server receives a Disconnected message...
             MsgType::Disconnected => {
                 pending_respawns.0.remove(&msg.conn_id);
                 if let Some((entity, net_id)) = registry.0.remove(&msg.conn_id) {
-                    debug_println!("GameServer: Player disconnected: entity={entity} conn={:?}", msg.conn_id);
+                    debug_println!(
+                        "GameServer: Player disconnected: entity={entity} conn={:?}",
+                        msg.conn_id
+                    );
                     let held = slots_to_held(&pawn_slots.get(entity).ok());
-                    kill_player(entity, net_id, held, &mut quic, &mut registry, &mut commands, &mut world);
+                    kill_player(
+                        entity,
+                        net_id,
+                        held,
+                        &mut quic,
+                        &mut registry,
+                        &mut commands,
+                        &mut world,
+                    );
                 }
             }
             MsgType::Input(_, kind) => {
@@ -327,10 +461,17 @@ fn on_message(
                             if let Ok(mut biped) = bipeds.get_mut(entity) {
                                 // skip movement while in a vehicle; the vehicle entity moves instead
                                 if biped.in_vehicle.is_none() {
-                                    if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
-                                        biped.look_yaw   = input.look_yaw;
+                                    if let Some(handle) =
+                                        world.entity_to_handle.get(&entity).copied()
+                                    {
+                                        biped.look_yaw = input.look_yaw;
                                         biped.look_pitch = input.look_pitch;
-                                        biped::apply_biped_movement(&mut world, &RigidBodyHandleComponent(handle), input, &mut biped);
+                                        biped::apply_biped_movement(
+                                            &mut world,
+                                            &RigidBodyHandleComponent(handle),
+                                            input,
+                                            &mut biped,
+                                        );
                                     }
                                 }
                             }
@@ -341,7 +482,12 @@ fn on_message(
                             if let Some(ve) = vehicle_entity {
                                 if let Some(handle) = world.entity_to_handle.get(&ve).copied() {
                                     if let Ok(mut ship) = spaceships.get_mut(ve) {
-                                        spaceship::apply_spaceship_movement(&mut world, &RigidBodyHandleComponent(handle), input, &mut ship);
+                                        spaceship::apply_spaceship_movement(
+                                            &mut world,
+                                            &RigidBodyHandleComponent(handle),
+                                            input,
+                                            &mut ship,
+                                        );
                                     }
                                     // future vehicle types: add analogous branches here
                                 }
@@ -355,22 +501,35 @@ fn on_message(
                     if let Ok(mut biped) = bipeds.get_mut(entity) {
                         biped.flashlight_on = !biped.flashlight_on;
                         let on = biped.flashlight_on;
-                        quic.send(SendTarget::All, Channel::Ordered, &MsgType::FlashlightState(net_id.clone(), on));
+                        quic.send(
+                            SendTarget::All,
+                            Channel::Ordered,
+                            &MsgType::FlashlightState(net_id.clone(), on),
+                        );
                     }
                 }
             }
             MsgType::Interact(target_net_id) => {
-                let Some(&(player_entity, ref player_net_id)) = registry.0.get(&msg.conn_id) else { continue };
+                let Some(&(player_entity, ref player_net_id)) = registry.0.get(&msg.conn_id) else {
+                    continue;
+                };
                 let player_net_id = player_net_id.clone();
-                let target_entity = all_networked.iter().find(|(_, nid)| **nid == target_net_id).map(|(e, _)| e);
-                let Some(target_entity) = target_entity else { continue };
+                let target_entity = all_networked
+                    .iter()
+                    .find(|(_, nid)| **nid == target_net_id)
+                    .map(|(e, _)| e);
+                let Some(target_entity) = target_entity else {
+                    continue;
+                };
 
                 // ---- vehicle enter / exit ----
                 if let Ok(mut cockpit) = cockpits.get_mut(target_entity) {
                     if let Ok(mut biped) = bipeds.get_mut(player_entity) {
                         if biped.in_vehicle == Some(target_entity) {
                             // exit: eject biped along the vehicle's local right vector
-                            let eject_pos = world.entity_to_handle.get(&target_entity)
+                            let eject_pos = world
+                                .entity_to_handle
+                                .get(&target_entity)
                                 .and_then(|&h| world.rigid_body_set.get(h))
                                 .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::X * 4.0)
                                 .unwrap_or(Vec3::ZERO);
@@ -378,17 +537,33 @@ fn on_message(
                             cockpit.occupant = None;
                             world.set_body_enabled(player_entity, true);
                             world.teleport_body(player_entity, eject_pos);
-                            quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Possess(player_net_id));
+                            quic.send(
+                                SendTarget::One(msg.conn_id),
+                                Channel::Ordered,
+                                &MsgType::Possess(player_net_id),
+                            );
                         } else if biped.in_vehicle.is_none() && cockpit.occupant.is_none() {
                             // enter: validate range then transfer possession
-                            let pp = world.entity_to_handle.get(&player_entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| rb.position().translation);
-                            let vp = world.entity_to_handle.get(&target_entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| rb.position().translation);
+                            let pp = world
+                                .entity_to_handle
+                                .get(&player_entity)
+                                .and_then(|&h| world.rigid_body_set.get(h))
+                                .map(|rb| rb.position().translation);
+                            let vp = world
+                                .entity_to_handle
+                                .get(&target_entity)
+                                .and_then(|&h| world.rigid_body_set.get(h))
+                                .map(|rb| rb.position().translation);
                             let in_range = matches!((pp, vp), (Some(a), Some(b)) if { let d = a - b; d.x*d.x + d.y*d.y + d.z*d.z < 36.0 });
                             if in_range {
                                 biped.in_vehicle = Some(target_entity);
                                 cockpit.occupant = Some(player_entity);
                                 world.set_body_enabled(player_entity, false);
-                                quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Possess(target_net_id));
+                                quic.send(
+                                    SendTarget::One(msg.conn_id),
+                                    Channel::Ordered,
+                                    &MsgType::Possess(target_net_id),
+                                );
                             }
                         }
                     }
@@ -397,88 +572,197 @@ fn on_message(
 
                 // ---- weapon pickup ----
                 let weapon_entity = target_entity;
-                let is_free = pawn_slots.iter().all(|s| s.primary.0.as_ref() != Some(&target_net_id) && s.pocket.0.as_ref() != Some(&target_net_id));
-                if !is_free { continue; }
+                let is_free = pawn_slots.iter().all(|s| {
+                    s.primary.0.as_ref() != Some(&target_net_id)
+                        && s.pocket.0.as_ref() != Some(&target_net_id)
+                });
+                if !is_free {
+                    continue;
+                }
 
-                let player_pos = world.entity_to_handle.get(&player_entity)
+                let player_pos = world
+                    .entity_to_handle
+                    .get(&player_entity)
                     .and_then(|&h| world.rigid_body_set.get(h))
                     .map(|rb| rb.position().translation);
-                let weapon_pos = world.entity_to_handle.get(&weapon_entity)
+                let weapon_pos = world
+                    .entity_to_handle
+                    .get(&weapon_entity)
                     .and_then(|&h| world.rigid_body_set.get(h))
                     .map(|rb| rb.position().translation);
                 let in_range = match (player_pos, weapon_pos) {
-                    (Some(pp), Some(wp)) => { let d = pp - wp; (d.x*d.x + d.y*d.y + d.z*d.z).sqrt() < 2.0 }
+                    (Some(pp), Some(wp)) => {
+                        let d = pp - wp;
+                        (d.x * d.x + d.y * d.y + d.z * d.z).sqrt() < 2.0
+                    }
                     _ => false,
                 };
-                if !in_range { continue; }
+                if !in_range {
+                    continue;
+                }
 
-                let Ok(mut slots) = pawn_slots.get_mut(player_entity) else { continue };
+                let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+                    continue;
+                };
                 if slots.is_full() {
-                    let drop_pos = player_pos.map(|t| Vec3::new(t.x, t.y, t.z)).unwrap_or(Vec3::ZERO);
+                    let drop_pos = player_pos
+                        .map(|t| Vec3::new(t.x, t.y, t.z))
+                        .unwrap_or(Vec3::ZERO);
                     let active = slots.active_mut();
-                    let Some(drop_id) = active.0.take() else { continue };
+                    let Some(drop_id) = active.0.take() else {
+                        continue;
+                    };
                     let drop_entity = active.1.take();
                     drop(slots);
                     if let Some(drop_entity) = drop_entity {
                         world.teleport_body(drop_entity, drop_pos);
                         world.set_body_enabled(drop_entity, true);
-                        quic.send(SendTarget::All, Channel::Ordered, &MsgType::WeaponDrop(drop_id, player_net_id.clone(), drop_pos));
+                        quic.send(
+                            SendTarget::All,
+                            Channel::Ordered,
+                            &MsgType::WeaponDrop(drop_id, player_net_id.clone(), drop_pos),
+                        );
                     }
-                    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else { continue };
+                    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+                        continue;
+                    };
                     slots.active_mut().0 = Some(target_net_id.clone());
                     slots.active_mut().1 = Some(weapon_entity);
                 } else {
-                    if slots.primary.0.is_none() { slots.primary = (Some(target_net_id.clone()), Some(weapon_entity)); }
-                    else                         { slots.pocket  = (Some(target_net_id.clone()), Some(weapon_entity)); }
+                    if slots.primary.0.is_none() {
+                        slots.primary = (Some(target_net_id.clone()), Some(weapon_entity));
+                    } else {
+                        slots.pocket = (Some(target_net_id.clone()), Some(weapon_entity));
+                    }
                 }
                 world.set_body_enabled(weapon_entity, false);
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::WeaponPickup(target_net_id, player_net_id));
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::WeaponPickup(target_net_id, player_net_id),
+                );
             }
-            MsgType::FireRequest { weapon: weapon_net_id, kind, temp_id, origin, dir } => {
-                let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else { continue };
-                let shooter_holds = pawn_slots.get(shooter_entity).map(|s| s.primary.0.as_ref() == Some(&weapon_net_id) || s.pocket.0.as_ref() == Some(&weapon_net_id)).unwrap_or(false);
-                if !shooter_holds { continue; }
+            MsgType::FireRequest {
+                weapon: weapon_net_id,
+                kind,
+                temp_id,
+                origin,
+                dir,
+            } => {
+                let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else {
+                    continue;
+                };
+                let shooter_holds = pawn_slots
+                    .get(shooter_entity)
+                    .map(|s| {
+                        s.primary.0.as_ref() == Some(&weapon_net_id)
+                            || s.pocket.0.as_ref() == Some(&weapon_net_id)
+                    })
+                    .unwrap_or(false);
+                if !shooter_holds {
+                    continue;
+                }
                 let dir_v = dir.normalize_or_zero();
-                if dir_v == Vec3::ZERO { continue; }
+                if dir_v == Vec3::ZERO {
+                    continue;
+                }
                 // inherit shooter's velocity so the projectile is relative to the shooter
-                let sv = world.entity_to_handle.get(&shooter_entity)
+                let sv = world
+                    .entity_to_handle
+                    .get(&shooter_entity)
                     .and_then(|&h| world.rigid_body_set.get(h))
                     .map(rb_vel)
                     .unwrap_or(Vec3::ZERO);
                 match kind {
                     GameObjectKind::RifleProjectile => {
                         let vel = dir_v * rifle::SPEED + sv;
-                        let entity = rifle::spawn(origin, vel, &mut commands, &mut world, Some(shooter_entity), 0);
+                        let entity = rifle::spawn(
+                            origin,
+                            vel,
+                            &mut commands,
+                            &mut world,
+                            Some(shooter_entity),
+                            0,
+                        );
                         let net_id = NetworkID(net_ids.next());
                         commands.entity(entity).insert(net_id.clone());
-                        quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered,
-                            &MsgType::SpawnCommand(SpawnCommand { net_id: net_id.clone(), position: origin, starting_velocity: vel, rotation: Quat::IDENTITY, server_tick: tick.tick, kind: GameObjectKind::RifleProjectile }));
-                        quic.send(SendTarget::One(msg.conn_id), Channel::Ordered,
-                            &MsgType::ProjectileConfirm { temp_id, net_id });
+                        quic.send(
+                            SendTarget::AllExcept(msg.conn_id),
+                            Channel::Unordered,
+                            &MsgType::SpawnCommand(SpawnCommand {
+                                net_id: net_id.clone(),
+                                position: origin,
+                                starting_velocity: vel,
+                                rotation: Quat::IDENTITY,
+                                server_tick: tick.tick,
+                                kind: GameObjectKind::RifleProjectile,
+                            }),
+                        );
+                        quic.send(
+                            SendTarget::One(msg.conn_id),
+                            Channel::Ordered,
+                            &MsgType::ProjectileConfirm { temp_id, net_id },
+                        );
                     }
                     GameObjectKind::HailMaryProjectile => {
                         let vel = dir_v * hail_mary::SPEED + sv;
-                        let entity = hail_mary::spawn(origin, vel, &mut commands, &mut world, Some(shooter_entity), 0);
+                        let entity = hail_mary::spawn(
+                            origin,
+                            vel,
+                            &mut commands,
+                            &mut world,
+                            Some(shooter_entity),
+                            0,
+                        );
                         let net_id = NetworkID(net_ids.next());
                         commands.entity(entity).insert(net_id.clone());
-                        quic.send(SendTarget::AllExcept(msg.conn_id), Channel::Unordered,
-                            &MsgType::SpawnCommand(SpawnCommand { net_id: net_id.clone(), position: origin, starting_velocity: vel, rotation: Quat::IDENTITY, server_tick: tick.tick, kind: GameObjectKind::HailMaryProjectile }));
-                        quic.send(SendTarget::One(msg.conn_id), Channel::Ordered,
-                            &MsgType::ProjectileConfirm { temp_id, net_id });
+                        quic.send(
+                            SendTarget::AllExcept(msg.conn_id),
+                            Channel::Unordered,
+                            &MsgType::SpawnCommand(SpawnCommand {
+                                net_id: net_id.clone(),
+                                position: origin,
+                                starting_velocity: vel,
+                                rotation: Quat::IDENTITY,
+                                server_tick: tick.tick,
+                                kind: GameObjectKind::HailMaryProjectile,
+                            }),
+                        );
+                        quic.send(
+                            SendTarget::One(msg.conn_id),
+                            Channel::Ordered,
+                            &MsgType::ProjectileConfirm { temp_id, net_id },
+                        );
                     }
                     _ => {}
                 }
             }
             MsgType::TimePing(bits) => {
-                quic.send(SendTarget::One(msg.conn_id), Channel::Unreliable, &MsgType::TimePong(bits));
+                quic.send(
+                    SendTarget::One(msg.conn_id),
+                    Channel::Unreliable,
+                    &MsgType::TimePong(bits),
+                );
             }
             MsgType::Ping(text) => {
-                debug_println!("Got a ping from conn_id {:?} with text {}", msg.conn_id, text);
-                quic.send(SendTarget::One(msg.conn_id), Channel::Ordered, &MsgType::Pong(text));
+                debug_println!(
+                    "Got a ping from conn_id {:?} with text {}",
+                    msg.conn_id,
+                    text
+                );
+                quic.send(
+                    SendTarget::One(msg.conn_id),
+                    Channel::Ordered,
+                    &MsgType::Pong(text),
+                );
             }
             MsgType::ChatMessage(sender, text) => {
                 debug_println!("GameServer: Got ChatMessage: [{sender}] {text}");
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(sender, text));
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::ChatMessage(sender, text),
+                );
             }
             other => debug_println!("Unhandled: {other:?}"),
         }
@@ -496,14 +780,28 @@ fn tick_respawns(
     spawn_points: Query<(&SpawnPoint, &Transform)>,
 ) {
     let dt = time.delta_secs();
-    let ready: Vec<(ConnectionId, GameObjectKind)> = pending.0.iter_mut()
-        .filter_map(|(&id, (t, k))| { *t -= dt; (*t <= 0.0).then(|| (id, k.clone())) })
+    let ready: Vec<(ConnectionId, GameObjectKind)> = pending
+        .0
+        .iter_mut()
+        .filter_map(|(&id, (t, k))| {
+            *t -= dt;
+            (*t <= 0.0).then(|| (id, k.clone()))
+        })
         .collect();
     for (conn_id, kind) in ready {
         pending.0.remove(&conn_id);
         let (sp, sr) = pick_spawn_point(&spawn_points, 0, registry.0.len());
-        spawn_player(conn_id, kind, sp, sr, &mut quic, &mut registry, &mut net_ids,
-            &mut commands, tick.tick);
+        spawn_player(
+            conn_id,
+            kind,
+            sp,
+            sr,
+            &mut quic,
+            &mut registry,
+            &mut net_ids,
+            &mut commands,
+            tick.tick,
+        );
     }
 }
 
@@ -522,8 +820,16 @@ fn process_console_commands(
             }
             "kick" => {
                 if let Some(id) = parts.next().and_then(|s| s.parse::<ConnectionId>().ok()) {
-                    quic.send(SendTarget::One(id), Channel::Ordered, &MsgType::Disconnected);
-                    quic.inbound.push_back(InboundMessage { conn_id: id, channel: Channel::Ordered, msg: MsgType::Disconnected });
+                    quic.send(
+                        SendTarget::One(id),
+                        Channel::Ordered,
+                        &MsgType::Disconnected,
+                    );
+                    quic.inbound.push_back(InboundMessage {
+                        conn_id: id,
+                        channel: Channel::Ordered,
+                        msg: MsgType::Disconnected,
+                    });
                     println!("Kicked {id}");
                 } else {
                     println!("Usage: kick <conn_id>");
@@ -531,7 +837,11 @@ fn process_console_commands(
             }
             "say" => {
                 let text = parts.next().unwrap_or("").to_string();
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage("[Server]".into(), text.clone()));
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::ChatMessage("[Server]".into(), text.clone()),
+                );
                 println!("[Server] {text}");
             }
             "status" => {
@@ -541,7 +851,9 @@ fn process_console_commands(
                 }
             }
             "" => {}
-            other => println!("Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"),
+            other => println!(
+                "Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"
+            ),
         }
     }
 }
@@ -558,20 +870,34 @@ fn handle_player_deaths(
     pawn_slots: Query<&WeaponSlots>,
 ) {
     for (entity, health, net_id) in dead_q.iter() {
-        if health.current > 0.0 { continue; }
-        let conn_id = registry.0.iter().find(|(_, (e, _))| *e == entity).map(|(cid, _)| *cid);
+        if health.current > 0.0 {
+            continue;
+        }
+        let conn_id = registry
+            .0
+            .iter()
+            .find(|(_, (e, _))| *e == entity)
+            .map(|(cid, _)| *cid);
         let Some(conn_id) = conn_id else { continue };
-        let drop_pos = world.entity_to_handle.get(&entity)
+        let drop_pos = world
+            .entity_to_handle
+            .get(&entity)
             .and_then(|&h| world.rigid_body_set.get(h))
             .map(rb_pos)
             .unwrap_or(Vec3::ZERO);
         for (wid, weapon_entity) in slots_to_held(&pawn_slots.get(entity).ok()) {
             world.teleport_body(weapon_entity, drop_pos);
             world.set_body_enabled(weapon_entity, true);
-            quic.send(SendTarget::All, Channel::Ordered, &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos));
+            quic.send(
+                SendTarget::All,
+                Channel::Ordered,
+                &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos),
+            );
         }
         registry.0.retain(|_, (e, _)| *e != entity);
-        pending_respawns.0.insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
+        pending_respawns
+            .0
+            .insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
     }
 }
 
@@ -581,7 +907,11 @@ fn broadcast_health_updates(
     health_q: Query<(&Health, &NetworkID), Changed<Health>>,
 ) {
     for (health, net_id) in health_q.iter() {
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::HealthUpdate(net_id.clone(), health.current));
+        quic.send(
+            SendTarget::All,
+            Channel::Ordered,
+            &MsgType::HealthUpdate(net_id.clone(), health.current),
+        );
     }
 }
 

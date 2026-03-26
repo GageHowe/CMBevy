@@ -9,22 +9,36 @@ fn main() {
     copy_steam_dll(&out_dir, target_dir);
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=FMOD_DIRECTORY");
 }
 
 fn copy_fmod_dlls(target_dir: &std::path::Path) {
-    let fmod_dir = find_fmod_dir();
-    // Debug builds link fmodL_vc.lib / fmodstudioL_vc.lib (logging variants).
-    // Release builds link fmod_vc.lib / fmodstudio_vc.lib.
-    let suffix = if std::env::var("PROFILE").as_deref() == Ok("release") { "" } else { "L" };
-    for (src, dll) in [
-        (format!("api/core/lib/x64/fmod{suffix}.dll"),         format!("fmod{suffix}.dll")),
-        (format!("api/studio/lib/x64/fmodstudio{suffix}.dll"), format!("fmodstudio{suffix}.dll")),
-    ] {
-        let src = fmod_dir.join(&src);
+    let Some(fmod_dir) = find_fmod_dir() else { return };
+    for dll in ["fmod.dll", "fmodstudio.dll"] {
+        let src = fmod_dir.join(dll);
         if src.exists() {
-            let _ = std::fs::copy(&src, target_dir.join(&dll));
+            let _ = std::fs::copy(&src, target_dir.join(dll));
         }
     }
+}
+
+fn find_fmod_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("FMOD_DIRECTORY").map(PathBuf::from) {
+        if dir.exists() {
+            return Some(dir);
+        }
+    }
+
+    for path in [
+        PathBuf::from(r"C:\Program Files (x86)\FMOD SoundSystem\FMOD Studio API Windows\api\core\lib\x64"),
+        PathBuf::from(r"D:\Program Files (x86)\FMOD SoundSystem\FMOD Studio API Windows\api\core\lib\x64"),
+    ] {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 fn copy_steam_dll(out_dir: &std::path::Path, target_dir: &std::path::Path) {
@@ -42,15 +56,3 @@ fn copy_steam_dll(out_dir: &std::path::Path, target_dir: &std::path::Path) {
     }
 }
 
-fn find_fmod_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("FMOD_SYS_FMOD_DIRECTORY").map(PathBuf::from) {
-        if dir.exists() { return dir; }
-    }
-    for drive in ["C", "D"] {
-        let p = PathBuf::from(format!(
-            "{drive}:/Program Files (x86)/FMOD SoundSystem/FMOD Studio API Windows"
-        ));
-        if p.exists() { return p; }
-    }
-    PathBuf::new()
-}

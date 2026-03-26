@@ -26,8 +26,7 @@ Refer to AGENTS.md for additional instructions.
 * Before implementing anything or making large changes, assess your proposed solution for scalability, simplicity, and flexibility.
 
 ## Iteration
-* Build in the background in between tasks.
-* Use make, not cargo to build and test the project.
+* When finished with a task, run `make build`.
 
 ### Game Design
 * All movement and physics should be relative. When firing a projectile, it should inherit the velocity of its owner.

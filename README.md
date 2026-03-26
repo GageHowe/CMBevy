@@ -11,11 +11,11 @@ Critical Mass is a multiplayer and singleplayer physics-based space combat game.
 
 ```bash
 cargo run --bin gameserver
-go run emulate_network.go -loss 0.05 -mindelay 40 -maxdelay 80
+cargo run -p network_emulator -- --loss 0.05 --mindelay 40 --maxdelay 80
 cargo run --bin client -- --server 127.0.0.1:42069
 ```
 
-Or, just run dev-scripts/build_release_windows.ps1 and the Windows build will appear in dist/
+Or, just run scripts/build_release_windows.ps1 and the Windows build will appear in dist/
 
 ## Implementation inspiration
 * https://github.com/Henauxg/bevy_quinnet/

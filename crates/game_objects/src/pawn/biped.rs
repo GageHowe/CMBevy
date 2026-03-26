@@ -23,12 +23,12 @@ pub const CAPSULE_HALF_HEIGHT: f32 = 0.5;
 const SLIDE_HALF_HEIGHT: f32 = 0.1;
 const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS; // 0.8
 // const SLIDE_BOTTOM:   f32 = SLIDE_HALF_HEIGHT   + CAPSULE_RADIUS; // 0.4
-const MAX_WALK_SPEED: f32 = 4.0;
-const MAX_SPRINT_SPEED: f32 = 6.0;
+const MAX_WALK_SPEED: f32 = 10.0;
+const MAX_SPRINT_SPEED: f32 = 15.0;
 /// max speed gained per tick when accelerating on the ground
-const GROUND_ACCEL: f32 = 1.0;
+const GROUND_ACCEL: f32 = 5.0;
 const JUMP_IMPULSE: f32 = 5.0;
-const AIR_CONTROL: f32 = 0.2;
+const AIR_CONTROL: f32 = 0.5; // TODO: make vertical control separate and larger than AIR_CONTROL
 const GROUND_DIST: f32 = 0.01; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 25; // ticks (~0.4 s at 60 Hz) before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
@@ -286,6 +286,7 @@ fn mouse_look(
     sensitivity: Res<MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     possessed: Query<&BipedPawnComponent, With<Possessed>>,
+    camera_fx: Query<&CameraEffector, With<Camera3d>>,
     mut pivots: ParamSet<(
         Query<(&mut Transform, &mut YawPivot)>,
         Query<(&mut Transform, &mut PitchPivot)>,
@@ -301,7 +302,11 @@ fn mouse_look(
     let Ok(biped) = possessed.single() else {
         return;
     };
-    let s = sensitivity.0;
+    // Scale look sensitivity with zoom so scoped weapons stay usable without
+    // needing per-weapon sensitivity code.
+    let zoom = camera_fx.single().map(|fx| fx.zoom_multiplier.max(1.0)).unwrap_or(1.0);
+    let zoom_scale = 1.0 + (1.0 / zoom - 1.0) * sensitivity.zoom_blend;
+    let s = sensitivity.base * zoom_scale;
 
     if let Some(yaw_e) = biped.yaw_pivot {
         if let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e) {

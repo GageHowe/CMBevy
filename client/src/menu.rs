@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::{GameState, UiState, ServerAddr, HostedServer, SinglePlayerConfig};
-use crate::settings::{show_settings_ui, Settings};
+use crate::settings::{Settings, SettingsSection, show_settings_ui};
 use common::config::{BEACON_URL, LAN_DISCOVERY_PORT};
 
 pub struct MenuPlugin;
@@ -18,6 +18,7 @@ impl Plugin for MenuPlugin {
 enum Screen {
     #[default]
     Root,
+    Settings,
     SinglePlayer,
     Multiplayer,
     CustomGames,
@@ -161,6 +162,8 @@ fn main_menu(
     mut server_addr: ResMut<ServerAddr>,
     mut hosted: ResMut<HostedServer>,
     mut sp_config: ResMut<SinglePlayerConfig>,
+    mut settings: ResMut<Settings>,
+    mut settings_section: Local<SettingsSection>,
     mut screen: Local<Screen>,
     mut host: Local<HostState>,
     mut browser: Local<LobbyBrowser>,
@@ -169,6 +172,7 @@ fn main_menu(
     let center = ctx.content_rect().center();
     let title = match *screen {
         Screen::Root         => "Critical Mass",
+        Screen::Settings     => "Settings",
         Screen::SinglePlayer => "Singleplayer",
         Screen::Multiplayer  => "Multiplayer",
         Screen::CustomGames  => "Custom Games",
@@ -201,7 +205,14 @@ fn main_menu(
                         ui.add_space(4.0);
                         if ui.button("Multiplayer").clicked() { *screen = Screen::Multiplayer; }
                         ui.add_space(4.0);
+                        if ui.button("Settings").clicked() { *screen = Screen::Settings; }
+                        ui.add_space(4.0);
                         if ui.button("Exit").clicked() { std::process::exit(0); }
+                    }
+                    Screen::Settings => {
+                        show_settings_ui(ui, &mut settings, &mut settings_section);
+                        ui.add_space(8.0);
+                        if ui.button("Back").clicked() { *screen = Screen::Root; }
                     }
                     Screen::SinglePlayer => {
                         egui::Grid::new("sp_grid")
@@ -532,6 +543,7 @@ fn settings_menu(
     mut contexts: EguiContexts,
     mut next_ui: ResMut<NextState<UiState>>,
     mut settings: ResMut<Settings>,
+    mut settings_section: Local<SettingsSection>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let center = ctx.content_rect().center();
@@ -546,7 +558,7 @@ fn settings_menu(
             ui.set_min_width(250.0);
             ui.heading("Settings");
             ui.add_space(8.0);
-            show_settings_ui(ui, &mut settings);
+            show_settings_ui(ui, &mut settings, &mut settings_section);
             ui.add_space(8.0);
             ui.vertical_centered(|ui| {
                 if ui.button("Back").clicked() {

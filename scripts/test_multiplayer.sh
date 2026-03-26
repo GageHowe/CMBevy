@@ -1,8 +1,8 @@
 sudo fuser -k 42069/udp
 sudo fuser -k 42070/udp
 
-go run emulate_network.go -client 42069 -server 42070 &
-cargo run --bin server &
+cargo run -p network_emulator -- --listen 127.0.0.1:42069 --server 127.0.0.1:42070 &
+cargo run -p gameserver &
 
 sleep 1
 
