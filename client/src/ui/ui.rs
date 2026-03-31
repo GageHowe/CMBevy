@@ -9,7 +9,7 @@ use net::message::MsgType;
 use game_objects::pawn::Possessed;
 use game_objects::pawn::biped::WeaponSlots;
 use crate::GameState;
-use crate::steam::SteamClient;
+use bevy_steamworks::Client;
 use crate::tick_sync::NetworkStats;
 use physics::physics_world::PhysicsWorld;
 
@@ -119,7 +119,7 @@ fn gui_chat(
     mut contexts: EguiContexts,
     mut state: ResMut<GuiState>,
     mut quic: ResMut<QuicManager>,
-    steam: Option<Res<SteamClient>>,
+    steam: Option<Res<Client>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
     let ctx = contexts.ctx_mut().unwrap();
@@ -153,7 +153,7 @@ fn gui_chat(
                 let txt = state.command_input.trim().to_string();
                 if !txt.is_empty() {
                     let name = steam.as_ref()
-                        .map(|s| s.0.friends().name())
+                        .map(|s| s.friends().name())
                         .unwrap_or_else(|| "Player".to_string());
                     quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(name, txt));
                 }

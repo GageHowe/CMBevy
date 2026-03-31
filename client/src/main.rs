@@ -10,7 +10,8 @@ use common::interaction::Interactable;
 use common::tick::Ticker;
 use game_objects::SpawnGameObjectCommand;
 use game_objects::pawn::biped::*;
-use game_objects::pawn::*;
+use game_objects::pawn::{self, *};
+use game_objects::projectile::hail_mary::HailMaryProjectile;
 use game_objects::projectile::rifle::*;
 use game_objects::projectile::*;
 use game_objects::weapon::WeaponPlugin;
@@ -110,6 +111,12 @@ fn main() {
     let server_addr = parse_server_addr();
     let mut app = App::new();
 
+    if let Ok(steam) = bevy_steamworks::SteamworksPlugin::init_app(3526510u32) {
+        app.add_plugins(steam);
+    } else {
+        warn!("Steam not available");
+    }
+
     app.add_plugins(
         DefaultPlugins
             .set(AssetPlugin {
@@ -137,7 +144,7 @@ fn main() {
 
     app.add_plugins(OutlinePlugin)
         .add_plugins(MasterPlugin)
-        .add_plugins(SteamworksPlugin)
+        .add_plugins(SteamworksPlugin)  // prints steam info on Startup
         .add_plugins(SettingsPlugin)
         .init_state::<GameState>()
         .init_state::<UiState>()
@@ -212,8 +219,20 @@ fn main() {
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
     );
 
+    app.add_systems(Last, force_exit_on_app_exit);
+
     debug_println!("starting client...\n");
     app.run();
+}
+
+/// Bevy drops resources (QuinnetClient tokio runtime, steamclient.so) after `app.run()` returns,
+/// and both block or segfault during async cleanup when the server is already dead.
+/// Calling process::exit here skips those Drops — safe because disconnect() already ran
+/// (OnExit schedule) before we ever reach MainMenu + AppExit.
+fn force_exit_on_app_exit(mut events: MessageReader<AppExit>) {
+    if events.read().next().is_some() {
+        std::process::exit(0);
+    }
 }
 
 fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
@@ -296,6 +315,7 @@ fn disconnect(
     hosted.stdin = None; // close stdin first so server gets EOF
     if let Some(mut child) = hosted.child.take() {
         let _ = child.kill();
+        let _ = child.wait();
     }
     if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
         std::thread::spawn(move || {

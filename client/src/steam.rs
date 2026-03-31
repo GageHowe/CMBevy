@@ -1,55 +1,32 @@
 use bevy::prelude::*;
-use steamworks::Client;
-use steamworks::FriendFlags;
-// use steamworks::PersonaStateChange;
-use steamworks::AppId;
-// use crate::slow_update::SlowHz;
-
-/// wraps the Steamworks client. Available as a resource when Steam is running.
-#[derive(Resource)]
-pub struct SteamClient(pub Client);
+use bevy_steamworks::{AppId, Client, FriendFlags};
 
 pub struct SteamworksPlugin;
 
 impl Plugin for SteamworksPlugin {
     fn build(&self, app: &mut App) {
-        let appid = 3526510u32;
-        match Client::init_app(appid) {
-            Ok(client) => {
-
-                let utils = client.utils();
-                println!("AppId: {:?}", utils.app_id());
-
-                println!("UI Language: {}", utils.ui_language());
-
-                let apps = client.apps();
-                println!("IsInstalled: {}", apps.is_app_installed(AppId(appid)));
-                println!("InstallDir: {}", apps.app_install_dir(AppId(appid)));
-                println!("BuildId: {}", apps.app_build_id());
-                println!("AppOwner: {:?}", apps.app_owner());
-                println!("Beta: {:?}", apps.current_beta_name());
-
-                let friends = client.friends();
-                // println!("Friends");
-                let list = friends.get_friends(FriendFlags::IMMEDIATE);
-                for f in &list {
-                    println!("Friend: {:?} - {}({:?})", f.id(), f.name(), f.state());
-                    friends.request_user_information(f.id(), true);
-                }
-
-                // api good, register self
-
-                app.insert_resource(SteamClient(client));
-                app.add_systems(FixedUpdate, pump_callbacks);
-
-            }
-            Err(e) => {
-                warn!("Steam not available: {e}");
-            }
-        }
+        app.add_systems(Startup, print_steam_info);
     }
 }
 
-fn pump_callbacks(client: Res<SteamClient>) {
-    client.0.run_callbacks();
+fn print_steam_info(client: Option<Res<Client>>) {
+    let Some(client) = client else { return };
+
+    let utils = client.utils();
+    println!("AppId: {:?}", utils.app_id());
+    println!("UI Language: {}", utils.ui_language());
+
+    let appid = AppId(3526510);
+    let apps = client.apps();
+    println!("IsInstalled: {}", apps.is_app_installed(appid));
+    println!("InstallDir: {}", apps.app_install_dir(appid));
+    println!("BuildId: {}", apps.app_build_id());
+    println!("AppOwner: {:?}", apps.app_owner());
+    println!("Beta: {:?}", apps.current_beta_name());
+
+    let friends = client.friends();
+    for f in friends.get_friends(FriendFlags::IMMEDIATE) {
+        println!("Friend: {:?} - {}({:?})", f.id(), f.name(), f.state());
+        friends.request_user_information(f.id(), true);
+    }
 }

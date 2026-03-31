@@ -3,16 +3,19 @@
 
 # .PHONY: dev test-network build s c emulator build-release
 
+build:
+	cargo build -p gameserver
+	cargo build -p client
+	cargo build -p network_emulator
+
+cross-windows:
+	cross build --target x86_64-pc-windows-gnu
+
 dev:
 	cargo build -p gameserver && cargo run -p client
 
 test-network:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_multiplayer_windows.ps1
-
-build:
-	cargo build -p gameserver
-	cargo build -p client
-	cargo build -p network_emulator
 
 s:
 	cargo run -p gameserver

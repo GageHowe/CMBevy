@@ -11,11 +11,11 @@ bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", 
 bevy_egui = "0.39.1"
 zstd = "0.13.3"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
-steamworks = "0.12"
+bevy-steamworks = "0.16"
 serde = { version = "1", features = ["derive"] }
 dirs = "6.0.0"
 toml = { version = "1.0.6", features = ["preserve_order"] }
-fmod-oxide = { version = "0.2", features = ["studio"] }
+fmod-oxide = { version = "0.2", features = ["studio"], optional = true }
 lanyard = "0.1"
 ureq = { version = "2", features = ["json"] }
 
@@ -27,3 +27,6 @@ net = { path = "../crates/net", features = ["client"] }
 game_objects = { path = "../crates/game_objects", features = ["client"] }
 scripting = { path = "../crates/scripting" }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
+
+[features]
+fmod = ["dep:fmod-oxide"]

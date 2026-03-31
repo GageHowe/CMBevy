@@ -154,6 +154,7 @@ fn disconnect(
     hosted.stdin = None;
     if let Some(mut child) = hosted.child.take() {
         let _ = child.kill();
+        let _ = child.wait();
     }
     if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
         std::thread::spawn(move || {

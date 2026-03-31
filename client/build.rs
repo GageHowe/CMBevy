@@ -5,6 +5,7 @@ fn main() {
     // OUT_DIR = target/{profile}/build/client-{hash}/out — up 3 levels = target/{profile}/
     let Some(target_dir) = out_dir.ancestors().nth(3) else { return };
 
+    #[cfg(feature = "fmod")]
     copy_fmod_dlls(target_dir);
     copy_steam_dll(&out_dir, target_dir);
 
@@ -12,6 +13,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=FMOD_DIRECTORY");
 }
 
+#[cfg_attr(not(feature = "fmod"), allow(dead_code))]
 fn copy_fmod_dlls(target_dir: &std::path::Path) {
     let Some(fmod_dir) = find_fmod_dir() else { return };
     for dll in ["fmod.dll", "fmodstudio.dll"] {
@@ -22,6 +24,7 @@ fn copy_fmod_dlls(target_dir: &std::path::Path) {
     }
 }
 
+#[cfg_attr(not(feature = "fmod"), allow(dead_code))]
 fn find_fmod_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("FMOD_DIRECTORY").map(PathBuf::from) {
         if dir.exists() {
