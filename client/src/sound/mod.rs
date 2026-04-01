@@ -5,16 +5,13 @@ pub struct SoundPlugin;
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SoundQueue>();
-        #[cfg(feature = "fmod")]
         fmod_impl::build(app);
     }
 }
 
-#[cfg(feature = "fmod")]
 mod fmod_impl {
     use bevy::prelude::*;
     use bevy::transform::TransformSystems;
-    use lanyard::Utf8CString;
     use game_objects::sound::{SoundEmitter, SoundQueue};
     use game_objects::atmosphere::AtmosphereComponent;
     use game_objects::pawn::Possessed;
@@ -29,18 +26,18 @@ mod fmod_impl {
 
     #[derive(Resource)]
     pub struct FmodStudio {
-        pub system: fmod::studio::System,
+        pub system: fmod::Studio,
         /// Keep bank handles alive — releasing a bank unloads all its events.
-        _banks: Vec<fmod::studio::Bank>,
+        _banks: Vec<fmod::Bank>,
     }
 
     /// Live FMOD instance stored as a component on the emitting entity.
     /// Stops and releases on Drop — handles cleanup for both despawn and component removal.
     #[derive(Component)]
-    struct FmodInstance(fmod::studio::EventInstance);
+    struct FmodInstance(fmod::EventInstance);
     impl Drop for FmodInstance {
         fn drop(&mut self) {
-            let _ = self.0.stop(fmod::studio::StopMode::AllowFadeout);
+            let _ = self.0.stop(fmod::StopMode::AllowFadeout);
             let _ = self.0.release();
         }
     }
@@ -60,16 +57,21 @@ mod fmod_impl {
     /// called once at startup before any FMOD use
     /// stable, do not touch.
     fn init_fmod(mut commands: Commands) {
-        let Ok(system) = (unsafe { fmod::studio::SystemBuilder::new() })
-            .and_then(|b| b.build(512, fmod::studio::InitFlags::NORMAL | fmod::studio::InitFlags::LIVEUPDATE, fmod::InitFlags::RIGHTHANDED_3D))
+        let Ok(system) = fmod::Studio::create()
+            .and_then(|s| {
+                s.initialize(
+                    512,
+                    fmod::StudioInit::NORMAL | fmod::StudioInit::LIVEUPDATE,
+                    fmod::Init::RIGHTHANDED_3D,
+                    None,
+                )?;
+                Ok(s)
+            })
             .inspect_err(|e| warn!("FMOD: init failed: {e:?}"))
         else { return };
         let mut banks = Vec::new();
         for path in BANK_PATHS {
-            let Ok(cpath) = Utf8CString::new(*path)
-                .inspect_err(|e| warn!("FMOD: invalid bank path '{path}': {e:?}"))
-            else { continue };
-            match system.load_bank_file(&cpath, fmod::studio::LoadBankFlags::NORMAL) {
+            match system.load_bank_file(path, fmod::LoadBank::NORMAL) {
                 Ok(bank) => banks.push(bank),
                 Err(e) => warn!("FMOD: could not load '{path}': {e:?}"),
             }
@@ -175,27 +177,22 @@ mod fmod_impl {
             .fold(0.0_f32, f32::max);
 
         // warn!("atmosphere_reverb: atmos={atmo_count} with_reverb={reverb_count} listener={listener_pos:.0?} blend={blend:.3}");
-        let Ok(bname) = lanyard::Utf8CString::new("bus:/Reverb")
-            .inspect_err(|e| warn!("FMOD: bad bus name: {e:?}"))
-        else { return };
-        let Ok(bus) = fmod.system.get_bus(&bname)
+        let Ok(bus) = fmod.system.get_bus("bus:/Reverb")
             .inspect_err(|e| warn!("FMOD: get_bus failed: {e:?}"))
         else { return };
         let _ = bus.set_volume(blend)
             .inspect_err(|e| warn!("FMOD: set_volume={blend:.2} failed: {e:?}"));
     }
 
-    fn create_instance(fmod: &FmodStudio, event: &'static str) -> Option<fmod::studio::EventInstance> {
-        let cpath = Utf8CString::new(event)
-            .inspect_err(|e| warn!("FMOD: invalid event path '{event}': {e:?}")).ok()?;
-        fmod.system.get_event(&cpath)
+    fn create_instance(fmod: &FmodStudio, event: &'static str) -> Option<fmod::EventInstance> {
+        fmod.system.get_event(event)
             .inspect_err(|e| warn!("FMOD: event '{event}' not found: {e:?}")).ok()?
             .create_instance().ok()
     }
 
     #[inline]
-    fn attrs(pos: Vec3, vel: Vec3, rot: Quat) -> fmod::Attributes3D {
-        fmod::Attributes3D {
+    fn attrs(pos: Vec3, vel: Vec3, rot: Quat) -> fmod::Attributes3d {
+        fmod::Attributes3d {
             position: v(pos),
             velocity: v(vel),
             forward: v(rot * Vec3::NEG_Z),

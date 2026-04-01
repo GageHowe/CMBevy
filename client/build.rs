@@ -5,43 +5,33 @@ fn main() {
     // OUT_DIR = target/{profile}/build/client-{hash}/out — up 3 levels = target/{profile}/
     let Some(target_dir) = out_dir.ancestors().nth(3) else { return };
 
-    #[cfg(feature = "fmod")]
-    copy_fmod_dlls(target_dir);
+    add_linux_fmod_rpath();
     copy_steam_dll(&out_dir, target_dir);
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=FMOD_DIRECTORY");
 }
 
-#[cfg_attr(not(feature = "fmod"), allow(dead_code))]
-fn copy_fmod_dlls(target_dir: &std::path::Path) {
-    let Some(fmod_dir) = find_fmod_dir() else { return };
-    for dll in ["fmod.dll", "fmodstudio.dll"] {
-        let src = fmod_dir.join(dll);
-        if src.exists() {
-            let _ = std::fs::copy(&src, target_dir.join(dll));
-        }
-    }
-}
+fn add_linux_fmod_rpath() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let repo_root = manifest_dir.parent().unwrap_or(&manifest_dir);
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
-#[cfg_attr(not(feature = "fmod"), allow(dead_code))]
-fn find_fmod_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("FMOD_DIRECTORY").map(PathBuf::from) {
-        if dir.exists() {
-            return Some(dir);
-        }
+    if target_os != "linux" {
+        return;
     }
-
-    for path in [
-        PathBuf::from(r"C:\Program Files (x86)\FMOD SoundSystem\FMOD Studio API Windows\api\core\lib\x64"),
-        PathBuf::from(r"D:\Program Files (x86)\FMOD SoundSystem\FMOD Studio API Windows\api\core\lib\x64"),
-    ] {
-        if path.exists() {
-            return Some(path);
-        }
-    }
-
-    None
+    let arch_dir = match target_arch.as_str() {
+        "x86_64" => "x86_64",
+        "x86" => "x86",
+        "aarch64" => "arm64",
+        "arm" => "arm",
+        _ => return,
+    };
+    let sdk_root = repo_root.join("assets/lib/fmodstudioapi20312linux");
+    let core_dir = sdk_root.join(format!("api/core/lib/{arch_dir}"));
+    let studio_dir = sdk_root.join(format!("api/studio/lib/{arch_dir}"));
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", core_dir.display());
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", studio_dir.display());
 }
 
 fn copy_steam_dll(out_dir: &std::path::Path, target_dir: &std::path::Path) {
@@ -58,4 +48,3 @@ fn copy_steam_dll(out_dir: &std::path::Path, target_dir: &std::path::Path) {
         }
     }
 }
-

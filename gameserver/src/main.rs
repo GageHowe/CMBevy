@@ -343,7 +343,7 @@ fn on_message(
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
     mut spaceships: Query<&mut SpaceshipPawnComponent>,
-    mut cockpits: Query<&mut Cockpit, With<VehicleComponent>>,
+    mut cockpits: Query<(&mut Cockpit, &Transform, &ChildOf)>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
@@ -523,20 +523,19 @@ fn on_message(
                 };
 
                 // ---- vehicle enter / exit ----
-                if let Ok(mut cockpit) = cockpits.get_mut(target_entity) {
+                if let Some((mut cockpit, seat_transform, child_of)) = cockpits
+                    .iter_mut()
+                    .find(|(_, _, child_of)| child_of.parent() == target_entity)
+                {
                     if let Ok(mut biped) = bipeds.get_mut(player_entity) {
                         if biped.in_vehicle == Some(target_entity) {
-                            // exit: eject biped along the vehicle's local right vector
-                            let eject_pos = world
-                                .entity_to_handle
-                                .get(&target_entity)
-                                .and_then(|&h| world.rigid_body_set.get(h))
-                                .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::X * 4.0)
-                                .unwrap_or(Vec3::ZERO);
+                            if child_of.parent() != target_entity {
+                                continue;
+                            }
+                            let Some(_) = exit_vehicle(&mut world, target_entity, &mut cockpit, seat_transform) else {
+                                continue;
+                            };
                             biped.in_vehicle = None;
-                            cockpit.occupant = None;
-                            world.set_body_enabled(player_entity, true);
-                            world.teleport_body(player_entity, eject_pos);
                             quic.send(
                                 SendTarget::One(msg.conn_id),
                                 Channel::Ordered,
@@ -553,12 +552,18 @@ fn on_message(
                                 .entity_to_handle
                                 .get(&target_entity)
                                 .and_then(|&h| world.rigid_body_set.get(h))
-                                .map(|rb| rb.position().translation);
-                            let in_range = matches!((pp, vp), (Some(a), Some(b)) if { let d = a - b; d.x*d.x + d.y*d.y + d.z*d.z < 36.0 });
-                            if in_range {
+                                .map(|rb| {
+                                    let vehicle_pos = rb_pos(rb);
+                                    let vehicle_rot = rb_rot(rb);
+                                    seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation)
+                                });
+                            let in_range = matches!((pp, vp), (Some(a), Some(b)) if {
+                                let d = a - b;
+                                d.x * d.x + d.y * d.y + d.z * d.z
+                                    < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
+                            });
+                            if in_range && enter_vehicle(&mut world, player_entity, target_entity, &mut cockpit, seat_transform) {
                                 biped.in_vehicle = Some(target_entity);
-                                cockpit.occupant = Some(player_entity);
-                                world.set_body_enabled(player_entity, false);
                                 quic.send(
                                     SendTarget::One(msg.conn_id),
                                     Channel::Ordered,

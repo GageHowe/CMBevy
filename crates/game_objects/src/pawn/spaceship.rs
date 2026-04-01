@@ -1,13 +1,14 @@
-use super::vehicle::VehicleComponent;
+use super::vehicle::{Cockpit, VehicleComponent};
 use super::*;
 use crate::generic::attach_hull_collider;
 use crate::{GameObject, GameObjectKind};
-use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+#[cfg(feature = "client")]
+use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
-use common::interaction::Interactable;
+#[cfg(feature = "client")]
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
@@ -15,12 +16,17 @@ const HULL_PATH: &str = "collision/placeholder_carrier.obj";
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/placeholder_carrier.glb#Scene0";
 const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 0.5, -2.5);
+const COCKPIT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -0.2);
+const COCKPIT_EXIT_OFFSET: Vec3 = Vec3::new(2.0, 0.0, 0.0);
+const COCKPIT_RADIUS: f32 = 0.8;
 const THRUST: f32 = 10.0;
 const ROLL_SPEED: f32 = 1.5;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(not(feature = "client"))]
+        let _ = app;
         #[cfg(feature = "client")]
         app.add_systems(
             FixedPreUpdate,
@@ -65,8 +71,19 @@ impl GameObject for SpaceshipPawnComponent {
             GameObjectKind::Spaceship,
             Transform::from(transform),
             cmd.net_id.clone(),
-            Interactable { range: 4.0 },
         ));
+        let cockpit = world
+            .spawn((
+                Cockpit {
+                    interact_radius: COCKPIT_RADIUS,
+                    exit_offset: COCKPIT_EXIT_OFFSET,
+                    ..default()
+                },
+                Transform::from_translation(COCKPIT_OFFSET),
+                Visibility::default(),
+            ))
+            .id();
+        world.entity_mut(entity).add_child(cockpit);
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()

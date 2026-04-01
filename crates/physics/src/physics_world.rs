@@ -167,6 +167,47 @@ impl PhysicsWorld {
             }
         }
     }
+
+    /// Teleport a body to `pos`/`rot` and set its velocities explicitly.
+    pub fn set_body_pose(
+        &mut self,
+        entity: Entity,
+        pos: Vec3,
+        rot: Quat,
+        linvel: Vec3,
+        angvel: Vec3,
+    ) {
+        if let Some(&handle) = self.entity_to_handle.get(&entity) {
+            if let Some(rb) = self.rigid_body_set.get_mut(handle) {
+                rb.set_translation(Vector3::new(pos.x, pos.y, pos.z), true);
+                rb.set_rotation(rot, true);
+                rb.set_linvel(Vector3::new(linvel.x, linvel.y, linvel.z), true);
+                rb.set_angvel(Vector3::new(angvel.x, angvel.y, angvel.z), true);
+                rb.wake_up(true);
+            }
+        }
+    }
+
+    pub fn insert_fixed_joint(
+        &mut self,
+        body1_entity: Entity,
+        body2_entity: Entity,
+        frame1: Pose,
+        frame2: Pose,
+        contacts_enabled: bool,
+    ) -> Option<ImpulseJointHandle> {
+        let body1 = *self.entity_to_handle.get(&body1_entity)?;
+        let body2 = *self.entity_to_handle.get(&body2_entity)?;
+        let joint = FixedJointBuilder::new()
+            .local_frame1(frame1)
+            .local_frame2(frame2)
+            .contacts_enabled(contacts_enabled);
+        Some(self.impulse_joint_set.insert(body1, body2, joint, true))
+    }
+
+    pub fn remove_impulse_joint(&mut self, handle: ImpulseJointHandle) {
+        self.impulse_joint_set.remove(handle, true);
+    }
 }
 
 impl PhysicsWorld {

@@ -11,6 +11,7 @@ use common::tick::Ticker;
 use game_objects::SpawnGameObjectCommand;
 use game_objects::pawn::biped::*;
 use game_objects::pawn::{self, *};
+use game_objects::pawn::vehicle::draw_cockpit_debug;
 use game_objects::projectile::hail_mary::HailMaryProjectile;
 use game_objects::projectile::rifle::*;
 use game_objects::projectile::*;
@@ -208,6 +209,7 @@ fn main() {
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(Update, draw_planet_radii.run_if(debug_render_on));
+    app.add_systems(Update, draw_cockpit_debug.run_if(debug_render_on));
     app.add_systems(
         FixedUpdate,
         (

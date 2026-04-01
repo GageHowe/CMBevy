@@ -15,8 +15,7 @@ bevy-steamworks = "0.16"
 serde = { version = "1", features = ["derive"] }
 dirs = "6.0.0"
 toml = { version = "1.0.6", features = ["preserve_order"] }
-fmod-oxide = { version = "0.2", features = ["studio"], optional = true }
-lanyard = "0.1"
+fmod = { package = "libfmod", git = "https://github.com/GageHowe/libfmod", rev = "1b8cb56" }
 ureq = { version = "2", features = ["json"] }
 
 # custom crates
@@ -27,6 +26,3 @@ net = { path = "../crates/net", features = ["client"] }
 game_objects = { path = "../crates/game_objects", features = ["client"] }
 scripting = { path = "../crates/scripting" }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
-
-[features]
-fmod = ["dep:fmod-oxide"]

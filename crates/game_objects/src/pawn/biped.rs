@@ -1,6 +1,9 @@
-use super::vehicle::{Cockpit, VehicleComponent};
 use super::*;
+#[cfg(feature = "client")]
+use super::vehicle::{Cockpit, VehicleComponent, enter_vehicle, ray_hits_cockpit};
+#[cfg(feature = "client")]
 use crate::weapon::{FireCtx, Weapon};
+#[cfg(feature = "client")]
 use crate::weapon::{hail_mary, rifle};
 use crate::{GameObject, health::Health};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
@@ -785,7 +788,11 @@ fn interact(
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
-    mut cockpits: Query<&mut Cockpit, With<VehicleComponent>>,
+    vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
+    mut cockpit_q: ParamSet<(
+        Query<(Entity, &Cockpit, &GlobalTransform, &ChildOf)>,
+        Query<(&mut Cockpit, &Transform, &ChildOf)>,
+    )>,
 ) {
     use common::game_state::GameState;
     if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) {
@@ -802,6 +809,53 @@ fn interact(
     };
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
+    let mut cockpit_target = None;
+    for (cockpit_entity, cockpit, cockpit_gt, child_of) in cockpit_q.p0().iter() {
+        let (_, _, seat_center) = cockpit_gt.to_scale_rotation_translation();
+        let Some(distance) = ray_hits_cockpit(origin, forward, 4.0, seat_center, cockpit.interact_radius) else {
+            continue;
+        };
+        if cockpit.occupant.is_some() {
+            continue;
+        }
+        let vehicle_entity = child_of.parent();
+        let target = (distance, cockpit_entity, vehicle_entity);
+        if cockpit_target.is_none_or(|best: (f32, Entity, Entity)| distance < best.0) {
+            cockpit_target = Some(target);
+        }
+    }
+
+    if let Some((_, cockpit_entity, vehicle_entity)) = cockpit_target {
+        match state.get() {
+            GameState::SinglePlayer => {
+                let mut cockpits = cockpit_q.p1();
+                let Ok((mut cockpit, seat_transform, child_of)) = cockpits.get_mut(cockpit_entity) else {
+                    return;
+                };
+                if child_of.parent() != vehicle_entity {
+                    return;
+                }
+                if !enter_vehicle(&mut world, pawn_entity, vehicle_entity, &mut cockpit, seat_transform) {
+                    return;
+                }
+                commands.entity(pawn_entity).remove::<Possessed>();
+                commands.entity(vehicle_entity).insert(Possessed::new(128));
+                return;
+            }
+            GameState::Multiplayer => {
+                let Ok(vehicle_net_id) = vehicle_net_ids.get(vehicle_entity) else {
+                    return;
+                };
+                quic.send(
+                    net::quic::SendTarget::All,
+                    net::quic::Channel::Ordered,
+                    &net::message::MsgType::Interact(vehicle_net_id.clone()),
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
 
     let Some((hit_entity, _)) = world.cast_ray(origin, forward, 4.0, &[pawn_entity]) else {
         return;
@@ -813,17 +867,6 @@ fn interact(
 
     match state.get() {
         GameState::SinglePlayer => {
-            // vehicle entry takes priority over weapon pickup
-            if let Ok(mut cockpit) = cockpits.get_mut(hit_entity) {
-                if cockpit.occupant.is_some() {
-                    return;
-                }
-                cockpit.occupant = Some(pawn_entity);
-                world.set_body_enabled(pawn_entity, false);
-                commands.entity(pawn_entity).remove::<Possessed>();
-                commands.entity(hit_entity).insert(Possessed::new(128));
-                return;
-            }
             let Ok(mut slots) = possessed_q.single_mut() else {
                 return;
             };

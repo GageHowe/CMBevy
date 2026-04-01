@@ -5,20 +5,35 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use super::*;
+use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel};
+use rapier3d::prelude::{ImpulseJointHandle, Pose};
 
 /// Marks an entity as a driveable vehicle.
-/// Automatically inserts a `Cockpit` on the same entity.
 #[derive(Component, Reflect)]
-#[require(Cockpit)]
 pub struct VehicleComponent {
     /// Camera position relative to the vehicle when occupied.
     pub camera_offset: Vec3,
 }
 
-/// The cockpit of a vehicle — the interactable attach point where a biped sits.
-#[derive(Component, Default, Reflect)]
+/// A vehicle seat child entity. The child transform defines the seat anchor.
+#[derive(Component, Reflect)]
 pub struct Cockpit {
     pub occupant: Option<Entity>,
+    #[reflect(ignore)]
+    pub rider_joint: Option<ImpulseJointHandle>,
+    pub interact_radius: f32,
+    pub exit_offset: Vec3,
+}
+
+impl Default for Cockpit {
+    fn default() -> Self {
+        Self {
+            occupant: None,
+            rider_joint: None,
+            interact_radius: 1.0,
+            exit_offset: Vec3::X * 4.0,
+        }
+    }
 }
 
 pub struct VehiclePlugin;
@@ -31,6 +46,107 @@ impl Plugin for VehiclePlugin {
             app.add_systems(FixedPreUpdate, attach_camera_on_possess_vehicle);
             app.add_systems(FixedPreUpdate, vehicle_exit_interact);
         }
+    }
+}
+
+pub fn seat_world_point(vehicle_pos: Vec3, vehicle_rot: Quat, seat_local: Vec3) -> Vec3 {
+    vehicle_pos + vehicle_rot * seat_local
+}
+
+pub fn ray_hits_cockpit(
+    origin: Vec3,
+    dir: Vec3,
+    max_distance: f32,
+    seat_center: Vec3,
+    cockpit_radius: f32,
+) -> Option<f32> {
+    let offset = seat_center - origin;
+    let along = offset.dot(dir);
+    if along < 0.0 || along > max_distance {
+        return None;
+    }
+    let closest = origin + dir * along;
+    let dist_sq = seat_center.distance_squared(closest);
+    if dist_sq <= cockpit_radius * cockpit_radius {
+        Some(along)
+    } else {
+        None
+    }
+}
+
+pub fn enter_vehicle(
+    world: &mut PhysicsWorld,
+    biped_entity: Entity,
+    vehicle_entity: Entity,
+    cockpit: &mut Cockpit,
+    seat_transform: &Transform,
+) -> bool {
+    if cockpit.occupant.is_some() || cockpit.rider_joint.is_some() {
+        return false;
+    }
+
+    let Some(&vehicle_handle) = world.entity_to_handle.get(&vehicle_entity) else { return false };
+    let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else { return false };
+    let vehicle_pos = rb_pos(vehicle_body);
+    let vehicle_rot = rb_rot(vehicle_body);
+    let vehicle_vel = rb_vel(vehicle_body);
+    let vehicle_angvel = rb_angvel(vehicle_body);
+    let seat_pos = seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation);
+    let seat_rot = vehicle_rot * seat_transform.rotation;
+    world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
+
+    let frame1 = Pose::from_parts(seat_transform.translation, seat_transform.rotation);
+    let frame2 = Pose::identity();
+    let Some(joint) = world.insert_fixed_joint(vehicle_entity, biped_entity, frame1, frame2, false) else {
+        return false;
+    };
+
+    cockpit.occupant = Some(biped_entity);
+    cockpit.rider_joint = Some(joint);
+    true
+}
+
+pub fn exit_vehicle(
+    world: &mut PhysicsWorld,
+    vehicle_entity: Entity,
+    cockpit: &mut Cockpit,
+    seat_transform: &Transform,
+) -> Option<Entity> {
+    let biped_entity = cockpit.occupant.take()?;
+    if let Some(joint) = cockpit.rider_joint.take() {
+        world.remove_impulse_joint(joint);
+    }
+
+    let vehicle_body = world
+        .entity_to_handle
+        .get(&vehicle_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))?;
+    let vehicle_pos = rb_pos(vehicle_body);
+    let vehicle_rot = rb_rot(vehicle_body);
+    let vehicle_vel = rb_vel(vehicle_body);
+    let vehicle_angvel = rb_angvel(vehicle_body);
+    let exit_offset = seat_transform.rotation * cockpit.exit_offset + seat_transform.translation;
+    let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
+    let exit_rot = vehicle_rot * seat_transform.rotation;
+    world.set_body_pose(biped_entity, exit_pos, exit_rot, vehicle_vel, vehicle_angvel);
+    Some(biped_entity)
+}
+
+#[cfg(feature = "client")]
+pub fn draw_cockpit_debug(
+    cockpits: Query<(&Cockpit, &GlobalTransform)>,
+    mut gizmos: Gizmos,
+) {
+    for (cockpit, gt) in cockpits.iter() {
+        let (_, rot, center) = gt.to_scale_rotation_translation();
+        let color = if cockpit.occupant.is_some() {
+            Color::srgba(1.0, 0.2, 0.2, 0.9)
+        } else {
+            Color::srgba(0.2, 1.0, 0.8, 0.9)
+        };
+        gizmos.sphere(center, cockpit.interact_radius, color);
+        let exit_tip = center + rot * cockpit.exit_offset;
+        gizmos.line(center, exit_tip, Color::srgba(1.0, 0.8, 0.2, 0.9));
     }
 }
 
@@ -58,25 +174,26 @@ pub fn attach_camera_on_possess_vehicle(
 fn vehicle_exit_interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     state: Res<State<common::game_state::GameState>>,
-    mut vehicle: Query<(Entity, Option<&net::message::NetworkID>, &mut Cockpit, &GlobalTransform), (With<VehicleComponent>, With<Possessed>)>,
+    vehicle: Query<(Entity, Option<&net::message::NetworkID>), (With<VehicleComponent>, With<Possessed>)>,
+    mut cockpits: Query<(&mut Cockpit, &Transform, &ChildOf)>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
 ) {
     use common::game_state::GameState;
     if !keyboard.just_pressed(KeyCode::KeyF) { return; }
-    let Ok((vehicle_entity, net_id, mut cockpit, vehicle_gt)) = vehicle.single_mut() else { return };
+    let Ok((vehicle_entity, net_id)) = vehicle.single() else { return };
     match state.get() {
         GameState::Multiplayer => {
             let Some(net_id) = net_id else { return };
             quic.send(net::quic::SendTarget::All, net::quic::Channel::Ordered, &net::message::MsgType::Interact(net_id.clone()));
         }
         GameState::SinglePlayer => {
-            let Some(biped_entity) = cockpit.occupant.take() else { return };
-            let (_, rot, pos) = vehicle_gt.to_scale_rotation_translation();
-            let eject_pos = pos + rot * Vec3::X * 4.0;
-            world.set_body_enabled(biped_entity, true);
-            world.teleport_body(biped_entity, eject_pos);
+            let Some((mut cockpit, seat_transform, _)) = cockpits
+                .iter_mut()
+                .find(|(_, _, child_of)| child_of.parent() == vehicle_entity)
+            else { return };
+            let Some(biped_entity) = exit_vehicle(&mut world, vehicle_entity, &mut cockpit, seat_transform) else { return };
             commands.entity(vehicle_entity).remove::<Possessed>();
             commands.entity(biped_entity).insert(Possessed::new(128));
         }
