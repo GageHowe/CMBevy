@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
+use common::{NetworkID, PredictedCommand, PredictedCommands};
 use common::tick::{NetworkStats, Ticker};
 use game_objects::pawn::Pawn;
 use game_objects::atmosphere::{AtmosphereComponent, apply_wind_resistance_impulses};
@@ -11,7 +12,7 @@ use game_objects::pawn::{GatherInputSet, Possessed};
 use game_objects::planet::{
     PlanetComponent, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
 };
-use net::message::{NetworkID, SimulationState};
+use net::message::SimulationState;
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
     restore_snapshot, snapshot_bodies, step_world,
@@ -28,6 +29,7 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
         app.init_resource::<PendingReconciliation>()
+            .init_resource::<PredictedCommands>()
             .init_resource::<BipedStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(
@@ -74,13 +76,14 @@ struct BipedReplayState {
 pub struct BipedStateHistory(HashMap<u64, BipedReplayState>);
 
 fn record_biped_state(
-    pawns: Query<(&Possessed, &BipedPawnComponent), With<Possessed>>,
+    pawns: Query<&BipedPawnComponent, With<Possessed>>,
+    predicted: Res<PredictedCommands>,
     mut history: ResMut<BipedStateHistory>,
 ) {
-    let Ok((possessed, biped)) = pawns.single() else {
+    let Ok(biped) = pawns.single() else {
         return;
     };
-    let seq = possessed.latest_input_seq();
+    let seq = predicted.latest_seq();
     if seq == 0 {
         return;
     }
@@ -168,6 +171,7 @@ pub fn maybe_reconcile(
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     atmospheres: Query<(&AtmosphereComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
     gravity_scales: Query<&GravityScale>,
+    predicted: Res<PredictedCommands>,
     history: Res<BipedStateHistory>,
     mut errors: ResMut<PhysicsErrors>,
     mut biped_q: Query<&mut BipedPawnComponent, With<Possessed>>,
@@ -177,9 +181,9 @@ pub fn maybe_reconcile(
         return;
     };
 
-    let Some((_, our_handle, possessed)) = bodies
+    let Some((our_net_id, our_handle, _)) = bodies
         .iter()
-        .find_map(|(nid, h, p)| p.map(|poss| (nid, h, poss)))
+        .find_map(|(nid, h, p)| p.map(|_| (nid, h, ())))
     else {
         return;
     };
@@ -216,14 +220,17 @@ pub fn maybe_reconcile(
     }
 
     let our_rb = our_handle.0;
-    for replay_seq in (snapshot.last_input_seq + 1)..=possessed.latest_input_seq() {
-        if let Some(input) = possessed.get_input(replay_seq).cloned() {
-            let handle = RigidBodyHandleComponent(our_rb);
-            if let Ok(mut b) = biped_q.single_mut() {
-                b.apply_input(&mut world, &handle, input);
-            } else if let Ok(mut s) = spaceship_q.single_mut() {
-                s.apply_input(&mut world, &handle, input);
-            }
+    for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
+        if let Some(command) = predicted.get(replay_seq).cloned() {
+            apply_predicted_command(
+                &mut world,
+                &pairs,
+                our_net_id,
+                our_rb,
+                command,
+                &mut biped_q,
+                &mut spaceship_q,
+            );
         }
         apply_wind_resistance_impulses(&mut world, &atmospheres);
         apply_gravity_impulses(&mut world, &planets, &gravity_scales);
@@ -257,5 +264,39 @@ pub fn maybe_reconcile(
         entry.rot = axis * angle;
         entry.linvel = resim.linvel - cur.linvel;
         entry.angvel = resim.angvel - cur.angvel;
+    }
+}
+
+fn apply_predicted_command(
+    world: &mut PhysicsWorld,
+    pairs: &[(NetworkID, RigidBodyHandle)],
+    our_net_id: &NetworkID,
+    our_rb: RigidBodyHandle,
+    command: PredictedCommand,
+    biped_q: &mut Query<&mut BipedPawnComponent, With<Possessed>>,
+    spaceship_q: &mut Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+) {
+    match command {
+        PredictedCommand::Input(input) => {
+            let handle = RigidBodyHandleComponent(our_rb);
+            if let Ok(mut b) = biped_q.single_mut() {
+                b.apply_input(world, &handle, input);
+            } else if let Ok(mut s) = spaceship_q.single_mut() {
+                s.apply_input(world, &handle, input);
+            }
+        }
+        PredictedCommand::Impulse { target, impulse } => {
+            let handle = if &target == our_net_id {
+                Some(our_rb)
+            } else {
+                pairs.iter().find(|(net_id, _)| *net_id == target).map(|(_, handle)| *handle)
+            };
+            let Some(handle) = handle else {
+                return;
+            };
+            if let Some(rb) = world.rigid_body_set.get_mut(handle) {
+                rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+            }
+        }
     }
 }

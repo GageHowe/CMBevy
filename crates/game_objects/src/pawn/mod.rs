@@ -52,10 +52,10 @@ impl CameraEffector {
 use crate::GameObject;
 use bevy::prelude::*;
 use common::ring_buffer::RingBuffer;
+use common::PredictedCommands;
 use net::message::MsgType;
 use physics::physics_world::PhysicsWorld;
 use physics::physics_world::*;
-use std::collections::HashMap;
 
 pub use biped::BipedPawnComponent;
 pub use biped::{PitchPivot, YawPivot};
@@ -106,15 +106,11 @@ impl Default for MouseSensitivity {
 #[derive(Component)]
 pub struct Possessed {
     input_buffer: RingBuffer<PawnInputKind>,
-    input_history: HashMap<u64, PawnInputKind>,
-    next_input_seq: u64,
 }
 impl Possessed {
     pub fn new(capacity: usize) -> Self {
         Self {
             input_buffer: RingBuffer::new(capacity),
-            input_history: HashMap::new(),
-            next_input_seq: 1,
         }
     }
     pub fn push(&mut self, input: PawnInputKind) {
@@ -126,24 +122,6 @@ impl Possessed {
     /// peek at the most recently pushed input without consuming it.
     pub fn peek_newest(&self) -> Option<&PawnInputKind> {
         self.input_buffer.get_newest()
-    }
-    /// record input for reconciliation replay and return its sequence number.
-    pub fn record_input(&mut self, input: PawnInputKind) -> u64 {
-        let seq = self.next_input_seq;
-        self.next_input_seq += 1;
-        self.input_history.insert(seq, input);
-        seq
-    }
-    /// look up the recorded input for a sequence.
-    pub fn get_input(&self, seq: u64) -> Option<&PawnInputKind> {
-        self.input_history.get(&seq)
-    }
-    pub fn latest_input_seq(&self) -> u64 {
-        self.next_input_seq.saturating_sub(1)
-    }
-    /// drop input history older than `before_seq` to bound memory.
-    pub fn prune_input_history(&mut self, before_seq: u64) {
-        self.input_history.retain(|&t, _| t >= before_seq);
     }
 }
 
@@ -175,18 +153,17 @@ pub fn move_pawns<T: Pawn>()
 /// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
 pub fn send_pawn_input(
     quic: Option<ResMut<net::quic::QuicManager>>,
-    mut pawns: Query<&mut Possessed>,
+    pawns: Query<&Possessed>,
+    mut predicted: ResMut<PredictedCommands>,
 ) {
     let Some(mut quic) = quic else { return };
-    let Ok(mut possessed) = pawns.single_mut() else {
+    let Ok(possessed) = pawns.single() else {
         return;
     };
     let Some(input) = possessed.peek_newest().cloned() else {
         return;
     };
-    let seq = possessed.record_input(input.clone());
-    // keep ~2 seconds of history
-    possessed.prune_input_history(seq.saturating_sub(128));
+    let seq = predicted.record_input(input.clone());
     quic.send(
         net::quic::SendTarget::All,
         net::quic::Channel::Unreliable,

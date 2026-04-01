@@ -30,6 +30,7 @@ fn add_linux_fmod_rpath() {
     let sdk_root = repo_root.join("assets/lib/fmodstudioapi20312linux");
     let core_dir = sdk_root.join(format!("api/core/lib/{arch_dir}"));
     let studio_dir = sdk_root.join(format!("api/studio/lib/{arch_dir}"));
+    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
     println!("cargo:rustc-link-search=native={}", core_dir.display());
     println!("cargo:rustc-link-search=native={}", studio_dir.display());
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", core_dir.display());
