@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <objects serializationModel="Studio.02.03.00">
 	<object class="ParameterPreset" id="{719e5cb9-aa2f-45d8-8a53-21bdd661dc61}">
+		<property name="color">
+			<value>Blue</value>
+		</property>
 		<property name="name">
 			<value>GlobalAtmosphereReverb</value>
 		</property>
@@ -15,14 +18,22 @@
 		<property name="isGlobal">
 			<value>true</value>
 		</property>
-		<property name="isHeld">
-			<value>true</value>
-		</property>
 		<property name="initialValue">
 			<value>0</value>
 		</property>
+		<property name="velocity">
+			<value>4</value>
+		</property>
 		<property name="isExposedRecursively">
 			<value>false</value>
+		</property>
+		<relationship name="automators">
+			<destination>{4845c194-0494-43f0-ba6e-a5f6f16b4110}</destination>
+		</relationship>
+	</object>
+	<object class="Automator" id="{4845c194-0494-43f0-ba6e-a5f6f16b4110}">
+		<property name="nameOfPropertyBeingAutomated">
+			<value>cursorPosition</value>
 		</property>
 	</object>
 </objects>

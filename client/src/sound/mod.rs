@@ -23,6 +23,8 @@ mod fmod_impl {
         "assets/fmod-out/Desktop/Master.strings.bank",
         "assets/fmod-out/Desktop/SFX.bank",
     ];
+    const GLOBAL_ATMOSPHERE_REVERB: &str = "GlobalAtmosphereReverb";
+    const IN_SPACE_FILTER: &str = "InSpaceFilter";
 
     #[derive(Resource)]
     pub struct FmodStudio {
@@ -147,7 +149,7 @@ mod fmod_impl {
         }
     }
 
-    /// Drives the global Studio parameter "atmosphere_reverb" (0–1) based on listener
+    /// Drives the global Studio parameter "GlobalAtmosphereReverb" (0–1) based on listener
     /// proximity to the nearest atmosphere reverb zone. Works for all events (2D and 3D)
     /// since it's a global parameter — reverb properties are configured in FMOD Studio.
     fn update_atmosphere_reverb(
@@ -155,33 +157,29 @@ mod fmod_impl {
         camera: Query<&GlobalTransform, With<Camera3d>>,
         atmospheres: Query<(&AtmosphereComponent, &GlobalTransform)>,
     ) {
-        let _fmod_present = fmod.is_some();
         let (Some(fmod), Ok(cam_gt)) = (fmod, camera.single()) else {
-            warn!("update_planet_atmosphere: FMOD is None");
             return;
         };
         let listener_pos = cam_gt.translation();
-
-        let _atmo_count = atmospheres.iter().count();
-        let _reverb_count = atmospheres.iter().filter(|(a, _)| a.reverb.is_some()).count();
 
         // take the strongest blend across all reverb zones
         let blend = atmospheres.iter()
             .filter_map(|(atmo, gt)| {
                 let rs = atmo.reverb.as_ref()?;
                 let dist = listener_pos.distance(gt.translation());
-                // warn!("atmosphere dist={dist:.1} min={} max={}", rs.min_distance, rs.max_distance);
                 // 1.0 inside min_distance, fades to 0.0 at max_distance
                 Some(1.0 - ((dist - rs.min_distance) / (rs.max_distance - rs.min_distance)).clamp(0.0, 1.0))
             })
             .fold(0.0_f32, f32::max);
 
-        // warn!("atmosphere_reverb: atmos={atmo_count} with_reverb={reverb_count} listener={listener_pos:.0?} blend={blend:.3}");
-        let Ok(bus) = fmod.system.get_bus("bus:/Reverb")
-            .inspect_err(|e| warn!("FMOD: get_bus failed: {e:?}"))
-        else { return };
-        let _ = bus.set_volume(blend)
-            .inspect_err(|e| warn!("FMOD: set_volume={blend:.2} failed: {e:?}"));
+        let _ = fmod
+            .system
+            .set_parameter_by_name(GLOBAL_ATMOSPHERE_REVERB, blend, true)
+            .inspect_err(|e| warn!("FMOD: set GlobalAtmosphereReverb={blend:.2} failed: {e:?}"));
+        let _ = fmod
+            .system
+            .set_parameter_by_name(IN_SPACE_FILTER, 1.0 - blend, true)
+            .inspect_err(|e| warn!("FMOD: set InSpaceFilter={:.2} failed: {e:?}", 1.0 - blend));
     }
 
     fn create_instance(fmod: &FmodStudio, event: &'static str) -> Option<fmod::EventInstance> {

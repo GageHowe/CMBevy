@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="ParameterPreset" id="{e83a2e1b-987e-4c49-b05d-4fb606af0259}">
+		<property name="name">
+			<value>InSpaceFilter</value>
+		</property>
+		<relationship name="folder">
+			<destination>{6a5dcacb-0d09-4965-a14f-6de4ccf43f7e}</destination>
+		</relationship>
+		<relationship name="parameter">
+			<destination>{47b32b5f-b66d-4b27-b96f-ffc54ce7d20d}</destination>
+		</relationship>
+	</object>
+	<object class="GameParameter" id="{47b32b5f-b66d-4b27-b96f-ffc54ce7d20d}">
+		<property name="isGlobal">
+			<value>true</value>
+		</property>
+		<property name="initialValue">
+			<value>0</value>
+		</property>
+		<property name="isExposedRecursively">
+			<value>false</value>
+		</property>
+	</object>
+</objects>
