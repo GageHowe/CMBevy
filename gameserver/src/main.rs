@@ -128,7 +128,7 @@ fn main() {
     });
 
     // load_server_level: read file bytes → LevelBytes, spawn DynamicSceneRoot
-    app.add_systems(FixedUpdate, on_message.before(step_physics));
+    app.add_systems(FixedUpdate, (on_message).before(step_physics));
 
     println!("starting server...\n");
     app.run();
@@ -149,6 +149,12 @@ pub(crate) struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind
 /// Entries older than 128 ticks are pruned after each broadcast.
 #[derive(Resource, Default)]
 pub(crate) struct BodyHistory(pub HashMap<u64, SimulationState>);
+
+#[derive(Resource, Default)]
+pub(crate) struct PendingInputs(pub HashMap<ConnectionId, (u64, PawnInputKind)>);
+
+#[derive(Resource, Default)]
+pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
 
 fn spawn_player(
     conn_id: ConnectionId,
@@ -250,6 +256,7 @@ fn on_message(
     mut quic: ResMut<QuicManager>,
     script_config: Option<Res<ScriptConfig>>,
     mut registry: ResMut<PlayerRegistry>,
+    mut pending_inputs: ResMut<PendingInputs>,
     mut pending_respawns: ResMut<PendingRespawns>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
@@ -266,7 +273,6 @@ fn on_message(
     all_networked: Query<(Entity, &NetworkID)>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut bipeds: Query<&mut BipedPawnComponent>,
-    mut spaceships: Query<&mut SpaceshipPawnComponent>,
     mut cockpits: Query<(&mut Cockpit, &Transform, &ChildOf)>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
@@ -378,46 +384,14 @@ fn on_message(
                     );
                 }
             }
-            MsgType::Input(_, kind) => {
-                if let Some(&(entity, _)) = registry.0.get(&msg.conn_id) {
-                    match kind {
-                        PawnInputKind::Biped(input) => {
-                            if let Ok(mut biped) = bipeds.get_mut(entity) {
-                                // skip movement while in a vehicle; the vehicle entity moves instead
-                                if biped.in_vehicle.is_none() {
-                                    if let Some(handle) =
-                                        world.entity_to_handle.get(&entity).copied()
-                                    {
-                                        biped.look_yaw = input.look_yaw;
-                                        biped.look_pitch = input.look_pitch;
-                                        biped::apply_biped_movement(
-                                            &mut world,
-                                            &RigidBodyHandleComponent(handle),
-                                            input,
-                                            &mut biped,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        PawnInputKind::Spaceship(input) => {
-                            // route to the vehicle the biped is currently driving
-                            let vehicle_entity = bipeds.get(entity).ok().and_then(|b| b.in_vehicle);
-                            if let Some(ve) = vehicle_entity {
-                                if let Some(handle) = world.entity_to_handle.get(&ve).copied() {
-                                    if let Ok(mut ship) = spaceships.get_mut(ve) {
-                                        spaceship::apply_spaceship_movement(
-                                            &mut world,
-                                            &RigidBodyHandleComponent(handle),
-                                            input,
-                                            &mut ship,
-                                        );
-                                    }
-                                    // future vehicle types: add analogous branches here
-                                }
-                            }
-                        }
-                    }
+            MsgType::Input(input_seq, kind) => {
+                let newest_seen = pending_inputs
+                    .0
+                    .get(&msg.conn_id)
+                    .map(|(seq, _)| *seq)
+                    .unwrap_or(0);
+                if input_seq > newest_seen {
+                    pending_inputs.0.insert(msg.conn_id, (input_seq, kind));
                 }
             }
             MsgType::FlashlightToggle => {

@@ -10,7 +10,7 @@ use game_objects::pawn::Possessed;
 use game_objects::pawn::biped::WeaponSlots;
 use crate::{GameState, PendingExit, UiState};
 use bevy_steamworks::Client;
-use crate::tick_sync::NetworkStats;
+use common::tick::NetworkStats;
 use physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
@@ -108,7 +108,8 @@ fn gui_top_left(
             }
 
             if net_stats.rtt_secs > 0.0 {
-                ui.label(format!("RTT: {:.0} ms  offset: {:+}", net_stats.rtt_secs * 1000.0, net_stats.tick_offset));
+                let half_rtt_ticks = (net_stats.rtt_secs * common::config::FIXED_TICK_RATE as f32 * 0.5).ceil();
+                ui.label(format!("RTT: {:.0} ms  predict: +{half_rtt_ticks:.0} ticks", net_stats.rtt_secs * 1000.0));
             } else {
                 ui.label("RTT: --");
             }

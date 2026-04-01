@@ -15,6 +15,7 @@ pub struct ClientSessionPlugin;
 impl Plugin for ClientSessionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LastServerState>()
+            .init_resource::<LastAckedInputSeq>()
             .add_systems(
                 OnEnter(GameState::SinglePlayer),
                 (load_sp_level, spawn_local_player).chain(),
@@ -40,6 +41,9 @@ impl Plugin for ClientSessionPlugin {
 
 #[derive(Resource, Default)]
 pub struct LastServerState(pub Option<SimulationState>);
+
+#[derive(Resource, Default)]
+pub struct LastAckedInputSeq(pub u64);
 
 fn load_sp_level(
     mut commands: Commands,
@@ -144,8 +148,10 @@ fn connect(
 fn disconnect(
     mut quic: ResMut<QuicManager>,
     mut pending: ResMut<PendingReconciliation>,
+    mut last_acked: ResMut<LastAckedInputSeq>,
     mut hosted: ResMut<HostedServer>,
 ) {
+    last_acked.0 = 0;
     shutdown_session(Some(&mut quic), Some(&mut pending), &mut hosted);
 }
 

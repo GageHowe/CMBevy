@@ -342,7 +342,11 @@ pub fn snapshot_bodies<'a>(
             );
         }
     }
-    SimulationState { tick, bodies }
+    SimulationState {
+        tick,
+        last_input_seq: 0,
+        bodies,
+    }
 }
 
 /// Apply a server snapshot to the physics world.

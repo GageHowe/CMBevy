@@ -4,13 +4,13 @@ use game_objects::health::{handle_deaths, Health};
 use game_objects::level::{read_and_compress_level, LevelBytes, SpawnPoint};
 use game_objects::pawn::biped::WeaponSlots;
 use game_objects::planet::PlanetComponent;
-use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource};
+use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, PawnInputKind};
 use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget};
 use physics::physics_world::*;
 use scripting::{get_script_global, ScriptConfig};
 use std::sync::{mpsc, Mutex};
 
-use crate::{BindAddr, BodyHistory, ConsoleCommands, LevelPath, ModeConfig, PendingRespawns, PlayerRegistry, spawn_player, slots_to_held};
+use crate::{BindAddr, BodyHistory, ConsoleCommands, LastProcessedInputSeq, LevelPath, ModeConfig, PendingInputs, PendingRespawns, PlayerRegistry, spawn_player, slots_to_held};
 
 pub struct ServerSessionPlugin {
     pub bind_addr: std::net::SocketAddr,
@@ -36,9 +36,12 @@ impl Plugin for ServerSessionPlugin {
             .insert_resource(ConsoleCommands(Mutex::new(cmd_rx)))
             .init_resource::<PlayerRegistry>()
             .init_resource::<PendingRespawns>()
+            .init_resource::<PendingInputs>()
+            .init_resource::<LastProcessedInputSeq>()
             .init_resource::<BodyHistory>()
             .add_systems(Update, (tick_respawns, process_console_commands, assign_planet_network_ids))
             .add_systems(Startup, (load_server_level, start_server, init_mode_config).chain())
+            .add_systems(FixedUpdate, apply_inputs.before(step_physics))
             .add_systems(FixedUpdate, broadcast_health_updates.after(step_physics).before(broadcast_tick))
             .add_systems(FixedUpdate, handle_player_deaths.after(step_physics).before(handle_deaths))
             .add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
@@ -192,10 +195,71 @@ fn broadcast_tick(
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
+    registry: Res<PlayerRegistry>,
+    last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,
 ) {
     let state = snapshot_bodies(&world, tick.tick, query.iter());
     history.0.insert(tick.tick, state.clone());
     history.0.retain(|&t, _| tick.tick.saturating_sub(t) <= 128);
-    quic.send(SendTarget::All, Channel::Unreliable, &MsgType::State(state));
+    for &conn_id in registry.0.keys() {
+        let mut state_for_client = state.clone();
+        state_for_client.last_input_seq = *last_input_seq.0.get(&conn_id).unwrap_or(&0);
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Unreliable,
+            &MsgType::State(state_for_client),
+        );
+    }
+}
+
+fn apply_inputs(
+    pending_inputs: Res<PendingInputs>,
+    mut last_input_seq: ResMut<LastProcessedInputSeq>,
+    registry: Res<PlayerRegistry>,
+    mut world: ResMut<PhysicsWorld>,
+    mut bipeds: Query<&mut game_objects::pawn::biped::BipedPawnComponent>,
+    mut spaceships: Query<&mut game_objects::pawn::spaceship::SpaceshipPawnComponent>,
+) {
+    for (&conn_id, (input_seq, kind)) in pending_inputs.0.iter() {
+        let Some(&(entity, _)) = registry.0.get(&conn_id) else {
+            continue;
+        };
+
+        match kind.clone() {
+            PawnInputKind::Biped(input) => {
+                if let Ok(mut biped) = bipeds.get_mut(entity) {
+                    if biped.in_vehicle.is_none() {
+                        if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
+                            biped.look_yaw = input.look_yaw;
+                            biped.look_pitch = input.look_pitch;
+                            game_objects::pawn::biped::apply_biped_movement(
+                                &mut world,
+                                &RigidBodyHandleComponent(handle),
+                                input,
+                                &mut biped,
+                            );
+                            last_input_seq.0.insert(conn_id, *input_seq);
+                        }
+                    }
+                }
+            }
+            PawnInputKind::Spaceship(input) => {
+                let vehicle_entity = bipeds.get(entity).ok().and_then(|b| b.in_vehicle);
+                if let Some(ve) = vehicle_entity {
+                    if let Some(handle) = world.entity_to_handle.get(&ve).copied() {
+                        if let Ok(mut ship) = spaceships.get_mut(ve) {
+                            game_objects::pawn::spaceship::apply_spaceship_movement(
+                                &mut world,
+                                &RigidBodyHandleComponent(handle),
+                                input,
+                                &mut ship,
+                            );
+                            last_input_seq.0.insert(conn_id, *input_seq);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -7,10 +7,15 @@ set -e
 DELAY_MS=50
 JITTER_MS=10
 PACKET_LOSS=0
-SERVER_PORT=42069
+SERVER_PORT=42070
+LAN_DISCOVERY_PORT=42071
 SERVER_IP="127.0.0.1"
 NET_INTERFACE="lo"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SERVER_PID=""
+CLIENT_PID=""
+EMULATOR_PID=""
+_cleaned_up=""
 
 usage() {
     cat << EOF
@@ -46,10 +51,63 @@ while [[ $# -gt 0 ]]; do
 done
 
 cleanup() {
+    [[ -n "$_cleaned_up" ]] && return
+    _cleaned_up=1
+    if [[ -n "$CLIENT_PID" ]] && kill -0 "$CLIENT_PID" 2>/dev/null; then
+        kill "$CLIENT_PID" 2>/dev/null || true
+        wait "$CLIENT_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$EMULATOR_PID" ]] && kill -0 "$EMULATOR_PID" 2>/dev/null; then
+        kill "$EMULATOR_PID" 2>/dev/null || true
+        wait "$EMULATOR_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+    fi
     sudo tc qdisc del dev $NET_INTERFACE root 2>/dev/null || true
 }
 
+handle_interrupt() {
+    cleanup
+    exit 130
+}
+
 trap cleanup EXIT
+trap handle_interrupt INT TERM
+
+port_pids() {
+    local proto="$1"
+    local port="$2"
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -n "$proto" "$port" 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | sort -u
+        return
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        if [[ "$proto" == "tcp" ]]; then
+            lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u
+        else
+            lsof -tiUDP:"$port" 2>/dev/null | sort -u
+        fi
+        return
+    fi
+    ss -H -lpn "$proto" "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u
+}
+
+kill_port_users() {
+    local port="$1"
+    local pids
+    pids="$({
+        port_pids tcp "$port"
+        port_pids udp "$port"
+    } | sort -u)"
+    [[ -z "$pids" ]] && return
+    echo "Killing processes on port $port: $pids"
+    while read -r pid; do
+        [[ -z "$pid" ]] && continue
+        kill "$pid" 2>/dev/null || true
+    done <<< "$pids"
+}
 
 if [[ "$CLEANUP_ONLY" == "true" ]]; then
     cleanup && echo "Cleaned up." && exit 0
@@ -64,9 +122,15 @@ sudo tc qdisc add dev $NET_INTERFACE root netem delay ${DELAY_MS}ms ${JITTER_MS}
 echo "tc qdisc show:"
 sudo tc qdisc show dev $NET_INTERFACE
 
+kill_port_users "$SERVER_PORT"
+kill_port_users "$LAN_DISCOVERY_PORT"
+
 # Start server and client
-(cd "$PROJECT_ROOT" && cargo run -p gameserver) &
+(cd "$PROJECT_ROOT" && cargo run -p gameserver -- --port ${SERVER_PORT}) &
+SERVER_PID=$!
 sleep 2
-(cd "$PROJECT_ROOT" && cargo run -p client -- --server ${SERVER_IP}:${SERVER_PORT})
+(cd "$PROJECT_ROOT" && cargo run -p client -- --server ${SERVER_IP}:${SERVER_PORT}) &
+CLIENT_PID=$!
+wait "$CLIENT_PID"
 
 echo "Done. Effective RTT: ~$((DELAY_MS * 2))-$(((DELAY_MS + JITTER_MS) * 2))ms"

@@ -35,6 +35,7 @@ pub struct BodyState {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SimulationState {
     pub tick: u64,
+    pub last_input_seq: u64,
     pub bodies: HashMap<NetworkID, BodyState>,
 }
 

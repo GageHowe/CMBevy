@@ -194,6 +194,14 @@ pub fn orient_bipeds_to_planets(
     bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
 ) {
+    orient_bipeds_to_planets_impulses(&mut world, &bipeds, &planets);
+}
+
+pub fn orient_bipeds_to_planets_impulses(
+    world: &mut PhysicsWorld,
+    bipeds: &Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
+    planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+) {
     let dt = world.integration_parameters.dt;
 
     let planet_data: Vec<(Vec3, f32)> = planets

@@ -107,12 +107,14 @@ impl Default for MouseSensitivity {
 pub struct Possessed {
     input_buffer: RingBuffer<PawnInputKind>,
     input_history: HashMap<u64, PawnInputKind>,
+    next_input_seq: u64,
 }
 impl Possessed {
     pub fn new(capacity: usize) -> Self {
         Self {
             input_buffer: RingBuffer::new(capacity),
             input_history: HashMap::new(),
+            next_input_seq: 1,
         }
     }
     pub fn push(&mut self, input: PawnInputKind) {
@@ -125,17 +127,23 @@ impl Possessed {
     pub fn peek_newest(&self) -> Option<&PawnInputKind> {
         self.input_buffer.get_newest()
     }
-    /// record input for the given tick (used by client for reconciliation replay).
-    pub fn record_input(&mut self, tick: u64, input: PawnInputKind) {
-        self.input_history.insert(tick, input);
+    /// record input for reconciliation replay and return its sequence number.
+    pub fn record_input(&mut self, input: PawnInputKind) -> u64 {
+        let seq = self.next_input_seq;
+        self.next_input_seq += 1;
+        self.input_history.insert(seq, input);
+        seq
     }
-    /// look up the recorded input for a tick.
-    pub fn get_input(&self, tick: u64) -> Option<&PawnInputKind> {
-        self.input_history.get(&tick)
+    /// look up the recorded input for a sequence.
+    pub fn get_input(&self, seq: u64) -> Option<&PawnInputKind> {
+        self.input_history.get(&seq)
     }
-    /// drop input history older than `before_tick` to bound memory.
-    pub fn prune_input_history(&mut self, before_tick: u64) {
-        self.input_history.retain(|&t, _| t >= before_tick);
+    pub fn latest_input_seq(&self) -> u64 {
+        self.next_input_seq.saturating_sub(1)
+    }
+    /// drop input history older than `before_seq` to bound memory.
+    pub fn prune_input_history(&mut self, before_seq: u64) {
+        self.input_history.retain(|&t, _| t >= before_seq);
     }
 }
 
@@ -167,7 +175,6 @@ pub fn move_pawns<T: Pawn>()
 /// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
 pub fn send_pawn_input(
     quic: Option<ResMut<net::quic::QuicManager>>,
-    tick: Res<common::tick::Ticker>,
     mut pawns: Query<&mut Possessed>,
 ) {
     let Some(mut quic) = quic else { return };
@@ -177,13 +184,12 @@ pub fn send_pawn_input(
     let Some(input) = possessed.peek_newest().cloned() else {
         return;
     };
-    let t = tick.tick;
-    possessed.record_input(t, input.clone());
+    let seq = possessed.record_input(input.clone());
     // keep ~2 seconds of history
-    possessed.prune_input_history(t.saturating_sub(128));
+    possessed.prune_input_history(seq.saturating_sub(128));
     quic.send(
         net::quic::SendTarget::All,
         net::quic::Channel::Unreliable,
-        &MsgType::Input(t, input),
+        &MsgType::Input(seq, input),
     );
 }

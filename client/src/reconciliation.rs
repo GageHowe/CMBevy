@@ -2,19 +2,20 @@ use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
-use common::ring_buffer::RingBuffer;
-use common::tick::Ticker;
+use common::tick::{NetworkStats, Ticker};
 use game_objects::pawn::Pawn;
+use game_objects::atmosphere::{AtmosphereComponent, apply_wind_resistance_impulses};
 use game_objects::pawn::biped::BipedPawnComponent;
 use game_objects::pawn::spaceship::SpaceshipPawnComponent;
 use game_objects::pawn::{GatherInputSet, Possessed};
-use game_objects::planet::{PlanetComponent, apply_gravity_impulses};
+use game_objects::planet::{
+    PlanetComponent, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
+};
 use net::message::{NetworkID, SimulationState};
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
     restore_snapshot, snapshot_bodies, step_world,
 };
-
 /// manages client-side rollback/correction, like in Rocket League
 pub struct ReconciliationPlugin<S: States + Copy>(pub S);
 impl<S: States + Copy> ReconciliationPlugin<S> {
@@ -27,7 +28,6 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
         app.init_resource::<PendingReconciliation>()
-            .init_resource::<LocalStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(
                 FixedPreUpdate,
@@ -35,8 +35,7 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
                     .chain()
                     .before(GatherInputSet)
                     .run_if(in_state(state)),
-            )
-            .add_systems(FixedPostUpdate, record_world_state.run_if(in_state(state)));
+            );
     }
 }
 
@@ -62,29 +61,6 @@ pub struct PhysicsErrors(HashMap<NetworkID, BodyError>);
 /// Set by `on_message` when a `MsgType::State` arrives.
 #[derive(Resource, Default)]
 pub struct PendingReconciliation(pub Option<SimulationState>);
-
-/// Ring buffer of every local physics snapshot, one per tick, for all networked bodies.
-/// Used by reconciliation to restore bodies the server didn't mention.
-#[derive(Resource)]
-pub struct LocalStateHistory(pub RingBuffer<SimulationState>);
-impl Default for LocalStateHistory {
-    fn default() -> Self {
-        Self(RingBuffer::new(128))
-    }
-}
-
-/// Runs after `step_physics`. Snapshots all networked bodies into the local history so
-/// `maybe_reconcile` can compare and restore them against the authoritative server state.
-pub fn record_world_state(
-    world: Res<PhysicsWorld>,
-    tick: Res<Ticker>,
-    mut history: ResMut<LocalStateHistory>,
-    query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
-) {
-    history
-        .0
-        .push(snapshot_bodies(&world, tick.tick, query.iter()));
-}
 
 /// Exponentially drains per-body physics errors by applying a fraction each tick.
 /// Alpha = 0.1 → ~90% corrected after ~22 ticks (~0.37 s at 60 Hz).
@@ -154,9 +130,11 @@ pub fn maybe_reconcile(
     mut pending: ResMut<PendingReconciliation>,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
-    history: Res<LocalStateHistory>,
+    _net_stats: Res<NetworkStats>,
     bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>,
+    bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    atmospheres: Query<(&AtmosphereComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
     gravity_scales: Query<&GravityScale>,
     mut errors: ResMut<PhysicsErrors>,
     mut biped_q: Query<&mut BipedPawnComponent, With<Possessed>>,
@@ -183,15 +161,6 @@ pub fn maybe_reconcile(
 
     restore_snapshot(&mut world, &snapshot, &pairs);
 
-    if let Some(local) = history.0.iter().find(|s| s.tick == snapshot.tick) {
-        let unmentioned: Vec<(NetworkID, RigidBodyHandle)> = pairs
-            .iter()
-            .filter(|(nid, _)| !snapshot.bodies.contains_key(nid))
-            .cloned()
-            .collect();
-        restore_snapshot(&mut world, local, &unmentioned);
-    }
-
     let tracked: HashSet<RigidBodyHandle> = pairs.iter().map(|(_, h)| *h).collect();
     let to_freeze: Vec<RigidBodyHandle> = world
         .rigid_body_set
@@ -206,10 +175,8 @@ pub fn maybe_reconcile(
     }
 
     let our_rb = our_handle.0;
-    let current_tick = tick.tick;
-    let replay_end = current_tick.min(snapshot.tick.saturating_add(16));
-    for replay_tick in (snapshot.tick + 1)..replay_end {
-        if let Some(input) = possessed.get_input(replay_tick).cloned() {
+    for replay_seq in (snapshot.last_input_seq + 1)..=possessed.latest_input_seq() {
+        if let Some(input) = possessed.get_input(replay_seq).cloned() {
             let handle = RigidBodyHandleComponent(our_rb);
             if let Ok(mut b) = biped_q.single_mut() {
                 b.apply_input(&mut world, &handle, input);
@@ -217,7 +184,9 @@ pub fn maybe_reconcile(
                 s.apply_input(&mut world, &handle, input);
             }
         }
+        apply_wind_resistance_impulses(&mut world, &atmospheres);
         apply_gravity_impulses(&mut world, &planets, &gravity_scales);
+        orient_bipeds_to_planets_impulses(&mut world, &bipeds, &planets);
         step_world(&mut world);
     }
 

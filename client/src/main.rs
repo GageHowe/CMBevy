@@ -6,7 +6,7 @@ use bevy::window::PresentMode;
 use camera::spawn_camera;
 pub use common::game_state::GameState;
 use common::interaction::Interactable;
-use common::tick::Ticker;
+use common::tick::{NetworkStats, Ticker};
 use game_objects::pawn::biped::*;
 use game_objects::pawn::{self, *};
 use game_objects::pawn::vehicle::draw_cockpit_debug;
@@ -19,7 +19,7 @@ use net::{message::*, quic::*};
 use physics::physics_world::*;
 use reconciliation::*;
 use std::net::SocketAddr;
-use tick_sync::{NetworkStats, TickSyncPlugin};
+use tick_sync::TickSyncPlugin;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
 
@@ -32,7 +32,7 @@ mod tick_sync;
 mod ui;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
-use session::{ClientSessionPlugin, shutdown_session};
+use session::{ClientSessionPlugin, LastAckedInputSeq, shutdown_session};
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub SocketAddr);
@@ -194,7 +194,7 @@ fn main() {
     );
 
     // FixedPostUpdate:
-    //   record_world_state (ReconciliationPlugin) → on_message/send_chat
+    //   on_message/send_chat
     app.add_systems(
         FixedPostUpdate,
         on_message.run_if(in_state(GameState::Multiplayer)),
@@ -266,6 +266,7 @@ fn on_message(
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
     mut net_stats: ResMut<NetworkStats>,
+    mut last_acked_input_seq: ResMut<LastAckedInputSeq>,
     time: Res<Time>,
     mut biped_q: ParamSet<(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
@@ -478,8 +479,10 @@ fn on_message(
             }
             // Keep only the newest snapshot; reconciliation happens next FixedPreUpdate.
             MsgType::State(st) => {
-                net_stats.record_state_tick(ticker.tick, st.tick, common::config::FIXED_TICK_RATE);
-                pending.0 = Some(st);
+                if st.last_input_seq >= last_acked_input_seq.0 {
+                    last_acked_input_seq.0 = st.last_input_seq;
+                    pending.0 = Some(st);
+                }
             }
             MsgType::FileData(name, compressed) => {
                 if name == "map.scn.ron" {
