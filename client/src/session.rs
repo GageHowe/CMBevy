@@ -5,7 +5,7 @@ use game_objects::SpawnGameObjectCommand;
 use game_objects::level::{LevelSceneRoot, MapMeta};
 use game_objects::pawn::Possessed;
 use net::message::{NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
-use net::quic::{QuicManager, QuinnetClient};
+use net::quic::QuicManager;
 
 use crate::reconciliation::PendingReconciliation;
 use crate::settings::Settings;
@@ -136,34 +136,17 @@ pub fn cleanup_world(
 
 fn connect(
     mut quic: ResMut<QuicManager>,
-    mut client: ResMut<QuinnetClient>,
     addr: Res<ServerAddr>,
 ) {
-    quic.connect(&mut client, addr.0);
+    quic.connect(addr.0);
 }
 
 fn disconnect(
     mut quic: ResMut<QuicManager>,
-    mut client: ResMut<QuinnetClient>,
     mut pending: ResMut<PendingReconciliation>,
     mut hosted: ResMut<HostedServer>,
 ) {
-    if let Some(conn) = client.get_connection_mut() {
-        let _ = conn.disconnect();
-    }
-    hosted.stdin = None;
-    if let Some(mut child) = hosted.child.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
-        std::thread::spawn(move || {
-            let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL)).call();
-        });
-    }
-    quic.inbound.clear();
-    quic.client_connected = false;
-    pending.0 = None;
+    shutdown_session(Some(&mut quic), Some(&mut pending), &mut hosted);
 }
 
 fn remove_script(mut commands: Commands) {
@@ -189,4 +172,28 @@ fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
 
 fn debug_render_on(settings: Res<Settings>) -> bool {
     settings.debug_render
+}
+
+pub(crate) fn shutdown_session(
+    quic: Option<&mut QuicManager>,
+    pending: Option<&mut PendingReconciliation>,
+    hosted: &mut HostedServer,
+) {
+    if let Some(quic) = quic {
+        quic.disconnect();
+        quic.inbound.clear();
+    }
+    if let Some(pending) = pending {
+        pending.0 = None;
+    }
+    hosted.stdin = None;
+    if let Some(mut child) = hosted.child.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
+        std::thread::spawn(move || {
+            let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL)).call();
+        });
+    }
 }

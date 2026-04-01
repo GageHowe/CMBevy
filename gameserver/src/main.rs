@@ -16,21 +16,19 @@ use std::net::SocketAddr;
 #[derive(Resource)]
 pub(crate) struct BindAddr(pub SocketAddr);
 use common::debug_println;
-use game_objects::health::Health;
-use game_objects::level::{LevelBytes, LevelPlugin, SpawnPoint, read_and_compress_level};
+use game_objects::level::{LevelBytes, LevelPlugin, SpawnPoint};
 use game_objects::pawn::biped::WeaponSlots;
 use game_objects::pawn::vehicle::*;
 use game_objects::pawn::*;
-use game_objects::planet::PlanetComponent;
 use game_objects::projectile::{hail_mary, rifle};
 use game_objects::weapon::WeaponPlugin;
 use game_objects::*;
 use master_plugin::MasterPlugin;
-use scripting::{ScriptConfig, get_script_global};
+use scripting::ScriptConfig;
 use std::sync::{Mutex, mpsc};
 
 mod session;
-use session::ServerSessionPlugin;
+use session::{ServerSessionPlugin, pick_spawn_point};
 
 #[derive(Resource)]
 pub(crate) struct ConsoleCommands(pub Mutex<mpsc::Receiver<String>>);
@@ -151,80 +149,6 @@ pub(crate) struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind
 /// Entries older than 128 ticks are pruned after each broadcast.
 #[derive(Resource, Default)]
 pub(crate) struct BodyHistory(pub HashMap<u64, SimulationState>);
-
-/// starts the quic server
-fn start_server(
-    mut quic: ResMut<QuicManager>,
-    mut server: ResMut<QuinnetServer>,
-    addr: Res<BindAddr>,
-) {
-    quic.start_server(&mut server, addr.0);
-}
-
-/// Reads the level file, stores compressed bytes for client transfer, and starts async scene load.
-/// LevelPath is asset-relative (e.g. "maps/default.scn.ron"); we prepend the asset dir for fs reads.
-/// Bevy's FileAssetReader resolves relative paths from CARGO_MANIFEST_DIR (not CWD), so we match that.
-fn load_server_level(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    level_path: Res<LevelPath>,
-) {
-    let asset_path = &level_path.0;
-    // env! gives the compile-time manifest dir; in release, assets sit next to the binary.
-    let asset_dir = if cfg!(debug_assertions) {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../assets")
-    } else {
-        "assets"
-    };
-    let fs_path = format!("{asset_dir}/{asset_path}");
-    commands.insert_resource(LevelBytes(read_and_compress_level(&fs_path)));
-    let handle: Handle<DynamicScene> = asset_server.load(asset_path.clone());
-    commands.spawn(bevy::scene::DynamicSceneRoot(handle));
-}
-
-/// Assigns NetworkIDs to planets once their physics body is ready. Server-only.
-fn assign_planet_network_ids(
-    query: Query<
-        Entity,
-        (
-            With<PlanetComponent>,
-            With<RigidBodyHandleComponent>,
-            Without<NetworkID>,
-        ),
-    >,
-    mut commands: Commands,
-    mut net_ids: ResMut<NetworkIDResource>,
-) {
-    for entity in query.iter() {
-        commands.entity(entity).insert(NetworkID(net_ids.next()));
-    }
-}
-
-fn init_mode_config(world: &mut World) {
-    let respawn_delay = get_script_global::<f64>(world, "RESPAWN_DELAY")
-        .map(|d| d as f32)
-        .unwrap_or(common::config::RESPAWN_DELAY_SECS);
-    world.insert_resource(ModeConfig { respawn_delay });
-}
-
-fn pick_spawn_point(
-    spawn_points: &Query<(&SpawnPoint, &Transform)>,
-    team: u8,
-    counter: usize,
-) -> (Vec3, Quat) {
-    let count = spawn_points
-        .iter()
-        .filter(|(sp, _)| sp.team == team)
-        .count();
-    let Some((_, t)) = spawn_points
-        .iter()
-        .filter(|(sp, _)| sp.team == team)
-        .nth(counter % count.max(1))
-    else {
-        return (Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY);
-    };
-    (t.translation, t.rotation)
-}
 
 fn spawn_player(
     conn_id: ConnectionId,
@@ -772,163 +696,4 @@ fn on_message(
             other => debug_println!("Unhandled: {other:?}"),
         }
     }
-}
-
-fn tick_respawns(
-    mut pending: ResMut<PendingRespawns>,
-    time: Res<Time>,
-    mut quic: ResMut<QuicManager>,
-    mut registry: ResMut<PlayerRegistry>,
-    mut net_ids: ResMut<NetworkIDResource>,
-    mut commands: Commands,
-    tick: Res<Ticker>,
-    spawn_points: Query<(&SpawnPoint, &Transform)>,
-) {
-    let dt = time.delta_secs();
-    let ready: Vec<(ConnectionId, GameObjectKind)> = pending
-        .0
-        .iter_mut()
-        .filter_map(|(&id, (t, k))| {
-            *t -= dt;
-            (*t <= 0.0).then(|| (id, k.clone()))
-        })
-        .collect();
-    for (conn_id, kind) in ready {
-        pending.0.remove(&conn_id);
-        let (sp, sr) = pick_spawn_point(&spawn_points, 0, registry.0.len());
-        spawn_player(
-            conn_id,
-            kind,
-            sp,
-            sr,
-            &mut quic,
-            &mut registry,
-            &mut net_ids,
-            &mut commands,
-            tick.tick,
-        );
-    }
-}
-
-fn process_console_commands(
-    cmds: Res<ConsoleCommands>,
-    mut quic: ResMut<QuicManager>,
-    registry: Res<PlayerRegistry>,
-) {
-    while let Ok(line) = cmds.0.lock().unwrap().try_recv() {
-        let mut parts = line.trim().splitn(2, ' ');
-        match parts.next().unwrap_or("") {
-            "shutdown" | "quit" => {
-                println!("Shutting down...");
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::Disconnected);
-                std::process::exit(0);
-            }
-            "kick" => {
-                if let Some(id) = parts.next().and_then(|s| s.parse::<ConnectionId>().ok()) {
-                    quic.send(
-                        SendTarget::One(id),
-                        Channel::Ordered,
-                        &MsgType::Disconnected,
-                    );
-                    quic.inbound.push_back(InboundMessage {
-                        conn_id: id,
-                        channel: Channel::Ordered,
-                        msg: MsgType::Disconnected,
-                    });
-                    println!("Kicked {id}");
-                } else {
-                    println!("Usage: kick <conn_id>");
-                }
-            }
-            "say" => {
-                let text = parts.next().unwrap_or("").to_string();
-                quic.send(
-                    SendTarget::All,
-                    Channel::Ordered,
-                    &MsgType::ChatMessage("[Server]".into(), text.clone()),
-                );
-                println!("[Server] {text}");
-            }
-            "status" => {
-                println!("{} player(s) connected:", registry.0.len());
-                for (conn_id, (entity, net_id)) in &registry.0 {
-                    println!("  conn={conn_id} entity={entity:?} net_id={net_id:?}");
-                }
-            }
-            "" => {}
-            other => println!(
-                "Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"
-            ),
-        }
-    }
-}
-
-/// Handles player-specific death cleanup: drops weapons, removes from registry, queues respawn.
-/// Runs before handle_deaths (which despawns the entity).
-fn handle_player_deaths(
-    dead_q: Query<(Entity, &Health, &NetworkID), Changed<Health>>,
-    mut quic: ResMut<QuicManager>,
-    mut registry: ResMut<PlayerRegistry>,
-    mut pending_respawns: ResMut<PendingRespawns>,
-    mode: Res<ModeConfig>,
-    mut world: ResMut<PhysicsWorld>,
-    pawn_slots: Query<&WeaponSlots>,
-) {
-    for (entity, health, net_id) in dead_q.iter() {
-        if health.current > 0.0 {
-            continue;
-        }
-        let conn_id = registry
-            .0
-            .iter()
-            .find(|(_, (e, _))| *e == entity)
-            .map(|(cid, _)| *cid);
-        let Some(conn_id) = conn_id else { continue };
-        let drop_pos = world
-            .entity_to_handle
-            .get(&entity)
-            .and_then(|&h| world.rigid_body_set.get(h))
-            .map(rb_pos)
-            .unwrap_or(Vec3::ZERO);
-        for (wid, weapon_entity) in slots_to_held(&pawn_slots.get(entity).ok()) {
-            world.teleport_body(weapon_entity, drop_pos);
-            world.set_body_enabled(weapon_entity, true);
-            quic.send(
-                SendTarget::All,
-                Channel::Ordered,
-                &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos),
-            );
-        }
-        registry.0.retain(|_, (e, _)| *e != entity);
-        pending_respawns
-            .0
-            .insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
-    }
-}
-
-/// Broadcasts any Health changes to all clients after tick_projectile_hits runs.
-fn broadcast_health_updates(
-    mut quic: ResMut<QuicManager>,
-    health_q: Query<(&Health, &NetworkID), Changed<Health>>,
-) {
-    for (health, net_id) in health_q.iter() {
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::HealthUpdate(net_id.clone(), health.current),
-        );
-    }
-}
-
-fn broadcast_tick(
-    mut quic: ResMut<QuicManager>,
-    tick: Res<Ticker>,
-    world: Res<PhysicsWorld>,
-    query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
-    mut history: ResMut<BodyHistory>,
-) {
-    let state = snapshot_bodies(&world, tick.tick, query.iter());
-    history.0.insert(tick.tick, state.clone());
-    history.0.retain(|&t, _| tick.tick.saturating_sub(t) <= 128);
-    quic.send(SendTarget::All, Channel::Unreliable, &MsgType::State(state));
 }

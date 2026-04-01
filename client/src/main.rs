@@ -4,11 +4,9 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use camera::spawn_camera;
-use common::GameObjectKind;
 pub use common::game_state::GameState;
 use common::interaction::Interactable;
 use common::tick::Ticker;
-use game_objects::SpawnGameObjectCommand;
 use game_objects::pawn::biped::*;
 use game_objects::pawn::{self, *};
 use game_objects::pawn::vehicle::draw_cockpit_debug;
@@ -16,6 +14,7 @@ use game_objects::projectile::hail_mary::HailMaryProjectile;
 use game_objects::projectile::rifle::*;
 use game_objects::projectile::*;
 use game_objects::weapon::WeaponPlugin;
+use game_objects::SpawnGameObjectCommand;
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 use reconciliation::*;
@@ -33,10 +32,13 @@ mod tick_sync;
 mod ui;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
-use session::{ClientSessionPlugin, LastServerState};
+use session::{ClientSessionPlugin, shutdown_session};
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub SocketAddr);
+
+#[derive(Resource, Default)]
+pub(crate) struct PendingExit(pub bool);
 
 /// Child process handle when we spawned a local gameserver.
 #[derive(Resource, Default)]
@@ -66,10 +68,7 @@ struct SpawnParams<'w, 's> {
 }
 use common::debug_println;
 use game_objects::health::Health;
-use game_objects::level::{
-    LevelPlugin, LevelSceneRoot, MapMeta, PendingMapScene, apply_pending_map_scene, cleanup_level,
-    load_level_scene,
-};
+use game_objects::level::{LevelPlugin, MapMeta, PendingMapScene, apply_pending_map_scene, cleanup_level, load_level_scene};
 use game_objects::planet::draw_planet_radii;
 use master_plugin::MasterPlugin;
 use settings::{Settings, SettingsPlugin};
@@ -112,10 +111,13 @@ fn main() {
     let server_addr = parse_server_addr();
     let mut app = App::new();
 
-    if let Ok(steam) = bevy_steamworks::SteamworksPlugin::init_app(3526510u32) {
-        app.add_plugins(steam);
-    } else {
-        warn!("Steam not available");
+    match bevy_steamworks::SteamworksPlugin::init_app(3526510u32) {
+        Ok(steam) => {
+            app.add_plugins(steam);
+        }
+        Err(err) => {
+            warn!("Steam init failed: {err}");
+        }
     }
 
     app.add_plugins(
@@ -162,6 +164,7 @@ fn main() {
         ))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
+        .init_resource::<PendingExit>()
         .init_resource::<SinglePlayerConfig>()
         .init_resource::<HostedServer>()
         // PendingHullColliders now managed by LevelPlugin
@@ -221,116 +224,36 @@ fn main() {
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
     );
 
-    app.add_systems(Last, force_exit_on_app_exit);
+    app.add_systems(Last, cleanup_before_app_exit);
+    app.add_systems(Update, exit_after_returning_to_menu.run_if(in_state(GameState::MainMenu)));
 
     debug_println!("starting client...\n");
     app.run();
 }
 
-/// Bevy drops resources (QuinnetClient tokio runtime, steamclient.so) after `app.run()` returns,
-/// and both block or segfault during async cleanup when the server is already dead.
-/// Calling process::exit here skips those Drops — safe because disconnect() already ran
-/// (OnExit schedule) before we ever reach MainMenu + AppExit.
-fn force_exit_on_app_exit(mut events: MessageReader<AppExit>) {
-    if events.read().next().is_some() {
-        std::process::exit(0);
-    }
-}
-
-fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
-    // scene loads async; spawn at the default map origin — scene's SpawnPoint y=800 matches
-    let cmd = SpawnCommand {
-        net_id: NetworkID(net_ids.next()),
-        position: Vec3::new(0.0, 800.0, 0.0),
-        rotation: Quat::IDENTITY,
-        starting_velocity: Vec3::ZERO,
-        server_tick: 0,
-        kind: GameObjectKind::Biped,
-    };
-    let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand { entity, cmd });
-    commands.entity(entity).insert(Possessed::new(128));
-}
-
-fn load_skybox(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    meta: Res<MapMeta>,
-    camera: Query<Entity, With<Camera3d>>,
-) {
-    let (Some(path), Ok(cam)) = (&meta.skybox, camera.single()) else {
-        return;
-    };
-    let image: Handle<Image> = asset_server.load(path.clone());
-    commands.entity(cam).insert((
-        Skybox {
-            image: image.clone(),
-            brightness: meta.skybox_brightness,
-            ..default()
-        },
-        EnvironmentMapLight {
-            diffuse_map: image.clone(),
-            specular_map: image,
-            intensity: meta.env_light_intensity,
-            affects_lightmapped_mesh_diffuse: true,
-            ..default()
-        },
-    ));
-}
-
-fn cleanup_world(
-    mut commands: Commands,
-    camera: Query<(Entity, Option<&Children>), With<Camera3d>>,
-    roots: Query<Entity, (With<Transform>, Without<Camera3d>, Without<ChildOf>)>,
-) {
-    if let Ok((cam, children)) = camera.single() {
-        // despawn weapon viewmodels (children of camera) before detaching
-        if let Some(ch) = children {
-            for child in ch.iter() {
-                commands.entity(child).despawn();
-            }
-        }
-        commands.entity(cam).remove_parent_in_place();
-    }
-    for entity in roots.iter() {
-        commands.entity(entity).despawn();
-    }
-}
-
-fn connect(
-    mut quic: ResMut<QuicManager>,
-    mut client: ResMut<QuinnetClient>,
-    addr: Res<ServerAddr>,
-) {
-    quic.connect(&mut client, addr.0);
-}
-
-fn disconnect(
-    mut quic: ResMut<QuicManager>,
-    mut client: ResMut<QuinnetClient>,
-    mut pending: ResMut<PendingReconciliation>,
+fn cleanup_before_app_exit(
+    mut exits: MessageReader<AppExit>,
+    mut quic: Option<ResMut<QuicManager>>,
+    mut pending: Option<ResMut<PendingReconciliation>>,
     mut hosted: ResMut<HostedServer>,
 ) {
-    if let Some(conn) = client.get_connection_mut() {
-        let _ = conn.disconnect();
+    if exits.read().next().is_none() {
+        return;
     }
-    hosted.stdin = None; // close stdin first so server gets EOF
-    if let Some(mut child) = hosted.child.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
-        std::thread::spawn(move || {
-            let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL)).call();
-        });
-    }
-    quic.inbound.clear();
-    quic.client_connected = false;
-    pending.0 = None;
+    shutdown_session(
+        quic.as_deref_mut(),
+        pending.as_deref_mut(),
+        &mut hosted,
+    );
 }
 
-fn remove_script(mut commands: Commands) {
-    commands.remove_resource::<scripting::ScriptConfig>();
+fn exit_after_returning_to_menu(
+    pending_exit: Res<PendingExit>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if pending_exit.0 {
+        exit.write(AppExit::Success);
+    }
 }
 
 /// handles messages coming in from the server
@@ -602,13 +525,6 @@ fn on_message(
     }
 }
 
-/// Copies the pending server snapshot into LastServerState before reconcile consumes it.
-fn snapshot_server_state(pending: Res<PendingReconciliation>, mut last: ResMut<LastServerState>) {
-    if let Some(st) = &pending.0 {
-        last.0 = Some(st.clone());
-    }
-}
-
 // /// Draws a point gizmo at each body position from the latest server state.
 // fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
 //     let Some(state) = &last.0 else { return };
@@ -646,4 +562,3 @@ fn debug_render_on(s: Res<Settings>) -> bool {
 //         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
 //     }
 // }
-use bevy::core_pipeline::Skybox;

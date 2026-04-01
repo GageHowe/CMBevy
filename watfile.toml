@@ -10,10 +10,4 @@ run = ["cargo build -p client"]
 watch = ["gameserver/src/**", "gameserver/Cargo.toml", "crates/**/*.rs", "Cargo.toml"]
 run = ["cargo build -p gameserver"]
 
-[build]
-run = ["cargo build -p client && cargo build -p gameserver"]
-
-[build-release]
-run = ["cargo build -p client --release && cargo build -p gameserver --release"]
-
 # [beacon]

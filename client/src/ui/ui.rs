@@ -8,7 +8,7 @@ use net::quic::{QuicManager, SendTarget, Channel};
 use net::message::MsgType;
 use game_objects::pawn::Possessed;
 use game_objects::pawn::biped::WeaponSlots;
-use crate::GameState;
+use crate::{GameState, PendingExit, UiState};
 use bevy_steamworks::Client;
 use crate::tick_sync::NetworkStats;
 use physics::physics_world::PhysicsWorld;
@@ -85,6 +85,10 @@ fn gui_top_left(
     world: ResMut<PhysicsWorld>,
     diagnostics: Res<DiagnosticsStore>,
     net_stats: Res<NetworkStats>,
+    game_state: Res<State<GameState>>,
+    mut next_game: ResMut<NextState<GameState>>,
+    mut next_ui: ResMut<NextState<UiState>>,
+    mut pending_exit: ResMut<PendingExit>,
     mut exit: MessageWriter<AppExit>,
 ) -> Result {
     egui::Window::new("info")
@@ -109,7 +113,14 @@ fn gui_top_left(
                 ui.label("RTT: --");
             }
             if ui.button("Quit").clicked() {
-                exit.write(AppExit::Success);
+                if *game_state.get() == GameState::MainMenu {
+                    exit.write(AppExit::Success);
+                } else {
+                    // Route shutdown through MainMenu so OnExit cleanup runs before process exit.
+                    pending_exit.0 = true;
+                    next_game.set(GameState::MainMenu);
+                    next_ui.set(UiState::Playing);
+                }
             }
         });
     Ok(())

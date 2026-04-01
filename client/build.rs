@@ -35,14 +35,18 @@ fn add_linux_fmod_rpath() {
 }
 
 fn copy_steam_dll(out_dir: &std::path::Path, target_dir: &std::path::Path) {
-    // steamworks-sys puts steam_api64.dll in its own OUT_DIR sibling — find it.
+    // steamworks-sys puts the redistributable next to its own OUT_DIR sibling — find it.
     let build_dir = out_dir.ancestors().nth(2).unwrap_or(out_dir); // target/{profile}/build/
-    let dll_name = "steam_api64.dll";
+    let lib_name = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("windows") => "steam_api64.dll",
+        Ok("linux") => "libsteam_api.so",
+        _ => return,
+    };
     if let Ok(entries) = std::fs::read_dir(build_dir) {
         for entry in entries.flatten() {
-            let candidate = entry.path().join("out").join(dll_name);
+            let candidate = entry.path().join("out").join(lib_name);
             if candidate.exists() {
-                let _ = std::fs::copy(&candidate, target_dir.join(dll_name));
+                let _ = std::fs::copy(&candidate, target_dir.join(lib_name));
                 return;
             }
         }

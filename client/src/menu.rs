@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::app::AppExit;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::{GameState, UiState, ServerAddr, HostedServer, SinglePlayerConfig};
 use crate::settings::{Settings, SettingsSection, show_settings_ui};
@@ -158,6 +159,7 @@ fn gameserver_exe() -> std::path::PathBuf {
 
 fn main_menu(
     mut contexts: EguiContexts,
+    mut exit: MessageWriter<AppExit>,
     mut next_state: ResMut<NextState<GameState>>,
     mut server_addr: ResMut<ServerAddr>,
     mut hosted: ResMut<HostedServer>,
@@ -207,7 +209,7 @@ fn main_menu(
                         ui.add_space(4.0);
                         if ui.button("Settings").clicked() { *screen = Screen::Settings; }
                         ui.add_space(4.0);
-                        if ui.button("Exit").clicked() { std::process::exit(0); }
+                        if ui.button("Exit").clicked() { exit.write(AppExit::Success); }
                     }
                     Screen::Settings => {
                         show_settings_ui(ui, &mut settings, &mut settings_section);

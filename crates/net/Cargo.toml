@@ -7,13 +7,17 @@ edition = "2024"
 workspace = true
 
 [features]
-client = ["bevy_quinnet/client"]
-server = ["bevy_quinnet/server"]
+client = []
+server = []
 
 [dependencies]
 common = { path = "../common" }
 bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
-bevy_quinnet = { git = "https://github.com/GageHowe/bevy_quinnet_minimal", default-features = false }
+bytes = "1"
 postcard = { version = "1", features = ["alloc"] }
+quinn = "0.11"
+rcgen = "0.13"
+rustls = "0.23"
 serde = { version = "1", features = ["derive"] }
-zstd = "0.13.3"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+zstd = "0.13"

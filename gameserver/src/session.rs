@@ -4,8 +4,8 @@ use game_objects::health::{handle_deaths, Health};
 use game_objects::level::{read_and_compress_level, LevelBytes, SpawnPoint};
 use game_objects::pawn::biped::WeaponSlots;
 use game_objects::planet::PlanetComponent;
-use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState};
-use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, QuinnetServer, SendTarget};
+use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource};
+use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget};
 use physics::physics_world::*;
 use scripting::{get_script_global, ScriptConfig};
 use std::sync::{mpsc, Mutex};
@@ -45,8 +45,8 @@ impl Plugin for ServerSessionPlugin {
     }
 }
 
-fn start_server(mut quic: ResMut<QuicManager>, mut server: ResMut<QuinnetServer>, addr: Res<BindAddr>) {
-    quic.start_server(&mut server, addr.0);
+fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
+    quic.start_server(addr.0);
 }
 
 fn load_server_level(
@@ -79,7 +79,11 @@ fn init_mode_config(world: &mut World) {
     world.insert_resource(ModeConfig { respawn_delay });
 }
 
-fn pick_spawn_point(spawn_points: &Query<(&SpawnPoint, &Transform)>, team: u8, counter: usize) -> (Vec3, Quat) {
+pub(crate) fn pick_spawn_point(
+    spawn_points: &Query<(&SpawnPoint, &Transform)>,
+    team: u8,
+    counter: usize,
+) -> (Vec3, Quat) {
     let count = spawn_points.iter().filter(|(sp, _)| sp.team == team).count();
     let Some((_, t)) = spawn_points.iter().filter(|(sp, _)| sp.team == team).nth(counter % count.max(1)) else {
         return (Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY);
