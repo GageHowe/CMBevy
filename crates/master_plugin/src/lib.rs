@@ -11,9 +11,9 @@ use game_objects::generic::swap_hull_colliders;
 use game_objects::health::HealthPlugin;
 use game_objects::planet::PlanetPlugin;
 #[cfg(feature = "client")]
-use net::quic::NetClientPlugin;
-#[cfg(feature = "server")]
-use net::quic::NetServerPlugin;
+use net::clientonly::NetClientPlugin;
+#[cfg(not(feature = "client"))]
+use net::serveronly::NetServerPlugin;
 use physics::convex_hull_asset::ConvexHullPlugin;
 use physics::physics_world::*;
 use scripting::ScriptingPlugin;
@@ -35,7 +35,7 @@ impl Plugin for MasterPlugin {
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedLast, increment_tick);
 
-        #[cfg(feature = "server")]
+        #[cfg(not(feature = "client"))]
         app.add_plugins(NetServerPlugin);
         #[cfg(feature = "client")]
         app.add_plugins(NetClientPlugin);
