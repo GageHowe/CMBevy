@@ -6,7 +6,9 @@ use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
 use crate::weapon::{hail_mary, rifle};
 use crate::{GameObject, health::Health};
-use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::input::mouse::AccumulatedMouseMotion;
+#[cfg(feature = "client")]
+use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -187,10 +189,14 @@ impl Plugin for BipedPlugin {
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
                 move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
+                switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
                 biped_fire::<rifle::RifleComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 biped_fire::<hail_mary::HailMaryComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
+                toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                interact
+                    .run_if(in_state(common::game_state::GameState::SinglePlayer).or(in_state(common::game_state::GameState::Multiplayer))),
             )
                 .chain(),
         );
@@ -203,22 +209,10 @@ impl Plugin for BipedPlugin {
                 .chain()
                 .before(TransformSystems::Propagate),
         );
-        app.add_systems(
-            Update,
-            switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
-        );
         #[cfg(feature = "client")]
         {
-            use common::game_state::GameState;
             // re-parent camera under pitch pivot when a biped is possessed
             app.add_systems(Update, attach_camera_on_possess);
-            // Y key toggles flashlight; sends FlashlightToggle to server when connected
-            app.add_systems(Update, toggle_flashlight);
-            app.add_systems(
-                Update,
-                interact
-                    .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
-            );
         }
     }
 }
@@ -371,6 +365,7 @@ fn apply_camera_effects(
     }
 }
 
+#[cfg(feature = "client")]
 fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,

@@ -104,6 +104,7 @@ impl Default for MouseSensitivity {
 /// - Client: added to the pawn the local player controls
 /// - Server: not used (server applies inputs directly from network messages)
 #[derive(Component)]
+#[component(storage = "SparseSet")]
 pub struct Possessed {
     input_buffer: RingBuffer<PawnInputKind>,
 }

@@ -7,6 +7,7 @@ use rapier3d::prelude::*;
 
 /// Attached to an entity when its convex hull collider is still loading.
 #[derive(Component)]
+#[component(storage = "SparseSet")]
 pub struct PendingHullCollider(pub Handle<ConvexHullAsset>);
 
 /// Attaches a convex hull if it's ready; otherwise inserts a temporary collider and

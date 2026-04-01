@@ -30,7 +30,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
         app.add_plugins(HealthPlugin);
-        app.add_systems(Update, swap_hull_colliders);
+        app.add_systems(FixedUpdate, swap_hull_colliders);
 
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedLast, increment_tick);

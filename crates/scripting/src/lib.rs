@@ -31,7 +31,8 @@ impl Plugin for ScriptingPlugin {
         app
             .insert_non_send_resource(ScriptRuntime { lua: Lua::new(), loaded: false })
             .add_systems(Startup, (load, register_script_functions).chain())
-            .add_systems(Update, (reload_script, eval_script_update))
+            .add_systems(Update, eval_script_update)
+            .add_systems(FixedUpdate, reload_script)
             .add_systems(FixedUpdate, eval_script_fixed_update);
     }
 }
