@@ -28,6 +28,7 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
         app.init_resource::<PendingReconciliation>()
+            .init_resource::<BipedStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(
                 FixedPreUpdate,
@@ -35,7 +36,8 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
                     .chain()
                     .before(GatherInputSet)
                     .run_if(in_state(state)),
-            );
+            )
+            .add_systems(FixedPostUpdate, record_biped_state.run_if(in_state(state)));
     }
 }
 
@@ -61,6 +63,36 @@ pub struct PhysicsErrors(HashMap<NetworkID, BodyError>);
 /// Set by `on_message` when a `MsgType::State` arrives.
 #[derive(Resource, Default)]
 pub struct PendingReconciliation(pub Option<SimulationState>);
+
+#[derive(Clone, Copy)]
+struct BipedReplayState {
+    jump_cooldown: u8,
+    is_sliding: bool,
+}
+
+#[derive(Resource, Default)]
+pub struct BipedStateHistory(HashMap<u64, BipedReplayState>);
+
+fn record_biped_state(
+    pawns: Query<(&Possessed, &BipedPawnComponent), With<Possessed>>,
+    mut history: ResMut<BipedStateHistory>,
+) {
+    let Ok((possessed, biped)) = pawns.single() else {
+        return;
+    };
+    let seq = possessed.latest_input_seq();
+    if seq == 0 {
+        return;
+    }
+    history.0.insert(
+        seq,
+        BipedReplayState {
+            jump_cooldown: biped.jump_cooldown,
+            is_sliding: biped.is_sliding,
+        },
+    );
+    history.0.retain(|&old_seq, _| old_seq + 128 >= seq);
+}
 
 /// Exponentially drains per-body physics errors by applying a fraction each tick.
 /// Alpha = 0.1 → ~90% corrected after ~22 ticks (~0.37 s at 60 Hz).
@@ -136,6 +168,7 @@ pub fn maybe_reconcile(
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     atmospheres: Query<(&AtmosphereComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
     gravity_scales: Query<&GravityScale>,
+    history: Res<BipedStateHistory>,
     mut errors: ResMut<PhysicsErrors>,
     mut biped_q: Query<&mut BipedPawnComponent, With<Possessed>>,
     mut spaceship_q: Query<&mut SpaceshipPawnComponent, With<Possessed>>,
@@ -158,8 +191,16 @@ pub fn maybe_reconcile(
 
     let current_state =
         snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+    let current_biped_state = biped_q.single().ok().map(|biped| BipedReplayState {
+        jump_cooldown: biped.jump_cooldown,
+        is_sliding: biped.is_sliding,
+    });
 
     restore_snapshot(&mut world, &snapshot, &pairs);
+    if let (Some(saved), Ok(mut biped)) = (history.0.get(&snapshot.last_input_seq), biped_q.single_mut()) {
+        biped.jump_cooldown = saved.jump_cooldown;
+        biped.is_sliding = saved.is_sliding;
+    }
 
     let tracked: HashSet<RigidBodyHandle> = pairs.iter().map(|(_, h)| *h).collect();
     let to_freeze: Vec<RigidBodyHandle> = world
@@ -198,6 +239,10 @@ pub fn maybe_reconcile(
 
     let resim_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
     restore_snapshot(&mut world, &current_state, &pairs);
+    if let (Some(saved), Ok(mut biped)) = (current_biped_state, biped_q.single_mut()) {
+        biped.jump_cooldown = saved.jump_cooldown;
+        biped.is_sliding = saved.is_sliding;
+    }
 
     for (net_id, resim) in &resim_state.bodies {
         let Some(cur) = current_state.bodies.get(net_id) else {
