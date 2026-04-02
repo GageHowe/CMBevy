@@ -52,7 +52,6 @@ impl CameraEffector {
 use crate::GameObject;
 use bevy::prelude::*;
 use common::PredictedCommands;
-use common::ring_buffer::RingBuffer;
 use net::message::MsgType;
 use physics::physics_world::PhysicsWorld;
 use physics::physics_world::*;
@@ -179,23 +178,23 @@ impl Default for MouseSensitivity {
 #[derive(Component)]
 #[component(storage = "SparseSet")]
 pub struct Possessed {
-    input_buffer: RingBuffer<PawnInputKind>,
+    pending_input: Option<PawnInputKind>,
 }
 impl Possessed {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(_capacity: usize) -> Self {
         Self {
-            input_buffer: RingBuffer::new(capacity),
+            pending_input: None,
         }
     }
     pub fn push(&mut self, input: PawnInputKind) {
-        self.input_buffer.push(input);
+        self.pending_input = Some(input);
     }
     pub fn consume(&mut self) -> Option<PawnInputKind> {
-        self.input_buffer.pop()
+        self.pending_input.take()
     }
     /// peek at the most recently pushed input without consuming it.
     pub fn peek_newest(&self) -> Option<&PawnInputKind> {
-        self.input_buffer.get_newest()
+        self.pending_input.as_ref()
     }
 }
 
