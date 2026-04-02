@@ -1,30 +1,29 @@
 use bevy::{
     core_pipeline::{
+        FullscreenShader,
         core_3d::graph::{Core3d, Node3d},
         prepass::ViewPrepassTextures,
-        FullscreenShader,
     },
     ecs::query::QueryItem,
     prelude::*,
     render::{
+        RenderApp,
         extract_component::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
         },
         render_graph::{
-            NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode,
-            ViewNodeRunner,
+            NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            binding_types::*, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState,
-            MultisampleState, Operations, PipelineCache, PrimitiveState,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-            Sampler, SamplerDescriptor, ShaderStages, ShaderType, TextureSampleType,
+            BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, MultisampleState,
+            Operations, PipelineCache, PrimitiveState, RenderPassColorAttachment,
+            RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerDescriptor,
+            ShaderStages, ShaderType, TextureSampleType, binding_types::*,
         },
         renderer::{RenderContext, RenderDevice},
         view::ViewTarget,
-        RenderApp,
     },
 };
 
@@ -39,7 +38,10 @@ pub struct OutlineSettings {
 
 impl Default for OutlineSettings {
     fn default() -> Self {
-        Self { threshold: 0.05, color: Vec4::new(1.0, 1.0, 1.0, 0.8) }
+        Self {
+            threshold: 0.05,
+            color: Vec4::new(1.0, 1.0, 1.0, 0.8),
+        }
     }
 }
 
@@ -51,17 +53,25 @@ impl Plugin for OutlinePlugin {
             ExtractComponentPlugin::<OutlineSettings>::default(),
             UniformComponentPlugin::<OutlineSettings>::default(),
         ));
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
         render_app
             .add_render_graph_node::<ViewNodeRunner<OutlineNode>>(Core3d, OutlineLabel)
             .add_render_graph_edges(
                 Core3d,
-                (Node3d::Smaa, OutlineLabel, Node3d::EndMainPassPostProcessing),
+                (
+                    Node3d::Smaa,
+                    OutlineLabel,
+                    Node3d::EndMainPassPostProcessing,
+                ),
             );
     }
 
     fn finish(&self, app: &mut App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
         render_app.init_resource::<OutlinePipeline>();
     }
 }
@@ -93,29 +103,34 @@ impl FromWorld for OutlinePipeline {
         let sampler = render_device.create_sampler(&SamplerDescriptor::default());
         let shader = world.load_asset("shaders/outline.wgsl");
         let fullscreen = world.resource::<FullscreenShader>().clone();
-        let pipeline_id = world.resource::<PipelineCache>().queue_render_pipeline(
-            RenderPipelineDescriptor {
-                label: Some("outline_pipeline".into()),
-                layout: vec![layout.clone()],
-                vertex: fullscreen.to_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader,
-                    shader_defs: vec![],
-                    targets: vec![Some(ColorTargetState {
-                        format: ViewTarget::TEXTURE_FORMAT_HDR,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                primitive: PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
-                zero_initialize_workgroup_memory: false,
-            },
-        );
-        Self { layout, sampler, pipeline_id }
+        let pipeline_id =
+            world
+                .resource::<PipelineCache>()
+                .queue_render_pipeline(RenderPipelineDescriptor {
+                    label: Some("outline_pipeline".into()),
+                    layout: vec![layout.clone()],
+                    vertex: fullscreen.to_vertex_state(),
+                    fragment: Some(FragmentState {
+                        shader,
+                        shader_defs: vec![],
+                        targets: vec![Some(ColorTargetState {
+                            format: ViewTarget::TEXTURE_FORMAT_HDR,
+                            blend: None,
+                            write_mask: ColorWrites::ALL,
+                        })],
+                        ..default()
+                    }),
+                    primitive: PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: MultisampleState::default(),
+                    push_constant_ranges: vec![],
+                    zero_initialize_workgroup_memory: false,
+                });
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
     }
 }
 
@@ -146,8 +161,12 @@ impl ViewNode for OutlineNode {
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
             return Ok(());
         };
-        let Some(depth) = prepass_textures.depth.as_ref() else { return Ok(()); };
-        let Some(normals) = prepass_textures.normal.as_ref() else { return Ok(()); };
+        let Some(depth) = prepass_textures.depth.as_ref() else {
+            return Ok(());
+        };
+        let Some(normals) = prepass_textures.normal.as_ref() else {
+            return Ok(());
+        };
 
         let post_process = view_target.post_process_write();
         let bind_group = render_context.render_device().create_bind_group(

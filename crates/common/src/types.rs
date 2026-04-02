@@ -10,7 +10,7 @@ pub struct NetworkID(pub u64);
 /// server-side resource that keeps track of the next available NetworkID to use
 #[derive(Resource, Default)]
 pub struct NetworkIDResource {
-    last_id: u64
+    last_id: u64,
 }
 impl NetworkIDResource {
     /// should be used when spawning a new networked entity
@@ -60,4 +60,5 @@ pub enum GameObjectKind {
     HailMaryProjectile,
     RifleProjectile,
     Rpg,
+    RpgProjectile,
 }

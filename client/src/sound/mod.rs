@@ -12,9 +12,9 @@ impl Plugin for SoundPlugin {
 mod fmod_impl {
     use bevy::prelude::*;
     use bevy::transform::TransformSystems;
-    use game_objects::sound::{SoundEmitter, SoundQueue};
     use game_objects::atmosphere::AtmosphereComponent;
     use game_objects::pawn::Possessed;
+    use game_objects::sound::{SoundEmitter, SoundQueue};
     use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
 
     /// FMOD Studio .bank files to load at startup, relative to the working directory.
@@ -45,15 +45,19 @@ mod fmod_impl {
     }
 
     pub fn build(app: &mut App) {
-        app.add_systems(Startup, init_fmod)
-            .add_systems(PostUpdate, (
+        app.add_systems(Startup, init_fmod).add_systems(
+            PostUpdate,
+            (
                 spawn_instances,
                 update_instances,
                 flush_queue,
                 sync_listener,
                 update_atmosphere_reverb,
                 update_fmod,
-            ).chain().after(TransformSystems::Propagate));
+            )
+                .chain()
+                .after(TransformSystems::Propagate),
+        );
     }
 
     /// called once at startup before any FMOD use
@@ -70,7 +74,9 @@ mod fmod_impl {
                 Ok(s)
             })
             .inspect_err(|e| warn!("FMOD: init failed: {e:?}"))
-        else { return };
+        else {
+            return;
+        };
         let mut banks = Vec::new();
         for path in BANK_PATHS {
             match system.load_bank_file(path, fmod::LoadBank::NORMAL) {
@@ -78,7 +84,10 @@ mod fmod_impl {
                 Err(e) => warn!("FMOD: could not load '{path}': {e:?}"),
             }
         }
-        commands.insert_resource(FmodStudio { system, _banks: banks });
+        commands.insert_resource(FmodStudio {
+            system,
+            _banks: banks,
+        });
     }
 
     /// Creates and starts an FmodInstance for each new SoundEmitter.
@@ -89,7 +98,9 @@ mod fmod_impl {
     ) {
         let Some(fmod) = fmod else { return };
         for (entity, emitter, gt) in &emitters {
-            let Some(instance) = create_instance(&fmod, emitter.event) else { continue };
+            let Some(instance) = create_instance(&fmod, emitter.event) else {
+                continue;
+            };
             let (_, rot, pos) = gt.to_scale_rotation_translation();
             let _ = instance.set_3d_attributes(attrs(pos, Vec3::ZERO, rot));
             let _ = instance.start();
@@ -100,7 +111,11 @@ mod fmod_impl {
     /// Syncs 3D position and velocity for all persistent instances each frame.
     fn update_instances(
         world: Res<PhysicsWorld>,
-        instances: Query<(&FmodInstance, &GlobalTransform, Option<&RigidBodyHandleComponent>)>,
+        instances: Query<(
+            &FmodInstance,
+            &GlobalTransform,
+            Option<&RigidBodyHandleComponent>,
+        )>,
     ) {
         for (inst, gt, rb) in &instances {
             let (_, rot, pos) = gt.to_scale_rotation_translation();
@@ -116,9 +131,14 @@ mod fmod_impl {
     /// FMOD destroys the instance once it finishes playing.
     /// position: None = 2D event (no 3D attrs needed); position: Some = 3D spatialized.
     fn flush_queue(fmod: Option<Res<FmodStudio>>, mut queue: ResMut<SoundQueue>) {
-        let Some(fmod) = fmod else { queue.0.clear(); return };
+        let Some(fmod) = fmod else {
+            queue.0.clear();
+            return;
+        };
         for req in queue.0.drain(..) {
-            let Some(instance) = create_instance(&fmod, req.event) else { continue };
+            let Some(instance) = create_instance(&fmod, req.event) else {
+                continue;
+            };
             if let Some(pos) = req.position {
                 let _ = instance.set_3d_attributes(attrs(pos, req.velocity, Quat::IDENTITY));
             }
@@ -134,13 +154,22 @@ mod fmod_impl {
         possessed: Query<&RigidBodyHandleComponent, With<Possessed>>,
         world: Res<PhysicsWorld>,
     ) {
-        let (Some(fmod), Ok(gt)) = (fmod, camera.single()) else { return };
+        let (Some(fmod), Ok(gt)) = (fmod, camera.single()) else {
+            return;
+        };
         let (_, rot, pos) = gt.to_scale_rotation_translation();
-        let vel = possessed.single().ok()
+        let vel = possessed
+            .single()
+            .ok()
             .and_then(|h| world.rigid_body_set.get(h.0))
-            .map(|rb| { let v = rb.linvel(); Vec3::new(v.x, v.y, v.z) })
+            .map(|rb| {
+                let v = rb.linvel();
+                Vec3::new(v.x, v.y, v.z)
+            })
             .unwrap_or(Vec3::ZERO);
-        let _ = fmod.system.set_listener_attributes(0, attrs(pos, vel, rot), None);
+        let _ = fmod
+            .system
+            .set_listener_attributes(0, attrs(pos, vel, rot), None);
     }
 
     fn update_fmod(fmod: Option<Res<FmodStudio>>) {
@@ -163,12 +192,16 @@ mod fmod_impl {
         let listener_pos = cam_gt.translation();
 
         // take the strongest blend across all reverb zones
-        let blend = atmospheres.iter()
+        let blend = atmospheres
+            .iter()
             .filter_map(|(atmo, gt)| {
                 let rs = atmo.reverb.as_ref()?;
                 let dist = listener_pos.distance(gt.translation());
                 // 1.0 inside min_distance, fades to 0.0 at max_distance
-                Some(1.0 - ((dist - rs.min_distance) / (rs.max_distance - rs.min_distance)).clamp(0.0, 1.0))
+                Some(
+                    1.0 - ((dist - rs.min_distance) / (rs.max_distance - rs.min_distance))
+                        .clamp(0.0, 1.0),
+                )
             })
             .fold(0.0_f32, f32::max);
 
@@ -183,9 +216,12 @@ mod fmod_impl {
     }
 
     fn create_instance(fmod: &FmodStudio, event: &'static str) -> Option<fmod::EventInstance> {
-        fmod.system.get_event(event)
-            .inspect_err(|e| warn!("FMOD: event '{event}' not found: {e:?}")).ok()?
-            .create_instance().ok()
+        fmod.system
+            .get_event(event)
+            .inspect_err(|e| warn!("FMOD: event '{event}' not found: {e:?}"))
+            .ok()?
+            .create_instance()
+            .ok()
     }
 
     #[inline]
@@ -200,6 +236,10 @@ mod fmod_impl {
 
     #[inline]
     fn v(vec: Vec3) -> fmod::Vector {
-        fmod::Vector { x: vec.x, y: vec.y, z: vec.z }
+        fmod::Vector {
+            x: vec.x,
+            y: vec.y,
+            z: vec.z,
+        }
     }
 }

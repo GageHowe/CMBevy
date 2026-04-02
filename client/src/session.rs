@@ -138,10 +138,7 @@ pub fn cleanup_world(
     }
 }
 
-fn connect(
-    mut quic: ResMut<QuicManager>,
-    addr: Res<ServerAddr>,
-) {
+fn connect(mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
     quic.connect(addr.0);
 }
 

@@ -1,10 +1,10 @@
+#[cfg(feature = "client")]
+use super::*;
 /// VehicleComponent is a shared marker inserted by every vehicle-type pawn (spaceship, car, etc.).
 /// It does NOT implement Pawn — each vehicle type has its own component for that.
 /// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
 /// across all vehicle types.
 use bevy::prelude::*;
-#[cfg(feature = "client")]
-use super::*;
 use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel};
 use rapier3d::prelude::{ImpulseJointHandle, Pose};
 
@@ -85,19 +85,30 @@ pub fn enter_vehicle(
         return false;
     }
 
-    let Some(&vehicle_handle) = world.entity_to_handle.get(&vehicle_entity) else { return false };
-    let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else { return false };
+    let Some(&vehicle_handle) = world.entity_to_handle.get(&vehicle_entity) else {
+        return false;
+    };
+    let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else {
+        return false;
+    };
     let vehicle_pos = rb_pos(vehicle_body);
     let vehicle_rot = rb_rot(vehicle_body);
     let vehicle_vel = rb_vel(vehicle_body);
     let vehicle_angvel = rb_angvel(vehicle_body);
     let seat_pos = seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation);
     let seat_rot = vehicle_rot * seat_transform.rotation;
-    world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
+    world.set_body_pose(
+        biped_entity,
+        seat_pos,
+        seat_rot,
+        vehicle_vel,
+        vehicle_angvel,
+    );
 
     let frame1 = Pose::from_parts(seat_transform.translation, seat_transform.rotation);
     let frame2 = Pose::identity();
-    let Some(joint) = world.insert_fixed_joint(vehicle_entity, biped_entity, frame1, frame2, false) else {
+    let Some(joint) = world.insert_fixed_joint(vehicle_entity, biped_entity, frame1, frame2, false)
+    else {
         return false;
     };
 
@@ -128,15 +139,18 @@ pub fn exit_vehicle(
     let exit_offset = seat_transform.rotation * cockpit.exit_offset + seat_transform.translation;
     let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
     let exit_rot = vehicle_rot * seat_transform.rotation;
-    world.set_body_pose(biped_entity, exit_pos, exit_rot, vehicle_vel, vehicle_angvel);
+    world.set_body_pose(
+        biped_entity,
+        exit_pos,
+        exit_rot,
+        vehicle_vel,
+        vehicle_angvel,
+    );
     Some(biped_entity)
 }
 
 #[cfg(feature = "client")]
-pub fn draw_cockpit_debug(
-    cockpits: Query<(&Cockpit, &GlobalTransform)>,
-    mut gizmos: Gizmos,
-) {
+pub fn draw_cockpit_debug(cockpits: Query<(&Cockpit, &GlobalTransform)>, mut gizmos: Gizmos) {
     for (cockpit, gt) in cockpits.iter() {
         let (_, rot, center) = gt.to_scale_rotation_translation();
         let color = if cockpit.occupant.is_some() {
@@ -158,12 +172,24 @@ pub fn attach_camera_on_possess_vehicle(
     camera: Query<(Entity, &Projection), With<Camera3d>>,
     mut commands: Commands,
 ) {
-    let Ok((vehicle, vehicle_entity)) = vehicles.single() else { return };
-    let Ok((cam, proj)) = camera.single() else { return };
-    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
+    let Ok((vehicle, vehicle_entity)) = vehicles.single() else {
+        return;
+    };
+    let Ok((cam, proj)) = camera.single() else {
+        return;
+    };
+    let base_fov = if let Projection::Perspective(p) = proj {
+        p.fov.to_degrees()
+    } else {
+        90.0
+    };
     commands.entity(cam).insert((
         Transform::from_translation(vehicle.camera_offset),
-        CameraEffector { base_fov, current_fov: base_fov, ..default() },
+        CameraEffector {
+            base_fov,
+            current_fov: base_fov,
+            ..default()
+        },
     ));
     commands.entity(vehicle_entity).add_child(cam);
 }
@@ -174,26 +200,43 @@ pub fn attach_camera_on_possess_vehicle(
 fn vehicle_exit_interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     state: Res<State<common::game_state::GameState>>,
-    vehicle: Query<(Entity, Option<&net::message::NetworkID>), (With<VehicleComponent>, With<Possessed>)>,
+    vehicle: Query<
+        (Entity, Option<&net::message::NetworkID>),
+        (With<VehicleComponent>, With<Possessed>),
+    >,
     mut cockpits: Query<(&mut Cockpit, &Transform, &ChildOf)>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
 ) {
     use common::game_state::GameState;
-    if !keyboard.just_pressed(KeyCode::KeyF) { return; }
-    let Ok((vehicle_entity, net_id)) = vehicle.single() else { return };
+    if !keyboard.just_pressed(KeyCode::KeyF) {
+        return;
+    }
+    let Ok((vehicle_entity, net_id)) = vehicle.single() else {
+        return;
+    };
     match state.get() {
         GameState::Multiplayer => {
             let Some(net_id) = net_id else { return };
-            quic.send(net::quic::SendTarget::All, net::quic::Channel::Ordered, &net::message::MsgType::Interact(net_id.clone()));
+            quic.send(
+                net::quic::SendTarget::All,
+                net::quic::Channel::Ordered,
+                &net::message::MsgType::Interact(net_id.clone()),
+            );
         }
         GameState::SinglePlayer => {
             let Some((mut cockpit, seat_transform, _)) = cockpits
                 .iter_mut()
                 .find(|(_, _, child_of)| child_of.parent() == vehicle_entity)
-            else { return };
-            let Some(biped_entity) = exit_vehicle(&mut world, vehicle_entity, &mut cockpit, seat_transform) else { return };
+            else {
+                return;
+            };
+            let Some(biped_entity) =
+                exit_vehicle(&mut world, vehicle_entity, &mut cockpit, seat_transform)
+            else {
+                return;
+            };
             commands.entity(vehicle_entity).remove::<Possessed>();
             commands.entity(biped_entity).insert(Possessed::new(128));
         }

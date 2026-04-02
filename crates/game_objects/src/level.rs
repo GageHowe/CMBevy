@@ -47,9 +47,8 @@ pub struct SpawnPoint {
 #[derive(Resource, Clone, Reflect, Default)]
 #[reflect(Resource, Default)]
 pub struct MapMeta {
-    /// Path to the GLB visual scene file. Client-only.
-    pub scene_path: String,
-    pub scene_scale: Vec3,
+    /// Visual GLB scenes to load for this level. Client-only.
+    pub visuals: Vec<(String, Transform)>,
     /// Optional cubemap path (e.g. KTX2) for the skybox. Client-only.
     pub skybox: Option<String>,
     /// Rendered skybox background brightness.
@@ -158,6 +157,7 @@ fn spawn_scene_objects(
         (Entity, &common::GameObjectKind, &Transform),
         (
             Added<common::GameObjectKind>,
+            With<ChildOf>,
             Without<net::message::NetworkID>,
         ),
     >,
@@ -176,13 +176,11 @@ fn spawn_scene_objects(
     }
 
     for (entity, kind, transform) in query.iter() {
-        match kind {
-            common::GameObjectKind::Biped
-            | common::GameObjectKind::Rifle
-            | common::GameObjectKind::Shotgun
-            | common::GameObjectKind::HailMary
-            | common::GameObjectKind::Spaceship => {}
-            _ => continue,
+        if !crate::spawn_scene_placeholder_supported(kind) {
+            panic!(
+                "Scene placeholder {:?} is not registered as a scene-spawnable game object",
+                kind
+            );
         }
         let net_id = net::message::NetworkID(net_id_res.next());
         let new_entity = commands.spawn_empty().id();
@@ -294,14 +292,13 @@ pub fn load_level_scene(
     let Ok(root) = scene_root.single() else {
         return;
     };
-    let visual = commands
-        .spawn((
-            SceneRoot(asset_server.load(meta.scene_path.clone())),
-            Transform::from_scale(meta.scene_scale),
-        ))
-        .id();
-    // parent to the scene root so it despawns with it
-    commands.entity(root).add_child(visual);
+    for (scene_path, transform) in &meta.visuals {
+        let entity = commands
+            .spawn((SceneRoot(asset_server.load(scene_path.clone())), *transform))
+            .id();
+        // parent to the scene root so it despawns with it
+        commands.entity(root).add_child(entity);
+    }
 }
 
 /// Despawns the level scene and removes level resources.

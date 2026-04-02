@@ -98,7 +98,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output = args.output.unwrap_or_else(|| {
         let mut p = args.input.clone();
-        let stem = p.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+        let stem = p
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         p.set_file_name(format!("{stem}.hulls.obj"));
         p
     });
@@ -116,7 +120,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for scene in scenes {
         for node in scene.nodes() {
-            collect_node(node, IDENTITY, &buffers, &mut all_vertices, &mut all_indices);
+            collect_node(
+                node,
+                IDENTITY,
+                &buffers,
+                &mut all_vertices,
+                &mut all_indices,
+            );
         }
     }
 
@@ -152,7 +162,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(obj, "v {} {} {}", v.x, v.y, v.z)?;
         }
         for t in tris {
-            let (a, b, c) = (t[0] + vertex_offset, t[1] + vertex_offset, t[2] + vertex_offset);
+            let (a, b, c) = (
+                t[0] + vertex_offset,
+                t[1] + vertex_offset,
+                t[2] + vertex_offset,
+            );
             writeln!(obj, "f {a} {b} {c}")?;
         }
         vertex_offset += verts.len() as u32;

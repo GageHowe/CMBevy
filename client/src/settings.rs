@@ -16,8 +16,14 @@ impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Settings>()
             .add_systems(Startup, load_settings)
-            .add_systems(PostUpdate, apply_settings.run_if(resource_changed::<Settings>))
-            .add_systems(PostUpdate, save_settings.run_if(resource_changed::<Settings>));
+            .add_systems(
+                PostUpdate,
+                apply_settings.run_if(resource_changed::<Settings>),
+            )
+            .add_systems(
+                PostUpdate,
+                save_settings.run_if(resource_changed::<Settings>),
+            );
     }
 }
 
@@ -159,11 +165,7 @@ fn save_settings(settings: Res<Settings>) {
     }
 }
 
-pub fn show_settings_ui(
-    ui: &mut egui::Ui,
-    settings: &mut Settings,
-    section: &mut SettingsSection,
-) {
+pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings, section: &mut SettingsSection) {
     ui.horizontal(|ui| {
         ui.selectable_value(section, SettingsSection::Graphics, "Graphics");
         ui.selectable_value(section, SettingsSection::Input, "Input");
@@ -273,8 +275,9 @@ fn show_input_settings(ui: &mut egui::Ui, settings: &mut Settings) {
     });
 
     ui.horizontal(|ui| {
-        ui.label("Zoom sensitivity")
-            .on_hover_text("Blends between normal mouse sensitivity and full zoom slowdown while scoped.");
+        ui.label("Zoom sensitivity").on_hover_text(
+            "Blends between normal mouse sensitivity and full zoom slowdown while scoped.",
+        );
         ui.add(
             egui::Slider::new(&mut settings.zoom_sensitivity_blend, 0.0..=1.0)
                 .fixed_decimals(2)

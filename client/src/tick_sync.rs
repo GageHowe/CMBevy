@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 
+use common::slow_update::SlowUpdate;
 use common::tick::NetworkStats;
 use net::message::MsgType;
 use net::quic::{Channel, QuicManager, SendTarget};
-use common::slow_update::SlowUpdate;
 
 pub struct TickSyncPlugin<S: States + Copy>(pub S);
 

@@ -3,7 +3,7 @@ use std::collections::{BinaryHeap, HashMap};
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -220,7 +220,8 @@ pub fn run(config: Config) -> io::Result<()> {
     start_scheduler(rx, Arc::clone(&stats));
     start_stats_logger(Arc::clone(&stats), config.stats_interval);
 
-    let clients: Arc<Mutex<HashMap<SocketAddr, Arc<ClientLink>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let clients: Arc<Mutex<HashMap<SocketAddr, Arc<ClientLink>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let client_seed = AtomicU64::new(config.seed.wrapping_add(1));
 
     println!(
@@ -286,7 +287,12 @@ fn get_or_create_client(
     config: &Config,
     client_seed: &AtomicU64,
 ) -> io::Result<Arc<ClientLink>> {
-    if let Some(existing) = clients.lock().expect("clients mutex poisoned").get(&client_addr).cloned() {
+    if let Some(existing) = clients
+        .lock()
+        .expect("clients mutex poisoned")
+        .get(&client_addr)
+        .cloned()
+    {
         return Ok(existing);
     }
 
@@ -376,7 +382,9 @@ fn start_scheduler(rx: mpsc::Receiver<ScheduledPacket>, stats: Arc<Stats>) {
                 let packet = heap.pop().expect("peeked packet must exist");
                 let result = match packet.target {
                     PacketTarget::Connected(socket) => socket.send(&packet.payload).map(|_| ()),
-                    PacketTarget::ToClient(socket, addr) => socket.send_to(&packet.payload, addr).map(|_| ()),
+                    PacketTarget::ToClient(socket, addr) => {
+                        socket.send_to(&packet.payload, addr).map(|_| ())
+                    }
                 };
                 if let Err(err) = result {
                     eprintln!("scheduled send error: {}", err);
@@ -427,23 +435,25 @@ fn start_stats_logger(stats: Arc<Stats>, interval: Duration) {
         return;
     }
 
-    thread::spawn(move || loop {
-        thread::sleep(interval);
-        println!(
-            "stats: client_rx={} server_rx={} sent_up={} sent_down={} drop_up={} drop_down={} dup_up={} dup_down={} corrupt_up={} corrupt_down={} reorder_up={} reorder_down={}",
-            stats.client_packets.load(AtomicOrdering::Relaxed),
-            stats.server_packets.load(AtomicOrdering::Relaxed),
-            stats.sent_to_server.load(AtomicOrdering::Relaxed),
-            stats.sent_to_client.load(AtomicOrdering::Relaxed),
-            stats.dropped_up.load(AtomicOrdering::Relaxed),
-            stats.dropped_down.load(AtomicOrdering::Relaxed),
-            stats.duplicated_up.load(AtomicOrdering::Relaxed),
-            stats.duplicated_down.load(AtomicOrdering::Relaxed),
-            stats.corrupted_up.load(AtomicOrdering::Relaxed),
-            stats.corrupted_down.load(AtomicOrdering::Relaxed),
-            stats.reordered_up.load(AtomicOrdering::Relaxed),
-            stats.reordered_down.load(AtomicOrdering::Relaxed),
-        );
+    thread::spawn(move || {
+        loop {
+            thread::sleep(interval);
+            println!(
+                "stats: client_rx={} server_rx={} sent_up={} sent_down={} drop_up={} drop_down={} dup_up={} dup_down={} corrupt_up={} corrupt_down={} reorder_up={} reorder_down={}",
+                stats.client_packets.load(AtomicOrdering::Relaxed),
+                stats.server_packets.load(AtomicOrdering::Relaxed),
+                stats.sent_to_server.load(AtomicOrdering::Relaxed),
+                stats.sent_to_client.load(AtomicOrdering::Relaxed),
+                stats.dropped_up.load(AtomicOrdering::Relaxed),
+                stats.dropped_down.load(AtomicOrdering::Relaxed),
+                stats.duplicated_up.load(AtomicOrdering::Relaxed),
+                stats.duplicated_down.load(AtomicOrdering::Relaxed),
+                stats.corrupted_up.load(AtomicOrdering::Relaxed),
+                stats.corrupted_down.load(AtomicOrdering::Relaxed),
+                stats.reordered_up.load(AtomicOrdering::Relaxed),
+                stats.reordered_down.load(AtomicOrdering::Relaxed),
+            );
+        }
     });
 }
 

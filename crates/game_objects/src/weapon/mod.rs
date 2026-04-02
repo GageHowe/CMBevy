@@ -1,11 +1,13 @@
-use bevy::prelude::*;
-use physics::physics_world::PhysicsWorld;
-use net::message::NetworkID;
-use crate::sound::SoundQueue;
 use crate::pawn::CameraEffector;
+use crate::sound::SoundQueue;
+use bevy::prelude::*;
+use net::message::NetworkID;
+use physics::physics_world::PhysicsWorld;
 
-pub mod rifle;
 pub mod hail_mary;
+pub mod helpers;
+pub mod rifle;
+pub mod rpg;
 
 /// Shared weapon plugin.
 pub struct WeaponPlugin;
@@ -15,6 +17,7 @@ impl Plugin for WeaponPlugin {
         app.add_plugins((
             rifle::RiflePlugin,
             hail_mary::HailMaryPlugin,
+            rpg::RpgPlugin,
             crate::projectile::ProjectilePlugin,
         ));
     }
@@ -23,6 +26,10 @@ impl Plugin for WeaponPlugin {
 /// Marker component present on every weapon entity regardless of type.
 #[derive(Component)]
 pub struct WeaponComponent;
+
+/// UI reads this directly from the active weapon so crosshair selection stays weapon-owned.
+#[derive(Component, Clone, Copy)]
+pub struct WeaponCrosshair(pub &'static str);
 
 /// All context a weapon's fixed_update may need: input buttons and output channels.
 /// Fields are optional so weapons compile and behave correctly on the server (no sound/camera).
@@ -45,12 +52,24 @@ pub struct FireCtx<'a> {
     pub quic: Option<&'a mut net::quic::QuicManager>,
     /// Projectile id counter for client-side prediction; None in singleplayer / on server.
     pub id_counter: Option<&'a mut u32>,
+    /// Local predicted command history so weapons can replay non-input impulses during reconciliation.
+    pub predicted: Option<&'a mut common::PredictedCommands>,
 }
 
 /// Per-weapon-type firing logic. Implement on each weapon component.
 /// Weapons own their complete fire behavior: cooldowns, projectiles, sounds, camera kick, networking.
 pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Default {
+    const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair013.png";
     /// Called every FixedPreUpdate tick when this weapon is the active slot.
     /// The weapon reads input from ctx, spawns projectiles/effects, and calls ctx helpers as needed.
-    fn fixed_update(&mut self, world: &mut PhysicsWorld, commands: &mut Commands, ctx: &mut FireCtx);
+    fn fixed_update(
+        &mut self,
+        world: &mut PhysicsWorld,
+        commands: &mut Commands,
+        ctx: &mut FireCtx,
+    );
+}
+
+pub fn default_crosshair_path() -> &'static str {
+    "textures/crosshairs/crosshair041.png"
 }

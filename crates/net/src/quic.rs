@@ -18,13 +18,25 @@ pub const SERVER_CONN_ID: ConnectionId = 0;
 static RUSTLS_PROVIDER_INIT: Once = Once::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Channel { Ordered, Unordered, Unreliable }
+pub enum Channel {
+    Ordered,
+    Unordered,
+    Unreliable,
+}
 
 #[derive(Debug, Clone)]
-pub struct InboundMessage { pub conn_id: ConnectionId, pub channel: Channel, pub msg: MsgType }
+pub struct InboundMessage {
+    pub conn_id: ConnectionId,
+    pub channel: Channel,
+    pub msg: MsgType,
+}
 
 #[derive(Debug, Clone)]
-pub enum SendTarget { One(ConnectionId), All, AllExcept(ConnectionId) }
+pub enum SendTarget {
+    One(ConnectionId),
+    All,
+    AllExcept(ConnectionId),
+}
 
 #[derive(Resource, Default)]
 pub struct QuicManager {
@@ -44,7 +56,10 @@ impl QuicManager {
     }
 
     pub fn send_file(&mut self, target: SendTarget, name: String, data: Vec<u8>) {
-        match encode_all(data.as_slice(), ZSTD_FILE_LEVEL) { Ok(data) => self.send(target, Channel::Ordered, &MsgType::FileData(name, data)), Err(e) => eprintln!("send_file compress error: {e}") }
+        match encode_all(data.as_slice(), ZSTD_FILE_LEVEL) {
+            Ok(data) => self.send(target, Channel::Ordered, &MsgType::FileData(name, data)),
+            Err(e) => eprintln!("send_file compress error: {e}"),
+        }
     }
 }
 
@@ -73,7 +88,11 @@ pub(crate) fn drain_transport_events(quic: &mut QuicManager, events: Vec<Transpo
                     quic.client_connected = true;
                     println!("Connected to server");
                 }
-                quic.inbound.push_back(InboundMessage { conn_id, channel: Channel::Ordered, msg: MsgType::Connected });
+                quic.inbound.push_back(InboundMessage {
+                    conn_id,
+                    channel: Channel::Ordered,
+                    msg: MsgType::Connected,
+                });
             }
             TransportEvent::Disconnected(conn_id) => {
                 #[cfg(feature = "client")]
@@ -81,7 +100,11 @@ pub(crate) fn drain_transport_events(quic: &mut QuicManager, events: Vec<Transpo
                     quic.client_connected = false;
                     println!("Disconnected from server");
                 }
-                quic.inbound.push_back(InboundMessage { conn_id, channel: Channel::Ordered, msg: MsgType::Disconnected });
+                quic.inbound.push_back(InboundMessage {
+                    conn_id,
+                    channel: Channel::Ordered,
+                    msg: MsgType::Disconnected,
+                });
             }
             TransportEvent::Message(message) => quic.inbound.push_back(message),
         }
@@ -95,7 +118,13 @@ pub(crate) fn forward_decoded_message(
     event_tx: &std::sync::mpsc::Sender<TransportEvent>,
 ) {
     match decode_message(&bytes) {
-        Ok(msg) => { let _ = event_tx.send(TransportEvent::Message(InboundMessage { conn_id, channel, msg })); }
+        Ok(msg) => {
+            let _ = event_tx.send(TransportEvent::Message(InboundMessage {
+                conn_id,
+                channel,
+                msg,
+            }));
+        }
         Err(e) => eprintln!("[conn {conn_id}] decode error: {e}"),
     }
 }
@@ -111,9 +140,21 @@ where
 {
     let (ordered_tx, ordered_rx) = mpsc::unbounded_channel();
     tokio::spawn(ordered_sender_task(connection.clone(), ordered_rx));
-    tokio::spawn(bidi_receiver_task(conn_id, connection.clone(), event_tx.clone()));
-    tokio::spawn(uni_receiver_task(conn_id, connection.clone(), event_tx.clone()));
-    tokio::spawn(datagram_receiver_task(conn_id, connection.clone(), event_tx.clone()));
+    tokio::spawn(bidi_receiver_task(
+        conn_id,
+        connection.clone(),
+        event_tx.clone(),
+    ));
+    tokio::spawn(uni_receiver_task(
+        conn_id,
+        connection.clone(),
+        event_tx.clone(),
+    ));
+    tokio::spawn(datagram_receiver_task(
+        conn_id,
+        connection.clone(),
+        event_tx.clone(),
+    ));
     tokio::spawn(async move {
         let _ = connection.closed().await;
         on_close(conn_id);
@@ -128,16 +169,30 @@ pub(crate) async fn send_on_connection(
     msg: &MsgType,
 ) {
     match channel {
-        Channel::Ordered => { let _ = ordered_tx.send(msg.clone()); }
+        Channel::Ordered => {
+            let _ = ordered_tx.send(msg.clone());
+        }
         Channel::Unordered => {
-            let bytes = match encode_message(msg) { Ok(bytes) => bytes, Err(e) => { eprintln!("unordered encode error: {e}"); return; } };
+            let bytes = match encode_message(msg) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    eprintln!("unordered encode error: {e}");
+                    return;
+                }
+            };
             if let Ok(mut stream) = connection.open_uni().await {
                 let _ = stream.write_all(&bytes).await;
                 let _ = stream.finish();
             }
         }
         Channel::Unreliable => {
-            let bytes = match encode_message(msg) { Ok(bytes) => bytes, Err(e) => { eprintln!("unreliable encode error: {e}"); return; } };
+            let bytes = match encode_message(msg) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    eprintln!("unreliable encode error: {e}");
+                    return;
+                }
+            };
             if bytes.len() > MAX_UDP_SIZE {
                 bevy::log::warn!(
                     "unreliable packet too large: {} bytes > {} for {:?}",
@@ -152,13 +207,30 @@ pub(crate) async fn send_on_connection(
 }
 
 pub(crate) fn ensure_rustls_crypto_provider() {
-    RUSTLS_PROVIDER_INIT.call_once(|| { let _ = rustls::crypto::ring::default_provider().install_default(); });
+    RUSTLS_PROVIDER_INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
 }
 
-async fn ordered_sender_task(connection: quinn::Connection, mut rx: mpsc::UnboundedReceiver<MsgType>) {
-    let (mut send, _) = match connection.open_bi().await { Ok(stream) => stream, Err(e) => { eprintln!("Failed to open ordered stream: {e}"); return; } };
+async fn ordered_sender_task(
+    connection: quinn::Connection,
+    mut rx: mpsc::UnboundedReceiver<MsgType>,
+) {
+    let (mut send, _) = match connection.open_bi().await {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("Failed to open ordered stream: {e}");
+            return;
+        }
+    };
     while let Some(msg) = rx.recv().await {
-        let bytes = match encode_message(&msg) { Ok(bytes) => bytes, Err(e) => { eprintln!("ordered encode error: {e}"); continue; } };
+        let bytes = match encode_message(&msg) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                eprintln!("ordered encode error: {e}");
+                continue;
+            }
+        };
         let len = (bytes.len() as u32).to_le_bytes();
         if send.write_all(&len).await.is_err() || send.write_all(&bytes).await.is_err() {
             return;
@@ -198,7 +270,9 @@ async fn uni_receiver_task(
     while let Ok(mut stream) = connection.accept_uni().await {
         let event_tx = event_tx.clone();
         tokio::spawn(async move {
-            if let Ok(bytes) = stream.read_to_end(MAX_MESSAGE_SIZE).await { forward_decoded_message(conn_id, Channel::Unordered, bytes, &event_tx); }
+            if let Ok(bytes) = stream.read_to_end(MAX_MESSAGE_SIZE).await {
+                forward_decoded_message(conn_id, Channel::Unordered, bytes, &event_tx);
+            }
         });
     }
 }

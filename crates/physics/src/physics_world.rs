@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use common::debug_println;
 use common::{BodyState, NetworkID, SimulationState};
 pub use rapier3d::prelude::RigidBodyHandle;
-use rapier3d::prelude::Vector3;
+pub use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
 use std::collections::HashMap;
 

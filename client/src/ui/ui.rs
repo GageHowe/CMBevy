@@ -1,16 +1,16 @@
-use bevy::prelude::*;
+use crate::{GameState, PendingExit, UiState};
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use game_objects::health::Health;
-use game_objects::weapon::{rifle, hail_mary};
-use net::quic::{QuicManager, SendTarget, Channel};
-use net::message::MsgType;
-use game_objects::pawn::Possessed;
-use game_objects::pawn::biped::WeaponSlots;
-use crate::{GameState, PendingExit, UiState};
 use bevy_steamworks::Client;
 use common::tick::NetworkStats;
+use game_objects::health::Health;
+use game_objects::pawn::Possessed;
+use game_objects::pawn::biped::WeaponSlots;
+use game_objects::weapon::{WeaponCrosshair, default_crosshair_path};
+use net::message::MsgType;
+use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::PhysicsWorld;
 
 #[derive(Resource, Debug, Default)]
@@ -29,13 +29,6 @@ impl GuiState {
     }
 }
 
-/// Current crosshair image path; written by update_reticle, read by apply_reticle.
-#[derive(Resource)]
-pub struct ReticleConfig(pub &'static str);
-impl Default for ReticleConfig {
-    fn default() -> Self { Self("textures/crosshairs/crosshair041.png") }
-}
-
 pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
@@ -43,13 +36,15 @@ impl Plugin for UIPlugin {
         app.add_systems(Startup, spawn_crosshair)
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
             .insert_resource(GuiState::default())
-            .insert_resource(ReticleConfig::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
-            .add_systems(EguiPrimaryContextPass, gui_chat.run_if(in_state(GameState::Multiplayer)))
+            .add_systems(
+                EguiPrimaryContextPass,
+                gui_chat.run_if(in_state(GameState::Multiplayer)),
+            )
             .add_systems(EguiPrimaryContextPass, gui_health)
-            .add_systems(Update, (update_reticle, apply_reticle).chain());
+            .add_systems(Update, update_reticle);
     }
 }
 
@@ -59,10 +54,21 @@ fn set_style(mut contexts: EguiContexts) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "JetBrainsMono-Light".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../../assets/fonts/JetBrainsMono-Light.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../../../assets/fonts/JetBrainsMono-Light.ttf"
+        ))
+        .into(),
     );
-    fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "JetBrainsMono-Light".to_owned());
-    fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap().insert(0, "JetBrainsMono-Light".to_owned());
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "JetBrainsMono-Light".to_owned());
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Monospace)
+        .unwrap()
+        .insert(0, "JetBrainsMono-Light".to_owned());
     ctx.set_fonts(fonts);
 
     let mut style = (*ctx.style()).clone();
@@ -71,11 +77,13 @@ fn set_style(mut contexts: EguiContexts) {
     style.visuals.window_corner_radius = egui::CornerRadius::ZERO;
     style.visuals.override_text_color = Some(egui::Color32::WHITE);
     style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;
-    style.visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
+    style.visuals.widgets.noninteractive.bg_fill =
+        egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
     style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
     // style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
     style.visuals.window_stroke = egui::Stroke {
-        width: 0.0, color: egui::Color32::TRANSPARENT
+        width: 0.0,
+        color: egui::Color32::TRANSPARENT,
     };
     ctx.set_style(style);
 }
@@ -108,8 +116,12 @@ fn gui_top_left(
             }
 
             if net_stats.rtt_secs > 0.0 {
-                let half_rtt_ticks = (net_stats.rtt_secs * common::config::FIXED_TICK_RATE as f32 * 0.5).ceil();
-                ui.label(format!("RTT: {:.0} ms  predict: +{half_rtt_ticks:.0} ticks", net_stats.rtt_secs * 1000.0));
+                let half_rtt_ticks =
+                    (net_stats.rtt_secs * common::config::FIXED_TICK_RATE as f32 * 0.5).ceil();
+                ui.label(format!(
+                    "RTT: {:.0} ms  predict: +{half_rtt_ticks:.0} ticks",
+                    net_stats.rtt_secs * 1000.0
+                ));
             } else {
                 ui.label("RTT: --");
             }
@@ -148,7 +160,9 @@ fn gui_chat(
                 .auto_shrink([false, true])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
-                    for line in &state.log { ui.label(line); }
+                    for line in &state.log {
+                        ui.label(line);
+                    }
                 });
 
             ui.separator();
@@ -158,16 +172,23 @@ fn gui_chat(
                     .desired_width(f32::INFINITY),
             );
 
-            if keys.just_pressed(KeyCode::KeyT) && !ctx.wants_keyboard_input() { resp.request_focus(); }
+            if keys.just_pressed(KeyCode::KeyT) && !ctx.wants_keyboard_input() {
+                resp.request_focus();
+            }
 
             // TextEdit surrenders focus on Enter internally, so check lost_focus.
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let txt = state.command_input.trim().to_string();
                 if !txt.is_empty() {
-                    let name = steam.as_ref()
+                    let name = steam
+                        .as_ref()
                         .map(|s| s.friends().name())
                         .unwrap_or_else(|| "Player".to_string());
-                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(name, txt));
+                    quic.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &MsgType::ChatMessage(name, txt),
+                    );
                 }
                 state.command_input.clear();
             }
@@ -180,11 +201,10 @@ fn gui_chat(
         });
 }
 
-fn gui_health(
-    mut contexts: EguiContexts,
-    health_q: Query<&Health, With<Possessed>>,
-) {
-    let Ok(health) = health_q.single() else { return };
+fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Possessed>>) {
+    let Ok(health) = health_q.single() else {
+        return;
+    };
     let fraction = (health.current / health.max).clamp(0.0, 1.0);
     let bar_color = if fraction > 0.5 {
         egui::Color32::from_rgb(80, 200, 80)
@@ -200,60 +220,57 @@ fn gui_health(
         .collapsible(false)
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
         .show(contexts.ctx_mut().unwrap(), |ui| {
-            ui.add(egui::ProgressBar::new(fraction).fill(bar_color).desired_width(110.0));
+            ui.add(
+                egui::ProgressBar::new(fraction)
+                    .fill(bar_color)
+                    .desired_width(110.0),
+            );
             ui.label(format!("{:.0} / {:.0}", health.current, health.max));
         });
 }
 
-
-/// Updates ReticleConfig when the active weapon slot changes.
-/// Add new weapon types here when they need distinct reticles.
+/// Updates the crosshair image when the active weapon slot changes.
 fn update_reticle(
     possessed: Query<&WeaponSlots, (With<Possessed>, Changed<WeaponSlots>)>,
-    rifles:     Query<(), With<rifle::RifleComponent>>,
-    hail_marys: Query<(), With<hail_mary::HailMaryComponent>>,
-    mut config: ResMut<ReticleConfig>,
-) {
-    let Ok(slots) = possessed.single() else { return };
-    config.0 = if let Some(e) = slots.active().1 {
-        if      rifles.contains(e)     { "textures/crosshairs/crosshair007.png" }
-        else if hail_marys.contains(e) { "textures/crosshairs/crosshair010.png" }
-        else                           { "textures/crosshairs/crosshair013.png" }
-    } else { "textures/crosshairs/crosshair041.png" };
-}
-
-/// Swaps the crosshair image whenever ReticleConfig changes.
-fn apply_reticle(
-    config: Res<ReticleConfig>,
+    crosshairs: Query<&WeaponCrosshair>,
     mut crosshair: Query<&mut ImageNode, With<Crosshair>>,
     asset_server: Res<AssetServer>,
 ) {
-    if !config.is_changed() { return; }
+    let Ok(slots) = possessed.single() else {
+        return;
+    };
+    let path = if let Some(e) = slots.active().1 {
+        crosshairs
+            .get(e)
+            .map(|crosshair| crosshair.0)
+            .unwrap_or("textures/crosshairs/crosshair013.png")
+    } else {
+        default_crosshair_path()
+    };
     if let Ok(mut img) = crosshair.single_mut() {
-        img.image = asset_server.load(config.0);
+        img.image = asset_server.load(path);
     }
 }
 
 #[derive(Component)] // query for this component when removing it
 pub struct Crosshair;
 pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((
-            Crosshair,
-            ImageNode::new(asset_server.load("textures/crosshairs/crosshair022.png")),
-            Node {
-                width: Val::Px(32.0),
-                height: Val::Px(32.0),
-                position_type: PositionType::Absolute,
-                left: Val::Percent(50.0),
-                top: Val::Percent(50.0),
-                margin: UiRect {
-                    left: Val::Px(-16.0),
-                    top: Val::Px(-16.0),
-                    ..default()
-                },
+    commands.spawn((
+        Crosshair,
+        ImageNode::new(asset_server.load("textures/crosshairs/crosshair022.png")),
+        Node {
+            width: Val::Px(32.0),
+            height: Val::Px(32.0),
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            top: Val::Percent(50.0),
+            margin: UiRect {
+                left: Val::Px(-16.0),
+                top: Val::Px(-16.0),
                 ..default()
             },
-            // BackgroundColor(Color::NONE),
-        ));
+            ..default()
+        },
+        // BackgroundColor(Color::NONE),
+    ));
 }

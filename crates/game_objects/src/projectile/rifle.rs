@@ -1,45 +1,82 @@
+use super::{
+    Projectile, ProjectileState, insert_generic_remote_projectile, make_generic_projectile_physics,
+    tick_projectiles,
+};
+use crate::GameObject;
+use crate::health::Health;
 use bevy::prelude::*;
+use common::GameObjectKind;
+use net::message::SpawnCommand;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
-use net::message::SpawnCommand;
-use crate::health::Health;
-use crate::GameObject;
-use super::{Projectile, ProjectileState, tick_projectiles};
-use common::GameObjectKind;
 
-pub const SPEED:    f32 = 600.0;
-pub const DAMAGE:   f32 = 25.0;
+pub const SPEED: f32 = 600.0;
+pub const DAMAGE: f32 = 25.0;
 pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
 const RADIUS: f32 = 0.03;
 
 #[derive(Component, Reflect)]
 pub struct RifleProjectile {
-    pub shooter:  Option<Entity>,
+    pub shooter: Option<Entity>,
     pub lifetime: u32,
 }
 impl Default for RifleProjectile {
-    fn default() -> Self { Self { shooter: None, lifetime: LIFETIME } }
+    fn default() -> Self {
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
+    }
 }
 
 impl Projectile for RifleProjectile {
     const KIND: GameObjectKind = GameObjectKind::RifleProjectile;
+    const SPEED: f32 = SPEED;
 
-    fn tick(&mut self, entity: Entity, body: &RigidBodyHandleComponent,
-            world: &PhysicsWorld, commands: &mut Commands, health_q: &mut Query<&mut Health>) {
+    fn tick(
+        &mut self,
+        entity: Entity,
+        body: &RigidBodyHandleComponent,
+        world: &mut PhysicsWorld,
+        commands: &mut Commands,
+        health_q: &mut Query<&mut Health>,
+    ) {
         self.lifetime = self.lifetime.saturating_sub(1);
-        if self.lifetime == 0 { commands.entity(entity).despawn(); return; }
-        let Some(rb) = world.rigid_body_set.get(body.0) else { return };
+        if self.lifetime == 0 {
+            commands.entity(entity).despawn();
+            return;
+        }
+        let Some(rb) = world.rigid_body_set.get(body.0) else {
+            return;
+        };
         let vel = rb_vel(rb);
         let dt = world.integration_parameters.dt;
         let step = vel.length() * dt;
-        if step < 0.001 { return; }
+        if step < 0.001 {
+            return;
+        }
         let curr = rb_pos(rb);
         let prev = curr - vel * dt;
         // exclude both self and shooter so the ray isn't blocked by the shooter's capsule on spawn
         let exclude = [entity, self.shooter.unwrap_or(entity)];
-        let Some((hit, _)) = world.cast_ray(prev, vel.normalize(), step, &exclude) else { return };
+        let Some((hit, _)) = world.cast_ray(prev, vel.normalize(), step, &exclude) else {
+            return;
+        };
         commands.entity(entity).despawn();
-        if let Ok(mut health) = health_q.get_mut(hit) { health.apply_damage(DAMAGE); }
+        if let Ok(mut health) = health_q.get_mut(hit) {
+            health.apply_damage(DAMAGE);
+        }
+    }
+
+    fn spawn_predicted(
+        origin: Vec3,
+        velocity: Vec3,
+        commands: &mut Commands,
+        world: &mut PhysicsWorld,
+        shooter: Option<Entity>,
+        temp_id: u32,
+    ) -> Entity {
+        spawn(origin, velocity, commands, world, shooter, temp_id)
     }
 }
 
@@ -53,28 +90,23 @@ pub fn spawn(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    let entity = commands.spawn((
-        GameObjectKind::RifleProjectile,
-        RifleProjectile { shooter, lifetime: LIFETIME },
-        ProjectileState { temp_id },
-        Transform::from_translation(origin),
-    )).id();
-    let rb_handle = world.insert_body(entity, RigidBodyBuilder::kinematic_velocity_based()
-        .translation(origin)
-        .linvel(Vector::new(velocity.x, velocity.y, velocity.z))
-        .ccd_enabled(true)
-        .build());
-    {
-        let proj_collision = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL, InteractionTestMode::And);
-        // no solver contacts — hit detection is manual via cast_ray
-        let proj_solver    = InteractionGroups::new(GROUP_PROJECTILE, Group::NONE, InteractionTestMode::And);
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-        collider_set.insert_with_parent(
-            ColliderBuilder::ball(RADIUS).collision_groups(proj_collision).solver_groups(proj_solver).build(),
-            rb_handle, rigid_body_set,
-        );
-    }
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+    let entity = commands
+        .spawn((
+            GameObjectKind::RifleProjectile,
+            RifleProjectile {
+                shooter,
+                lifetime: LIFETIME,
+            },
+            ProjectileState { temp_id },
+            Transform::from_translation(origin),
+        ))
+        .id();
+    // no solver contacts here because projectile hit detection is manual via cast_ray.
+    let rb_handle =
+        make_generic_projectile_physics(entity, origin, velocity, RADIUS, Group::NONE, world);
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     entity
 }
 
@@ -82,35 +114,17 @@ pub fn spawn(
 /// starting_velocity already includes the shooter's velocity, computed server-side.
 impl GameObject for RifleProjectile {
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-        world.entity_mut(entity).insert((
-            GameObjectKind::RifleProjectile,
-            RifleProjectile { shooter: None, lifetime: LIFETIME },
-            ProjectileState { temp_id: 0 },
-            Transform::from_translation(cmd.position),
-            cmd.net_id.clone(),
-        ));
-        let vel = cmd.starting_velocity;
-        let rb_handle = {
-            let mut physics = world.resource_mut::<PhysicsWorld>();
-            let rb_handle = physics.insert_body(entity, RigidBodyBuilder::kinematic_velocity_based()
-                .translation(cmd.position)
-                .linvel(Vector::new(vel.x, vel.y, vel.z))
-                .ccd_enabled(true)
-                .build());
-            let proj_collision = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL, InteractionTestMode::And);
-            let proj_solver    = InteractionGroups::new(GROUP_PROJECTILE, Group::ALL & !GROUP_PLAYER, InteractionTestMode::And);
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-            collider_set.insert_with_parent(
-                ColliderBuilder::ball(RADIUS).collision_groups(proj_collision).solver_groups(proj_solver).build(),
-                rb_handle, rigid_body_set,
-            );
-            rb_handle
-        };
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
-        // play spatial fire sound for the shooter we're watching (we are not the shooter)
-        if let Some(mut sq) = world.get_resource_mut::<crate::sound::SoundQueue>() {
-            sq.0.push(crate::sound::SoundRequest { event: "event:/Weapons/RifleShot", position: Some(cmd.position), velocity: Vec3::ZERO });
-        }
+        insert_generic_remote_projectile(
+            entity,
+            cmd,
+            world,
+            RifleProjectile {
+                shooter: None,
+                lifetime: LIFETIME,
+            },
+            RADIUS,
+            "event:/Weapons/RifleShot",
+        );
     }
 }
 
@@ -119,11 +133,14 @@ impl Plugin for RifleProjectilePlugin {
     fn build(&self, app: &mut App) {
         use common::game_state::GameState;
         // run on the server (no GameState resource) and in singleplayer; skip on multiplayer client
-        app.add_systems(FixedUpdate, tick_projectiles::<RifleProjectile>
-            .after(step_physics)
-            .run_if(|state: Option<Res<State<GameState>>>| {
-                state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
-            }));
+        app.add_systems(
+            FixedUpdate,
+            tick_projectiles::<RifleProjectile>
+                .after(step_physics)
+                .run_if(|state: Option<Res<State<GameState>>>| {
+                    state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
+                }),
+        );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
     }
@@ -145,6 +162,8 @@ fn add_visual(
             unlit: true,
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

@@ -27,11 +27,11 @@ struct Args {
 // Each face direction: returns (right, up, forward) basis vectors
 fn face_basis(face: usize) -> ([f32; 3], [f32; 3], [f32; 3]) {
     match face {
-        0 => ([0., 0., -1.], [0., -1., 0.], [1., 0., 0.]),  // +X
-        1 => ([0., 0., 1.], [0., -1., 0.], [-1., 0., 0.]),  // -X
-        2 => ([1., 0., 0.], [0., 0., 1.], [0., 1., 0.]),    // +Y
-        3 => ([1., 0., 0.], [0., 0., -1.], [0., -1., 0.]),  // -Y
-        4 => ([1., 0., 0.], [0., -1., 0.], [0., 0., 1.]),   // +Z
+        0 => ([0., 0., -1.], [0., -1., 0.], [1., 0., 0.]), // +X
+        1 => ([0., 0., 1.], [0., -1., 0.], [-1., 0., 0.]), // -X
+        2 => ([1., 0., 0.], [0., 0., 1.], [0., 1., 0.]),   // +Y
+        3 => ([1., 0., 0.], [0., 0., -1.], [0., -1., 0.]), // -Y
+        4 => ([1., 0., 0.], [0., -1., 0.], [0., 0., 1.]),  // +Z
         5 => ([-1., 0., 0.], [0., -1., 0.], [0., 0., -1.]), // -Z
         _ => unreachable!(),
     }
@@ -79,11 +79,7 @@ fn sample_equirect(img: &ImageBuffer<Rgb<f32>, Vec<f32>>, dir: [f32; 3]) -> [f32
 }
 
 /// Render one cube face into a flat Vec<f32> (RGBA f32 pixels, row-major).
-fn render_face(
-    img: &ImageBuffer<Rgb<f32>, Vec<f32>>,
-    face: usize,
-    res: u32,
-) -> Vec<f32> {
+fn render_face(img: &ImageBuffer<Rgb<f32>, Vec<f32>>, face: usize, res: u32) -> Vec<f32> {
     let (right, up, forward) = face_basis(face);
     let mut pixels = Vec::with_capacity((res * res * 4) as usize);
 
@@ -110,11 +106,7 @@ fn render_face(
 /// Write a minimal KTX2 file.
 /// Format: VK_FORMAT_R32G32B32A32_SFLOAT (0x0074 = 116)
 /// 6 faces, 1 mip level, no supercompression.
-fn write_ktx2(
-    path: &PathBuf,
-    faces: &[Vec<f32>],
-    res: u32,
-) -> std::io::Result<()> {
+fn write_ktx2(path: &PathBuf, faces: &[Vec<f32>], res: u32) -> std::io::Result<()> {
     let file = File::create(path)?;
     let mut w = BufWriter::new(file);
 
@@ -192,27 +184,29 @@ fn write_ktx2(
     // Minimal SFLOAT DFD for RGBA32
     w.write_u32::<LittleEndian>(dfd_total_size)?; // dfdTotalSize
     // Descriptor block:
-    w.write_u16::<LittleEndian>(0)?;   // vendorId
-    w.write_u16::<LittleEndian>(0)?;   // descriptorType (BASICFORMAT=0)
-    w.write_u16::<LittleEndian>(2)?;   // versionNumber
-    w.write_u16::<LittleEndian>(40)?;  // descriptorBlockSize (40 bytes)
-    w.write_u8(1)?;                    // colorModel: RGBSDA
-    w.write_u8(1)?;                    // colorPrimaries: BT709
-    w.write_u8(1)?;                    // transferFunction: LINEAR
-    w.write_u8(0)?;                    // flags
-    w.write_u8(0)?;                    // texelBlockDimension0
-    w.write_u8(0)?;                    // texelBlockDimension1
-    w.write_u8(0)?;                    // texelBlockDimension2
-    w.write_u8(0)?;                    // texelBlockDimension3
+    w.write_u16::<LittleEndian>(0)?; // vendorId
+    w.write_u16::<LittleEndian>(0)?; // descriptorType (BASICFORMAT=0)
+    w.write_u16::<LittleEndian>(2)?; // versionNumber
+    w.write_u16::<LittleEndian>(40)?; // descriptorBlockSize (40 bytes)
+    w.write_u8(1)?; // colorModel: RGBSDA
+    w.write_u8(1)?; // colorPrimaries: BT709
+    w.write_u8(1)?; // transferFunction: LINEAR
+    w.write_u8(0)?; // flags
+    w.write_u8(0)?; // texelBlockDimension0
+    w.write_u8(0)?; // texelBlockDimension1
+    w.write_u8(0)?; // texelBlockDimension2
+    w.write_u8(0)?; // texelBlockDimension3
     // bytesPlane[8]
     w.write_u8(16)?; // 16 bytes per texel (4 * f32)
-    for _ in 0..7 { w.write_u8(0)?; }
+    for _ in 0..7 {
+        w.write_u8(0)?;
+    }
     // One sample descriptor (16 bytes) for packed RGBA32F
     // We'll describe it as a single 128-bit sample
-    w.write_u16::<LittleEndian>(0)?;   // bitOffset
-    w.write_u8(127)?;                  // bitLength (128 bits = 127+1)
-    w.write_u8(0)?;                    // channelType (R)
-    w.write_u32::<LittleEndian>(0)?;   // samplePosition[4]
+    w.write_u16::<LittleEndian>(0)?; // bitOffset
+    w.write_u8(127)?; // bitLength (128 bits = 127+1)
+    w.write_u8(0)?; // channelType (R)
+    w.write_u32::<LittleEndian>(0)?; // samplePosition[4]
     // sampleLower/Upper as f32 0.0 / 1.0
     w.write_u32::<LittleEndian>(0x00000000)?; // 0.0f
     w.write_u32::<LittleEndian>(0x3F800000)?; // 1.0f
@@ -256,8 +250,11 @@ fn main() {
 
     println!(
         "Input size: {}x{}, rendering {} cube faces at {}x{}...",
-        img_f32.width(), img_f32.height(),
-        6, args.resolution, args.resolution
+        img_f32.width(),
+        img_f32.height(),
+        6,
+        args.resolution,
+        args.resolution
     );
 
     let faces: Vec<Vec<f32>> = (0..6)

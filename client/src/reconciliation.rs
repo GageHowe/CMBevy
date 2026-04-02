@@ -2,10 +2,10 @@ use bevy::prelude::*;
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
-use common::{NetworkID, PredictedCommand, PredictedCommands};
 use common::tick::{NetworkStats, Ticker};
-use game_objects::pawn::Pawn;
+use common::{NetworkID, PredictedCommand, PredictedCommands};
 use game_objects::atmosphere::{AtmosphereComponent, apply_wind_resistance_impulses};
+use game_objects::pawn::Pawn;
 use game_objects::pawn::biped::BipedPawnComponent;
 use game_objects::pawn::spaceship::SpaceshipPawnComponent;
 use game_objects::pawn::{GatherInputSet, Possessed};
@@ -169,7 +169,11 @@ pub fn maybe_reconcile(
     bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>,
     bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
-    atmospheres: Query<(&AtmosphereComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
+    atmospheres: Query<(
+        &AtmosphereComponent,
+        &Transform,
+        Option<&RigidBodyHandleComponent>,
+    )>,
     gravity_scales: Query<&GravityScale>,
     predicted: Res<PredictedCommands>,
     history: Res<BipedStateHistory>,
@@ -201,7 +205,10 @@ pub fn maybe_reconcile(
     });
 
     restore_snapshot(&mut world, &snapshot, &pairs);
-    if let (Some(saved), Ok(mut biped)) = (history.0.get(&snapshot.last_input_seq), biped_q.single_mut()) {
+    if let (Some(saved), Ok(mut biped)) = (
+        history.0.get(&snapshot.last_input_seq),
+        biped_q.single_mut(),
+    ) {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
     }
@@ -289,7 +296,10 @@ fn apply_predicted_command(
             let handle = if &target == our_net_id {
                 Some(our_rb)
             } else {
-                pairs.iter().find(|(net_id, _)| *net_id == target).map(|(_, handle)| *handle)
+                pairs
+                    .iter()
+                    .find(|(net_id, _)| *net_id == target)
+                    .map(|(_, handle)| *handle)
             };
             let Some(handle) = handle else {
                 return;

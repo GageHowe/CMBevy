@@ -6,9 +6,9 @@ an atmosphere:
 */
 
 use bevy::prelude::*;
+use physics::physics_world::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
-use physics::physics_world::{*};
 
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
@@ -43,12 +43,17 @@ pub struct AtmosphereComponent {
 /// Inner function callable during reconciliation replay (mirrors apply_gravity_impulses).
 pub fn apply_wind_resistance_impulses(
     world: &mut PhysicsWorld,
-    atmospheres: &Query<(&AtmosphereComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
+    atmospheres: &Query<(
+        &AtmosphereComponent,
+        &Transform,
+        Option<&RigidBodyHandleComponent>,
+    )>,
 ) {
     let dt = world.integration_parameters.dt;
 
     // collect atmosphere centers and velocities up front to avoid borrow issues
-    let atmo_data: Vec<(Vec3, Vec3, &AtmosphereComponent)> = atmospheres.iter()
+    let atmo_data: Vec<(Vec3, Vec3, &AtmosphereComponent)> = atmospheres
+        .iter()
         .filter_map(|(atmo, transform, handle)| {
             let (center, vel) = if let Some(h) = handle {
                 let rb = world.rigid_body_set.get(h.0)?;
@@ -74,13 +79,18 @@ pub fn apply_wind_resistance_impulses(
             &world.collider_set,
             QueryFilter::default(),
         );
-        let affected: Vec<RigidBodyHandle> = qp.intersect_shape(shape_pos, &shape)
+        let affected: Vec<RigidBodyHandle> = qp
+            .intersect_shape(shape_pos, &shape)
             .filter_map(|(ch, _)| world.collider_set.get(ch).and_then(|c| c.parent()))
             .collect();
 
         for rb_handle in affected {
-            let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
-            if !rb.is_dynamic() || !rb.is_enabled() { continue; }
+            let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+                continue;
+            };
+            if !rb.is_dynamic() || !rb.is_enabled() {
+                continue;
+            }
 
             let body_vel = rb_vel(rb);
             // relative velocity of the body with respect to the atmosphere
@@ -102,8 +112,11 @@ pub fn apply_wind_resistance_impulses(
 /// Should also be called during reconciliation (call apply_wind_resistance_impulses directly).
 pub fn apply_wind_resistance(
     mut world: ResMut<PhysicsWorld>,
-    atmospheres: Query<(&AtmosphereComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
+    atmospheres: Query<(
+        &AtmosphereComponent,
+        &Transform,
+        Option<&RigidBodyHandleComponent>,
+    )>,
 ) {
     apply_wind_resistance_impulses(&mut world, &atmospheres);
 }
-

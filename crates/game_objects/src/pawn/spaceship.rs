@@ -2,13 +2,13 @@ use super::vehicle::{Cockpit, VehicleComponent};
 use super::*;
 use crate::generic::attach_hull_collider;
 use crate::{GameObject, GameObjectKind};
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
-#[cfg(feature = "client")]
-use bevy_egui::input::EguiWantsInput;
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+#[cfg(feature = "client")]
+use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 

@@ -3,7 +3,9 @@ use std::path::PathBuf;
 fn main() {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     // OUT_DIR = target/{profile}/build/client-{hash}/out — up 3 levels = target/{profile}/
-    let Some(target_dir) = out_dir.ancestors().nth(3) else { return };
+    let Some(target_dir) = out_dir.ancestors().nth(3) else {
+        return;
+    };
 
     add_linux_fmod_rpath();
     copy_steam_dll(&out_dir, target_dir);

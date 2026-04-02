@@ -1,7 +1,9 @@
 use bevy::math::{Quat, Vec3};
 use bevy::prelude::*;
+pub use common::{
+    BodyState, GameObjectKind, NetworkID, NetworkIDResource, PawnInputKind, SimulationState,
+};
 use serde::{Deserialize, Serialize};
-pub use common::{NetworkID, NetworkIDResource, BodyState, SimulationState, GameObjectKind, PawnInputKind};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
@@ -28,8 +30,17 @@ pub enum MsgType {
     Interact(NetworkID),
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
-    FireRequest { weapon: NetworkID, kind: GameObjectKind, temp_id: u32, origin: Vec3, dir: Vec3 },
-    ProjectileConfirm { temp_id: u32, net_id: NetworkID },
+    FireRequest {
+        weapon: NetworkID,
+        kind: GameObjectKind,
+        temp_id: u32,
+        origin: Vec3,
+        dir: Vec3,
+    },
+    ProjectileConfirm {
+        temp_id: u32,
+        net_id: NetworkID,
+    },
     HitResult(Vec3, Vec3, Option<NetworkID>),
     HealthUpdate(NetworkID, f32),
     TimePing(u64),

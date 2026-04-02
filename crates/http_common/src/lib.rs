@@ -11,14 +11,14 @@ pub struct LobbyInfo {
     pub max_players: u8,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RegisterRequest {
     pub quic_port: u16,
     pub name: String,
     pub max_players: u8,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RegisterResponse {
     pub id: String,
 }

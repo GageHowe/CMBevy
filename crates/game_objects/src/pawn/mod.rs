@@ -51,8 +51,8 @@ impl CameraEffector {
 
 use crate::GameObject;
 use bevy::prelude::*;
-use common::ring_buffer::RingBuffer;
 use common::PredictedCommands;
+use common::ring_buffer::RingBuffer;
 use net::message::MsgType;
 use physics::physics_world::PhysicsWorld;
 use physics::physics_world::*;
@@ -80,6 +80,79 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
         body: &RigidBodyHandleComponent,
         input: PawnInputKind,
     );
+}
+
+macro_rules! for_each_pawn_input_type {
+    ($m:ident $($args:tt)*) => {
+        $m!(
+            $($args)*
+            PawnInputKind::Biped => apply_biped_server_input,
+            PawnInputKind::Spaceship => apply_spaceship_server_input
+        )
+    };
+}
+
+macro_rules! apply_server_input_match {
+    ($input:expr, $entity:expr, $world:expr, $bipeds:expr, $spaceships:expr; $($kind:path => $handler:path),+ $(,)?) => {
+        match $input {
+            $(
+                $kind(input) => $handler($entity, input, $world, $bipeds, $spaceships),
+            )+
+        }
+    };
+}
+
+fn apply_biped_server_input(
+    entity: Entity,
+    input: BipedInput,
+    world: &mut PhysicsWorld,
+    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
+    _spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
+) -> bool {
+    let Ok(mut biped) = bipeds.get_mut(entity) else {
+        return false;
+    };
+    if biped.in_vehicle.is_some() {
+        return false;
+    }
+    let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
+        return false;
+    };
+    biped.look_yaw = input.look_yaw;
+    biped.look_pitch = input.look_pitch;
+    biped::apply_biped_movement(world, &RigidBodyHandleComponent(handle), input, &mut biped);
+    true
+}
+
+fn apply_spaceship_server_input(
+    entity: Entity,
+    input: SpaceshipInput,
+    world: &mut PhysicsWorld,
+    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
+    spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
+) -> bool {
+    let vehicle_entity = bipeds.get(entity).ok().and_then(|b| b.in_vehicle);
+    let Some(vehicle_entity) = vehicle_entity else {
+        return false;
+    };
+    let Some(handle) = world.entity_to_handle.get(&vehicle_entity).copied() else {
+        return false;
+    };
+    let Ok(mut ship) = spaceships.get_mut(vehicle_entity) else {
+        return false;
+    };
+    spaceship::apply_spaceship_movement(world, &RigidBodyHandleComponent(handle), input, &mut ship);
+    true
+}
+
+pub fn apply_server_input(
+    entity: Entity,
+    input: PawnInputKind,
+    world: &mut PhysicsWorld,
+    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
+    spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
+) -> bool {
+    for_each_pawn_input_type!(apply_server_input_match input, entity, world, bipeds, spaceships;)
 }
 
 // CAMERA

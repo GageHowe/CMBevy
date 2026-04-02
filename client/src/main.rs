@@ -8,13 +8,15 @@ pub use common::game_state::GameState;
 use common::interaction::Interactable;
 use common::tick::{NetworkStats, Ticker};
 use game_objects::pawn::biped::*;
-use game_objects::pawn::{self, *};
 use game_objects::pawn::vehicle::draw_cockpit_debug;
+use game_objects::pawn::{self, *};
+use game_objects::projectile::PredictedProjectileMap;
 use game_objects::projectile::hail_mary::HailMaryProjectile;
 use game_objects::projectile::rifle::*;
+use game_objects::projectile::rpg::RpgProjectile;
 use game_objects::projectile::*;
-use game_objects::weapon::WeaponPlugin;
-use game_objects::SpawnGameObjectCommand;
+use game_objects::weapon::{WeaponPlugin, helpers as weapon_helpers};
+use game_objects::{GameObjectsPlugin, NetworkEntityMap, SpawnGameObjectCommand};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 use reconciliation::*;
@@ -66,9 +68,30 @@ struct SpawnParams<'w, 's> {
     entity_children: Query<'w, 's, &'static Children>,
     lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
 }
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct ClientMessageParams<'w, 's> {
+    spawn: SpawnParams<'w, 's>,
+    world: ResMut<'w, PhysicsWorld>,
+    biped_q: ParamSet<
+        'w,
+        's,
+        (
+            Query<'w, 's, (&'static mut WeaponSlots, &'static BipedPawnComponent), With<Possessed>>,
+            Query<'w, 's, &'static BipedPawnComponent>,
+        ),
+    >,
+    networked: Res<'w, NetworkEntityMap>,
+    health_q: Query<'w, 's, &'static mut Health>,
+    camera: Query<'w, 's, Entity, With<Camera3d>>,
+    projectile_q: Query<'w, 's, (Entity, &'static ProjectileState)>,
+    predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
+}
 use common::debug_println;
 use game_objects::health::Health;
-use game_objects::level::{LevelPlugin, MapMeta, PendingMapScene, apply_pending_map_scene, cleanup_level, load_level_scene};
+use game_objects::level::{
+    LevelPlugin, MapMeta, PendingMapScene, apply_pending_map_scene, cleanup_level, load_level_scene,
+};
 use game_objects::planet::draw_planet_radii;
 use master_plugin::MasterPlugin;
 use settings::{Settings, SettingsPlugin};
@@ -147,13 +170,14 @@ fn main() {
 
     app.add_plugins(OutlinePlugin)
         .add_plugins(MasterPlugin)
-        .add_plugins(SteamworksPlugin)  // prints steam info on Startup
+        .add_plugins(SteamworksPlugin) // prints steam info on Startup
         .add_plugins(SettingsPlugin)
         .init_state::<GameState>()
         .init_state::<UiState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MenuPlugin)
+        .add_plugins(GameObjectsPlugin)
         .add_plugins(PawnPlugin)
         .add_plugins(LevelPlugin)
         .add_plugins(WeaponPlugin)
@@ -195,14 +219,11 @@ fn main() {
 
     // FixedPostUpdate:
     //   on_message/send_chat
-    app.add_systems(
-        FixedPostUpdate,
-        on_message.run_if(in_state(GameState::Multiplayer)),
-    );
+    app.add_systems(FixedPostUpdate, on_message);
 
     app.add_systems(
-        FixedPostUpdate,
-        session::snapshot_server_state.after(on_message).run_if(
+        FixedLast,
+        session::snapshot_server_state.run_if(
             in_state(GameState::Multiplayer).and(resource_changed::<PendingReconciliation>),
         ),
     );
@@ -217,6 +238,7 @@ fn main() {
         FixedUpdate,
         (
             draw_projectile_debug::<HailMaryProjectile>(Color::srgba(1.0, 0.3, 0.1, 0.9)),
+            draw_projectile_debug::<RpgProjectile>(Color::srgba(1.0, 0.5, 0.2, 0.9)),
             draw_projectile_debug::<RifleProjectile>(Color::srgba(1.0, 0.9, 0.2, 0.9)),
         )
             .after(step_physics)
@@ -225,7 +247,10 @@ fn main() {
     );
 
     app.add_systems(Last, cleanup_before_app_exit);
-    app.add_systems(Update, exit_after_returning_to_menu.run_if(in_state(GameState::MainMenu)));
+    app.add_systems(
+        Update,
+        exit_after_returning_to_menu.run_if(in_state(GameState::MainMenu)),
+    );
 
     debug_println!("starting client...\n");
     app.run();
@@ -240,17 +265,10 @@ fn cleanup_before_app_exit(
     if exits.read().next().is_none() {
         return;
     }
-    shutdown_session(
-        quic.as_deref_mut(),
-        pending.as_deref_mut(),
-        &mut hosted,
-    );
+    shutdown_session(quic.as_deref_mut(), pending.as_deref_mut(), &mut hosted);
 }
 
-fn exit_after_returning_to_menu(
-    pending_exit: Res<PendingExit>,
-    mut exit: MessageWriter<AppExit>,
-) {
+fn exit_after_returning_to_menu(pending_exit: Res<PendingExit>, mut exit: MessageWriter<AppExit>) {
     if pending_exit.0 {
         exit.write(AppExit::Success);
     }
@@ -259,27 +277,21 @@ fn exit_after_returning_to_menu(
 /// handles messages coming in from the server
 /// called by quic on FixedPostUpdate
 fn on_message(
-    mut quic: ResMut<QuicManager>,
+    quic: Option<ResMut<QuicManager>>,
     mut gui: ResMut<GuiState>,
-    mut sp: SpawnParams<'_, '_>,
-    mut world: ResMut<PhysicsWorld>,
+    mut mp: ClientMessageParams<'_, '_>,
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
     mut net_stats: ResMut<NetworkStats>,
     mut last_acked_input_seq: ResMut<LastAckedInputSeq>,
     time: Res<Time>,
-    mut biped_q: ParamSet<(
-        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
-        Query<&BipedPawnComponent>,
-    )>,
-    networked: Query<(Entity, &NetworkID)>,
     possessed_q: Query<(Entity, &NetworkID), With<Possessed>>,
-    mut health_q: Query<(&NetworkID, &mut Health)>,
-    camera: Query<Entity, With<Camera3d>>,
     // pitch_pivot_q: Query<Entity, With<PitchPivot>>,
     mut next_state: ResMut<NextState<GameState>>,
-    projectile_q: Query<(Entity, &ProjectileState)>,
 ) {
+    let Some(mut quic) = quic else {
+        return;
+    };
     // tracks entities spawned this on_message call (before commands flush)
     // (entity, server_tick) so Possess can sync the client ticker
     let mut just_spawned: std::collections::HashMap<NetworkID, (Entity, u64)> = Default::default();
@@ -289,183 +301,68 @@ fn on_message(
         match msg.msg {
             MsgType::Connected => {}
             MsgType::SpawnCommand(cmd) => {
-                let net_id = cmd.net_id.clone();
-                let server_tick = cmd.server_tick;
-                let entity = sp.commands.spawn_empty().id();
-                sp.commands.queue(SpawnGameObjectCommand { entity, cmd });
-                just_spawned.insert(net_id, (entity, server_tick));
+                handle_spawn_command(&mut mp.spawn.commands, &mut just_spawned, cmd);
             }
             MsgType::Possess(net_id) => {
-                // SpawnCommand and Possess may arrive in the same batch before commands flush,
-                // so check just_spawned before falling back to the networked query.
-                local_net_id = Some(net_id.clone());
-                let result = just_spawned.get(&net_id).copied().or_else(|| {
-                    networked
-                        .iter()
-                        .find(|(_, nid)| **nid == net_id)
-                        .map(|(e, _)| (e, ticker.tick))
-                });
-                if let Some((entity, server_tick)) = result {
-                    // strip Possessed from the previous pawn so Added<Possessed> fires
-                    // cleanly on the new one and interact/camera systems don't double-fire
-                    for (old, _) in possessed_q.iter() {
-                        if old != entity {
-                            sp.commands.entity(old).remove::<Possessed>();
-                        }
-                    }
-                    // sync client tick to server so reconciliation replay covers the right range
-                    ticker.tick = server_tick;
-                    sp.commands.entity(entity).insert(Possessed::new(128));
-                }
+                handle_possess(
+                    net_id,
+                    &mut local_net_id,
+                    &just_spawned,
+                    &mp.networked,
+                    &possessed_q,
+                    &mut mp.spawn.commands,
+                    &mut ticker,
+                );
             }
             MsgType::DespawnCommand(net_id) => {
-                let is_local = local_net_id.as_ref() == Some(&net_id);
-                for (entity, nid) in networked.iter() {
-                    if *nid == net_id {
-                        if is_local {
-                            // Detach the camera before despawning so the hierarchy
-                            // doesn't take it with it. The server will re-spawn us.
-                            if let Ok(cam) = camera.single() {
-                                if let Ok(mut entity) = sp.commands.get_entity(cam) {
-                                    entity.remove_parent_in_place();
-                                }
-                            }
-                            // Despawn held weapon viewmodels explicitly so the
-                            // recursive pawn despawn doesn't hit them a second time.
-                            if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
-                                for ent in [slots.primary.1.take(), slots.pocket.1.take()] {
-                                    if let Some(w) = ent {
-                                        if let Ok(mut entity) = sp.commands.get_entity(w) {
-                                            entity.despawn();
-                                        }
-                                    }
-                                }
-                                slots.primary.0 = None;
-                                slots.pocket.0 = None;
-                            }
-                            local_net_id = None;
-                        } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
-                            // if this was a weapon viewmodel in a slot, clear the slot
-                            slots.remove_by_net_id(&net_id);
-                        }
-                        if let Ok(mut entity_commands) = sp.commands.get_entity(entity) {
-                            entity_commands.despawn();
-                        }
-                        break;
-                    }
-                }
+                handle_despawn(
+                    &net_id,
+                    &mut local_net_id,
+                    &mp.networked,
+                    &mp.camera,
+                    &mut mp.biped_q,
+                    &mut mp.spawn.commands,
+                );
             }
             MsgType::Disconnected => {
                 next_state.set(GameState::MainMenu);
             }
             MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
-                let is_local = local_net_id.as_ref() == Some(&carrier_net_id);
-                let weapon_entity = networked
-                    .iter()
-                    .find(|(_, nid)| *nid == &weapon_id)
-                    .map(|(e, _)| e);
-                let Some(weapon_entity) = weapon_entity else {
-                    continue;
-                };
-                world.set_body_enabled(weapon_entity, false);
-                if is_local {
-                    let (slot_result, pivot_e) =
-                        if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
-                            let result = if slots.primary.0.is_none() {
-                                slots.primary = (Some(weapon_id.clone()), Some(weapon_entity));
-                                Some((true, None))
-                            } else if slots.pocket.0.is_none() {
-                                let prev = slots.active().1; // hide whatever is currently shown
-                                slots.pocket = (Some(weapon_id.clone()), Some(weapon_entity));
-                                slots.active_primary = false;
-                                Some((false, prev))
-                            } else {
-                                None
-                            };
-                            (result, biped.pitch_pivot)
-                        } else {
-                            (None, None)
-                        };
-                    if let Some((is_primary, prev_to_hide)) = slot_result {
-                        if let Some(prev) = prev_to_hide {
-                            sp.commands.entity(prev).insert(Visibility::Hidden);
-                        }
-                        if let Some(parent) = camera.single().ok().or(pivot_e) {
-                            sp.commands
-                                .entity(weapon_entity)
-                                .remove::<(RigidBodyHandleComponent, Interactable)>()
-                                .set_parent_in_place(parent)
-                                .insert(viewmodel_offset(is_primary))
-                                .insert(Visibility::Inherited);
-                        }
-                    }
-                } else {
-                    // attach to carrier's pitch pivot so the weapon moves with them
-                    let carrier = networked
-                        .iter()
-                        .find(|(_, nid)| *nid == &carrier_net_id)
-                        .map(|(e, _)| e);
-                    let pivot_e = {
-                        let q = biped_q.p1();
-                        carrier.and_then(|e| q.get(e).ok().and_then(|b| b.pitch_pivot))
-                    };
-                    sp.commands.entity(weapon_entity).remove::<Interactable>();
-                    if let Some(pivot) = pivot_e {
-                        sp.commands
-                            .entity(weapon_entity)
-                            .set_parent_in_place(pivot)
-                            .insert(viewmodel_offset(true));
-                    }
-                }
+                handle_weapon_pickup(
+                    &weapon_id,
+                    &carrier_net_id,
+                    local_net_id.as_ref(),
+                    &mp.networked,
+                    &mp.camera,
+                    &mut mp.biped_q,
+                    &mut mp.spawn.commands,
+                    &mut mp.world,
+                );
             }
             MsgType::WeaponDrop(weapon_id, carrier_id, drop_pos) => {
-                let is_carrier = local_net_id.as_ref() == Some(&carrier_id);
-                let weapon_entity = networked
-                    .iter()
-                    .find(|(_, nid)| *nid == &weapon_id)
-                    .map(|(e, _)| e);
-                let Some(weapon_entity) = weapon_entity else {
-                    continue;
-                };
-                world.teleport_body(weapon_entity, drop_pos);
-                world.set_body_enabled(weapon_entity, true);
-                if is_carrier {
-                    if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
-                        slots.remove_by_net_id(&weapon_id);
-                    }
-                    let handle = world.entity_to_handle.get(&weapon_entity).copied();
-                    sp.commands
-                        .entity(weapon_entity)
-                        .remove_parent_in_place()
-                        .insert((Interactable { range: 2.0 }, Visibility::Inherited));
-                    if let Some(h) = handle {
-                        sp.commands
-                            .entity(weapon_entity)
-                            .insert(RigidBodyHandleComponent(h));
-                    }
-                } else {
-                    sp.commands
-                        .entity(weapon_entity)
-                        .insert((Interactable { range: 2.0 }, Visibility::Inherited));
-                }
+                handle_weapon_drop(
+                    &weapon_id,
+                    &carrier_id,
+                    drop_pos,
+                    local_net_id.as_ref(),
+                    &mp.networked,
+                    &mut mp.biped_q,
+                    &mut mp.spawn.commands,
+                    &mut mp.world,
+                );
             }
             MsgType::HitResult(_, _, _) => {}
             MsgType::ProjectileConfirm { temp_id, net_id } => {
-                // find the locally predicted projectile and attach its server-assigned NetworkID
-                for (entity, state) in projectile_q.iter() {
-                    if state.temp_id == temp_id {
-                        sp.commands.entity(entity).insert(net_id);
-                        break;
-                    }
-                }
+                handle_projectile_confirm(
+                    temp_id,
+                    net_id,
+                    &mut mp.predicted_projectiles,
+                    &mp.projectile_q,
+                    &mut mp.spawn.commands,
+                );
             }
             MsgType::HealthUpdate(net_id, current) => {
-                for (nid, mut health) in health_q.iter_mut() {
-                    if *nid == net_id {
-                        health.current = current;
-                        break;
-                    }
-                }
+                handle_health_update(&net_id, current, &mp.networked, &mut mp.health_q);
             }
             MsgType::Pong(text) => {
                 debug_println!("Client: Got PONG \"{text}\"");
@@ -485,45 +382,269 @@ fn on_message(
                 }
             }
             MsgType::FileData(name, compressed) => {
-                if name == "map.scn.ron" {
-                    // store compressed bytes; apply_pending_map_scene will decompress + load
-                    sp.commands.insert_resource(PendingMapScene(compressed));
-                } else if name == "gametype.lua" {
-                    match zstd::stream::decode_all(compressed.as_slice()) {
-                        Ok(bytes) => match String::from_utf8(bytes) {
-                            Ok(src) => {
-                                sp.commands.insert_resource(scripting::ScriptConfig {
-                                    path: String::new(),
-                                    is_server: false,
-                                    source: Some(src),
-                                });
-                            }
-                            Err(e) => eprintln!("FileData: gametype.lua not valid utf8: {e}"),
-                        },
-                        Err(e) => eprintln!("FileData: failed to decompress gametype.lua: {e}"),
-                    }
-                }
+                handle_file_data(name, compressed, &mut mp.spawn.commands);
             }
             MsgType::FlashlightState(net_id, on) => {
-                // Local player is updated immediately by toggle_flashlight; skip to avoid flicker.
-                if local_net_id.as_ref() == Some(&net_id) {
-                    continue;
-                }
-                if let Some((entity, _)) = networked.iter().find(|(_, nid)| *nid == &net_id) {
-                    if let Ok(children) = sp.entity_children.get(entity) {
-                        for child in children.iter() {
-                            if let Ok(mut vis) = sp.lights.get_mut(child) {
-                                *vis = if on {
-                                    Visibility::Inherited
-                                } else {
-                                    Visibility::Hidden
-                                };
-                            }
-                        }
+                handle_flashlight_state(
+                    &net_id,
+                    on,
+                    local_net_id.as_ref(),
+                    &mp.networked,
+                    &mp.spawn.entity_children,
+                    &mut mp.spawn.lights,
+                );
+            }
+            other => debug_println!("Client: Got unhandled message: {other:?}"),
+        }
+    }
+}
+
+fn find_networked_entity(networked: &NetworkEntityMap, net_id: &NetworkID) -> Option<Entity> {
+    networked.get(net_id)
+}
+
+fn handle_spawn_command(
+    commands: &mut Commands,
+    just_spawned: &mut std::collections::HashMap<NetworkID, (Entity, u64)>,
+    cmd: SpawnCommand,
+) {
+    let net_id = cmd.net_id.clone();
+    let server_tick = cmd.server_tick;
+    let entity = commands.spawn_empty().id();
+    commands.queue(SpawnGameObjectCommand { entity, cmd });
+    just_spawned.insert(net_id, (entity, server_tick));
+}
+
+fn handle_possess(
+    net_id: NetworkID,
+    local_net_id: &mut Option<NetworkID>,
+    just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
+    networked: &NetworkEntityMap,
+    possessed_q: &Query<(Entity, &NetworkID), With<Possessed>>,
+    commands: &mut Commands,
+    ticker: &mut Ticker,
+) {
+    *local_net_id = Some(net_id.clone());
+    let result = just_spawned
+        .get(&net_id)
+        .copied()
+        .or_else(|| find_networked_entity(networked, &net_id).map(|entity| (entity, ticker.tick)));
+    let Some((entity, server_tick)) = result else {
+        return;
+    };
+    for (old, _) in possessed_q.iter() {
+        if old != entity {
+            commands.entity(old).remove::<Possessed>();
+        }
+    }
+    ticker.tick = server_tick;
+    commands.entity(entity).insert(Possessed::new(128));
+}
+
+fn handle_despawn(
+    net_id: &NetworkID,
+    local_net_id: &mut Option<NetworkID>,
+    networked: &NetworkEntityMap,
+    camera: &Query<Entity, With<Camera3d>>,
+    biped_q: &mut ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
+    commands: &mut Commands,
+) {
+    let Some(entity) = find_networked_entity(networked, net_id) else {
+        return;
+    };
+    let is_local = local_net_id.as_ref() == Some(net_id);
+    if is_local {
+        if let Ok(cam) = camera.single() {
+            if let Ok(mut entity) = commands.get_entity(cam) {
+                entity.remove_parent_in_place();
+            }
+        }
+        if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+            for ent in [slots.primary.1.take(), slots.pocket.1.take()] {
+                if let Some(w) = ent {
+                    if let Ok(mut entity) = commands.get_entity(w) {
+                        entity.despawn();
                     }
                 }
             }
-            other => debug_println!("Client: Got unhandled message: {other:?}"),
+            slots.primary.0 = None;
+            slots.pocket.0 = None;
+        }
+        *local_net_id = None;
+    } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+        slots.remove_by_net_id(net_id);
+    }
+    if let Ok(mut entity_commands) = commands.get_entity(entity) {
+        entity_commands.despawn();
+    }
+}
+
+fn handle_weapon_pickup(
+    weapon_id: &NetworkID,
+    carrier_net_id: &NetworkID,
+    local_net_id: Option<&NetworkID>,
+    networked: &NetworkEntityMap,
+    camera: &Query<Entity, With<Camera3d>>,
+    biped_q: &mut ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) {
+    let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
+        return;
+    };
+    world.set_body_enabled(weapon_entity, false);
+    if local_net_id == Some(carrier_net_id) {
+        let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
+            (
+                weapon_helpers::assign_local_pickup_slot(
+                    &mut slots,
+                    weapon_id.clone(),
+                    weapon_entity,
+                ),
+                biped.pitch_pivot,
+            )
+        } else {
+            (None, None)
+        };
+        if let Some((is_primary, prev_to_hide)) = slot_result {
+            if let Some(prev) = prev_to_hide {
+                commands.entity(prev).insert(Visibility::Hidden);
+            }
+            if let Some(parent) = camera.single().ok().or(pivot_e) {
+                weapon_helpers::attach_local_viewmodel(commands, weapon_entity, parent, is_primary);
+            }
+        }
+        return;
+    }
+    let carrier = find_networked_entity(networked, carrier_net_id);
+    let pivot_e = {
+        let q = biped_q.p1();
+        carrier.and_then(|entity| q.get(entity).ok().and_then(|b| b.pitch_pivot))
+    };
+    if let Some(pivot) = pivot_e {
+        weapon_helpers::attach_remote_viewmodel(commands, weapon_entity, pivot);
+    }
+}
+
+fn handle_weapon_drop(
+    weapon_id: &NetworkID,
+    carrier_id: &NetworkID,
+    drop_pos: Vec3,
+    local_net_id: Option<&NetworkID>,
+    networked: &NetworkEntityMap,
+    biped_q: &mut ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) {
+    let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
+        return;
+    };
+    world.teleport_body(weapon_entity, drop_pos);
+    world.set_body_enabled(weapon_entity, true);
+    if local_net_id == Some(carrier_id) {
+        if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+            slots.remove_by_net_id(weapon_id);
+        }
+        weapon_helpers::detach_viewmodel(commands, world, weapon_entity);
+    } else {
+        commands
+            .entity(weapon_entity)
+            .insert((Interactable { range: 2.0 }, Visibility::Inherited));
+    }
+}
+
+fn handle_projectile_confirm(
+    temp_id: u32,
+    net_id: NetworkID,
+    predicted_projectiles: &mut PredictedProjectileMap,
+    projectile_q: &Query<(Entity, &ProjectileState)>,
+    commands: &mut Commands,
+) {
+    if let Some(entity) = predicted_projectiles.get(temp_id) {
+        predicted_projectiles.remove_temp_id(temp_id);
+        commands.entity(entity).insert(net_id);
+        return;
+    }
+    for (entity, state) in projectile_q.iter() {
+        if state.temp_id == temp_id {
+            predicted_projectiles.remove_temp_id(temp_id);
+            commands.entity(entity).insert(net_id);
+            break;
+        }
+    }
+}
+
+fn handle_health_update(
+    net_id: &NetworkID,
+    current: f32,
+    networked: &NetworkEntityMap,
+    health_q: &mut Query<&mut Health>,
+) {
+    let Some(entity) = find_networked_entity(networked, net_id) else {
+        return;
+    };
+    let Ok(mut health) = health_q.get_mut(entity) else {
+        return;
+    };
+    health.current = current;
+}
+
+fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {
+    if name == "map.scn.ron" {
+        commands.insert_resource(PendingMapScene(compressed));
+        return;
+    }
+    if name != "gametype.lua" {
+        return;
+    }
+    match zstd::stream::decode_all(compressed.as_slice()) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(src) => {
+                commands.insert_resource(scripting::ScriptConfig {
+                    path: String::new(),
+                    is_server: false,
+                    source: Some(src),
+                });
+            }
+            Err(e) => eprintln!("FileData: gametype.lua not valid utf8: {e}"),
+        },
+        Err(e) => eprintln!("FileData: failed to decompress gametype.lua: {e}"),
+    }
+}
+
+fn handle_flashlight_state(
+    net_id: &NetworkID,
+    on: bool,
+    local_net_id: Option<&NetworkID>,
+    networked: &NetworkEntityMap,
+    entity_children: &Query<&Children>,
+    lights: &mut Query<&mut Visibility, With<SpotLight>>,
+) {
+    if local_net_id == Some(net_id) {
+        return;
+    }
+    let Some(entity) = find_networked_entity(networked, net_id) else {
+        return;
+    };
+    let Ok(children) = entity_children.get(entity) else {
+        return;
+    };
+    for child in children.iter() {
+        if let Ok(mut vis) = lights.get_mut(child) {
+            *vis = if on {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
         }
     }
 }

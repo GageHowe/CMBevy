@@ -20,17 +20,25 @@ pub fn attach_hull_collider(
     fallback: ColliderBuilder,
     world: &mut World,
 ) {
-    let handle = world.resource::<AssetServer>()
+    let handle = world
+        .resource::<AssetServer>()
         .load_with_settings(path, move |settings: &mut f32| *settings = scale);
-    let collider = world.resource::<Assets<ConvexHullAsset>>()
+    let collider = world
+        .resource::<Assets<ConvexHullAsset>>()
         .get(&handle)
         .map(|hull| hull.0.clone())
         .unwrap_or_else(|| {
-            world.entity_mut(entity).insert(PendingHullCollider(handle.clone()));
+            world
+                .entity_mut(entity)
+                .insert(PendingHullCollider(handle.clone()));
             fallback.build()
         });
     let mut physics = world.resource_mut::<PhysicsWorld>();
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *physics;
     collider_set.insert_with_parent(collider, body_handle, rigid_body_set);
 }
 
@@ -38,7 +46,12 @@ pub fn attach_hull_collider(
 /// set directly on the builder) or a convex hull .obj loaded via the asset system.
 pub enum GenericShape<'a> {
     Primitive(ColliderBuilder),
-    Hull { path: &'static str, scale: f32, asset_server: &'a AssetServer, hull_assets: &'a Assets<ConvexHullAsset> },
+    Hull {
+        path: &'static str,
+        scale: f32,
+        asset_server: &'a AssetServer,
+        hull_assets: &'a Assets<ConvexHullAsset>,
+    },
 }
 
 /// Spawns a dynamic physics body with an optional mesh and optional NetworkID.
@@ -53,20 +66,38 @@ pub fn spawn_generic(
     world: &mut PhysicsWorld,
 ) -> Entity {
     let entity = commands.spawn(Transform::from(transform)).id();
-    let rb = RigidBodyBuilder::dynamic().translation(transform.translation).build();
+    let rb = RigidBodyBuilder::dynamic()
+        .translation(transform.translation)
+        .build();
     let rb_handle = world.insert_body(entity, rb);
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
 
     match shape {
         GenericShape::Primitive(builder) => {
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *world;
             collider_set.insert_with_parent(builder.build(), rb_handle, rigid_body_set);
         }
-        GenericShape::Hull { path, scale, asset_server, hull_assets } => {
+        GenericShape::Hull {
+            path,
+            scale,
+            asset_server,
+            hull_assets,
+        } => {
             let s = scale;
-            let handle = asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
+            let handle =
+                asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
             if let Some(hull) = hull_assets.get(&handle) {
-                let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+                let PhysicsWorld {
+                    collider_set,
+                    rigid_body_set,
+                    ..
+                } = &mut *world;
                 collider_set.insert_with_parent(hull.0.clone(), rb_handle, rigid_body_set);
             } else {
                 commands.entity(entity).insert(PendingHullCollider(handle));
@@ -75,7 +106,11 @@ pub fn spawn_generic(
     }
 
     if let Some((mesh_h, mat_h)) = mesh {
-        commands.entity(entity).insert((Mesh3d(mesh_h), MeshMaterial3d(mat_h), Visibility::default()));
+        commands.entity(entity).insert((
+            Mesh3d(mesh_h),
+            MeshMaterial3d(mat_h),
+            Visibility::default(),
+        ));
     }
     if let Some(id) = net_id {
         commands.entity(entity).insert(id);
@@ -90,9 +125,12 @@ pub fn swap_hull_colliders(
     hull_assets: Res<Assets<ConvexHullAsset>>,
     pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponent)>,
 ) {
-    let ready: Vec<_> = pending.iter()
+    let ready: Vec<_> = pending
+        .iter()
         .filter_map(|(entity, pending, body)| {
-            hull_assets.get(&pending.0).map(|asset| (entity, body.0, asset.0.clone()))
+            hull_assets
+                .get(&pending.0)
+                .map(|asset| (entity, body.0, asset.0.clone()))
         })
         .collect();
 
@@ -109,18 +147,9 @@ pub fn swap_hull_colliders(
             ..
         } = &mut *physics;
         for collider_handle in old_colliders {
-            collider_set.remove(
-                collider_handle,
-                island_manager,
-                rigid_body_set,
-                true,
-            );
+            collider_set.remove(collider_handle, island_manager, rigid_body_set, true);
         }
-        collider_set.insert_with_parent(
-            collider,
-            body_handle,
-            rigid_body_set,
-        );
+        collider_set.insert_with_parent(collider, body_handle, rigid_body_set);
         commands.entity(entity).remove::<PendingHullCollider>();
     }
 }

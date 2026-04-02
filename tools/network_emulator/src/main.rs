@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use network_emulator::{run, Config, DirectionConfig};
+use network_emulator::{Config, DirectionConfig, run};
 
 fn main() -> ExitCode {
     match parse_args(env::args().skip(1).collect()) {
@@ -59,20 +59,30 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
 
         match key.as_str() {
             "--listen" | "--client" => {
-                listen_addr = next(&mut index)?.parse().map_err(|err| format!("invalid listen addr: {}", err))?;
+                listen_addr = next(&mut index)?
+                    .parse()
+                    .map_err(|err| format!("invalid listen addr: {}", err))?;
             }
             "--server" => {
-                server_addr = next(&mut index)?.parse().map_err(|err| format!("invalid server addr: {}", err))?;
+                server_addr = next(&mut index)?
+                    .parse()
+                    .map_err(|err| format!("invalid server addr: {}", err))?;
             }
             "--buf" => {
-                buf_size = next(&mut index)?.parse().map_err(|err| format!("invalid buf size: {}", err))?;
+                buf_size = next(&mut index)?
+                    .parse()
+                    .map_err(|err| format!("invalid buf size: {}", err))?;
             }
             "--seed" => {
-                seed = next(&mut index)?.parse().map_err(|err| format!("invalid seed: {}", err))?;
+                seed = next(&mut index)?
+                    .parse()
+                    .map_err(|err| format!("invalid seed: {}", err))?;
             }
             "--stats" => {
                 stats_interval = Duration::from_secs(
-                    next(&mut index)?.parse().map_err(|err| format!("invalid stats interval: {}", err))?,
+                    next(&mut index)?
+                        .parse()
+                        .map_err(|err| format!("invalid stats interval: {}", err))?,
                 );
             }
             "--loss" => {
@@ -124,7 +134,12 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
             "--down-mindelay" => downlink.min_delay = parse_millis(next(&mut index)?)?,
             "--down-maxdelay" => downlink.max_delay = parse_millis(next(&mut index)?)?,
             "--down-reorder-window" => downlink.reorder_window = parse_millis(next(&mut index)?)?,
-            other => return Err(format!("unknown argument: {}\n\nUse --help for usage.", other)),
+            other => {
+                return Err(format!(
+                    "unknown argument: {}\n\nUse --help for usage.",
+                    other
+                ));
+            }
         }
 
         index += 1;
@@ -152,7 +167,9 @@ fn validate_direction(label: &str, config: &DirectionConfig) -> Result<(), Strin
 }
 
 fn parse_probability(text: &str) -> Result<f64, String> {
-    let value: f64 = text.parse().map_err(|err| format!("invalid probability {}: {}", text, err))?;
+    let value: f64 = text
+        .parse()
+        .map_err(|err| format!("invalid probability {}: {}", text, err))?;
     if !(0.0..=1.0).contains(&value) {
         return Err(format!("probability must be between 0.0 and 1.0: {}", text));
     }
@@ -160,7 +177,9 @@ fn parse_probability(text: &str) -> Result<f64, String> {
 }
 
 fn parse_millis(text: &str) -> Result<Duration, String> {
-    let millis: u64 = text.parse().map_err(|err| format!("invalid millisecond value {}: {}", text, err))?;
+    let millis: u64 = text
+        .parse()
+        .map_err(|err| format!("invalid millisecond value {}: {}", text, err))?;
     Ok(Duration::from_millis(millis))
 }
 

@@ -20,7 +20,6 @@ use game_objects::level::{LevelBytes, LevelPlugin, SpawnPoint};
 use game_objects::pawn::biped::WeaponSlots;
 use game_objects::pawn::vehicle::*;
 use game_objects::pawn::*;
-use game_objects::projectile::{hail_mary, rifle};
 use game_objects::weapon::WeaponPlugin;
 use game_objects::*;
 use master_plugin::MasterPlugin;
@@ -36,6 +35,28 @@ pub(crate) struct ConsoleCommands(pub Mutex<mpsc::Receiver<String>>);
 #[derive(Resource)]
 pub(crate) struct ModeConfig {
     pub respawn_delay: f32,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct ServerMessageParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    world: ResMut<'w, PhysicsWorld>,
+    held_weapons: ResMut<'w, HeldWeaponMap>,
+    spawn_points: Query<'w, 's, (&'static SpawnPoint, &'static Transform)>,
+    non_pawn_objects: Query<
+        'w,
+        's,
+        (
+            &'static NetworkID,
+            &'static GameObjectKind,
+            &'static RigidBodyHandleComponent,
+        ),
+        Without<BipedPawnComponent>,
+    >,
+    all_networked: Res<'w, NetworkEntityMap>,
+    pawn_slots: Query<'w, 's, &'static mut WeaponSlots>,
+    bipeds: Query<'w, 's, &'static mut BipedPawnComponent>,
+    cockpits: Query<'w, 's, (&'static mut Cockpit, &'static Transform, &'static ChildOf)>,
 }
 
 fn parse_args() -> (SocketAddr, String, String) {
@@ -115,7 +136,10 @@ fn main() {
 
     app.insert_resource(common::IsServer);
     app.add_plugins(MasterPlugin);
+    app.add_plugins(GameObjectsPlugin);
+    app.init_resource::<HeldWeaponMap>();
     app.add_plugins(LevelPlugin);
+    app.add_systems(FixedPreUpdate, on_message);
     app.add_systems(
         FixedUpdate,
         (step_physics, sync_physics_to_transforms).chain(),
@@ -126,10 +150,6 @@ fn main() {
         map_path,
         gametype_path,
     });
-
-    // load_server_level: read file bytes → LevelBytes, spawn DynamicSceneRoot
-    app.add_systems(FixedUpdate, (on_message).before(step_physics));
-
     println!("starting server...\n");
     app.run();
 }
@@ -139,7 +159,42 @@ fn main() {
 /// TODO: how to get, say, NetworkID or ConnectionID from Entity efficiently?
 /// maybe https://github.com/lun3x/multi_index_map
 #[derive(Resource, Default)]
-pub(crate) struct PlayerRegistry(pub HashMap<ConnectionId, (Entity, NetworkID)>);
+pub(crate) struct PlayerRegistry {
+    pub by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
+    pub by_entity: HashMap<Entity, ConnectionId>,
+}
+impl PlayerRegistry {
+    pub fn insert(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
+        if let Some((old_entity, _)) = self.by_conn.insert(conn_id, (entity, net_id.clone())) {
+            self.by_entity.remove(&old_entity);
+        }
+        if let Some(old_conn_id) = self.by_entity.insert(entity, conn_id) {
+            self.by_conn.remove(&old_conn_id);
+        }
+    }
+
+    pub fn get_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
+        self.by_conn
+            .get(&conn_id)
+            .map(|(entity, net_id)| (*entity, net_id))
+    }
+
+    pub fn remove_by_conn(&mut self, conn_id: ConnectionId) -> Option<(Entity, NetworkID)> {
+        let (entity, net_id) = self.by_conn.remove(&conn_id)?;
+        self.by_entity.remove(&entity);
+        Some((entity, net_id))
+    }
+
+    pub fn remove_by_entity(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
+        let conn_id = self.by_entity.remove(&entity)?;
+        let (_, net_id) = self.by_conn.remove(&conn_id)?;
+        Some((conn_id, net_id))
+    }
+
+    pub fn conn_id_for_entity(&self, entity: Entity) -> Option<ConnectionId> {
+        self.by_entity.get(&entity).copied()
+    }
+}
 
 /// Pending respawns: conn_id → (seconds_remaining, kind).
 #[derive(Resource, Default)]
@@ -155,6 +210,9 @@ pub(crate) struct PendingInputs(pub HashMap<ConnectionId, (u64, PawnInputKind)>)
 
 #[derive(Resource, Default)]
 pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
+
+#[derive(Resource, Default)]
+pub(crate) struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
 
 fn spawn_player(
     conn_id: ConnectionId,
@@ -183,7 +241,7 @@ fn spawn_player(
     });
 
     // Tell all currently connected players (including the new one) about the pawn.
-    for (&other_conn_id, _) in registry.0.iter() {
+    for &other_conn_id in registry.by_conn.keys() {
         quic.send(
             SendTarget::One(other_conn_id),
             Channel::Ordered,
@@ -202,7 +260,7 @@ fn spawn_player(
         &MsgType::Possess(net_id.clone()),
     );
 
-    registry.0.insert(conn_id, (entity, net_id));
+    registry.insert(conn_id, entity, net_id);
 }
 
 /// Logic for when a player leaves or dies.
@@ -225,6 +283,7 @@ fn kill_player(
     held_weapons: Vec<(NetworkID, Entity)>,
     quic: &mut QuicManager,
     registry: &mut PlayerRegistry,
+    held_weapon_map: &mut HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -235,6 +294,7 @@ fn kill_player(
         .map(rb_pos)
         .unwrap_or(Vec3::ZERO);
     for (wid, weapon_entity) in held_weapons {
+        held_weapon_map.0.remove(&wid);
         world.teleport_body(weapon_entity, drop_pos);
         world.set_body_enabled(weapon_entity, true);
         quic.send(
@@ -243,7 +303,7 @@ fn kill_player(
             &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos),
         );
     }
-    registry.0.retain(|_, (e, _)| *e != entity);
+    registry.remove_by_entity(entity);
     commands.entity(entity).despawn();
     quic.send(
         SendTarget::All,
@@ -259,290 +319,60 @@ fn on_message(
     mut pending_inputs: ResMut<PendingInputs>,
     mut pending_respawns: ResMut<PendingRespawns>,
     mut net_ids: ResMut<NetworkIDResource>,
-    mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
+    mut sp: ServerMessageParams<'_, '_>,
     tick: Res<Ticker>,
     level_bytes: Option<Res<LevelBytes>>,
-    spawn_points: Query<(&SpawnPoint, &Transform)>,
-    // non-pawn physics objects (weapons, vehicles, planets) — used to sync new clients
-    non_pawn_objects: Query<
-        (&NetworkID, &GameObjectKind, &RigidBodyHandleComponent),
-        Without<BipedPawnComponent>,
-    >,
-    // all networked entities — used to find entities by NetworkID
-    all_networked: Query<(Entity, &NetworkID)>,
-    mut pawn_slots: Query<&mut WeaponSlots>,
-    mut bipeds: Query<&mut BipedPawnComponent>,
-    mut cockpits: Query<(&mut Cockpit, &Transform, &ChildOf)>,
 ) {
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::Connected => {
-                if let Some(ref lb) = level_bytes {
-                    quic.send(
-                        SendTarget::One(msg.conn_id),
-                        Channel::Ordered,
-                        &MsgType::FileData("map.scn.ron".into(), lb.0.clone()),
-                    );
-                }
-                if let Some(cfg) = &script_config {
-                    if let Ok(src) = std::fs::read(&cfg.path) {
-                        quic.send_file(SendTarget::One(msg.conn_id), "gametype.lua".into(), src);
-                    }
-                }
-                // Tell the new client about all existing pawns (as ghosts).
-                for (_, (existing_entity, existing_net_id)) in registry.0.iter() {
-                    let existing_pos = world
-                        .entity_to_handle
-                        .get(existing_entity)
-                        .and_then(|&h| world.rigid_body_set.get(h))
-                        .map(rb_pos)
-                        .unwrap_or(Vec3::ZERO);
-                    quic.send(
-                        SendTarget::One(msg.conn_id),
-                        Channel::Ordered,
-                        &MsgType::SpawnCommand(SpawnCommand {
-                            net_id: existing_net_id.clone(),
-                            position: existing_pos.into(),
-                            starting_velocity: Vec3::ZERO.into(),
-                            rotation: Quat::IDENTITY.into(),
-                            server_tick: tick.tick,
-                            kind: GameObjectKind::Biped,
-                        }),
-                    );
-                }
-
-                // Tell the new client about all non-pawn physics objects (weapons, planets, etc.).
-                // held weapons are excluded (not in any slot = free; in slot = skip, client learns via WeaponPickup history... TODO: send held too)
-                let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
-                    .iter()
-                    .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
-                    .flatten()
-                    .collect();
-                for (net_id, kind, rb) in non_pawn_objects.iter() {
-                    if held_ids.contains(net_id) {
-                        continue;
-                    }
-                    let pos = world
-                        .rigid_body_set
-                        .get(rb.0)
-                        .map(rb_pos)
-                        .unwrap_or(Vec3::ZERO);
-                    quic.send(
-                        SendTarget::One(msg.conn_id),
-                        Channel::Ordered,
-                        &MsgType::SpawnCommand(SpawnCommand {
-                            net_id: net_id.clone(),
-                            position: pos,
-                            starting_velocity: Vec3::ZERO,
-                            rotation: Quat::IDENTITY,
-                            server_tick: tick.tick,
-                            kind: kind.clone(),
-                        }),
-                    );
-                }
-
-                let num_teams = {
-                    let mut s = std::collections::HashSet::new();
-                    for (sp, _) in spawn_points.iter() {
-                        s.insert(sp.team);
-                    }
-                    s.len().max(1)
-                };
-                let team = (registry.0.len() % num_teams) as u8;
-                let (sp, sr) = pick_spawn_point(&spawn_points, team, registry.0.len());
-                spawn_player(
+                handle_connected(
                     msg.conn_id,
-                    GameObjectKind::Biped,
-                    sp,
-                    sr,
+                    level_bytes.as_deref(),
+                    script_config.as_deref(),
                     &mut quic,
                     &mut registry,
                     &mut net_ids,
-                    &mut commands,
+                    &mut sp.commands,
+                    &sp.world,
                     tick.tick,
+                    &sp.spawn_points,
+                    &sp.non_pawn_objects,
+                    &sp.pawn_slots,
                 );
             }
 
             // if server receives a Disconnected message...
             MsgType::Disconnected => {
-                pending_respawns.0.remove(&msg.conn_id);
-                if let Some((entity, net_id)) = registry.0.remove(&msg.conn_id) {
-                    debug_println!(
-                        "GameServer: Player disconnected: entity={entity} conn={:?}",
-                        msg.conn_id
-                    );
-                    let held = slots_to_held(&pawn_slots.get(entity).ok());
-                    kill_player(
-                        entity,
-                        net_id,
-                        held,
-                        &mut quic,
-                        &mut registry,
-                        &mut commands,
-                        &mut world,
-                    );
-                }
+                handle_disconnected(
+                    msg.conn_id,
+                    &mut pending_respawns,
+                    &mut registry,
+                    &sp.pawn_slots,
+                    &mut sp.held_weapons,
+                    &mut quic,
+                    &mut sp.commands,
+                    &mut sp.world,
+                );
             }
             MsgType::Input(input_seq, kind) => {
-                let newest_seen = pending_inputs
-                    .0
-                    .get(&msg.conn_id)
-                    .map(|(seq, _)| *seq)
-                    .unwrap_or(0);
-                if input_seq > newest_seen {
-                    pending_inputs.0.insert(msg.conn_id, (input_seq, kind));
-                }
+                handle_input(msg.conn_id, input_seq, kind, &mut pending_inputs);
             }
             MsgType::FlashlightToggle => {
-                if let Some(&(entity, ref net_id)) = registry.0.get(&msg.conn_id) {
-                    if let Ok(mut biped) = bipeds.get_mut(entity) {
-                        biped.flashlight_on = !biped.flashlight_on;
-                        let on = biped.flashlight_on;
-                        quic.send(
-                            SendTarget::All,
-                            Channel::Ordered,
-                            &MsgType::FlashlightState(net_id.clone(), on),
-                        );
-                    }
-                }
+                handle_flashlight_toggle(msg.conn_id, &registry, &mut sp.bipeds, &mut quic);
             }
             MsgType::Interact(target_net_id) => {
-                let Some(&(player_entity, ref player_net_id)) = registry.0.get(&msg.conn_id) else {
-                    continue;
-                };
-                let player_net_id = player_net_id.clone();
-                let target_entity = all_networked
-                    .iter()
-                    .find(|(_, nid)| **nid == target_net_id)
-                    .map(|(e, _)| e);
-                let Some(target_entity) = target_entity else {
-                    continue;
-                };
-
-                // ---- vehicle enter / exit ----
-                if let Some((mut cockpit, seat_transform, child_of)) = cockpits
-                    .iter_mut()
-                    .find(|(_, _, child_of)| child_of.parent() == target_entity)
-                {
-                    if let Ok(mut biped) = bipeds.get_mut(player_entity) {
-                        if biped.in_vehicle == Some(target_entity) {
-                            if child_of.parent() != target_entity {
-                                continue;
-                            }
-                            let Some(_) = exit_vehicle(&mut world, target_entity, &mut cockpit, seat_transform) else {
-                                continue;
-                            };
-                            biped.in_vehicle = None;
-                            quic.send(
-                                SendTarget::One(msg.conn_id),
-                                Channel::Ordered,
-                                &MsgType::Possess(player_net_id),
-                            );
-                        } else if biped.in_vehicle.is_none() && cockpit.occupant.is_none() {
-                            // enter: validate range then transfer possession
-                            let pp = world
-                                .entity_to_handle
-                                .get(&player_entity)
-                                .and_then(|&h| world.rigid_body_set.get(h))
-                                .map(|rb| rb.position().translation);
-                            let vp = world
-                                .entity_to_handle
-                                .get(&target_entity)
-                                .and_then(|&h| world.rigid_body_set.get(h))
-                                .map(|rb| {
-                                    let vehicle_pos = rb_pos(rb);
-                                    let vehicle_rot = rb_rot(rb);
-                                    seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation)
-                                });
-                            let in_range = matches!((pp, vp), (Some(a), Some(b)) if {
-                                let d = a - b;
-                                d.x * d.x + d.y * d.y + d.z * d.z
-                                    < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
-                            });
-                            if in_range && enter_vehicle(&mut world, player_entity, target_entity, &mut cockpit, seat_transform) {
-                                biped.in_vehicle = Some(target_entity);
-                                quic.send(
-                                    SendTarget::One(msg.conn_id),
-                                    Channel::Ordered,
-                                    &MsgType::Possess(target_net_id),
-                                );
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // ---- weapon pickup ----
-                let weapon_entity = target_entity;
-                let is_free = pawn_slots.iter().all(|s| {
-                    s.primary.0.as_ref() != Some(&target_net_id)
-                        && s.pocket.0.as_ref() != Some(&target_net_id)
-                });
-                if !is_free {
-                    continue;
-                }
-
-                let player_pos = world
-                    .entity_to_handle
-                    .get(&player_entity)
-                    .and_then(|&h| world.rigid_body_set.get(h))
-                    .map(|rb| rb.position().translation);
-                let weapon_pos = world
-                    .entity_to_handle
-                    .get(&weapon_entity)
-                    .and_then(|&h| world.rigid_body_set.get(h))
-                    .map(|rb| rb.position().translation);
-                let in_range = match (player_pos, weapon_pos) {
-                    (Some(pp), Some(wp)) => {
-                        let d = pp - wp;
-                        (d.x * d.x + d.y * d.y + d.z * d.z).sqrt() < 2.0
-                    }
-                    _ => false,
-                };
-                if !in_range {
-                    continue;
-                }
-
-                let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
-                    continue;
-                };
-                if slots.is_full() {
-                    let drop_pos = player_pos
-                        .map(|t| Vec3::new(t.x, t.y, t.z))
-                        .unwrap_or(Vec3::ZERO);
-                    let active = slots.active_mut();
-                    let Some(drop_id) = active.0.take() else {
-                        continue;
-                    };
-                    let drop_entity = active.1.take();
-                    drop(slots);
-                    if let Some(drop_entity) = drop_entity {
-                        world.teleport_body(drop_entity, drop_pos);
-                        world.set_body_enabled(drop_entity, true);
-                        quic.send(
-                            SendTarget::All,
-                            Channel::Ordered,
-                            &MsgType::WeaponDrop(drop_id, player_net_id.clone(), drop_pos),
-                        );
-                    }
-                    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
-                        continue;
-                    };
-                    slots.active_mut().0 = Some(target_net_id.clone());
-                    slots.active_mut().1 = Some(weapon_entity);
-                } else {
-                    if slots.primary.0.is_none() {
-                        slots.primary = (Some(target_net_id.clone()), Some(weapon_entity));
-                    } else {
-                        slots.pocket = (Some(target_net_id.clone()), Some(weapon_entity));
-                    }
-                }
-                world.set_body_enabled(weapon_entity, false);
-                quic.send(
-                    SendTarget::All,
-                    Channel::Ordered,
-                    &MsgType::WeaponPickup(target_net_id, player_net_id),
+                handle_interact(
+                    msg.conn_id,
+                    target_net_id,
+                    &registry,
+                    &sp.all_networked,
+                    &mut quic,
+                    &mut sp.world,
+                    &mut sp.held_weapons,
+                    &mut sp.pawn_slots,
+                    &mut sp.bipeds,
+                    &mut sp.cockpits,
                 );
             }
             MsgType::FireRequest {
@@ -552,93 +382,21 @@ fn on_message(
                 origin,
                 dir,
             } => {
-                let Some(&(shooter_entity, _)) = registry.0.get(&msg.conn_id) else {
-                    continue;
-                };
-                let shooter_holds = pawn_slots
-                    .get(shooter_entity)
-                    .map(|s| {
-                        s.primary.0.as_ref() == Some(&weapon_net_id)
-                            || s.pocket.0.as_ref() == Some(&weapon_net_id)
-                    })
-                    .unwrap_or(false);
-                if !shooter_holds {
-                    continue;
-                }
-                let dir_v = dir.normalize_or_zero();
-                if dir_v == Vec3::ZERO {
-                    continue;
-                }
-                // inherit shooter's velocity so the projectile is relative to the shooter
-                let sv = world
-                    .entity_to_handle
-                    .get(&shooter_entity)
-                    .and_then(|&h| world.rigid_body_set.get(h))
-                    .map(rb_vel)
-                    .unwrap_or(Vec3::ZERO);
-                match kind {
-                    GameObjectKind::RifleProjectile => {
-                        let vel = dir_v * rifle::SPEED + sv;
-                        let entity = rifle::spawn(
-                            origin,
-                            vel,
-                            &mut commands,
-                            &mut world,
-                            Some(shooter_entity),
-                            0,
-                        );
-                        let net_id = NetworkID(net_ids.next());
-                        commands.entity(entity).insert(net_id.clone());
-                        quic.send(
-                            SendTarget::AllExcept(msg.conn_id),
-                            Channel::Unordered,
-                            &MsgType::SpawnCommand(SpawnCommand {
-                                net_id: net_id.clone(),
-                                position: origin,
-                                starting_velocity: vel,
-                                rotation: Quat::IDENTITY,
-                                server_tick: tick.tick,
-                                kind: GameObjectKind::RifleProjectile,
-                            }),
-                        );
-                        quic.send(
-                            SendTarget::One(msg.conn_id),
-                            Channel::Ordered,
-                            &MsgType::ProjectileConfirm { temp_id, net_id },
-                        );
-                    }
-                    GameObjectKind::HailMaryProjectile => {
-                        let vel = dir_v * hail_mary::SPEED + sv;
-                        let entity = hail_mary::spawn(
-                            origin,
-                            vel,
-                            &mut commands,
-                            &mut world,
-                            Some(shooter_entity),
-                            0,
-                        );
-                        let net_id = NetworkID(net_ids.next());
-                        commands.entity(entity).insert(net_id.clone());
-                        quic.send(
-                            SendTarget::AllExcept(msg.conn_id),
-                            Channel::Unordered,
-                            &MsgType::SpawnCommand(SpawnCommand {
-                                net_id: net_id.clone(),
-                                position: origin,
-                                starting_velocity: vel,
-                                rotation: Quat::IDENTITY,
-                                server_tick: tick.tick,
-                                kind: GameObjectKind::HailMaryProjectile,
-                            }),
-                        );
-                        quic.send(
-                            SendTarget::One(msg.conn_id),
-                            Channel::Ordered,
-                            &MsgType::ProjectileConfirm { temp_id, net_id },
-                        );
-                    }
-                    _ => {}
-                }
+                handle_fire_request(
+                    msg.conn_id,
+                    weapon_net_id,
+                    kind,
+                    temp_id,
+                    origin,
+                    dir,
+                    &registry,
+                    &sp.pawn_slots,
+                    &mut sp.commands,
+                    &mut sp.world,
+                    &mut net_ids,
+                    &mut quic,
+                    tick.tick,
+                );
             }
             MsgType::TimePing(bits) => {
                 quic.send(
@@ -670,4 +428,374 @@ fn on_message(
             other => debug_println!("Unhandled: {other:?}"),
         }
     }
+}
+
+fn find_networked_entity(all_networked: &NetworkEntityMap, net_id: &NetworkID) -> Option<Entity> {
+    all_networked.get(net_id)
+}
+
+fn handle_connected(
+    conn_id: ConnectionId,
+    level_bytes: Option<&LevelBytes>,
+    script_config: Option<&ScriptConfig>,
+    quic: &mut QuicManager,
+    registry: &mut PlayerRegistry,
+    net_ids: &mut NetworkIDResource,
+    commands: &mut Commands,
+    world: &PhysicsWorld,
+    tick: u64,
+    spawn_points: &Query<(&SpawnPoint, &Transform)>,
+    non_pawn_objects: &Query<
+        (&NetworkID, &GameObjectKind, &RigidBodyHandleComponent),
+        Without<BipedPawnComponent>,
+    >,
+    pawn_slots: &Query<&mut WeaponSlots>,
+) {
+    if let Some(lb) = level_bytes {
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::FileData("map.scn.ron".into(), lb.0.clone()),
+        );
+    }
+    if let Some(cfg) = script_config {
+        if let Ok(src) = std::fs::read(&cfg.path) {
+            quic.send_file(SendTarget::One(conn_id), "gametype.lua".into(), src);
+        }
+    }
+    for (existing_entity, existing_net_id) in registry.by_conn.values() {
+        let existing_pos = world
+            .entity_to_handle
+            .get(existing_entity)
+            .and_then(|&h| world.rigid_body_set.get(h))
+            .map(rb_pos)
+            .unwrap_or(Vec3::ZERO);
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(SpawnCommand {
+                net_id: existing_net_id.clone(),
+                position: existing_pos.into(),
+                starting_velocity: Vec3::ZERO.into(),
+                rotation: Quat::IDENTITY.into(),
+                server_tick: tick,
+                kind: GameObjectKind::Biped,
+            }),
+        );
+    }
+    let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
+        .iter()
+        .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
+        .flatten()
+        .collect();
+    for (net_id, kind, rb) in non_pawn_objects.iter() {
+        if held_ids.contains(net_id) {
+            continue;
+        }
+        let pos = world
+            .rigid_body_set
+            .get(rb.0)
+            .map(rb_pos)
+            .unwrap_or(Vec3::ZERO);
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(SpawnCommand {
+                net_id: net_id.clone(),
+                position: pos,
+                starting_velocity: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+                server_tick: tick,
+                kind: kind.clone(),
+            }),
+        );
+    }
+    let num_teams = {
+        let mut teams = std::collections::HashSet::new();
+        for (sp, _) in spawn_points.iter() {
+            teams.insert(sp.team);
+        }
+        teams.len().max(1)
+    };
+    let team = (registry.by_conn.len() % num_teams) as u8;
+    let (sp, sr) = pick_spawn_point(spawn_points, team, registry.by_conn.len());
+    spawn_player(
+        conn_id,
+        GameObjectKind::Biped,
+        sp,
+        sr,
+        quic,
+        registry,
+        net_ids,
+        commands,
+        tick,
+    );
+}
+
+fn handle_disconnected(
+    conn_id: ConnectionId,
+    pending_respawns: &mut PendingRespawns,
+    registry: &mut PlayerRegistry,
+    pawn_slots: &Query<&mut WeaponSlots>,
+    held_weapons: &mut HeldWeaponMap,
+    quic: &mut QuicManager,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) {
+    pending_respawns.0.remove(&conn_id);
+    if let Some((entity, net_id)) = registry.remove_by_conn(conn_id) {
+        debug_println!(
+            "GameServer: Player disconnected: entity={entity} conn={:?}",
+            conn_id
+        );
+        let held = slots_to_held(&pawn_slots.get(entity).ok());
+        kill_player(
+            entity,
+            net_id,
+            held,
+            quic,
+            registry,
+            held_weapons,
+            commands,
+            world,
+        );
+    }
+}
+
+fn handle_input(
+    conn_id: ConnectionId,
+    input_seq: u64,
+    kind: PawnInputKind,
+    pending_inputs: &mut PendingInputs,
+) {
+    let newest_seen = pending_inputs
+        .0
+        .get(&conn_id)
+        .map(|(seq, _)| *seq)
+        .unwrap_or(0);
+    if input_seq > newest_seen {
+        pending_inputs.0.insert(conn_id, (input_seq, kind));
+    }
+}
+
+fn handle_flashlight_toggle(
+    conn_id: ConnectionId,
+    registry: &PlayerRegistry,
+    bipeds: &mut Query<&mut BipedPawnComponent>,
+    quic: &mut QuicManager,
+) {
+    let Some((entity, net_id)) = registry.get_by_conn(conn_id) else {
+        return;
+    };
+    let Ok(mut biped) = bipeds.get_mut(entity) else {
+        return;
+    };
+    biped.flashlight_on = !biped.flashlight_on;
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::FlashlightState(net_id.clone(), biped.flashlight_on),
+    );
+}
+
+fn handle_interact(
+    conn_id: ConnectionId,
+    target_net_id: NetworkID,
+    registry: &PlayerRegistry,
+    all_networked: &NetworkEntityMap,
+    quic: &mut QuicManager,
+    world: &mut PhysicsWorld,
+    held_weapons: &mut HeldWeaponMap,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    bipeds: &mut Query<&mut BipedPawnComponent>,
+    cockpits: &mut Query<(&mut Cockpit, &Transform, &ChildOf)>,
+) {
+    let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
+        return;
+    };
+    let Some(target_entity) = find_networked_entity(all_networked, &target_net_id) else {
+        return;
+    };
+    let player_net_id = player_net_id.clone();
+    if let Some((mut cockpit, seat_transform, child_of)) = cockpits
+        .iter_mut()
+        .find(|(_, _, child_of)| child_of.parent() == target_entity)
+    {
+        if let Ok(mut biped) = bipeds.get_mut(player_entity) {
+            if biped.in_vehicle == Some(target_entity) {
+                if child_of.parent() != target_entity {
+                    return;
+                }
+                let Some(_) = exit_vehicle(world, target_entity, &mut cockpit, seat_transform)
+                else {
+                    return;
+                };
+                biped.in_vehicle = None;
+                quic.send(
+                    SendTarget::One(conn_id),
+                    Channel::Ordered,
+                    &MsgType::Possess(player_net_id),
+                );
+                return;
+            }
+            if biped.in_vehicle.is_none() && cockpit.occupant.is_none() {
+                let pp = world
+                    .entity_to_handle
+                    .get(&player_entity)
+                    .and_then(|&h| world.rigid_body_set.get(h))
+                    .map(|rb| rb.position().translation);
+                let vp = world
+                    .entity_to_handle
+                    .get(&target_entity)
+                    .and_then(|&h| world.rigid_body_set.get(h))
+                    .map(|rb| {
+                        let vehicle_pos = rb_pos(rb);
+                        let vehicle_rot = rb_rot(rb);
+                        seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation)
+                    });
+                let in_range = matches!((pp, vp), (Some(a), Some(b)) if {
+                    let d = a - b;
+                    d.x * d.x + d.y * d.y + d.z * d.z
+                        < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
+                });
+                if in_range
+                    && enter_vehicle(
+                        world,
+                        player_entity,
+                        target_entity,
+                        &mut cockpit,
+                        seat_transform,
+                    )
+                {
+                    biped.in_vehicle = Some(target_entity);
+                    quic.send(
+                        SendTarget::One(conn_id),
+                        Channel::Ordered,
+                        &MsgType::Possess(target_net_id),
+                    );
+                }
+            }
+        }
+        return;
+    }
+    if held_weapons.0.contains_key(&target_net_id) {
+        return;
+    }
+    let player_pos = world
+        .entity_to_handle
+        .get(&player_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(|rb| rb.position().translation);
+    let weapon_pos = world
+        .entity_to_handle
+        .get(&target_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(|rb| rb.position().translation);
+    let in_range = match (player_pos, weapon_pos) {
+        (Some(pp), Some(wp)) => {
+            let d = pp - wp;
+            (d.x * d.x + d.y * d.y + d.z * d.z).sqrt() < 2.0
+        }
+        _ => false,
+    };
+    if !in_range {
+        return;
+    }
+    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+        return;
+    };
+    if slots.is_full() {
+        let drop_pos = player_pos
+            .map(|t| Vec3::new(t.x, t.y, t.z))
+            .unwrap_or(Vec3::ZERO);
+        let active = slots.active_mut();
+        let Some(drop_id) = active.0.take() else {
+            return;
+        };
+        let drop_entity = active.1.take();
+        drop(slots);
+        if let Some(drop_entity) = drop_entity {
+            held_weapons.0.remove(&drop_id);
+            world.teleport_body(drop_entity, drop_pos);
+            world.set_body_enabled(drop_entity, true);
+            quic.send(
+                SendTarget::All,
+                Channel::Ordered,
+                &MsgType::WeaponDrop(drop_id, player_net_id.clone(), drop_pos),
+            );
+        }
+        let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+            return;
+        };
+        slots.active_mut().0 = Some(target_net_id.clone());
+        slots.active_mut().1 = Some(target_entity);
+        held_weapons.0.insert(target_net_id.clone(), player_entity);
+    } else if slots.primary.0.is_none() {
+        slots.primary = (Some(target_net_id.clone()), Some(target_entity));
+        held_weapons.0.insert(target_net_id.clone(), player_entity);
+    } else {
+        slots.pocket = (Some(target_net_id.clone()), Some(target_entity));
+        held_weapons.0.insert(target_net_id.clone(), player_entity);
+    }
+    world.set_body_enabled(target_entity, false);
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::WeaponPickup(target_net_id, player_net_id),
+    );
+}
+
+fn handle_fire_request(
+    conn_id: ConnectionId,
+    weapon_net_id: NetworkID,
+    kind: GameObjectKind,
+    temp_id: u32,
+    origin: Vec3,
+    dir: Vec3,
+    registry: &PlayerRegistry,
+    pawn_slots: &Query<&mut WeaponSlots>,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    net_ids: &mut NetworkIDResource,
+    quic: &mut QuicManager,
+    tick: u64,
+) {
+    let Some((shooter_entity, _)) = registry.get_by_conn(conn_id) else {
+        return;
+    };
+    let shooter_holds = pawn_slots
+        .get(shooter_entity)
+        .map(|s| {
+            s.primary.0.as_ref() == Some(&weapon_net_id)
+                || s.pocket.0.as_ref() == Some(&weapon_net_id)
+        })
+        .unwrap_or(false);
+    if !shooter_holds {
+        return;
+    }
+    let Some(fired) = projectile::fire_authoritative(
+        kind,
+        origin,
+        dir,
+        shooter_entity,
+        tick,
+        commands,
+        world,
+        net_ids,
+    ) else {
+        return;
+    };
+    quic.send(
+        SendTarget::AllExcept(conn_id),
+        Channel::Unordered,
+        &MsgType::SpawnCommand(fired.spawn_cmd),
+    );
+    quic.send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &MsgType::ProjectileConfirm {
+            temp_id,
+            net_id: fired.net_id,
+        },
+    );
 }

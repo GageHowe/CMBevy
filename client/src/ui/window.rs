@@ -1,9 +1,9 @@
+use crate::{GameState, UiState};
 use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, /* WindowMode*/ WindowResolution},
 };
 use bevy_egui::input::EguiWantsInput;
-use crate::{GameState, UiState};
 
 pub struct WindowSettingsPlugin;
 
@@ -30,10 +30,17 @@ fn toggle_ui_state(
     ui_state: Res<State<UiState>>,
     mut next_ui: ResMut<NextState<UiState>>,
 ) {
-    let in_game = matches!(game_state.get(), GameState::SinglePlayer | GameState::Multiplayer);
-    if !in_game { return; }
+    let in_game = matches!(
+        game_state.get(),
+        GameState::SinglePlayer | GameState::Multiplayer
+    );
+    if !in_game {
+        return;
+    }
 
-    let egui_wants_keyboard = egui_wants_input.as_ref().map_or(false, |e| e.wants_keyboard_input());
+    let egui_wants_keyboard = egui_wants_input
+        .as_ref()
+        .map_or(false, |e| e.wants_keyboard_input());
 
     // Don't open the pause menu if the chat input has keyboard focus.
     if keys.just_pressed(KeyCode::Escape) && !egui_wants_keyboard {
@@ -57,9 +64,15 @@ fn sync_cursor_lock(
     mut cursor_options: Single<&mut CursorOptions>,
 ) {
     let egui_wants_keyboard = egui_wants_input.map_or(false, |e| e.wants_keyboard_input());
-    let should_lock = matches!(game_state.get(), GameState::SinglePlayer | GameState::Multiplayer)
-        && *ui_state.get() == UiState::Playing
+    let should_lock = matches!(
+        game_state.get(),
+        GameState::SinglePlayer | GameState::Multiplayer
+    ) && *ui_state.get() == UiState::Playing
         && !egui_wants_keyboard;
     cursor_options.visible = !should_lock;
-    cursor_options.grab_mode = if should_lock { CursorGrabMode::Locked } else { CursorGrabMode::None };
+    cursor_options.grab_mode = if should_lock {
+        CursorGrabMode::Locked
+    } else {
+        CursorGrabMode::None
+    };
 }

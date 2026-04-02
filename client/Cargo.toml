@@ -21,6 +21,7 @@ ureq = { version = "2", features = ["json"] }
 # custom crates
 
 common = { path = "../crates/common" }
+http_common = { path = "../crates/http_common" }
 physics = { path = "../crates/physics" }
 net = { path = "../crates/net", features = ["client"] }
 game_objects = { path = "../crates/game_objects", features = ["client"] }

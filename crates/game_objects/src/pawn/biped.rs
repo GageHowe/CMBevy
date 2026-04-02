@@ -1,10 +1,10 @@
-use super::*;
 #[cfg(feature = "client")]
 use super::vehicle::{Cockpit, VehicleComponent, enter_vehicle, ray_hits_cockpit};
+use super::*;
 #[cfg(feature = "client")]
 use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
-use crate::weapon::{hail_mary, rifle};
+use crate::weapon::{hail_mary, rifle, rpg};
 use crate::{GameObject, health::Health};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
@@ -194,9 +194,12 @@ impl Plugin for BipedPlugin {
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 biped_fire::<hail_mary::HailMaryComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
+                biped_fire::<rpg::RpgComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
                 toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
-                interact
-                    .run_if(in_state(common::game_state::GameState::SinglePlayer).or(in_state(common::game_state::GameState::Multiplayer))),
+                interact.run_if(
+                    in_state(common::game_state::GameState::SinglePlayer)
+                        .or(in_state(common::game_state::GameState::Multiplayer)),
+                ),
             )
                 .chain(),
         );
@@ -301,7 +304,10 @@ fn mouse_look(
     };
     // Scale look sensitivity with zoom so scoped weapons stay usable without
     // needing per-weapon sensitivity code.
-    let zoom = camera_fx.single().map(|fx| fx.zoom_multiplier.max(1.0)).unwrap_or(1.0);
+    let zoom = camera_fx
+        .single()
+        .map(|fx| fx.zoom_multiplier.max(1.0))
+        .unwrap_or(1.0);
     let zoom_scale = 1.0 + (1.0 / zoom - 1.0) * sensitivity.zoom_blend;
     let s = sensitivity.base * zoom_scale;
 
@@ -724,6 +730,7 @@ pub fn biped_fire<W: Weapon>(
     ticker: Res<common::tick::Ticker>,
     mut camera_fx: Query<(&mut CameraEffector, &GlobalTransform), With<Camera3d>>,
     mut id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
+    mut predicted: Option<ResMut<common::PredictedCommands>>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
     let Ok((pawn_entity, slots, biped)) = pawn.single() else {
@@ -761,6 +768,7 @@ pub fn biped_fire<W: Weapon>(
         camera: Some(&mut *cam_fx),
         quic: quic.as_deref_mut(),
         id_counter: id_counter.as_mut().map(|c| &mut c.count),
+        predicted: predicted.as_deref_mut(),
     };
     weapon.fixed_update(&mut world, &mut commands, &mut ctx);
 }
@@ -807,7 +815,9 @@ fn interact(
     let mut cockpit_target = None;
     for (cockpit_entity, cockpit, cockpit_gt, child_of) in cockpit_q.p0().iter() {
         let (_, _, seat_center) = cockpit_gt.to_scale_rotation_translation();
-        let Some(distance) = ray_hits_cockpit(origin, forward, 4.0, seat_center, cockpit.interact_radius) else {
+        let Some(distance) =
+            ray_hits_cockpit(origin, forward, 4.0, seat_center, cockpit.interact_radius)
+        else {
             continue;
         };
         if cockpit.occupant.is_some() {
@@ -824,13 +834,20 @@ fn interact(
         match state.get() {
             GameState::SinglePlayer => {
                 let mut cockpits = cockpit_q.p1();
-                let Ok((mut cockpit, seat_transform, child_of)) = cockpits.get_mut(cockpit_entity) else {
+                let Ok((mut cockpit, seat_transform, child_of)) = cockpits.get_mut(cockpit_entity)
+                else {
                     return;
                 };
                 if child_of.parent() != vehicle_entity {
                     return;
                 }
-                if !enter_vehicle(&mut world, pawn_entity, vehicle_entity, &mut cockpit, seat_transform) {
+                if !enter_vehicle(
+                    &mut world,
+                    pawn_entity,
+                    vehicle_entity,
+                    &mut cockpit,
+                    seat_transform,
+                ) {
                     return;
                 }
                 commands.entity(pawn_entity).remove::<Possessed>();

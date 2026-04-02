@@ -24,6 +24,7 @@ Refer to AGENTS.md for additional instructions.
 * Do NOT fundamentally change how things work without asking me first. When you add or change things, leave comments justifying why.
 * DO NOT git push --force, git reset --hard, rm -rf, etc.
 * Before implementing anything or making large changes, assess your proposed solution for scalability, simplicity, and flexibility.
+* don't do `use net::message::{etc, etc, etc}`, use wildcard to quickly pull everything.
 
 ## Iteration
 * When finished with a task, run `make build`.
