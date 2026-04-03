@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
 use bevy_egui::egui;
-use game_objects::pawn::{CameraEffector, MouseSensitivity};
+use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +68,7 @@ pub enum SettingsSection {
 pub struct Settings {
     pub mouse_sensitivity: f32,
     pub zoom_sensitivity_blend: f32,
+    pub preserve_look_across_planet_snap: bool,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
     pub debug_render: bool,
@@ -80,6 +81,7 @@ impl Default for Settings {
         Self {
             mouse_sensitivity: 0.002,
             zoom_sensitivity_blend: 1.0,
+            preserve_look_across_planet_snap: true,
             fov: 90.0,
             physics_interp: PhysicsInterp::RotationOnly,
             debug_render: false,
@@ -113,12 +115,14 @@ fn load_settings(mut commands: Commands) {
 fn apply_settings(
     settings: Res<Settings>,
     mut sensitivity: ResMut<MouseSensitivity>,
+    mut snap_comp: ResMut<LookSnapCompensation>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
     mut cam_effects: Query<&mut CameraEffector, With<Camera3d>>,
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     sensitivity.base = settings.mouse_sensitivity;
     sensitivity.zoom_blend = settings.zoom_sensitivity_blend;
+    snap_comp.0 = settings.preserve_look_across_planet_snap;
 
     if let Ok(mut fx) = cam_effects.single_mut() {
         fx.base_fov = settings.fov;
@@ -284,4 +288,12 @@ fn show_input_settings(ui: &mut egui::Ui, settings: &mut Settings) {
                 .show_value(true),
         );
     });
+
+    ui.checkbox(
+        &mut settings.preserve_look_across_planet_snap,
+        "Preserve look across planet snap",
+    )
+    .on_hover_text(
+        "Keeps the camera aimed in the same world direction when planet snapping rotates the player frame. Disable this to test whether it is causing view jitter.",
+    );
 }

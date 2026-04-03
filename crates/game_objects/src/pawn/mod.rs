@@ -65,9 +65,19 @@ pub use vehicle::VehicleComponent;
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<LookSnapCompensation>();
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
+    }
+}
+
+#[derive(Resource, Clone, Copy)]
+pub struct LookSnapCompensation(pub bool);
+
+impl Default for LookSnapCompensation {
+    fn default() -> Self {
+        Self(true)
     }
 }
 
