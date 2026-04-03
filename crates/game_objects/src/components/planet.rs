@@ -1,4 +1,4 @@
-use crate::pawn::BipedPawnComponent;
+use crate::pawn::{BipedPawnComponent, SeatedInVehicle};
 use bevy::prelude::*;
 use physics::physics_world::{self, *};
 use rapier3d::prelude::*;
@@ -49,6 +49,7 @@ pub fn apply_gravity_impulses(
     world: &mut PhysicsWorld,
     planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     gravity_scales: &Query<&physics_world::GravityScale>,
+    seated: &Query<&SeatedInVehicle>,
 ) {
     let dt = world.integration_parameters.dt;
 
@@ -95,6 +96,14 @@ pub fn apply_gravity_impulses(
         };
 
         for rb_handle in affected_handles {
+            if world
+                .handle_to_entity
+                .get(&rb_handle)
+                .and_then(|e| seated.get(*e).ok())
+                .is_some()
+            {
+                continue;
+            }
             let Some(rb) = world.rigid_body_set.get(rb_handle) else {
                 continue;
             };
@@ -155,15 +164,16 @@ pub fn apply_gravity(
     mut world: ResMut<PhysicsWorld>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     gravity_scales: Query<&physics_world::GravityScale>,
+    seated: Query<&SeatedInVehicle>,
 ) {
-    apply_gravity_impulses(&mut world, &planets, &gravity_scales);
+    apply_gravity_impulses(&mut world, &planets, &gravity_scales, &seated);
 }
 
 const ORIENT_SPEED: f32 = 3.0;
 
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
-    bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
+    bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
 ) {
     orient_bipeds_to_planets_impulses(&mut world, &bipeds, &planets);
@@ -171,7 +181,10 @@ pub fn orient_bipeds_to_planets(
 
 pub fn orient_bipeds_to_planets_impulses(
     world: &mut PhysicsWorld,
-    bipeds: &Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
+    bipeds: &Query<
+        &RigidBodyHandleComponent,
+        (With<BipedPawnComponent>, Without<SeatedInVehicle>),
+    >,
     planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
 ) {
     let dt = world.integration_parameters.dt;

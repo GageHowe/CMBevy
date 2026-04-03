@@ -15,12 +15,13 @@ use rapier3d::prelude::*;
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/placeholder_carrier.glb#Scene0";
-const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 0.5, -2.5);
-const COCKPIT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -0.2);
+const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 5.0, 3.0);
+const COCKPIT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
 const COCKPIT_EXIT_OFFSET: Vec3 = Vec3::new(2.0, 0.0, 0.0);
 const COCKPIT_RADIUS: f32 = 0.8;
-const THRUST: f32 = 10.0;
-const ROLL_SPEED: f32 = 1.5;
+const THRUST: f32 = 5000.0;
+const ROLL_SPEED: f32 = 1000.0;
+const SENSITIVITY: f32 = 10000000.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -183,18 +184,22 @@ pub fn apply_spaceship_movement(
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;
     };
+    if !body.is_enabled() {
+        return;
+    }
     let rotation = body.rotation();
     let local_right = rotation * Vector3::new(1.0, 0.0, 0.0);
     let local_up = rotation * Vector3::new(0.0, 1.0, 0.0);
-    let local_forward = rotation * Vector3::new(0.0, 0.0, 1.0);
+    let local_forward = rotation * Vector3::new(0.0, 0.0, -1.0);
 
     let impulse =
         (local_right * input.right + local_up * input.up + local_forward * input.forward) * THRUST;
     body.apply_impulse(impulse, true);
 
-    let torque = local_up * input.yaw * 60.0
-        + local_right * input.pitch * 60.0
-        + local_forward * input.roll * ROLL_SPEED;
-    // body.set_angvel(angvel, true);
-    body.add_torque(torque, true);
+    let mut torque = local_up * input.yaw;
+    torque += local_right * input.pitch;
+    torque *= SENSITIVITY;
+    torque += local_forward * input.roll * ROLL_SPEED;
+    // cap total torque here
+    body.apply_torque_impulse(torque, true);
 }

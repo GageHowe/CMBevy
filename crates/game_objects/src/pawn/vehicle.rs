@@ -5,8 +5,11 @@ use super::*;
 /// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
 /// across all vehicle types.
 use bevy::prelude::*;
-use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel};
-use rapier3d::prelude::{ImpulseJointHandle, Pose};
+use physics::physics_world::{
+    PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics,
+};
+#[cfg(feature = "client")]
+use physics::physics_world::sync_physics_visual;
 
 /// Marks an entity as a driveable vehicle.
 #[derive(Component, Reflect)]
@@ -15,12 +18,13 @@ pub struct VehicleComponent {
     pub camera_offset: Vec3,
 }
 
+#[derive(Component, Clone, Copy, Reflect)]
+pub struct SeatedInVehicle(pub Entity);
+
 /// A vehicle seat child entity. The child transform defines the seat anchor.
 #[derive(Component, Reflect)]
 pub struct Cockpit {
     pub occupant: Option<Entity>,
-    #[reflect(ignore)]
-    pub rider_joint: Option<ImpulseJointHandle>,
     pub interact_radius: f32,
     pub exit_offset: Vec3,
 }
@@ -29,7 +33,6 @@ impl Default for Cockpit {
     fn default() -> Self {
         Self {
             occupant: None,
-            rider_joint: None,
             interact_radius: 1.0,
             exit_offset: Vec3::X * 4.0,
         }
@@ -41,8 +44,10 @@ impl Plugin for VehiclePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<VehicleComponent>();
         app.register_type::<Cockpit>();
+        app.add_systems(FixedUpdate, sync_seated_bipeds.before(step_physics));
         #[cfg(feature = "client")]
         {
+            app.add_systems(Update, sync_seated_biped_visuals.after(sync_physics_visual));
             app.add_systems(FixedPreUpdate, attach_camera_on_possess_vehicle);
             app.add_systems(FixedPreUpdate, vehicle_exit_interact);
         }
@@ -81,7 +86,7 @@ pub fn enter_vehicle(
     cockpit: &mut Cockpit,
     seat_transform: &Transform,
 ) -> bool {
-    if cockpit.occupant.is_some() || cockpit.rider_joint.is_some() {
+    if cockpit.occupant.is_some() {
         return false;
     }
 
@@ -104,16 +109,9 @@ pub fn enter_vehicle(
         vehicle_vel,
         vehicle_angvel,
     );
-
-    let frame1 = Pose::from_parts(seat_transform.translation, seat_transform.rotation);
-    let frame2 = Pose::identity();
-    let Some(joint) = world.insert_fixed_joint(vehicle_entity, biped_entity, frame1, frame2, false)
-    else {
-        return false;
-    };
+    world.set_body_enabled(biped_entity, false);
 
     cockpit.occupant = Some(biped_entity);
-    cockpit.rider_joint = Some(joint);
     true
 }
 
@@ -124,9 +122,6 @@ pub fn exit_vehicle(
     seat_transform: &Transform,
 ) -> Option<Entity> {
     let biped_entity = cockpit.occupant.take()?;
-    if let Some(joint) = cockpit.rider_joint.take() {
-        world.remove_impulse_joint(joint);
-    }
 
     let vehicle_body = world
         .entity_to_handle
@@ -139,6 +134,7 @@ pub fn exit_vehicle(
     let exit_offset = seat_transform.rotation * cockpit.exit_offset + seat_transform.translation;
     let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
     let exit_rot = vehicle_rot * seat_transform.rotation;
+    world.set_body_enabled(biped_entity, true);
     world.set_body_pose(
         biped_entity,
         exit_pos,
@@ -147,6 +143,72 @@ pub fn exit_vehicle(
         vehicle_angvel,
     );
     Some(biped_entity)
+}
+
+fn sync_seated_bipeds(
+    mut world: ResMut<PhysicsWorld>,
+    seated: Query<(Entity, &SeatedInVehicle)>,
+    cockpits: Query<(&Transform, &ChildOf), With<Cockpit>>,
+) {
+    for (biped_entity, seated_in) in seated.iter() {
+        let Some(vehicle_handle) = world.entity_to_handle.get(&seated_in.0).copied() else {
+            continue;
+        };
+        let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else {
+            continue;
+        };
+        let Some((seat_transform, _)) = cockpits
+            .iter()
+            .find(|(_, child_of)| child_of.parent() == seated_in.0)
+        else {
+            continue;
+        };
+        let vehicle_pos = rb_pos(vehicle_body);
+        let vehicle_rot = rb_rot(vehicle_body);
+        let seat_pos = seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation);
+        let seat_rot = vehicle_rot * seat_transform.rotation;
+        let vehicle_vel = rb_vel(vehicle_body);
+        let vehicle_angvel = rb_angvel(vehicle_body);
+        world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
+    }
+}
+
+#[cfg(feature = "client")]
+fn sync_seated_biped_visuals(
+    seated: Query<(Entity, &SeatedInVehicle)>,
+    mut transforms: ParamSet<(
+        Query<&Transform, With<VehicleComponent>>,
+        Query<(&Transform, &ChildOf), With<Cockpit>>,
+        Query<&mut Transform>,
+    )>,
+) {
+    for (biped_entity, seated_in) in seated.iter() {
+        let (vehicle_translation, vehicle_rotation) = {
+            let vehicles = transforms.p0();
+            let Ok(vehicle_transform) = vehicles.get(seated_in.0) else {
+                continue;
+            };
+            (vehicle_transform.translation, vehicle_transform.rotation)
+        };
+        let (seat_translation, seat_rotation) = {
+            let cockpits = transforms.p1();
+            let Some((seat_transform, _)) = cockpits
+                .iter()
+                .find(|(_, child_of)| child_of.parent() == seated_in.0)
+            else {
+                continue;
+            };
+            (seat_transform.translation, seat_transform.rotation)
+        };
+        let mut bipeds = transforms.p2();
+        let Ok(mut biped_transform) = bipeds.get_mut(biped_entity) else {
+            continue;
+        };
+        // Seated riders are rendered from the vehicle's visual frame so interpolation keeps
+        // them attached to the cockpit instead of drifting from their disabled rigid body.
+        biped_transform.translation = vehicle_translation + vehicle_rotation * seat_translation;
+        biped_transform.rotation = vehicle_rotation * seat_rotation;
+    }
 }
 
 #[cfg(feature = "client")]
@@ -238,7 +300,10 @@ fn vehicle_exit_interact(
                 return;
             };
             commands.entity(vehicle_entity).remove::<Possessed>();
-            commands.entity(biped_entity).insert(Possessed::new(128));
+            commands
+                .entity(biped_entity)
+                .remove::<SeatedInVehicle>()
+                .insert(Possessed::new(128));
         }
         _ => {}
     }

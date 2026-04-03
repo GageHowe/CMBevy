@@ -19,14 +19,13 @@ cross-windows:
 dev:
 	cargo build -p gameserver && cargo run -p client
 
-test-network:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_multiplayer_windows.ps1
-
 s:
 	cargo run -p gameserver
 
 c:
 	cargo run -p client
+c-release:
+	cargo run -p client --release
 
 emulator:
 	cargo run -p network_emulator --release

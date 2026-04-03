@@ -7,6 +7,7 @@ use common::{NetworkID, PredictedCommand, PredictedCommands};
 use game_objects::components::atmosphere::{
     AtmosphericDragComponent, apply_wind_resistance_impulses,
 };
+use game_objects::pawn::SeatedInVehicle;
 use game_objects::pawn::Pawn;
 use game_objects::pawn::biped::BipedPawnComponent;
 use game_objects::pawn::spaceship::SpaceshipPawnComponent;
@@ -169,7 +170,11 @@ pub fn maybe_reconcile(
     tick: Res<Ticker>,
     _net_stats: Res<NetworkStats>,
     bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>,
-    bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
+    bipeds: Query<
+        &RigidBodyHandleComponent,
+        (With<BipedPawnComponent>, Without<SeatedInVehicle>),
+    >,
+    seated: Query<&SeatedInVehicle>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     atmospheres: Query<(
         &AtmosphericDragComponent,
@@ -241,8 +246,8 @@ pub fn maybe_reconcile(
                 &mut spaceship_q,
             );
         }
-        apply_wind_resistance_impulses(&mut world, &atmospheres);
-        apply_gravity_impulses(&mut world, &planets, &gravity_scales);
+        apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);
+        apply_gravity_impulses(&mut world, &planets, &gravity_scales, &seated);
         orient_bipeds_to_planets_impulses(&mut world, &bipeds, &planets);
         step_world(&mut world);
     }

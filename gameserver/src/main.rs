@@ -43,7 +43,7 @@ struct ServerMessageParams<'w, 's> {
     world: ResMut<'w, PhysicsWorld>,
     held_weapons: ResMut<'w, HeldWeaponMap>,
     spawn_points: Query<'w, 's, (&'static SpawnPoint, &'static Transform)>,
-    non_pawn_objects: Query<
+    spawnables: Query<
         'w,
         's,
         (
@@ -51,11 +51,12 @@ struct ServerMessageParams<'w, 's> {
             &'static GameObjectKind,
             &'static RigidBodyHandleComponent,
         ),
-        Without<BipedPawnComponent>,
     >,
     all_networked: Res<'w, NetworkEntityMap>,
     pawn_slots: Query<'w, 's, &'static mut WeaponSlots>,
     bipeds: Query<'w, 's, &'static mut BipedPawnComponent>,
+    net_ids: Query<'w, 's, &'static NetworkID>,
+    seated_bipeds: Query<'w, 's, (&'static NetworkID, &'static SeatedInVehicle)>,
     cockpits: Query<'w, 's, (&'static mut Cockpit, &'static Transform, &'static ChildOf)>,
 }
 
@@ -154,23 +155,24 @@ fn main() {
     app.run();
 }
 
-/// maps of each connected client to their spawned pawn entity and network id.
-/// TODO: what to do once we have players that can switch Possessed Entities? E.g., getting into vehicles
-/// TODO: how to get, say, NetworkID or ConnectionID from Entity efficiently?
-/// maybe https://github.com/lun3x/multi_index_map
+/// Tracks both the currently controlled entity and the player's persistent biped.
 #[derive(Resource, Default)]
 pub(crate) struct PlayerRegistry {
     pub by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
-    pub by_entity: HashMap<Entity, ConnectionId>,
+    pub characters: HashMap<ConnectionId, (Entity, NetworkID)>,
+    pub by_character_entity: HashMap<Entity, ConnectionId>,
 }
 impl PlayerRegistry {
     pub fn insert(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        if let Some((old_entity, _)) = self.by_conn.insert(conn_id, (entity, net_id.clone())) {
-            self.by_entity.remove(&old_entity);
+        self.by_conn.insert(conn_id, (entity, net_id.clone()));
+        if let Some((old_entity, _)) = self.characters.insert(conn_id, (entity, net_id.clone())) {
+            self.by_character_entity.remove(&old_entity);
         }
-        if let Some(old_conn_id) = self.by_entity.insert(entity, conn_id) {
-            self.by_conn.remove(&old_conn_id);
-        }
+        self.by_character_entity.insert(entity, conn_id);
+    }
+
+    pub fn set_controlled(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
+        self.by_conn.insert(conn_id, (entity, net_id));
     }
 
     pub fn get_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
@@ -179,20 +181,28 @@ impl PlayerRegistry {
             .map(|(entity, net_id)| (*entity, net_id))
     }
 
+    pub fn get_character_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
+        self.characters
+            .get(&conn_id)
+            .map(|(entity, net_id)| (*entity, net_id))
+    }
+
     pub fn remove_by_conn(&mut self, conn_id: ConnectionId) -> Option<(Entity, NetworkID)> {
-        let (entity, net_id) = self.by_conn.remove(&conn_id)?;
-        self.by_entity.remove(&entity);
+        self.by_conn.remove(&conn_id);
+        let (entity, net_id) = self.characters.remove(&conn_id)?;
+        self.by_character_entity.remove(&entity);
         Some((entity, net_id))
     }
 
     pub fn remove_by_entity(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
-        let conn_id = self.by_entity.remove(&entity)?;
-        let (_, net_id) = self.by_conn.remove(&conn_id)?;
+        let conn_id = self.by_character_entity.remove(&entity)?;
+        self.by_conn.remove(&conn_id);
+        let (_, net_id) = self.characters.remove(&conn_id)?;
         Some((conn_id, net_id))
     }
 
     pub fn conn_id_for_entity(&self, entity: Entity) -> Option<ConnectionId> {
-        self.by_entity.get(&entity).copied()
+        self.by_character_entity.get(&entity).copied()
     }
 }
 
@@ -337,8 +347,10 @@ fn on_message(
                     &sp.world,
                     tick.tick,
                     &sp.spawn_points,
-                    &sp.non_pawn_objects,
+                    &sp.spawnables,
                     &sp.pawn_slots,
+                    &sp.net_ids,
+                    &sp.seated_bipeds,
                 );
             }
 
@@ -365,14 +377,16 @@ fn on_message(
                 handle_interact(
                     msg.conn_id,
                     target_net_id,
-                    &registry,
+                    &mut registry,
                     &sp.all_networked,
                     &mut quic,
                     &mut sp.world,
                     &mut sp.held_weapons,
                     &mut sp.pawn_slots,
                     &mut sp.bipeds,
+                    &sp.net_ids,
                     &mut sp.cockpits,
+                    &mut sp.commands,
                 );
             }
             MsgType::FireRequest {
@@ -445,11 +459,10 @@ fn handle_connected(
     world: &PhysicsWorld,
     tick: u64,
     spawn_points: &Query<(&SpawnPoint, &Transform)>,
-    non_pawn_objects: &Query<
-        (&NetworkID, &GameObjectKind, &RigidBodyHandleComponent),
-        Without<BipedPawnComponent>,
-    >,
+    spawnables: &Query<(&NetworkID, &GameObjectKind, &RigidBodyHandleComponent)>,
     pawn_slots: &Query<&mut WeaponSlots>,
+    entity_net_ids: &Query<&NetworkID>,
+    seated_bipeds: &Query<(&NetworkID, &SeatedInVehicle)>,
 ) {
     if let Some(lb) = level_bytes {
         quic.send(
@@ -463,32 +476,12 @@ fn handle_connected(
             quic.send_file(SendTarget::One(conn_id), "gametype.lua".into(), src);
         }
     }
-    for (existing_entity, existing_net_id) in registry.by_conn.values() {
-        let existing_pos = world
-            .entity_to_handle
-            .get(existing_entity)
-            .and_then(|&h| world.rigid_body_set.get(h))
-            .map(rb_pos)
-            .unwrap_or(Vec3::ZERO);
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::SpawnCommand(SpawnCommand {
-                net_id: existing_net_id.clone(),
-                position: existing_pos.into(),
-                starting_velocity: Vec3::ZERO.into(),
-                rotation: Quat::IDENTITY.into(),
-                server_tick: tick,
-                kind: GameObjectKind::Biped,
-            }),
-        );
-    }
     let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
         .iter()
         .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
         .flatten()
         .collect();
-    for (net_id, kind, rb) in non_pawn_objects.iter() {
+    for (net_id, kind, rb) in spawnables.iter() {
         if held_ids.contains(net_id) {
             continue;
         }
@@ -508,6 +501,16 @@ fn handle_connected(
                 server_tick: tick,
                 kind: kind.clone(),
             }),
+        );
+    }
+    for (biped_net_id, seated_in) in seated_bipeds.iter() {
+        let Ok(vehicle_net_id) = entity_net_ids.get(seated_in.0) else {
+            continue;
+        };
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::SeatState(biped_net_id.clone(), Some(vehicle_net_id.clone())),
         );
     }
     let num_teams = {
@@ -584,7 +587,7 @@ fn handle_flashlight_toggle(
     bipeds: &mut Query<&mut BipedPawnComponent>,
     quic: &mut QuicManager,
 ) {
-    let Some((entity, net_id)) = registry.get_by_conn(conn_id) else {
+    let Some((entity, net_id)) = registry.get_character_by_conn(conn_id) else {
         return;
     };
     let Ok(mut biped) = bipeds.get_mut(entity) else {
@@ -601,14 +604,16 @@ fn handle_flashlight_toggle(
 fn handle_interact(
     conn_id: ConnectionId,
     target_net_id: NetworkID,
-    registry: &PlayerRegistry,
+    registry: &mut PlayerRegistry,
     all_networked: &NetworkEntityMap,
     quic: &mut QuicManager,
     world: &mut PhysicsWorld,
     held_weapons: &mut HeldWeaponMap,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     bipeds: &mut Query<&mut BipedPawnComponent>,
+    net_ids: &Query<&NetworkID>,
     cockpits: &mut Query<(&mut Cockpit, &Transform, &ChildOf)>,
+    commands: &mut Commands,
 ) {
     let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
         return;
@@ -617,63 +622,76 @@ fn handle_interact(
         return;
     };
     let player_net_id = player_net_id.clone();
-    if let Some((mut cockpit, seat_transform, child_of)) = cockpits
+    if let Some((mut cockpit, seat_transform, _child_of)) = cockpits
         .iter_mut()
         .find(|(_, _, child_of)| child_of.parent() == target_entity)
     {
-        if let Ok(mut biped) = bipeds.get_mut(player_entity) {
-            if biped.in_vehicle == Some(target_entity) {
-                if child_of.parent() != target_entity {
-                    return;
-                }
-                let Some(_) = exit_vehicle(world, target_entity, &mut cockpit, seat_transform)
-                else {
-                    return;
-                };
-                biped.in_vehicle = None;
+        if cockpit.occupant.is_some() && player_entity == target_entity {
+            let Some(biped_entity) = exit_vehicle(world, target_entity, &mut cockpit, seat_transform)
+            else {
+                return;
+            };
+            let Ok(biped_net_id) = net_ids.get(biped_entity) else {
+                return;
+            };
+            commands.entity(biped_entity).remove::<SeatedInVehicle>();
+            registry.set_controlled(conn_id, biped_entity, biped_net_id.clone());
+            quic.send(
+                SendTarget::All,
+                Channel::Ordered,
+                &MsgType::SeatState(biped_net_id.clone(), None),
+            );
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::Possess(biped_net_id.clone()),
+            );
+            return;
+        }
+        if cockpit.occupant.is_none() {
+            let pp = world
+                .entity_to_handle
+                .get(&player_entity)
+                .and_then(|&h| world.rigid_body_set.get(h))
+                .map(|rb| rb.position().translation);
+            let vp = world
+                .entity_to_handle
+                .get(&target_entity)
+                .and_then(|&h| world.rigid_body_set.get(h))
+                .map(|rb| {
+                    let vehicle_pos = rb_pos(rb);
+                    let vehicle_rot = rb_rot(rb);
+                    seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation)
+                });
+            let in_range = matches!((pp, vp), (Some(a), Some(b)) if {
+                let d = a - b;
+                d.x * d.x + d.y * d.y + d.z * d.z
+                    < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
+            });
+            if in_range
+                && enter_vehicle(
+                    world,
+                    player_entity,
+                    target_entity,
+                    &mut cockpit,
+                    seat_transform,
+                )
+            {
+                let _ = bipeds;
+                commands
+                    .entity(player_entity)
+                    .insert(SeatedInVehicle(target_entity));
+                registry.set_controlled(conn_id, target_entity, target_net_id.clone());
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::SeatState(player_net_id.clone(), Some(target_net_id.clone())),
+                );
                 quic.send(
                     SendTarget::One(conn_id),
                     Channel::Ordered,
-                    &MsgType::Possess(player_net_id),
+                    &MsgType::Possess(target_net_id),
                 );
-                return;
-            }
-            if biped.in_vehicle.is_none() && cockpit.occupant.is_none() {
-                let pp = world
-                    .entity_to_handle
-                    .get(&player_entity)
-                    .and_then(|&h| world.rigid_body_set.get(h))
-                    .map(|rb| rb.position().translation);
-                let vp = world
-                    .entity_to_handle
-                    .get(&target_entity)
-                    .and_then(|&h| world.rigid_body_set.get(h))
-                    .map(|rb| {
-                        let vehicle_pos = rb_pos(rb);
-                        let vehicle_rot = rb_rot(rb);
-                        seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation)
-                    });
-                let in_range = matches!((pp, vp), (Some(a), Some(b)) if {
-                    let d = a - b;
-                    d.x * d.x + d.y * d.y + d.z * d.z
-                        < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
-                });
-                if in_range
-                    && enter_vehicle(
-                        world,
-                        player_entity,
-                        target_entity,
-                        &mut cockpit,
-                        seat_transform,
-                    )
-                {
-                    biped.in_vehicle = Some(target_entity);
-                    quic.send(
-                        SendTarget::One(conn_id),
-                        Channel::Ordered,
-                        &MsgType::Possess(target_net_id),
-                    );
-                }
             }
         }
         return;

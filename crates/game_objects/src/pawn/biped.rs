@@ -5,7 +5,7 @@ use super::*;
 use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
 use crate::weapon::{hail_mary, rifle, rpg};
-use crate::{GameObject, health::Health};
+use crate::{GameObject, GameObjectKind, health::Health};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -52,11 +52,8 @@ pub struct BipedPawnComponent {
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
     pub is_sliding: bool,
-    /// Client-only cached body rotation used to preserve world look across planet snap updates.
+    /// Client-only cached body rotation used to preserve world look across body rotation.
     pub last_look_frame_body_rot: Option<Quat>,
-    /// set server-side while this biped is inside a vehicle; cleared on exit.
-    /// never set on clients — do not read this client-side.
-    pub in_vehicle: Option<Entity>,
 }
 
 #[derive(Component, Clone, Reflect, Default)]
@@ -85,6 +82,7 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert((
             WeaponSlots::default(),
             Health::new(100.0),
+            GameObjectKind::Biped,
             Transform::from(transform),
             BipedPawnComponent::default(),
             cmd.net_id.clone(),
@@ -296,34 +294,39 @@ fn gather_biped_input(
 /// moves the biped's yaw and pitch components on Update
 fn preserve_look_across_body_rotation(
     snap_comp: Option<Res<super::LookSnapCompensation>>,
-    body_transforms: Query<
-        &Transform,
-        (
-            With<Possessed>,
-            Without<YawPivot>,
-            Without<PitchPivot>,
-        ),
-    >,
     mut possessed: Query<
         (&RigidBodyHandleComponent, &mut BipedPawnComponent),
         With<Possessed>,
     >,
     mut pivots: ParamSet<(
-        Query<(&mut Transform, &mut YawPivot)>,
-        Query<(&mut Transform, &mut PitchPivot)>,
+        Query<
+            &Transform,
+            (
+                With<Possessed>,
+                Without<YawPivot>,
+                Without<PitchPivot>,
+            ),
+        >,
+        Query<(&mut Transform, &mut YawPivot), Without<Possessed>>,
+        Query<(&mut Transform, &mut PitchPivot), Without<Possessed>>,
     )>,
 ) {
     let Ok((_body_handle, mut biped)) = possessed.single_mut() else {
         return;
     };
-    let Ok(body_transform) = body_transforms.single() else {
-        return;
-    };
-    let body_rot = body_transform.rotation;
+    let body_rot;
+    {
+        let body_transforms = pivots.p0();
+        let Ok(body_transform) = body_transforms.single() else {
+            return;
+        };
+        body_rot = body_transform.rotation;
+    }
     if !snap_comp.map_or(true, |enabled| enabled.0) {
         biped.last_look_frame_body_rot = Some(body_rot);
         return;
     }
+
     let Some(prev_body_rot) = biped.last_look_frame_body_rot else {
         biped.last_look_frame_body_rot = Some(body_rot);
         return;
@@ -336,60 +339,45 @@ fn preserve_look_across_body_rotation(
         biped.last_look_frame_body_rot = Some(body_rot);
         return;
     };
-    let (yaw, pitch) = {
-        let yaw = {
-            let mut yaw_query = pivots.p0();
-            let Ok((_, yaw_pivot)) = yaw_query.get_mut(yaw_e) else {
-                biped.last_look_frame_body_rot = Some(body_rot);
-                return;
-            };
-            yaw_pivot.yaw
-        };
-        let pitch = {
-            let mut pitch_query = pivots.p1();
-            let Ok((_, pitch_pivot)) = pitch_query.get_mut(pitch_e) else {
-                biped.last_look_frame_body_rot = Some(body_rot);
-                return;
-            };
-            pitch_pivot.pitch
-        };
-
-        // Preserve the camera's world-space forward when the snapped body frame rotates under it.
-        let world_forward = prev_body_rot
-            * Quat::from_rotation_y(yaw)
-            * Quat::from_rotation_x(pitch)
-            * Vec3::NEG_Z;
-        let local_forward = (body_rot.inverse() * world_forward).normalize_or_zero();
-        if local_forward == Vec3::ZERO {
+    let yaw = {
+        let mut yaw_query = pivots.p1();
+        let Ok((_, yaw_pivot)) = yaw_query.get_mut(yaw_e) else {
             biped.last_look_frame_body_rot = Some(body_rot);
             return;
-        }
-
-        (
-            f32::atan2(-local_forward.x, -local_forward.z),
-            local_forward.y.clamp(-1.0, 1.0).asin().clamp(-PITCH_MAX, PITCH_MAX),
-        )
+        };
+        yaw_pivot.yaw
     };
-
-    {
-        let mut yaw_query = pivots.p0();
-        let Ok((mut yaw_t, mut yaw_pivot)) = yaw_query.get_mut(yaw_e) else {
+    let pitch = {
+        let mut pitch_query = pivots.p2();
+        let Ok((_, pitch_pivot)) = pitch_query.get_mut(pitch_e) else {
             biped.last_look_frame_body_rot = Some(body_rot);
             return;
         };
-        yaw_pivot.yaw = yaw;
-        yaw_t.rotation = Quat::from_rotation_y(yaw);
+        pitch_pivot.pitch
+    };
+    let world_forward = prev_body_rot
+        * Quat::from_rotation_y(yaw)
+        * Quat::from_rotation_x(pitch)
+        * Vec3::NEG_Z;
+    let local_forward = (body_rot.inverse() * world_forward).normalize_or_zero();
+    if local_forward != Vec3::ZERO {
+        let yaw = f32::atan2(-local_forward.x, -local_forward.z);
+        let pitch = local_forward.y.clamp(-1.0, 1.0).asin().clamp(-PITCH_MAX, PITCH_MAX);
+        {
+            let mut yaw_query = pivots.p1();
+            if let Ok((mut yaw_t, mut yaw_pivot)) = yaw_query.get_mut(yaw_e) {
+                yaw_pivot.yaw = yaw;
+                yaw_t.rotation = Quat::from_rotation_y(yaw);
+            }
+        }
+        {
+            let mut pitch_query = pivots.p2();
+            if let Ok((mut pitch_t, mut pitch_pivot)) = pitch_query.get_mut(pitch_e) {
+                pitch_pivot.pitch = pitch;
+                pitch_t.rotation = Quat::from_rotation_x(pitch);
+            }
+        }
     }
-    {
-        let mut pitch_query = pivots.p1();
-        let Ok((mut pitch_t, mut pitch_pivot)) = pitch_query.get_mut(pitch_e) else {
-            biped.last_look_frame_body_rot = Some(body_rot);
-            return;
-        };
-        pitch_pivot.pitch = pitch;
-        pitch_t.rotation = Quat::from_rotation_x(pitch);
-    }
-
     biped.last_look_frame_body_rot = Some(body_rot);
 }
 
@@ -653,6 +641,9 @@ pub fn apply_biped_movement(
         let Some(body) = world.rigid_body_set.get(body_handle.0) else {
             return;
         };
+        if !body.is_enabled() {
+            return;
+        }
         (rb_rot(body), rb_pos(body), rb_vel(body), body.mass())
     };
 
@@ -963,6 +954,9 @@ fn interact(
                 ) {
                     return;
                 }
+                commands
+                    .entity(pawn_entity)
+                    .insert(super::SeatedInVehicle(vehicle_entity));
                 commands.entity(pawn_entity).remove::<Possessed>();
                 commands.entity(vehicle_entity).insert(Possessed::new(128));
                 return;

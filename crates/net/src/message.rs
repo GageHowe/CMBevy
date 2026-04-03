@@ -27,6 +27,7 @@ pub enum MsgType {
     SpawnCommand(SpawnCommand),
     DespawnCommand(NetworkID),
     Possess(NetworkID),
+    SeatState(NetworkID, Option<NetworkID>),
     Interact(NetworkID),
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),

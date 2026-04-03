@@ -314,6 +314,16 @@ fn on_message(
                     &mut ticker,
                 );
             }
+            MsgType::SeatState(biped_net_id, vehicle_net_id) => {
+                handle_seat_state(
+                    &biped_net_id,
+                    vehicle_net_id.as_ref(),
+                    &just_spawned,
+                    &mp.networked,
+                    &mut mp.spawn.commands,
+                    &mut mp.world,
+                );
+            }
             MsgType::DespawnCommand(net_id) => {
                 handle_despawn(
                     &net_id,
@@ -439,6 +449,35 @@ fn handle_possess(
     }
     ticker.tick = server_tick;
     commands.entity(entity).insert(Possessed::new(128));
+}
+
+fn handle_seat_state(
+    biped_net_id: &NetworkID,
+    vehicle_net_id: Option<&NetworkID>,
+    just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
+    networked: &NetworkEntityMap,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) {
+    let biped_entity = just_spawned
+        .get(biped_net_id)
+        .map(|(entity, _)| *entity)
+        .or_else(|| find_networked_entity(networked, biped_net_id));
+    let Some(biped_entity) = biped_entity else {
+        return;
+    };
+    match vehicle_net_id.and_then(|id| find_networked_entity(networked, id)) {
+        Some(vehicle_entity) => {
+            world.set_body_enabled(biped_entity, false);
+            commands
+                .entity(biped_entity)
+                .insert(SeatedInVehicle(vehicle_entity));
+        }
+        None => {
+            world.set_body_enabled(biped_entity, true);
+            commands.entity(biped_entity).remove::<SeatedInVehicle>();
+        }
+    }
 }
 
 fn handle_despawn(

@@ -60,7 +60,7 @@ pub use biped::BipedPawnComponent;
 pub use biped::{PitchPivot, YawPivot};
 pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use spaceship::SpaceshipPawnComponent;
-pub use vehicle::VehicleComponent;
+pub use vehicle::{SeatedInVehicle, VehicleComponent};
 
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
@@ -74,7 +74,6 @@ impl Plugin for PawnPlugin {
 
 #[derive(Resource, Clone, Copy)]
 pub struct LookSnapCompensation(pub bool);
-
 impl Default for LookSnapCompensation {
     fn default() -> Self {
         Self(true)
@@ -91,69 +90,6 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
     );
 }
 
-macro_rules! for_each_pawn_input_type {
-    ($m:ident $($args:tt)*) => {
-        $m!(
-            $($args)*
-            PawnInputKind::Biped => apply_biped_server_input,
-            PawnInputKind::Spaceship => apply_spaceship_server_input
-        )
-    };
-}
-
-macro_rules! apply_server_input_match {
-    ($input:expr, $entity:expr, $world:expr, $bipeds:expr, $spaceships:expr; $($kind:path => $handler:path),+ $(,)?) => {
-        match $input {
-            $(
-                $kind(input) => $handler($entity, input, $world, $bipeds, $spaceships),
-            )+
-        }
-    };
-}
-
-fn apply_biped_server_input(
-    entity: Entity,
-    input: BipedInput,
-    world: &mut PhysicsWorld,
-    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
-    _spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
-) -> bool {
-    let Ok(mut biped) = bipeds.get_mut(entity) else {
-        return false;
-    };
-    if biped.in_vehicle.is_some() {
-        return false;
-    }
-    let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
-        return false;
-    };
-    biped.look_yaw = input.look_yaw;
-    biped.look_pitch = input.look_pitch;
-    biped::apply_biped_movement(world, &RigidBodyHandleComponent(handle), input, &mut biped);
-    true
-}
-
-fn apply_spaceship_server_input(
-    entity: Entity,
-    input: SpaceshipInput,
-    world: &mut PhysicsWorld,
-    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
-    spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
-) -> bool {
-    let vehicle_entity = bipeds.get(entity).ok().and_then(|b| b.in_vehicle);
-    let Some(vehicle_entity) = vehicle_entity else {
-        return false;
-    };
-    let Some(handle) = world.entity_to_handle.get(&vehicle_entity).copied() else {
-        return false;
-    };
-    let Ok(mut ship) = spaceships.get_mut(vehicle_entity) else {
-        return false;
-    };
-    spaceship::apply_spaceship_movement(world, &RigidBodyHandleComponent(handle), input, &mut ship);
-    true
-}
-
 pub fn apply_server_input(
     entity: Entity,
     input: PawnInputKind,
@@ -161,7 +97,32 @@ pub fn apply_server_input(
     bipeds: &mut Query<&mut biped::BipedPawnComponent>,
     spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
 ) -> bool {
-    for_each_pawn_input_type!(apply_server_input_match input, entity, world, bipeds, spaceships;)
+    let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
+        return false;
+    };
+    match input {
+        PawnInputKind::Biped(input) => {
+            let Ok(mut biped) = bipeds.get_mut(entity) else {
+                return false;
+            };
+            biped.look_yaw = input.look_yaw;
+            biped.look_pitch = input.look_pitch;
+            biped::apply_biped_movement(world, &RigidBodyHandleComponent(handle), input, &mut biped);
+            true
+        }
+        PawnInputKind::Spaceship(input) => {
+            let Ok(mut ship) = spaceships.get_mut(entity) else {
+                return false;
+            };
+            spaceship::apply_spaceship_movement(
+                world,
+                &RigidBodyHandleComponent(handle),
+                input,
+                &mut ship,
+            );
+            true
+        }
+    }
 }
 
 // CAMERA
