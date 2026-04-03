@@ -5,7 +5,6 @@ use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[deprecated]
-/// this should depend on the individual component instance
 pub const GRAVITY_STRENGTH: f32 = 9.81;
 
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
@@ -25,53 +24,27 @@ impl Default for GravityProfile {
 #[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct PlanetComponent {
-    /// skips gravity application completely when within this radius
     pub inner_radius: u32,
-    /// outer radius where bipeds' feet should point towards the center of the planet.
-    /// has no effect when entity is inside inner_radius
     pub snap_radius: u32,
-    /// max radius for the spatial query. If zero, all objects are affected.
     pub gravity_radius: u32,
-    /// defines how strong gravity is over time
     pub gravity_profile: GravityProfile,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct PlanetVisual {
+    pub scene_path: String,
 }
 
 pub fn spawn(
     planet: PlanetComponent,
     transform: Transform,
     commands: &mut Commands,
-    world: &mut PhysicsWorld,
+    _world: &mut PhysicsWorld,
 ) -> Entity {
-    let collider_radius = planet.inner_radius as f32;
-    let pos = transform.translation;
-    let entity = commands.spawn((planet, transform)).id();
-    let rb_handle = world.insert_body(
-        entity,
-        RigidBodyBuilder::fixed()
-            .translation(Vector3::new(pos.x, pos.y, pos.z))
-            .build(),
-    );
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
-    collider_set.insert_with_parent(
-        ColliderBuilder::ball(collider_radius)
-            .friction(3.0)
-            .restitution(0.0)
-            .build(),
-        rb_handle,
-        rigid_body_set,
-    );
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
-    entity
+    commands.spawn((planet, transform)).id()
 }
 
-/// Applies a gravity impulse from each planet to all dynamic bodies within its radius.
-/// Called before every physics step, including during reconciliation replay.
 pub fn apply_gravity_impulses(
     world: &mut PhysicsWorld,
     planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
@@ -186,7 +159,6 @@ pub fn apply_gravity(
     apply_gravity_impulses(&mut world, &planets, &gravity_scales);
 }
 
-/// how fast bipeds rotate toward planet-up
 const ORIENT_SPEED: f32 = 3.0;
 
 pub fn orient_bipeds_to_planets(
@@ -245,8 +217,6 @@ pub fn orient_bipeds_to_planets_impulses(
 
         let desired_up = (pos - planet_center).normalize();
         let current_forward = current_rot * Vec3::NEG_Z;
-
-        // Gram-Schmidt: project current forward onto the plane perpendicular to desired_up, to avoid roll accumulating across ticks
         let forward_proj = {
             let proj = current_forward - current_forward.dot(desired_up) * desired_up;
             if proj.length_squared() > 1e-6 {
@@ -261,12 +231,10 @@ pub fn orient_bipeds_to_planets_impulses(
             }
         };
 
-        // Rebuild orthonormal basis: X=right, Y=up, Z=back
         let right = forward_proj.cross(desired_up).normalize();
         let back = right.cross(desired_up).normalize();
         let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
 
-        // lerp toward target so orientation smoothly tracks the planet surface
         let rot = current_rot.slerp(target_rot, (ORIENT_SPEED * dt).min(1.0));
         rb.set_rotation(rot, false);
     }
@@ -299,41 +267,17 @@ pub fn draw_planet_radii(planets: Query<(&PlanetComponent, &GlobalTransform)>, m
     }
 }
 
-/// Inserts a fixed physics body on PlanetComponent entities that don't yet have one.
-/// Reacts to Added<PlanetComponent>, so it works for both scene-loaded and programmatic planets.
-fn setup_planet_physics(
-    new_planets: Query<(Entity, &PlanetComponent, &Transform), Added<PlanetComponent>>,
+#[cfg(feature = "client")]
+fn spawn_planet_visuals(
     mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
+    planets: Query<(Entity, &PlanetVisual), Added<PlanetVisual>>,
+    asset_server: Res<AssetServer>,
 ) {
-    for (entity, planet, transform) in new_planets.iter() {
-        if world.entity_to_handle.contains_key(&entity) {
-            continue;
-        } // already has physics
-        let pos = transform.translation;
-        let rb_handle = world.insert_body(
-            entity,
-            RigidBodyBuilder::fixed()
-                .translation(Vector3::new(pos.x, pos.y, pos.z))
-                .build(),
-        );
-        let collider_radius = planet.inner_radius as f32;
-        let PhysicsWorld {
-            collider_set,
-            rigid_body_set,
-            ..
-        } = &mut *world;
-        collider_set.insert_with_parent(
-            ColliderBuilder::ball(collider_radius)
-                .friction(3.0)
-                .restitution(0.0)
-                .build(),
-            rb_handle,
-            rigid_body_set,
-        );
-        commands
-            .entity(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
+    for (entity, visual) in planets.iter() {
+        commands.entity(entity).insert((
+            SceneRoot(asset_server.load(visual.scene_path.clone())),
+            Visibility::default(),
+        ));
     }
 }
 
@@ -343,10 +287,12 @@ impl Plugin for PlanetPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<GravityProfile>()
             .register_type::<PlanetComponent>()
-            .add_systems(Update, setup_planet_physics)
+            .register_type::<PlanetVisual>()
             .add_systems(
                 FixedUpdate,
                 (apply_gravity, orient_bipeds_to_planets).before(step_physics),
             );
+        #[cfg(feature = "client")]
+        app.add_systems(Update, spawn_planet_visuals);
     }
 }

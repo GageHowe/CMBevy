@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use common::config::{BEACON_URL, LAN_DISCOVERY_PORT};
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
 
 pub struct MenuPlugin;
 
@@ -29,6 +31,7 @@ impl Plugin for MenuPlugin {
 enum Screen {
     #[default]
     Root,
+    Credits,
     Settings,
     SinglePlayer,
     Multiplayer,
@@ -62,6 +65,11 @@ impl Default for HostState {
             advertise: false,
         }
     }
+}
+
+#[derive(Default)]
+struct CreditsState {
+    offset: f32,
 }
 
 #[derive(Default)]
@@ -163,9 +171,82 @@ fn gameserver_exe() -> std::path::PathBuf {
     dir.join(name)
 }
 
+fn spawn_gameserver(port: u16, map: &str, gametype: &str) -> std::io::Result<std::process::Child> {
+    let port = port.to_string();
+    let mut command = std::process::Command::new(gameserver_exe());
+    command
+        .args([
+            "--port",
+            &port,
+            "--map",
+            map,
+            "--gametype",
+            gametype,
+        ])
+        .stdin(std::process::Stdio::piped());
+    #[cfg(target_os = "linux")]
+    unsafe {
+        // Let the kernel terminate the hosted server if the client process disappears.
+        command.pre_exec(|| linux::set_parent_death_signal());
+    }
+    command.spawn()
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::io;
+
+    const PR_SET_PDEATHSIG: i32 = 1;
+    const SIGTERM: i32 = 15;
+
+    unsafe extern "C" {
+        fn prctl(option: i32, arg2: i32, arg3: usize, arg4: usize, arg5: usize) -> i32;
+        fn getppid() -> i32;
+    }
+
+    pub(super) fn set_parent_death_signal() -> io::Result<()> {
+        // The parent may already have exited between fork and exec, so verify the parent again.
+        unsafe {
+            if prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if getppid() == 1 {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn show_fullscreen_menu(
+    ctx: &egui::Context,
+    id: &'static str,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    let rect = ctx.content_rect();
+    egui::Area::new(id.into())
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.left_top())
+        .show(ctx, |ui| {
+            ui.set_min_size(rect.size());
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgba_premultiplied(5, 0, 8, 230))
+                .show(ui, |ui| {
+                    ui.set_min_size(rect.size());
+                    ui.vertical_centered(|ui| {
+                        ui.add_space((rect.height() * 0.16).max(40.0));
+                        ui.set_max_width(520.0);
+                        add_contents(ui);
+                    });
+                });
+        });
+}
+
 fn main_menu(
     mut contexts: EguiContexts,
     mut exit: MessageWriter<AppExit>,
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
     mut server_addr: ResMut<ServerAddr>,
     mut hosted: ResMut<HostedServer>,
@@ -174,12 +255,18 @@ fn main_menu(
     mut settings_section: Local<SettingsSection>,
     mut screen: Local<Screen>,
     mut host: Local<HostState>,
+    mut credits: Local<CreditsState>,
     mut browser: Local<LobbyBrowser>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    let center = ctx.content_rect().center();
+    // Keep credits as a menu-local screen so they stay decoupled from gameplay UI/state.
+    if *screen == Screen::Credits && keys.just_pressed(KeyCode::Escape) {
+        *screen = Screen::Root;
+        credits.offset = 0.0;
+    }
     let title = match *screen {
         Screen::Root => "Critical Mass",
+        Screen::Credits => "Credits",
         Screen::Settings => "Settings",
         Screen::SinglePlayer => "Singleplayer",
         Screen::Multiplayer => "Multiplayer",
@@ -188,19 +275,11 @@ fn main_menu(
         Screen::Matchmaking => "Matchmaking",
         Screen::Host => "Host",
     };
-    egui::Window::new(title)
-        .default_pos(center)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .resizable(false)
-        .collapsible(false)
-        .movable(false)
-        .title_bar(false)
-        .show(ctx, |ui| {
-            ui.set_min_width(280.0);
-            ui.vertical_centered(|ui| {
-                ui.heading(title);
-                ui.add_space(8.0);
-                match *screen {
+    show_fullscreen_menu(ctx, "main_menu", |ui| {
+        ui.set_min_width(280.0);
+        ui.heading(title);
+        ui.add_space(8.0);
+        match *screen {
                     Screen::Root => {
                         if ui.button("Singleplayer").clicked() {
                             let base = asset_base();
@@ -219,8 +298,60 @@ fn main_menu(
                             *screen = Screen::Settings;
                         }
                         ui.add_space(4.0);
+                        if ui.button("Credits").clicked() {
+                            credits.offset = 0.0;
+                            *screen = Screen::Credits;
+                        }
+                        ui.add_space(4.0);
                         if ui.button("Exit").clicked() {
                             exit.write(AppExit::Success);
+                        }
+                    }
+                    Screen::Credits => {
+                        let lines = credits_lines();
+                        let line_height = 28.0;
+                        let viewport_height = 320.0;
+                        let total_height = lines.len() as f32 * line_height + 120.0;
+                        let max_offset = (total_height - viewport_height).max(0.0);
+
+                        credits.offset += 22.0 * time.delta_secs();
+                        if credits.offset > max_offset + viewport_height {
+                            credits.offset = 0.0;
+                        }
+
+                        ui.label("Esc or Back returns to the main menu.");
+                        ui.add_space(8.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("credits_scroll")
+                            .auto_shrink([false, false])
+                            .max_height(viewport_height)
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                            )
+                            .scroll_offset(egui::vec2(0.0, credits.offset.min(max_offset)))
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(24.0);
+                                    for line in lines {
+                                        match *line {
+                                            "" => ui.add_space(14.0),
+                                            text if text.starts_with('#') => {
+                                                ui.heading(text.trim_start_matches('#').trim());
+                                                ui.add_space(6.0);
+                                            }
+                                            text => {
+                                                ui.label(text);
+                                                ui.add_space(2.0);
+                                            }
+                                        }
+                                    }
+                                    ui.add_space(24.0);
+                                });
+                            });
+                        ui.add_space(8.0);
+                        if ui.button("Back").clicked() {
+                            credits.offset = 0.0;
+                            *screen = Screen::Root;
                         }
                     }
                     Screen::Settings => {
@@ -558,18 +689,7 @@ fn main_menu(
                                 "{base}/gametypes/{}.lua",
                                 host.gametypes[host.gametype_idx]
                             );
-                            match std::process::Command::new(gameserver_exe())
-                                .args([
-                                    "--port",
-                                    &port.to_string(),
-                                    "--map",
-                                    &map,
-                                    "--gametype",
-                                    &gametype,
-                                ])
-                                .stdin(std::process::Stdio::piped())
-                                .spawn()
-                            {
+                            match spawn_gameserver(port, &map, &gametype) {
                                 Ok(mut child) => {
                                     let stdin = child.stdin.take().map(std::io::BufWriter::new);
                                     hosted.child = Some(child);
@@ -598,8 +718,32 @@ fn main_menu(
                         }
                     }
                 }
-            });
-        });
+    });
+}
+
+fn credits_lines() -> &'static [&'static str] {
+    // Keep the content in one list so adding/removing names or image markers stays trivial.
+    &[
+        "# Critical Mass",
+        "A game by the Critical Mass team",
+        "",
+        "# Design",
+        "Replace with final design credits",
+        "",
+        "# Engineering",
+        "Replace with final programming credits",
+        "",
+        "# Art",
+        "Replace with final art credits",
+        "",
+        "# Audio",
+        "Replace with final audio credits",
+        "",
+        "# Special Thanks",
+        "Friends, testers, and contributors",
+        "",
+        "Thank you for playing.",
+    ]
 }
 
 fn pause_menu(
@@ -610,47 +754,37 @@ fn pause_menu(
     mut console_input: Local<String>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    let center = ctx.content_rect().center();
-    egui::Window::new("Paused")
-        .default_pos(center)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .resizable(false)
-        .collapsible(false)
-        .movable(false)
-        .title_bar(false)
-        .show(ctx, |ui| {
-            ui.set_min_width(200.0);
-            ui.vertical_centered(|ui| {
-                ui.heading("Paused");
-                ui.add_space(8.0);
-                if ui.button("Resume").clicked() {
-                    next_ui.set(UiState::Playing);
-                }
-                ui.add_space(4.0);
-                if ui.button("Settings").clicked() {
-                    next_ui.set(UiState::Settings);
-                }
-                ui.add_space(4.0);
-                if ui
-                    .button("Quit to Menu (this will kick all players)")
-                    .clicked()
-                {
-                    next_game.set(GameState::MainMenu);
-                    next_ui.set(UiState::Playing);
-                }
-                if hosted.child.is_some() {
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                    ui.label("Server console");
-                    let response = ui.text_edit_singleline(&mut *console_input);
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        hosted.send_command(&console_input.clone());
-                        console_input.clear();
-                    }
-                }
-            });
-        });
+    show_fullscreen_menu(ctx, "pause_menu", |ui| {
+        ui.set_min_width(200.0);
+        ui.heading("Paused");
+        ui.add_space(8.0);
+        if ui.button("Resume").clicked() {
+            next_ui.set(UiState::Playing);
+        }
+        ui.add_space(4.0);
+        if ui.button("Settings").clicked() {
+            next_ui.set(UiState::Settings);
+        }
+        ui.add_space(4.0);
+        if ui
+            .button("Quit to Menu (this will kick all players)")
+            .clicked()
+        {
+            next_game.set(GameState::MainMenu);
+            next_ui.set(UiState::Playing);
+        }
+        if hosted.child.is_some() {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.label("Server console");
+            let response = ui.text_edit_singleline(&mut *console_input);
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                hosted.send_command(&console_input.clone());
+                console_input.clear();
+            }
+        }
+    });
 }
 
 fn settings_menu(
@@ -660,24 +794,14 @@ fn settings_menu(
     mut settings_section: Local<SettingsSection>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    let center = ctx.content_rect().center();
-    egui::Window::new("Settings")
-        .default_pos(center)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .resizable(false)
-        .collapsible(false)
-        .movable(false)
-        .title_bar(false)
-        .show(ctx, |ui| {
-            ui.set_min_width(250.0);
-            ui.heading("Settings");
-            ui.add_space(8.0);
-            show_settings_ui(ui, &mut settings, &mut settings_section);
-            ui.add_space(8.0);
-            ui.vertical_centered(|ui| {
-                if ui.button("Back").clicked() {
-                    next_ui.set(UiState::Paused);
-                }
-            });
-        });
+    show_fullscreen_menu(ctx, "settings_menu", |ui| {
+        ui.set_min_width(250.0);
+        ui.heading("Settings");
+        ui.add_space(8.0);
+        show_settings_ui(ui, &mut settings, &mut settings_section);
+        ui.add_space(8.0);
+        if ui.button("Back").clicked() {
+            next_ui.set(UiState::Paused);
+        }
+    });
 }

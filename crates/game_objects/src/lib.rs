@@ -4,15 +4,15 @@ pub use common::GameObjectKind;
 use net::message::SpawnCommand;
 use std::collections::HashMap;
 
-pub mod atmosphere;
+pub mod components;
 pub mod generic;
 pub mod health;
 pub mod level;
 pub mod pawn;
-pub mod planet;
 pub mod projectile;
 pub mod sound;
 pub mod weapon;
+pub use components::{atmosphere, planet};
 pub use generic::{GenericShape, spawn_generic};
 
 pub struct GameObjectsPlugin;
@@ -81,14 +81,14 @@ macro_rules! for_each_game_object {
     ($m:ident $($args:tt)*) => {
         $m!(
             $($args)*
-            scene GameObjectKind::Biped => pawn::biped::BipedPawnComponent,
-            scene GameObjectKind::Spaceship => pawn::spaceship::SpaceshipPawnComponent,
-            scene GameObjectKind::Rifle => weapon::rifle::RifleComponent,
-            scene GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent,
-            scene GameObjectKind::Rpg => weapon::rpg::RpgComponent,
-            network GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
-            network GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
-            network GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile
+            GameObjectKind::Biped => pawn::biped::BipedPawnComponent,
+            GameObjectKind::Spaceship => pawn::spaceship::SpaceshipPawnComponent,
+            GameObjectKind::Rifle => weapon::rifle::RifleComponent,
+            GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent,
+            GameObjectKind::Rpg => weapon::rpg::RpgComponent,
+            GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
+            GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
+            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile
         )
     };
 }
@@ -99,7 +99,7 @@ macro_rules! dispatch_spawn_match {
         $entity:expr,
         $cmd:expr,
         $world:expr;
-        $($spawn_kind:ident $kind_path:path => $ty:path),+ $(,)?
+        $($kind_path:path => $ty:path),+ $(,)?
     ) => {
         match $kind.clone() {
             $(
@@ -107,21 +107,6 @@ macro_rules! dispatch_spawn_match {
             )+
             _ => panic!("GameObjectKind::{:?} is not registered for SpawnGameObjectCommand", $kind),
         }
-    };
-}
-
-macro_rules! scene_spawnable_match {
-    ($kind:expr; $($spawn_kind:ident $kind_path:path => $ty:path),+ $(,)?) => {
-        false $(|| scene_spawnable_entry!($kind; $spawn_kind $kind_path => $ty))+
-    };
-}
-
-macro_rules! scene_spawnable_entry {
-    ($kind:expr; scene $kind_path:path => $ty:path) => {
-        matches!($kind, $kind_path)
-    };
-    ($kind:expr; network $kind_path:path => $ty:path) => {
-        false
     };
 }
 
@@ -136,15 +121,9 @@ The goal is to have a clean and simple calling convention so callers can spawn a
 
 */
 
-/// everything that appears in a map needs to implement this.
-/// Requires Reflect, Default in order to instantiate these objects from scene ron file.
-/// FromWorld is automatically implemented for any type implementing Default
+/// Runtime constructor for a spawnable game object.
 pub trait GameObject: Default + Reflect {
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
-}
-
-pub fn spawn_scene_placeholder_supported(kind: &GameObjectKind) -> bool {
-    for_each_game_object!(scene_spawnable_match kind;)
 }
 
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.

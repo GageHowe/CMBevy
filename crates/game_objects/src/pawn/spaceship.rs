@@ -43,6 +43,11 @@ impl Plugin for SpaceshipPlugin {
 
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipPawnComponent;
+
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct SceneSpaceship;
+
 impl Pawn for SpaceshipPawnComponent {
     fn apply_input(
         &mut self,
@@ -88,6 +93,11 @@ impl GameObject for SpaceshipPawnComponent {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
+                .linvel(Vector3::new(
+                    cmd.starting_velocity.x,
+                    cmd.starting_velocity.y,
+                    cmd.starting_velocity.z,
+                ))
                 .build();
             physics.insert_body(entity, rb)
         };

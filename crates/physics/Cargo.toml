@@ -13,3 +13,4 @@ workspace = true
 common = { path = "../common" }
 bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
+serde = { version = "1", features = ["derive"] }

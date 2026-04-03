@@ -3,7 +3,7 @@ use common::tick::Ticker;
 use game_objects::health::{Health, handle_deaths};
 use game_objects::level::{LevelBytes, SpawnPoint, read_and_compress_level};
 use game_objects::pawn::biped::WeaponSlots;
-use game_objects::planet::PlanetComponent;
+use game_objects::components::planet::PlanetComponent;
 use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource};
 use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget};
 use physics::physics_world::*;

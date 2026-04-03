@@ -4,12 +4,14 @@ use std::collections::{HashMap, HashSet};
 
 use common::tick::{NetworkStats, Ticker};
 use common::{NetworkID, PredictedCommand, PredictedCommands};
-use game_objects::atmosphere::{AtmosphereComponent, apply_wind_resistance_impulses};
+use game_objects::components::atmosphere::{
+    AtmosphericDragComponent, apply_wind_resistance_impulses,
+};
 use game_objects::pawn::Pawn;
 use game_objects::pawn::biped::BipedPawnComponent;
 use game_objects::pawn::spaceship::SpaceshipPawnComponent;
 use game_objects::pawn::{GatherInputSet, Possessed};
-use game_objects::planet::{
+use game_objects::components::planet::{
     PlanetComponent, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
 };
 use net::message::SimulationState;
@@ -170,7 +172,7 @@ pub fn maybe_reconcile(
     bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     atmospheres: Query<(
-        &AtmosphereComponent,
+        &AtmosphericDragComponent,
         &Transform,
         Option<&RigidBodyHandleComponent>,
     )>,

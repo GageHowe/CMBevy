@@ -92,7 +92,7 @@ use game_objects::health::Health;
 use game_objects::level::{
     LevelPlugin, MapMeta, PendingMapScene, apply_pending_map_scene, cleanup_level, load_level_scene,
 };
-use game_objects::planet::draw_planet_radii;
+use game_objects::components::planet::draw_planet_radii;
 use master_plugin::MasterPlugin;
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;

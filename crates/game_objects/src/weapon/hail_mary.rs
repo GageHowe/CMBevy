@@ -35,6 +35,11 @@ pub struct HailMaryComponent {
     pub muzzle_flash_ticks: u8,
     pub muzzle_flash_light: Option<Entity>,
 }
+
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct SceneHailMary;
+
 impl Weapon for HailMaryComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair010.png";
 
@@ -112,7 +117,7 @@ impl GameObject for HailMaryComponent {
         );
         helpers::make_generic_weapon_physics(
             entity,
-            cmd.position,
+            cmd,
             HULL_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,

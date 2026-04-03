@@ -56,6 +56,11 @@ pub struct BipedPawnComponent {
     /// never set on clients — do not read this client-side.
     pub in_vehicle: Option<Entity>,
 }
+
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct SceneBiped;
+
 impl Pawn for BipedPawnComponent {
     fn apply_input(
         &mut self,
@@ -88,6 +93,11 @@ impl GameObject for BipedPawnComponent {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let capsule_rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
+                .linvel(Vector3::new(
+                    cmd.starting_velocity.x,
+                    cmd.starting_velocity.y,
+                    cmd.starting_velocity.z,
+                ))
                 .angular_damping(5.0)
                 .lock_rotations()
                 .ccd_enabled(true)

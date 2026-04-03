@@ -104,7 +104,7 @@ pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld
 
 pub fn make_generic_weapon_physics(
     entity: Entity,
-    origin: Vec3,
+    cmd: &net::message::SpawnCommand,
     hull_path: &'static str,
     collider: ColliderBuilder,
     world: &mut World,
@@ -112,7 +112,12 @@ pub fn make_generic_weapon_physics(
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
         let rb = RigidBodyBuilder::dynamic()
-            .translation(origin)
+            .translation(cmd.position)
+            .linvel(Vector3::new(
+                cmd.starting_velocity.x,
+                cmd.starting_velocity.y,
+                cmd.starting_velocity.z,
+            ))
             .angular_damping(2.0)
             .build();
         physics.insert_body(entity, rb)

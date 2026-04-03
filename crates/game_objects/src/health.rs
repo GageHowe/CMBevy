@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use common::{NetworkID, debug_println};
 use net::message::MsgType;
 use net::quic::{Channel, QuicManager, SendTarget};
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, step_physics};
+use physics::physics_world::{PhysicsWorld, step_physics};
 use std::collections::HashMap;
 
 pub struct HealthPlugin;
@@ -32,23 +32,47 @@ impl Health {
     }
 }
 
+#[derive(Component, Clone, Copy)]
+pub struct CollisionDamageConfig {
+    pub threshold_per_mass: f32,
+    pub min_threshold: f32,
+    pub damage_scale: f32,
+    pub max_damage_per_hit: Option<f32>,
+}
+
+impl Default for CollisionDamageConfig {
+    fn default() -> Self {
+        Self {
+            // Default to a mass-scaled threshold so heavier objects don't take the same landing
+            // damage as light ones from identical support/contact impulses.
+            threshold_per_mass: 40.0,
+            min_threshold: 40.0,
+            damage_scale: 3.0,
+            max_damage_per_hit: None,
+        }
+    }
+}
+
+impl CollisionDamageConfig {
+    fn damage_from_impulse(self, impulse: f32, mass: f32) -> f32 {
+        let threshold = (mass * self.threshold_per_mass).max(self.min_threshold);
+        let mut damage = (impulse - threshold).max(0.0) * self.damage_scale;
+        if let Some(max_damage) = self.max_damage_per_hit {
+            damage = damage.min(max_damage);
+        }
+        damage
+    }
+}
+
 /// Applies damage to any entity with Health + a rigidbody based on collision impulse.
-/// p.data.impulse is Rapier's normal constraint impulse — already accounts for mass,
-/// inertia, angular velocity, and contact geometry. Tune THRESHOLD above resting contact
-/// levels to avoid false positives from gravity reaction forces.
+/// Rapier's contact impulse already reflects the force imparted by the collision, so
+/// damage only needs one path regardless of what the body hit.
 /// Must run after step_physics.
 pub fn apply_collision_damage(
     world: Res<PhysicsWorld>,
-    mut health_q: Query<(&mut Health, &RigidBodyHandleComponent)>,
+    has_health_q: Query<Option<&CollisionDamageConfig>, With<Health>>,
+    mut health_q: Query<&mut Health>,
 ) {
-    // dynamic vs dynamic: raw impulse threshold (player-vs-player, object-vs-object)
-    const FORCE_THRESHOLD: f32 = 40.0;
-    const FORCE_SCALE: f32 = 3.0;
-    // dynamic vs static: delta-v threshold (fall damage). filters out wall-pressing and
-    // penetration-correction forces (both capped at ~10 m/s by Rapier's corrective velocity)
-    // const VELOCITY_THRESHOLD: f32 = 35.0;
-    // const VELOCITY_SCALE:     f32 = 1.5;
-
     let mut damage_map: HashMap<Entity, f32> = HashMap::new();
     for pair in world.narrow_phase.contact_pairs() {
         if !pair.has_any_active_contact() {
@@ -63,56 +87,35 @@ pub fn apply_collision_damage(
         if impulse <= 0.0 {
             continue;
         }
-
-        let rb1 = world
-            .collider_set
-            .get(pair.collider1)
-            .and_then(|c| c.parent());
-        let rb2 = world
-            .collider_set
-            .get(pair.collider2)
-            .and_then(|c| c.parent());
-        let dyn1 = rb1
-            .and_then(|h| world.rigid_body_set.get(h))
-            .map_or(false, |rb| rb.is_dynamic());
-        let dyn2 = rb2
-            .and_then(|h| world.rigid_body_set.get(h))
-            .map_or(false, |rb| rb.is_dynamic());
-
-        if dyn1 && dyn2 {
-            // both dynamic: impulse-based
-            if impulse < FORCE_THRESHOLD {
+        for rb_h in [pair.collider1, pair.collider2]
+            .into_iter()
+            .filter_map(|collider| world.collider_set.get(collider).and_then(|c| c.parent()))
+        {
+            let Some(rb) = world.rigid_body_set.get(rb_h) else {
+                continue;
+            };
+            if !rb.is_dynamic() {
                 continue;
             }
-            let damage = (impulse - FORCE_THRESHOLD) * FORCE_SCALE;
-            debug_println!("dyn-dyn impulse: {impulse:.2}  damage: {damage:.1}");
-            for rb_h in [rb1, rb2].into_iter().flatten() {
-                if let Some(&entity) = world.handle_to_entity.get(&rb_h) {
-                    *damage_map.entry(entity).or_default() += damage;
+            if let Some(&entity) = world.handle_to_entity.get(&rb_h) {
+                let Ok(config) = has_health_q.get(entity) else {
+                    continue;
+                };
+                let damage = config
+                    .copied()
+                    .unwrap_or_default()
+                    .damage_from_impulse(impulse, rb.mass());
+                if damage <= 0.0 {
+                    continue;
                 }
+                debug_println!("collision impulse: {impulse:.2}  damage: {damage:.1}");
+                *damage_map.entry(entity).or_default() += damage;
             }
-        } else {
-
-            // TODO: clean this up.
-            // i decided I don't want collision damage with static objects
-
-            // // one static: delta-v on the dynamic body only
-            // let Some(rb_h) = (if dyn1 { rb1 } else if dyn2 { rb2 } else { continue }) else { continue };
-            // let Some(rb) = world.rigid_body_set.get(rb_h) else { continue };
-            // let mass = rb.mass();
-            // if mass < 1e-3 { continue; }
-            // let delta_v = impulse / mass;
-            // if delta_v < VELOCITY_THRESHOLD { continue; }
-            // let damage = (delta_v - VELOCITY_THRESHOLD) * VELOCITY_SCALE;
-            // debug_println!("dyn-static delta_v: {delta_v:.1}  damage: {damage:.1}");
-            // if let Some(&entity) = world.handle_to_entity.get(&rb_h) {
-            //     *damage_map.entry(entity).or_default() += damage;
-            // }
         }
     }
 
     for (entity, damage) in damage_map {
-        if let Ok((mut health, _)) = health_q.get_mut(entity) {
+        if let Ok(mut health) = health_q.get_mut(entity) {
             health.apply_damage(damage);
         }
     }

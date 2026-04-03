@@ -23,6 +23,10 @@ pub struct RpgComponent {
     pub cooldown: u32,
 }
 
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct SceneRpg;
+
 impl Weapon for RpgComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair028.png";
 
@@ -82,7 +86,7 @@ impl GameObject for RpgComponent {
         );
         helpers::make_generic_weapon_physics(
             entity,
-            cmd.position,
+            cmd,
             HULL_PATH,
             ColliderBuilder::cuboid(0.2, 0.06, 0.55),
             world,

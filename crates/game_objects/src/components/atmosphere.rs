@@ -1,8 +1,8 @@
-// atmosphere.rs
 /*
-an atmosphere:
-* damps velocity of objects inside it relative to its velocity
-* atmosphere entity may or may not be a rigidbody (e.g. a moving planet)
+atmosphere-adjacent zones:
+* atmospheric drag damps velocity of objects inside it relative to the zone's velocity
+* area reverb drives client audio based on listener proximity
+* either zone may or may not be attached to a rigidbody (e.g. a moving planet)
 */
 
 use bevy::prelude::*;
@@ -13,38 +13,35 @@ use serde::{Deserialize, Serialize};
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<ReverbSettings>()
-            .register_type::<AtmosphereComponent>()
+        app.register_type::<AtmosphericDragComponent>()
+            .register_type::<AreaReverbComponent>()
             .add_systems(FixedUpdate, apply_wind_resistance.before(step_physics));
     }
 }
 
-/// Reverb zone distances. Reverb properties live in FMOD Studio; we just drive
-/// the global "atmosphere_reverb" parameter (0–1) based on listener proximity.
-/// min_distance: full-effect radius; max_distance: fade-out radius.
-#[derive(Serialize, Deserialize, Clone, Reflect, Default)]
-#[reflect(Default)]
-pub struct ReverbSettings {
-    pub min_distance: f32,
-    pub max_distance: f32,
-}
-
 #[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
-pub struct AtmosphereComponent {
+pub struct AtmosphericDragComponent {
     /// radius of influence
     pub radius: u32,
     /// drag coefficient
     pub strength: f32,
-    /// optional reverb sphere (client-only, ignored on server)
-    pub reverb: Option<ReverbSettings>,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct AreaReverbComponent {
+    /// full-effect radius
+    pub min_distance: f32,
+    /// fade-out radius
+    pub max_distance: f32,
 }
 
 /// Inner function callable during reconciliation replay (mirrors apply_gravity_impulses).
 pub fn apply_wind_resistance_impulses(
     world: &mut PhysicsWorld,
     atmospheres: &Query<(
-        &AtmosphereComponent,
+        &AtmosphericDragComponent,
         &Transform,
         Option<&RigidBodyHandleComponent>,
     )>,
@@ -52,7 +49,7 @@ pub fn apply_wind_resistance_impulses(
     let dt = world.integration_parameters.dt;
 
     // collect atmosphere centers and velocities up front to avoid borrow issues
-    let atmo_data: Vec<(Vec3, Vec3, &AtmosphereComponent)> = atmospheres
+    let atmo_data: Vec<(Vec3, Vec3, &AtmosphericDragComponent)> = atmospheres
         .iter()
         .filter_map(|(atmo, transform, handle)| {
             let (center, vel) = if let Some(h) = handle {
@@ -70,7 +67,6 @@ pub fn apply_wind_resistance_impulses(
     for (center, atmo_vel, atmo) in &atmo_data {
         let radius = atmo.radius as f32;
 
-        // spatial query: find all colliders within the atmosphere sphere
         let shape = Ball::new(radius);
         let shape_pos = Pose::translation(center.x, center.y, center.z);
         let qp = world.broad_phase.as_query_pipeline(
@@ -93,9 +89,7 @@ pub fn apply_wind_resistance_impulses(
             }
 
             let body_vel = rb_vel(rb);
-            // relative velocity of the body with respect to the atmosphere
             let rel_vel = body_vel - *atmo_vel;
-            // drag impulse opposes relative motion
             let impulse = -rel_vel * atmo.strength * rb.mass() * dt;
             impulses.push((rb_handle, Vector::new(impulse.x, impulse.y, impulse.z)));
         }
@@ -108,12 +102,10 @@ pub fn apply_wind_resistance_impulses(
     }
 }
 
-/// FixedUpdate system that applies wind resistance.
-/// Should also be called during reconciliation (call apply_wind_resistance_impulses directly).
 pub fn apply_wind_resistance(
     mut world: ResMut<PhysicsWorld>,
     atmospheres: Query<(
-        &AtmosphereComponent,
+        &AtmosphericDragComponent,
         &Transform,
         Option<&RigidBodyHandleComponent>,
     )>,

@@ -7,6 +7,7 @@ use common::{BodyState, NetworkID, SimulationState};
 pub use rapier3d::prelude::RigidBodyHandle;
 pub use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Collision group for player bodies (capsule + foot sphere).
@@ -38,6 +39,19 @@ pub fn rb_angvel(rb: &RigidBody) -> Vec3 {
 /// scales how strongly planetary gravity affects this body. Defaults to 1.0 if absent.
 #[derive(Component, Clone, Copy)]
 pub struct GravityScale(pub f32);
+
+/// Scene-authored initial linear velocity for objects that spawn through map data.
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct InitialVelocity(pub Vec3);
+
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
+#[reflect(Component, Default)]
+pub enum SceneRigidBody {
+    #[default]
+    Fixed,
+    Dynamic,
+}
 
 /// a way for entities to refer to their rigidbody
 #[derive(Component)]
@@ -299,6 +313,8 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
+            .register_type::<InitialVelocity>()
+            .register_type::<SceneRigidBody>()
             .init_resource::<PhysicsInterpMode>()
             .add_observer(on_remove_physics_body);
     }

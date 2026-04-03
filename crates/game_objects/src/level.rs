@@ -2,9 +2,16 @@ use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
 use physics::convex_hull_asset::ConvexHullAsset;
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+use physics::physics_world::{
+    InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody,
+};
 use rapier3d::prelude::*;
 use serde::de::DeserializeSeed;
+use crate::pawn::biped::SceneBiped;
+use crate::pawn::spaceship::SceneSpaceship;
+use crate::weapon::hail_mary::SceneHailMary;
+use crate::weapon::rifle::SceneRifle;
+use crate::weapon::rpg::SceneRpg;
 
 // ── component / resource types ────────────────────────────────────────────────
 
@@ -133,30 +140,95 @@ impl Plugin for LevelPlugin {
         app.register_type::<ColliderShape>()
             .register_type::<StaticCollider>()
             .register_type::<SpawnPoint>()
-            .register_type::<common::GameObjectKind>()
+            .register_type::<SceneBiped>()
+            .register_type::<SceneSpaceship>()
+            .register_type::<SceneRifle>()
+            .register_type::<SceneHailMary>()
+            .register_type::<SceneRpg>()
             .register_type::<MapMeta>()
             .init_resource::<PendingHullColliders>()
             // react to scene-spawned components — works on both client and server
             .add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
 
-        // Convert scene-placeholder GameObjectKind entities into real physics objects.
-        // Runs as a system (not a hook) so it executes after scene_spawner_system finishes —
-        // using a hook caused scene_spawner_system to panic when it accessed an entity that
-        // the hook had already despawned mid-write. SpawnGameObjectCommand inserts NetworkID
-        // before GameObjectKind, so those entities are excluded by Without<NetworkID>.
-        app.add_systems(Update, spawn_scene_objects);
+        // Keep authored scene data as small marker components and route all runtime setup
+        // through the existing imperative GameObject spawn path.
+        app.add_systems(
+            Update,
+            (
+                spawn_scene_bipeds,
+                spawn_scene_spaceships,
+                spawn_scene_rifles,
+                spawn_scene_hail_marys,
+                spawn_scene_rpgs,
+            ),
+        );
     }
 }
 
 // ── systems ───────────────────────────────────────────────────────────────────
 
-/// Converts scene-placeholder GameObjectKind entities into real physics objects.
-/// On the server: always. On the client: only in SinglePlayer.
-fn spawn_scene_objects(
+fn scene_runtime_spawns_enabled(
+    state: Option<Res<State<common::game_state::GameState>>>,
+    is_server: Option<Res<common::IsServer>>,
+) -> bool {
+    is_server.is_some()
+        || state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer)
+}
+
+fn queue_scene_spawn(
+    entity: Entity,
+    transform: &Transform,
+    kind: common::GameObjectKind,
+    starting_velocity: Vec3,
+    commands: &mut Commands,
+    net_id_res: &mut ResMut<net::message::NetworkIDResource>,
+) {
+    let net_id = net::message::NetworkID(net_id_res.next());
+    let new_entity = commands.spawn_empty().id();
+    commands.queue(crate::SpawnGameObjectCommand {
+        entity: new_entity,
+        cmd: net::message::SpawnCommand {
+            net_id,
+            position: transform.translation,
+            rotation: transform.rotation,
+            starting_velocity,
+            server_tick: 0,
+            kind,
+        },
+    });
+    commands.entity(entity).despawn();
+}
+
+fn spawn_scene_bipeds(
     query: Query<
-        (Entity, &common::GameObjectKind, &Transform),
+        (Entity, &Transform, Option<&InitialVelocity>),
+        (Added<SceneBiped>, With<ChildOf>, Without<net::message::NetworkID>),
+    >,
+    mut commands: Commands,
+    mut net_id_res: ResMut<net::message::NetworkIDResource>,
+    state: Option<Res<State<common::game_state::GameState>>>,
+    is_server: Option<Res<common::IsServer>>,
+) {
+    if !scene_runtime_spawns_enabled(state, is_server) {
+        return;
+    }
+    for (entity, transform, initial_velocity) in query.iter() {
+        queue_scene_spawn(
+            entity,
+            transform,
+            common::GameObjectKind::Biped,
+            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            &mut commands,
+            &mut net_id_res,
+        );
+    }
+}
+
+fn spawn_scene_spaceships(
+    query: Query<
+        (Entity, &Transform, Option<&InitialVelocity>),
         (
-            Added<common::GameObjectKind>,
+            Added<SceneSpaceship>,
             With<ChildOf>,
             Without<net::message::NetworkID>,
         ),
@@ -166,53 +238,135 @@ fn spawn_scene_objects(
     state: Option<Res<State<common::game_state::GameState>>>,
     is_server: Option<Res<common::IsServer>>,
 ) {
-    // On the client: only run in SinglePlayer
-    if is_server.is_none() {
-        if state.map_or(true, |s| {
-            *s.get() != common::game_state::GameState::SinglePlayer
-        }) {
-            return;
-        }
+    if !scene_runtime_spawns_enabled(state, is_server) {
+        return;
     }
+    for (entity, transform, initial_velocity) in query.iter() {
+        queue_scene_spawn(
+            entity,
+            transform,
+            common::GameObjectKind::Spaceship,
+            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            &mut commands,
+            &mut net_id_res,
+        );
+    }
+}
 
-    for (entity, kind, transform) in query.iter() {
-        if !crate::spawn_scene_placeholder_supported(kind) {
-            panic!(
-                "Scene placeholder {:?} is not registered as a scene-spawnable game object",
-                kind
-            );
-        }
-        let net_id = net::message::NetworkID(net_id_res.next());
-        let new_entity = commands.spawn_empty().id();
-        commands.queue(crate::SpawnGameObjectCommand {
-            entity: new_entity,
-            cmd: net::message::SpawnCommand {
-                net_id,
-                position: transform.translation,
-                rotation: transform.rotation,
-                starting_velocity: Vec3::ZERO,
-                server_tick: 0,
-                kind: kind.clone(),
-            },
-        });
-        commands.entity(entity).despawn();
+fn spawn_scene_rifles(
+    query: Query<
+        (Entity, &Transform, Option<&InitialVelocity>),
+        (Added<SceneRifle>, With<ChildOf>, Without<net::message::NetworkID>),
+    >,
+    mut commands: Commands,
+    mut net_id_res: ResMut<net::message::NetworkIDResource>,
+    state: Option<Res<State<common::game_state::GameState>>>,
+    is_server: Option<Res<common::IsServer>>,
+) {
+    if !scene_runtime_spawns_enabled(state, is_server) {
+        return;
+    }
+    for (entity, transform, initial_velocity) in query.iter() {
+        queue_scene_spawn(
+            entity,
+            transform,
+            common::GameObjectKind::Rifle,
+            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            &mut commands,
+            &mut net_id_res,
+        );
+    }
+}
+
+fn spawn_scene_hail_marys(
+    query: Query<
+        (Entity, &Transform, Option<&InitialVelocity>),
+        (
+            Added<SceneHailMary>,
+            With<ChildOf>,
+            Without<net::message::NetworkID>,
+        ),
+    >,
+    mut commands: Commands,
+    mut net_id_res: ResMut<net::message::NetworkIDResource>,
+    state: Option<Res<State<common::game_state::GameState>>>,
+    is_server: Option<Res<common::IsServer>>,
+) {
+    if !scene_runtime_spawns_enabled(state, is_server) {
+        return;
+    }
+    for (entity, transform, initial_velocity) in query.iter() {
+        queue_scene_spawn(
+            entity,
+            transform,
+            common::GameObjectKind::HailMary,
+            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            &mut commands,
+            &mut net_id_res,
+        );
+    }
+}
+
+fn spawn_scene_rpgs(
+    query: Query<
+        (Entity, &Transform, Option<&InitialVelocity>),
+        (Added<SceneRpg>, With<ChildOf>, Without<net::message::NetworkID>),
+    >,
+    mut commands: Commands,
+    mut net_id_res: ResMut<net::message::NetworkIDResource>,
+    state: Option<Res<State<common::game_state::GameState>>>,
+    is_server: Option<Res<common::IsServer>>,
+) {
+    if !scene_runtime_spawns_enabled(state, is_server) {
+        return;
+    }
+    for (entity, transform, initial_velocity) in query.iter() {
+        queue_scene_spawn(
+            entity,
+            transform,
+            common::GameObjectKind::Rpg,
+            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            &mut commands,
+            &mut net_id_res,
+        );
     }
 }
 
 /// Inserts a fixed physics body on each entity that has a StaticCollider component.
 /// Reacts to Added<StaticCollider>, so it works regardless of how the entity was spawned.
 pub fn spawn_static_colliders(
-    new_colliders: Query<(Entity, &StaticCollider, &Transform), Added<StaticCollider>>,
+    new_colliders: Query<
+        (
+            Entity,
+            &StaticCollider,
+            &Transform,
+            Option<&RigidBodyHandleComponent>,
+            Option<&SceneRigidBody>,
+            Option<&InitialVelocity>,
+        ),
+        Added<StaticCollider>,
+    >,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut pending: ResMut<PendingHullColliders>,
     asset_server: Res<AssetServer>,
 ) {
-    for (entity, sc, transform) in new_colliders.iter() {
+    for (entity, sc, transform, body_handle, scene_body, initial_velocity) in new_colliders.iter() {
         let s = sc.scale;
         let pos = transform.translation;
         let rot = transform.rotation;
         if let ColliderShape::ConvexHulls(path) = &sc.shape {
+            if body_handle.is_none() {
+                ensure_body(
+                    entity,
+                    pos,
+                    rot,
+                    scene_body.copied().unwrap_or_default(),
+                    initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+                    &mut commands,
+                    &mut world,
+                );
+            }
             let handle = asset_server
                 .load_with_settings(path.clone(), move |settings: &mut f32| *settings = s);
             pending.0.push((entity, pos, rot, handle));
@@ -229,7 +383,17 @@ pub fn spawn_static_colliders(
             } => ColliderBuilder::capsule_y(half_height * s, radius * s).build(),
             ColliderShape::ConvexHulls(_) => unreachable!(),
         };
-        attach_fixed_body(entity, pos, rot, collider, &mut commands, &mut world);
+        attach_collider_to_body(
+            entity,
+            pos,
+            rot,
+            collider,
+            body_handle.map(|h| h.0),
+            scene_body.copied().unwrap_or_default(),
+            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            &mut commands,
+            &mut world,
+        );
     }
 }
 
@@ -252,22 +416,43 @@ pub fn spawn_hull_colliders(
         .0
         .retain(|(_, _, _, h)| hull_assets.get(h).is_none());
     for (entity, pos, rot, collider) in ready {
-        attach_fixed_body(entity, pos, rot, collider, &mut commands, &mut world);
+        let existing = world.entity_to_handle.get(&entity).copied();
+        attach_collider_to_body(
+            entity,
+            pos,
+            rot,
+            collider,
+            existing,
+            SceneRigidBody::Fixed,
+            Vec3::ZERO,
+            &mut commands,
+            &mut world,
+        );
     }
 }
 
-fn attach_fixed_body(
+fn attach_collider_to_body(
     entity: Entity,
     position: Vec3,
     rotation: Quat,
     collider: Collider,
+    existing_handle: Option<RigidBodyHandle>,
+    scene_body: SceneRigidBody,
+    initial_velocity: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
-    let rb = RigidBodyBuilder::fixed()
-        .translation(Vector3::new(position.x, position.y, position.z))
-        .build();
-    let handle = world.insert_body(entity, rb);
+    let handle = existing_handle.unwrap_or_else(|| {
+        ensure_body(
+            entity,
+            position,
+            rotation,
+            scene_body,
+            initial_velocity,
+            commands,
+            world,
+        )
+    });
     if let Some(rb) = world.rigid_body_set.get_mut(handle) {
         rb.set_rotation(rotation, true);
     }
@@ -280,6 +465,40 @@ fn attach_fixed_body(
     commands
         .entity(entity)
         .insert(RigidBodyHandleComponent(handle));
+}
+
+fn ensure_body(
+    entity: Entity,
+    position: Vec3,
+    rotation: Quat,
+    scene_body: SceneRigidBody,
+    initial_velocity: Vec3,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) -> RigidBodyHandle {
+    if let Some(handle) = world.entity_to_handle.get(&entity).copied() {
+        return handle;
+    }
+    let builder = match scene_body {
+        SceneRigidBody::Fixed => RigidBodyBuilder::fixed(),
+        SceneRigidBody::Dynamic => RigidBodyBuilder::dynamic(),
+    };
+    let rb = builder
+        .translation(Vector3::new(position.x, position.y, position.z))
+        .linvel(Vector3::new(
+            initial_velocity.x,
+            initial_velocity.y,
+            initial_velocity.z,
+        ))
+        .build();
+    let handle = world.insert_body(entity, rb);
+    if let Some(rb) = world.rigid_body_set.get_mut(handle) {
+        rb.set_rotation(rotation, true);
+    }
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(handle));
+    handle
 }
 
 /// Spawns the GLB visual scene when MapMeta is available. Client-only.

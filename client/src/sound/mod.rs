@@ -12,7 +12,7 @@ impl Plugin for SoundPlugin {
 mod fmod_impl {
     use bevy::prelude::*;
     use bevy::transform::TransformSystems;
-    use game_objects::atmosphere::AtmosphereComponent;
+    use game_objects::components::atmosphere::AreaReverbComponent;
     use game_objects::pawn::Possessed;
     use game_objects::sound::{SoundEmitter, SoundQueue};
     use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
@@ -184,7 +184,7 @@ mod fmod_impl {
     fn update_atmosphere_reverb(
         fmod: Option<Res<FmodStudio>>,
         camera: Query<&GlobalTransform, With<Camera3d>>,
-        atmospheres: Query<(&AtmosphereComponent, &GlobalTransform)>,
+        atmospheres: Query<(&AreaReverbComponent, &GlobalTransform)>,
     ) {
         let (Some(fmod), Ok(cam_gt)) = (fmod, camera.single()) else {
             return;
@@ -194,14 +194,11 @@ mod fmod_impl {
         // take the strongest blend across all reverb zones
         let blend = atmospheres
             .iter()
-            .filter_map(|(atmo, gt)| {
-                let rs = atmo.reverb.as_ref()?;
+            .map(|(reverb, gt)| {
                 let dist = listener_pos.distance(gt.translation());
                 // 1.0 inside min_distance, fades to 0.0 at max_distance
-                Some(
-                    1.0 - ((dist - rs.min_distance) / (rs.max_distance - rs.min_distance))
-                        .clamp(0.0, 1.0),
-                )
+                1.0 - ((dist - reverb.min_distance) / (reverb.max_distance - reverb.min_distance))
+                    .clamp(0.0, 1.0)
             })
             .fold(0.0_f32, f32::max);
 
