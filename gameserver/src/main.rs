@@ -16,10 +16,17 @@ use std::net::SocketAddr;
 #[derive(Resource)]
 pub(crate) struct BindAddr(pub SocketAddr);
 use common::debug_println;
-use game_objects::level::{LevelBytes, LevelPlugin, SpawnPoint};
+use game_objects::level::{
+    LevelBytes, LevelPlugin, SceneSpawner, SpawnPoint, scene_spawns_ready,
+};
 use game_objects::pawn::biped::WeaponSlots;
+use game_objects::pawn::biped::SceneBiped;
 use game_objects::pawn::vehicle::*;
+use game_objects::pawn::spaceship::SceneSpaceship;
 use game_objects::pawn::*;
+use game_objects::weapon::hail_mary::SceneHailMary;
+use game_objects::weapon::rifle::SceneRifle;
+use game_objects::weapon::rpg::SceneRpg;
 use game_objects::weapon::WeaponPlugin;
 use game_objects::*;
 use master_plugin::MasterPlugin;
@@ -27,22 +34,37 @@ use scripting::ScriptConfig;
 use std::sync::{Mutex, mpsc};
 
 mod session;
-use session::{ServerSessionPlugin, pick_spawn_point};
+use session::{PendingConnections, ServerSessionPlugin, pick_spawn_point};
 
 #[derive(Resource)]
 pub(crate) struct ConsoleCommands(pub Mutex<mpsc::Receiver<String>>);
-
-#[derive(Resource)]
-pub(crate) struct ModeConfig {
-    pub respawn_delay: f32,
-}
 
 #[derive(bevy::ecs::system::SystemParam)]
 struct ServerMessageParams<'w, 's> {
     commands: Commands<'w, 's>,
     world: ResMut<'w, PhysicsWorld>,
     held_weapons: ResMut<'w, HeldWeaponMap>,
-    spawn_points: Query<'w, 's, (&'static SpawnPoint, &'static Transform)>,
+    spawn_points: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static SpawnPoint,
+            &'static Transform,
+            Option<&'static ChildOf>,
+        ),
+    >,
+    parent_transforms: Query<'w, 's, &'static Transform>,
+    parent_parents: Query<'w, 's, &'static ChildOf>,
+    parent_bodies: Query<'w, 's, &'static RigidBodyHandleComponent>,
+    pending_scene_bipeds: Query<'w, 's, (), (With<SceneBiped>, Without<SceneSpawner>)>,
+    pending_scene_spaceships:
+        Query<'w, 's, (), (With<SceneSpaceship>, Without<SceneSpawner>)>,
+    pending_scene_rifles: Query<'w, 's, (), (With<SceneRifle>, Without<SceneSpawner>)>,
+    pending_scene_hail_marys:
+        Query<'w, 's, (), (With<SceneHailMary>, Without<SceneSpawner>)>,
+    pending_scene_rpgs: Query<'w, 's, (), (With<SceneRpg>, Without<SceneSpawner>)>,
+    scene_spawners: Query<'w, 's, &'static SceneSpawner>,
     spawnables: Query<
         'w,
         's,
@@ -155,61 +177,6 @@ fn main() {
     app.run();
 }
 
-/// Tracks both the currently controlled entity and the player's persistent biped.
-#[derive(Resource, Default)]
-pub(crate) struct PlayerRegistry {
-    pub by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
-    pub characters: HashMap<ConnectionId, (Entity, NetworkID)>,
-    pub by_character_entity: HashMap<Entity, ConnectionId>,
-}
-impl PlayerRegistry {
-    pub fn insert(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        self.by_conn.insert(conn_id, (entity, net_id.clone()));
-        if let Some((old_entity, _)) = self.characters.insert(conn_id, (entity, net_id.clone())) {
-            self.by_character_entity.remove(&old_entity);
-        }
-        self.by_character_entity.insert(entity, conn_id);
-    }
-
-    pub fn set_controlled(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        self.by_conn.insert(conn_id, (entity, net_id));
-    }
-
-    pub fn get_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.by_conn
-            .get(&conn_id)
-            .map(|(entity, net_id)| (*entity, net_id))
-    }
-
-    pub fn get_character_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.characters
-            .get(&conn_id)
-            .map(|(entity, net_id)| (*entity, net_id))
-    }
-
-    pub fn remove_by_conn(&mut self, conn_id: ConnectionId) -> Option<(Entity, NetworkID)> {
-        self.by_conn.remove(&conn_id);
-        let (entity, net_id) = self.characters.remove(&conn_id)?;
-        self.by_character_entity.remove(&entity);
-        Some((entity, net_id))
-    }
-
-    pub fn remove_by_entity(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
-        let conn_id = self.by_character_entity.remove(&entity)?;
-        self.by_conn.remove(&conn_id);
-        let (_, net_id) = self.characters.remove(&conn_id)?;
-        Some((conn_id, net_id))
-    }
-
-    pub fn conn_id_for_entity(&self, entity: Entity) -> Option<ConnectionId> {
-        self.by_character_entity.get(&entity).copied()
-    }
-}
-
-/// Pending respawns: conn_id → (seconds_remaining, kind).
-#[derive(Resource, Default)]
-pub(crate) struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind)>);
-
 /// Ring buffer of per-tick body snapshots used for tick-stamped hit replay.
 /// Entries older than 128 ticks are pruned after each broadcast.
 #[derive(Resource, Default)]
@@ -220,9 +187,6 @@ pub(crate) struct PendingInputs(pub HashMap<ConnectionId, (u64, PawnInputKind)>)
 
 #[derive(Resource, Default)]
 pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
-
-#[derive(Resource, Default)]
-pub(crate) struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
 
 fn spawn_player(
     conn_id: ConnectionId,
@@ -326,6 +290,7 @@ fn on_message(
     mut quic: ResMut<QuicManager>,
     script_config: Option<Res<ScriptConfig>>,
     mut registry: ResMut<PlayerRegistry>,
+    mut pending_connections: ResMut<PendingConnections>,
     mut pending_inputs: ResMut<PendingInputs>,
     mut pending_respawns: ResMut<PendingRespawns>,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -333,25 +298,55 @@ fn on_message(
     tick: Res<Ticker>,
     level_bytes: Option<Res<LevelBytes>>,
 ) {
+    let pending_conn_ids: Vec<_> = pending_connections.0.iter().copied().collect();
+    for conn_id in pending_conn_ids {
+        if registry.by_conn.contains_key(&conn_id) {
+            pending_connections.0.remove(&conn_id);
+            continue;
+        }
+        if !scene_spawns_ready(
+            &sp.pending_scene_bipeds,
+            &sp.pending_scene_spaceships,
+            &sp.pending_scene_rifles,
+            &sp.pending_scene_hail_marys,
+            &sp.pending_scene_rpgs,
+            &sp.scene_spawners,
+        ) {
+            continue;
+        }
+        if handle_connected(
+            conn_id,
+            &mut quic,
+            &mut registry,
+            &mut net_ids,
+            &mut sp.commands,
+            &sp.world,
+            tick.tick,
+            &sp.spawn_points,
+            &sp.parent_transforms,
+            &sp.parent_parents,
+            &sp.parent_bodies,
+            &sp.spawnables,
+            &sp.pawn_slots,
+            &sp.net_ids,
+                    &sp.seated_bipeds,
+        ) {
+            pending_connections.0.remove(&conn_id);
+        }
+    }
+
     while let Some(msg) = quic.inbound.pop_front() {
         match msg.msg {
             MsgType::Connected => {
-                handle_connected(
+                send_connection_files(
                     msg.conn_id,
                     level_bytes.as_deref(),
                     script_config.as_deref(),
                     &mut quic,
-                    &mut registry,
-                    &mut net_ids,
-                    &mut sp.commands,
-                    &sp.world,
-                    tick.tick,
-                    &sp.spawn_points,
-                    &sp.spawnables,
-                    &sp.pawn_slots,
-                    &sp.net_ids,
-                    &sp.seated_bipeds,
                 );
+            }
+            MsgType::ClientReady => {
+                pending_connections.0.insert(msg.conn_id);
             }
 
             // if server receives a Disconnected message...
@@ -366,6 +361,7 @@ fn on_message(
                     &mut sp.commands,
                     &mut sp.world,
                 );
+                pending_connections.0.remove(&msg.conn_id);
             }
             MsgType::Input(input_seq, kind) => {
                 handle_input(msg.conn_id, input_seq, kind, &mut pending_inputs);
@@ -450,32 +446,41 @@ fn find_networked_entity(all_networked: &NetworkEntityMap, net_id: &NetworkID) -
 
 fn handle_connected(
     conn_id: ConnectionId,
-    level_bytes: Option<&LevelBytes>,
-    script_config: Option<&ScriptConfig>,
     quic: &mut QuicManager,
     registry: &mut PlayerRegistry,
     net_ids: &mut NetworkIDResource,
     commands: &mut Commands,
     world: &PhysicsWorld,
     tick: u64,
-    spawn_points: &Query<(&SpawnPoint, &Transform)>,
+    spawn_points: &Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+    parent_transforms: &Query<&Transform>,
+    parent_parents: &Query<&ChildOf>,
+    parent_bodies: &Query<&RigidBodyHandleComponent>,
     spawnables: &Query<(&NetworkID, &GameObjectKind, &RigidBodyHandleComponent)>,
     pawn_slots: &Query<&mut WeaponSlots>,
     entity_net_ids: &Query<&NetworkID>,
     seated_bipeds: &Query<(&NetworkID, &SeatedInVehicle)>,
-) {
-    if let Some(lb) = level_bytes {
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::FileData("map.scn.ron".into(), lb.0.clone()),
-        );
-    }
-    if let Some(cfg) = script_config {
-        if let Ok(src) = std::fs::read(&cfg.path) {
-            quic.send_file(SendTarget::One(conn_id), "gametype.lua".into(), src);
+) -> bool {
+    let num_teams = {
+        let mut teams = std::collections::HashSet::new();
+        for (_, sp, _, _) in spawn_points.iter() {
+            teams.insert(sp.team);
         }
-    }
+        teams.len().max(1)
+    };
+    let team = (registry.by_conn.len() % num_teams) as u8;
+    let Some((sp, sr)) = pick_spawn_point(
+        spawn_points,
+        parent_transforms,
+        parent_parents,
+        parent_bodies,
+        world,
+        team,
+        registry.by_conn.len(),
+    ) else {
+        return false;
+    };
+
     let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
         .iter()
         .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
@@ -485,19 +490,17 @@ fn handle_connected(
         if held_ids.contains(net_id) {
             continue;
         }
-        let pos = world
-            .rigid_body_set
-            .get(rb.0)
-            .map(rb_pos)
-            .unwrap_or(Vec3::ZERO);
+        let Some(body) = world.rigid_body_set.get(rb.0) else {
+            continue;
+        };
         quic.send(
             SendTarget::One(conn_id),
             Channel::Ordered,
             &MsgType::SpawnCommand(SpawnCommand {
                 net_id: net_id.clone(),
-                position: pos,
-                starting_velocity: Vec3::ZERO,
-                rotation: Quat::IDENTITY,
+                position: rb_pos(body),
+                starting_velocity: rb_vel(body),
+                rotation: rb_rot(body),
                 server_tick: tick,
                 kind: kind.clone(),
             }),
@@ -513,15 +516,6 @@ fn handle_connected(
             &MsgType::SeatState(biped_net_id.clone(), Some(vehicle_net_id.clone())),
         );
     }
-    let num_teams = {
-        let mut teams = std::collections::HashSet::new();
-        for (sp, _) in spawn_points.iter() {
-            teams.insert(sp.team);
-        }
-        teams.len().max(1)
-    };
-    let team = (registry.by_conn.len() % num_teams) as u8;
-    let (sp, sr) = pick_spawn_point(spawn_points, team, registry.by_conn.len());
     spawn_player(
         conn_id,
         GameObjectKind::Biped,
@@ -533,6 +527,27 @@ fn handle_connected(
         commands,
         tick,
     );
+    true
+}
+
+fn send_connection_files(
+    conn_id: ConnectionId,
+    level_bytes: Option<&LevelBytes>,
+    script_config: Option<&ScriptConfig>,
+    quic: &mut QuicManager,
+) {
+    if let Some(lb) = level_bytes {
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::FileData("map.scn.ron".into(), lb.0.clone()),
+        );
+    }
+    if let Some(cfg) = script_config {
+        if let Ok(src) = std::fs::read(&cfg.path) {
+            quic.send_file(SendTarget::One(conn_id), "gametype.lua".into(), src);
+        }
+    }
 }
 
 fn handle_disconnected(

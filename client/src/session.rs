@@ -2,9 +2,9 @@ use bevy::core_pipeline::Skybox;
 use bevy::prelude::*;
 use common::GameObjectKind;
 use game_objects::SpawnGameObjectCommand;
-use game_objects::level::{LevelSceneRoot, MapMeta};
+use game_objects::level::{LevelSceneRoot, MapMeta, PendingMapScene};
 use game_objects::pawn::Possessed;
-use net::message::{NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
+use net::message::{MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
 use net::quic::QuicManager;
 
 use crate::reconciliation::PendingReconciliation;
@@ -16,6 +16,7 @@ impl Plugin for ClientSessionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
+            .init_resource::<PendingWorldReady>()
             .add_systems(
                 OnEnter(GameState::SinglePlayer),
                 (load_sp_level, spawn_local_player).chain(),
@@ -29,6 +30,7 @@ impl Plugin for ClientSessionPlugin {
                 OnExit(GameState::Multiplayer),
                 (cleanup_world, disconnect, remove_script).chain(),
             )
+            .add_systems(Update, send_world_ready.run_if(in_state(GameState::Multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
             .add_systems(
                 Update,
@@ -44,6 +46,9 @@ pub struct LastServerState(pub Option<SimulationState>);
 
 #[derive(Resource, Default)]
 pub struct LastAckedInputSeq(pub u64);
+
+#[derive(Resource, Default)]
+pub struct PendingWorldReady(pub bool);
 
 fn load_sp_level(
     mut commands: Commands,
@@ -142,13 +147,31 @@ fn connect(mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
     quic.connect(addr.0);
 }
 
+fn send_world_ready(
+    mut quic: ResMut<QuicManager>,
+    mut pending: ResMut<PendingWorldReady>,
+    pending_map: Option<Res<PendingMapScene>>,
+) {
+    if !pending.0 || pending_map.is_some() {
+        return;
+    }
+    quic.send(
+        net::quic::SendTarget::One(net::quic::SERVER_CONN_ID),
+        net::quic::Channel::Ordered,
+        &MsgType::ClientReady,
+    );
+    pending.0 = false;
+}
+
 fn disconnect(
     mut quic: ResMut<QuicManager>,
     mut pending: ResMut<PendingReconciliation>,
     mut last_acked: ResMut<LastAckedInputSeq>,
+    mut pending_world_ready: ResMut<PendingWorldReady>,
     mut hosted: ResMut<HostedServer>,
 ) {
     last_acked.0 = 0;
+    pending_world_ready.0 = false;
     shutdown_session(Some(&mut quic), Some(&mut pending), &mut hosted);
 }
 

@@ -1,18 +1,19 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
 use game_objects::health::{Health, handle_deaths};
-use game_objects::level::{LevelBytes, SpawnPoint, read_and_compress_level};
-use game_objects::pawn::biped::WeaponSlots;
+use game_objects::level::{LevelBytes, SpawnPoint, parented_world_pose, read_and_compress_level};
+use game_objects::pawn::{ModeConfig, PendingRespawns, PlayerRegistry};
 use game_objects::components::planet::PlanetComponent;
 use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource};
 use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget};
 use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
+use std::collections::HashSet;
 use std::sync::{Mutex, mpsc};
 
 use crate::{
-    BindAddr, BodyHistory, ConsoleCommands, HeldWeaponMap, LastProcessedInputSeq, LevelPath,
-    ModeConfig, PendingInputs, PendingRespawns, PlayerRegistry, slots_to_held, spawn_player,
+    BindAddr, BodyHistory, ConsoleCommands, LastProcessedInputSeq, LevelPath, PendingInputs,
+    spawn_player,
 };
 
 pub struct ServerSessionPlugin {
@@ -20,6 +21,9 @@ pub struct ServerSessionPlugin {
     pub map_path: String,
     pub gametype_path: String,
 }
+
+#[derive(Resource, Default)]
+pub struct PendingConnections(pub HashSet<ConnectionId>);
 
 impl Plugin for ServerSessionPlugin {
     fn build(&self, app: &mut App) {
@@ -43,6 +47,7 @@ impl Plugin for ServerSessionPlugin {
             .insert_resource(ConsoleCommands(Mutex::new(cmd_rx)))
             .init_resource::<PlayerRegistry>()
             .init_resource::<PendingRespawns>()
+            .init_resource::<PendingConnections>()
             .init_resource::<PendingInputs>()
             .init_resource::<LastProcessedInputSeq>()
             .init_resource::<BodyHistory>()
@@ -64,12 +69,6 @@ impl Plugin for ServerSessionPlugin {
                 broadcast_health_updates
                     .after(step_physics)
                     .before(broadcast_tick),
-            )
-            .add_systems(
-                FixedUpdate,
-                handle_player_deaths
-                    .after(step_physics)
-                    .before(handle_deaths),
             )
             .add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
     }
@@ -121,22 +120,36 @@ fn init_mode_config(world: &mut World) {
 }
 
 pub(crate) fn pick_spawn_point(
-    spawn_points: &Query<(&SpawnPoint, &Transform)>,
+    spawn_points: &Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+    parent_transforms: &Query<&Transform>,
+    parent_parents: &Query<&ChildOf>,
+    parent_bodies: &Query<&RigidBodyHandleComponent>,
+    physics: &PhysicsWorld,
     team: u8,
     counter: usize,
-) -> (Vec3, Quat) {
+) -> Option<(Vec3, Quat)> {
     let count = spawn_points
         .iter()
-        .filter(|(sp, _)| sp.team == team)
+        .filter(|(_, sp, _, _)| sp.team == team)
         .count();
-    let Some((_, t)) = spawn_points
+    if count == 0 {
+        return None;
+    }
+    let Some((_, _, t, child_of)) = spawn_points
         .iter()
-        .filter(|(sp, _)| sp.team == team)
-        .nth(counter % count.max(1))
+        .filter(|(_, sp, _, _)| sp.team == team)
+        .nth(counter % count)
     else {
-        return (Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY);
+        return None;
     };
-    (t.translation, t.rotation)
+    Some(parented_world_pose(
+        t,
+        child_of,
+        parent_transforms,
+        parent_parents,
+        parent_bodies,
+        physics,
+    ))
 }
 
 fn tick_respawns(
@@ -147,7 +160,11 @@ fn tick_respawns(
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
     tick: Res<Ticker>,
-    spawn_points: Query<(&SpawnPoint, &Transform)>,
+    spawn_points: Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+    parent_transforms: Query<&Transform>,
+    parent_parents: Query<&ChildOf>,
+    parent_bodies: Query<&RigidBodyHandleComponent>,
+    physics: Res<PhysicsWorld>,
 ) {
     let dt = time.delta_secs();
     let ready: Vec<(ConnectionId, GameObjectKind)> = pending
@@ -160,7 +177,17 @@ fn tick_respawns(
         .collect();
     for (conn_id, kind) in ready {
         pending.0.remove(&conn_id);
-        let (sp, sr) = pick_spawn_point(&spawn_points, 0, registry.by_conn.len());
+        let Some((sp, sr)) = pick_spawn_point(
+            &spawn_points,
+            &parent_transforms,
+            &parent_parents,
+            &parent_bodies,
+            &physics,
+            0,
+            registry.by_conn.len(),
+        ) else {
+            continue;
+        };
         spawn_player(
             conn_id,
             kind,
@@ -223,45 +250,6 @@ fn process_console_commands(
                 "Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"
             ),
         }
-    }
-}
-
-fn handle_player_deaths(
-    dead_q: Query<(Entity, &Health, &NetworkID), Changed<Health>>,
-    mut quic: ResMut<QuicManager>,
-    mut registry: ResMut<PlayerRegistry>,
-    mut pending_respawns: ResMut<PendingRespawns>,
-    mode: Res<ModeConfig>,
-    mut world: ResMut<PhysicsWorld>,
-    mut held_weapons: ResMut<HeldWeaponMap>,
-    pawn_slots: Query<&WeaponSlots>,
-) {
-    for (entity, health, net_id) in dead_q.iter() {
-        if health.current > 0.0 {
-            continue;
-        }
-        let conn_id = registry.conn_id_for_entity(entity);
-        let Some(conn_id) = conn_id else { continue };
-        let drop_pos = world
-            .entity_to_handle
-            .get(&entity)
-            .and_then(|&h| world.rigid_body_set.get(h))
-            .map(rb_pos)
-            .unwrap_or(Vec3::ZERO);
-        for (wid, weapon_entity) in slots_to_held(&pawn_slots.get(entity).ok()) {
-            held_weapons.0.remove(&wid);
-            world.teleport_body(weapon_entity, drop_pos);
-            world.set_body_enabled(weapon_entity, true);
-            quic.send(
-                SendTarget::All,
-                Channel::Ordered,
-                &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos),
-            );
-        }
-        registry.remove_by_entity(entity);
-        pending_respawns
-            .0
-            .insert(conn_id, (mode.respawn_delay, GameObjectKind::Biped));
     }
 }
 

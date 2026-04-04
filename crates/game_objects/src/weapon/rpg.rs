@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
+use crate::level::SceneSpawnMarker;
 use crate::projectile::rpg;
 use crate::{GameObject, GameObjectKind};
 
@@ -27,6 +28,10 @@ pub struct RpgComponent {
 #[reflect(Component, Default)]
 pub struct SceneRpg;
 
+impl SceneSpawnMarker for SceneRpg {
+    const KIND: GameObjectKind = GameObjectKind::Rpg;
+}
+
 impl Weapon for RpgComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair028.png";
 
@@ -47,6 +52,7 @@ impl Weapon for RpgComponent {
         rpg::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
 
         // Keep the local launcher recoil on the same path the server uses for authoritative fire.
+        #[cfg(feature = "client")]
         helpers::apply_local_predicted_impulse(
             ctx,
             world,
@@ -63,6 +69,7 @@ impl Weapon for RpgComponent {
             cam.add_kick((8.0, 10.0), (-2.0, 2.0), 8.0);
             cam.add_shake(0.6);
         }
+        #[cfg(feature = "client")]
         helpers::send_fire_request(
             ctx.quic.as_deref_mut(),
             ctx.net_id,

@@ -1,5 +1,6 @@
 use super::{FireCtx, Weapon, helpers};
 use crate::projectile::rifle;
+use crate::level::SceneSpawnMarker;
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
@@ -24,6 +25,10 @@ pub struct RifleComponent {
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct SceneRifle;
+
+impl SceneSpawnMarker for SceneRifle {
+    const KIND: GameObjectKind = GameObjectKind::Rifle;
+}
 
 impl Weapon for RifleComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair007.png";
@@ -53,6 +58,7 @@ impl Weapon for RifleComponent {
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((2.0, 0.5), (-1.0, 1.0), 20.0);
         }
+        #[cfg(feature = "client")]
         helpers::send_fire_request(
             ctx.quic.as_deref_mut(),
             ctx.net_id,

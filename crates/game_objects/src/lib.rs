@@ -123,7 +123,13 @@ The goal is to have a clean and simple calling convention so callers can spawn a
 
 /// Runtime constructor for a spawnable game object.
 pub trait GameObject: Default + Reflect {
+    /// responsible for enacting all side effects that spawn this entity
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
+    /// callback that is called when entities' health drops to 0, before they are despawned.
+    /// responsible for particle effects, debris, cleanup, etc.
+    fn on_death(_entity: Entity, _world: &mut World) -> bool {
+        true
+    }
 }
 
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.

@@ -1,14 +1,18 @@
 use bevy::prelude::*;
 use common::GameObjectKind;
-use common::NetworkID;
 use physics::physics_world::*;
+#[cfg(feature = "client")]
+use common::NetworkID;
+#[cfg(feature = "client")]
 use rapier3d::prelude::Vector;
 
 use crate::generic::attach_hull_collider;
 #[cfg(feature = "client")]
 use crate::pawn::biped::{WeaponSlots, viewmodel_offset};
 use crate::sound::{SoundQueue, SoundRequest};
-use crate::weapon::{FireCtx, WeaponComponent, WeaponCrosshair};
+use crate::weapon::{WeaponComponent, WeaponCrosshair};
+#[cfg(feature = "client")]
+use crate::weapon::FireCtx;
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
 pub fn shooter_velocity(world: &PhysicsWorld, shooter: Option<Entity>) -> Vec3 {
@@ -62,6 +66,7 @@ pub fn queue_fire_sound(
     });
 }
 
+#[cfg(feature = "client")]
 pub fn send_fire_request(
     quic: Option<&mut net::quic::QuicManager>,
     weapon_net_id: Option<&NetworkID>,
@@ -86,6 +91,7 @@ pub fn send_fire_request(
     );
 }
 
+#[cfg(feature = "client")]
 pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld, impulse: Vec3) {
     let (Some(shooter), Some(shooter_net_id)) = (ctx.shooter, ctx.shooter_net_id) else {
         return;

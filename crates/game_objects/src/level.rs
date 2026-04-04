@@ -3,7 +3,8 @@ use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::{
-    InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody,
+    InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
+    rb_rot, rb_vel,
 };
 use rapier3d::prelude::*;
 use serde::de::DeserializeSeed;
@@ -70,6 +71,75 @@ pub struct MapMeta {
 /// The visual GLB scene is spawned as a child, so despawning this entity cleans everything up.
 #[derive(Component)]
 pub struct LevelSceneRoot;
+
+pub trait SceneSpawnMarker: Component {
+    const KIND: common::GameObjectKind;
+    fn respawn_delay_secs() -> f32 {
+        10.0
+    }
+}
+
+#[derive(Component)]
+pub struct SceneSpawner {
+    kind: common::GameObjectKind,
+    starting_velocity: Vec3,
+    respawn_delay_secs: f32,
+    respawn_timer_secs: f32,
+    active_entity: Option<Entity>,
+}
+
+impl SceneSpawner {
+    pub fn is_ready(&self) -> bool {
+        self.active_entity.is_some()
+    }
+}
+
+pub fn scene_spawns_ready(
+    pending_bipeds: &Query<(), (With<SceneBiped>, Without<SceneSpawner>)>,
+    pending_spaceships: &Query<(), (With<SceneSpaceship>, Without<SceneSpawner>)>,
+    pending_rifles: &Query<(), (With<SceneRifle>, Without<SceneSpawner>)>,
+    pending_hail_marys: &Query<(), (With<SceneHailMary>, Without<SceneSpawner>)>,
+    pending_rpgs: &Query<(), (With<SceneRpg>, Without<SceneSpawner>)>,
+    spawners: &Query<&SceneSpawner>,
+) -> bool {
+    pending_bipeds.is_empty()
+        && pending_spaceships.is_empty()
+        && pending_rifles.is_empty()
+        && pending_hail_marys.is_empty()
+        && pending_rpgs.is_empty()
+        && spawners.iter().all(SceneSpawner::is_ready)
+}
+
+pub fn parented_world_pose(
+    local_transform: &Transform,
+    child_of: Option<&ChildOf>,
+    parent_transforms: &Query<&Transform>,
+    parent_parents: &Query<&ChildOf>,
+    parent_bodies: &Query<&RigidBodyHandleComponent>,
+    physics: &PhysicsWorld,
+) -> (Vec3, Quat) {
+    let mut translation = local_transform.translation;
+    let mut rotation = local_transform.rotation;
+    let mut current_parent = child_of.map(ChildOf::parent);
+
+    while let Some(parent) = current_parent {
+        if let Ok(handle) = parent_bodies.get(parent) {
+            if let Some(body) = physics.rigid_body_set.get(handle.0) {
+                translation = rb_pos(body) + rb_rot(body) * translation;
+                rotation = rb_rot(body) * rotation;
+                break;
+            }
+        }
+        let Ok(parent_transform) = parent_transforms.get(parent) else {
+            break;
+        };
+        translation = parent_transform.translation + parent_transform.rotation * translation;
+        rotation = parent_transform.rotation * rotation;
+        current_parent = parent_parents.get(parent).ok().map(ChildOf::parent);
+    }
+
+    (translation, rotation)
+}
 
 // ── pending hull collider queue ───────────────────────────────────────────────
 
@@ -155,180 +225,139 @@ impl Plugin for LevelPlugin {
         app.add_systems(
             Update,
             (
-                spawn_scene_bipeds,
-                spawn_scene_spaceships,
-                spawn_scene_rifles,
-                spawn_scene_hail_marys,
-                spawn_scene_rpgs,
+                init_scene_spawners::<SceneBiped>,
+                init_scene_spawners::<SceneSpaceship>,
+                init_scene_spawners::<SceneRifle>,
+                init_scene_spawners::<SceneHailMary>,
+                init_scene_spawners::<SceneRpg>,
             ),
         );
+        app.add_systems(FixedUpdate, tick_scene_spawners);
     }
 }
 
 // ── systems ───────────────────────────────────────────────────────────────────
 
-fn scene_runtime_spawns_enabled(
-    state: Option<Res<State<common::game_state::GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
-) -> bool {
-    is_server.is_some()
-        || state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer)
-}
-
 fn queue_scene_spawn(
-    entity: Entity,
-    transform: &Transform,
+    spawn_entity: Entity,
+    position: Vec3,
+    rotation: Quat,
     kind: common::GameObjectKind,
     starting_velocity: Vec3,
     commands: &mut Commands,
     net_id_res: &mut ResMut<net::message::NetworkIDResource>,
-) {
+) -> net::message::SpawnCommand {
     let net_id = net::message::NetworkID(net_id_res.next());
-    let new_entity = commands.spawn_empty().id();
+    let spawn_cmd = net::message::SpawnCommand {
+        net_id,
+        position,
+        rotation,
+        starting_velocity,
+        server_tick: 0,
+        kind,
+    };
     commands.queue(crate::SpawnGameObjectCommand {
-        entity: new_entity,
-        cmd: net::message::SpawnCommand {
-            net_id,
-            position: transform.translation,
-            rotation: transform.rotation,
-            starting_velocity,
-            server_tick: 0,
-            kind,
-        },
+        entity: spawn_entity,
+        cmd: spawn_cmd.clone(),
     });
-    commands.entity(entity).despawn();
+    spawn_cmd
 }
 
-fn spawn_scene_bipeds(
+fn init_scene_spawners<T: SceneSpawnMarker>(
     query: Query<
-        (Entity, &Transform, Option<&InitialVelocity>),
-        (Added<SceneBiped>, With<ChildOf>, Without<net::message::NetworkID>),
+        (Entity, Option<&InitialVelocity>),
+        (Added<T>, Without<SceneSpawner>),
     >,
     mut commands: Commands,
-    mut net_id_res: ResMut<net::message::NetworkIDResource>,
-    state: Option<Res<State<common::game_state::GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
 ) {
-    if !scene_runtime_spawns_enabled(state, is_server) {
-        return;
-    }
-    for (entity, transform, initial_velocity) in query.iter() {
-        queue_scene_spawn(
-            entity,
-            transform,
-            common::GameObjectKind::Biped,
-            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            &mut commands,
-            &mut net_id_res,
-        );
+    for (entity, initial_velocity) in query.iter() {
+        commands.entity(entity).insert(SceneSpawner {
+            kind: T::KIND,
+            starting_velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            respawn_delay_secs: T::respawn_delay_secs(),
+            respawn_timer_secs: 0.0,
+            active_entity: None,
+        });
     }
 }
 
-fn spawn_scene_spaceships(
-    query: Query<
-        (Entity, &Transform, Option<&InitialVelocity>),
-        (
-            Added<SceneSpaceship>,
-            With<ChildOf>,
-            Without<net::message::NetworkID>,
-        ),
-    >,
+fn tick_scene_spawners(
+    spawners_exist: Query<(), With<SceneSpawner>>,
+    existing: Query<(), ()>,
+    mut spawners: Query<(Entity, &Transform, Option<&ChildOf>, &mut SceneSpawner)>,
+    parent_transforms: Query<&Transform>,
+    parent_parents: Query<&ChildOf>,
+    parent_bodies: Query<&RigidBodyHandleComponent>,
+    physics: Res<PhysicsWorld>,
     mut commands: Commands,
     mut net_id_res: ResMut<net::message::NetworkIDResource>,
+    mut quic: Option<ResMut<net::quic::QuicManager>>,
+    time: Res<Time<Fixed>>,
     state: Option<Res<State<common::game_state::GameState>>>,
     is_server: Option<Res<common::IsServer>>,
 ) {
-    if !scene_runtime_spawns_enabled(state, is_server) {
+    let should_spawn = is_server.is_some()
+        || state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer);
+    if spawners_exist.is_empty() || !should_spawn {
         return;
     }
-    for (entity, transform, initial_velocity) in query.iter() {
-        queue_scene_spawn(
-            entity,
-            transform,
-            common::GameObjectKind::Spaceship,
-            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            &mut commands,
-            &mut net_id_res,
-        );
-    }
-}
 
-fn spawn_scene_rifles(
-    query: Query<
-        (Entity, &Transform, Option<&InitialVelocity>),
-        (Added<SceneRifle>, With<ChildOf>, Without<net::message::NetworkID>),
-    >,
-    mut commands: Commands,
-    mut net_id_res: ResMut<net::message::NetworkIDResource>,
-    state: Option<Res<State<common::game_state::GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
-) {
-    if !scene_runtime_spawns_enabled(state, is_server) {
-        return;
-    }
-    for (entity, transform, initial_velocity) in query.iter() {
-        queue_scene_spawn(
-            entity,
-            transform,
-            common::GameObjectKind::Rifle,
-            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            &mut commands,
-            &mut net_id_res,
-        );
-    }
-}
+    for (_spawner_entity, local_transform, child_of, mut spawner) in spawners.iter_mut() {
+        if let Some(active_entity) = spawner.active_entity {
+            if existing.get(active_entity).is_ok() {
+                continue;
+            }
+            spawner.active_entity = None;
+            spawner.respawn_timer_secs = spawner.respawn_delay_secs;
+        }
 
-fn spawn_scene_hail_marys(
-    query: Query<
-        (Entity, &Transform, Option<&InitialVelocity>),
-        (
-            Added<SceneHailMary>,
-            With<ChildOf>,
-            Without<net::message::NetworkID>,
-        ),
-    >,
-    mut commands: Commands,
-    mut net_id_res: ResMut<net::message::NetworkIDResource>,
-    state: Option<Res<State<common::game_state::GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
-) {
-    if !scene_runtime_spawns_enabled(state, is_server) {
-        return;
-    }
-    for (entity, transform, initial_velocity) in query.iter() {
-        queue_scene_spawn(
-            entity,
-            transform,
-            common::GameObjectKind::HailMary,
-            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            &mut commands,
-            &mut net_id_res,
-        );
-    }
-}
+        if spawner.respawn_timer_secs > 0.0 {
+            spawner.respawn_timer_secs =
+                (spawner.respawn_timer_secs - time.delta_secs()).max(0.0);
+            if spawner.respawn_timer_secs > 0.0 {
+                continue;
+            }
+        }
 
-fn spawn_scene_rpgs(
-    query: Query<
-        (Entity, &Transform, Option<&InitialVelocity>),
-        (Added<SceneRpg>, With<ChildOf>, Without<net::message::NetworkID>),
-    >,
-    mut commands: Commands,
-    mut net_id_res: ResMut<net::message::NetworkIDResource>,
-    state: Option<Res<State<common::game_state::GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
-) {
-    if !scene_runtime_spawns_enabled(state, is_server) {
-        return;
-    }
-    for (entity, transform, initial_velocity) in query.iter() {
-        queue_scene_spawn(
-            entity,
-            transform,
-            common::GameObjectKind::Rpg,
-            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+        let (position, rotation) = parented_world_pose(
+            local_transform,
+            child_of,
+            &parent_transforms,
+            &parent_parents,
+            &parent_bodies,
+            &physics,
+        );
+        let inherited_velocity = child_of
+            .and_then(|child_of| parent_bodies.get(child_of.parent()).ok())
+            .and_then(|handle| physics.rigid_body_set.get(handle.0))
+            .map(|rb| {
+                let linear = rb_vel(rb);
+                let angular = rb_angvel(rb);
+                let offset = position - rb_pos(rb);
+                linear + angular.cross(offset)
+            })
+            .unwrap_or(Vec3::ZERO);
+        let spawn_entity = commands.spawn_empty().id();
+        let spawn_cmd = queue_scene_spawn(
+            spawn_entity,
+            position,
+            rotation,
+            spawner.kind.clone(),
+            spawner.starting_velocity + inherited_velocity,
             &mut commands,
             &mut net_id_res,
         );
+        spawner.active_entity = Some(spawn_entity);
+
+        if is_server.is_some() {
+            if let Some(quic) = quic.as_mut() {
+                quic.send(
+                    net::quic::SendTarget::All,
+                    net::quic::Channel::Ordered,
+                    &net::message::MsgType::SpawnCommand(spawn_cmd),
+                );
+            }
+        }
     }
 }
 

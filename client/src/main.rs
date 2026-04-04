@@ -34,7 +34,7 @@ mod tick_sync;
 mod ui;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
-use session::{ClientSessionPlugin, LastAckedInputSeq, shutdown_session};
+use session::{ClientSessionPlugin, LastAckedInputSeq, PendingWorldReady, shutdown_session};
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub SocketAddr);
@@ -640,6 +640,7 @@ fn handle_health_update(
 fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {
     if name == "map.scn.ron" {
         commands.insert_resource(PendingMapScene(compressed));
+        commands.insert_resource(PendingWorldReady(true));
         return;
     }
     if name != "gametype.lua" {

@@ -51,16 +51,85 @@ impl CameraEffector {
 
 use crate::GameObject;
 use bevy::prelude::*;
+use common::GameObjectKind;
+#[cfg(feature = "client")]
 use common::PredictedCommands;
+#[cfg(feature = "client")]
 use net::message::MsgType;
+use net::message::NetworkID;
+use net::quic::ConnectionId;
 use physics::physics_world::PhysicsWorld;
 use physics::physics_world::*;
+use std::collections::HashMap;
 
 pub use biped::BipedPawnComponent;
 pub use biped::{PitchPivot, YawPivot};
 pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
+
+/// Tracks both the currently controlled entity and the player's persistent biped.
+#[derive(Resource, Default)]
+pub struct PlayerRegistry {
+    pub by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
+    pub characters: HashMap<ConnectionId, (Entity, NetworkID)>,
+    pub by_character_entity: HashMap<Entity, ConnectionId>,
+}
+impl PlayerRegistry {
+    pub fn insert(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
+        self.by_conn.insert(conn_id, (entity, net_id.clone()));
+        if let Some((old_entity, _)) = self.characters.insert(conn_id, (entity, net_id.clone())) {
+            self.by_character_entity.remove(&old_entity);
+        }
+        self.by_character_entity.insert(entity, conn_id);
+    }
+
+    pub fn set_controlled(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
+        self.by_conn.insert(conn_id, (entity, net_id));
+    }
+
+    pub fn get_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
+        self.by_conn
+            .get(&conn_id)
+            .map(|(entity, net_id)| (*entity, net_id))
+    }
+
+    pub fn get_character_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
+        self.characters
+            .get(&conn_id)
+            .map(|(entity, net_id)| (*entity, net_id))
+    }
+
+    pub fn remove_by_conn(&mut self, conn_id: ConnectionId) -> Option<(Entity, NetworkID)> {
+        self.by_conn.remove(&conn_id);
+        let (entity, net_id) = self.characters.remove(&conn_id)?;
+        self.by_character_entity.remove(&entity);
+        Some((entity, net_id))
+    }
+
+    pub fn remove_by_entity(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
+        let conn_id = self.by_character_entity.remove(&entity)?;
+        self.by_conn.remove(&conn_id);
+        let (_, net_id) = self.characters.remove(&conn_id)?;
+        Some((conn_id, net_id))
+    }
+
+    pub fn conn_id_for_entity(&self, entity: Entity) -> Option<ConnectionId> {
+        self.by_character_entity.get(&entity).copied()
+    }
+}
+
+/// Pending respawns: conn_id -> (seconds_remaining, kind).
+#[derive(Resource, Default)]
+pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind)>);
+
+#[derive(Resource, Default)]
+pub struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
+
+#[derive(Resource)]
+pub struct ModeConfig {
+    pub respawn_delay: f32,
+}
 
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
@@ -90,6 +159,7 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
     );
 }
 
+#[cfg(not(feature = "client"))]
 pub fn apply_server_input(
     entity: Entity,
     input: PawnInputKind,
@@ -132,12 +202,14 @@ pub fn apply_server_input(
 pub struct MouseSensitivity {
     pub base: f32,
     pub zoom_blend: f32,
+    pub vehicle_pitch_yaw: f32,
 }
 impl Default for MouseSensitivity {
     fn default() -> Self {
         Self {
             base: 0.002,
             zoom_blend: 1.0,
+            vehicle_pitch_yaw: 0.002,
         }
     }
 }
@@ -195,6 +267,7 @@ pub fn move_pawns<T: Pawn>()
 /// Peeks the newest buffered input, stamps it with the current tick,
 /// records it for replay, and sends it serialized over the unreliable channel.
 /// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
+#[cfg(feature = "client")]
 pub fn send_pawn_input(
     quic: Option<ResMut<net::quic::QuicManager>>,
     pawns: Query<&Possessed>,

@@ -1,4 +1,5 @@
 use super::{FireCtx, Weapon, helpers};
+use crate::level::SceneSpawnMarker;
 use crate::projectile::hail_mary;
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
@@ -40,6 +41,10 @@ pub struct HailMaryComponent {
 #[reflect(Component, Default)]
 pub struct SceneHailMary;
 
+impl SceneSpawnMarker for SceneHailMary {
+    const KIND: GameObjectKind = GameObjectKind::HailMary;
+}
+
 impl Weapon for HailMaryComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair010.png";
 
@@ -78,6 +83,7 @@ impl Weapon for HailMaryComponent {
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0);
         }
+        #[cfg(feature = "client")]
         helpers::send_fire_request(
             ctx.quic.as_deref_mut(),
             ctx.net_id,

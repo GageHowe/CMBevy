@@ -5,7 +5,7 @@ use super::*;
 use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
 use crate::weapon::{hail_mary, rifle, rpg};
-use crate::{GameObject, GameObjectKind, health::Health};
+use crate::{GameObject, GameObjectKind, health::Health, level::SceneSpawnMarker};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -59,6 +59,10 @@ pub struct BipedPawnComponent {
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct SceneBiped;
+
+impl SceneSpawnMarker for SceneBiped {
+    const KIND: GameObjectKind = GameObjectKind::Biped;
+}
 
 impl Pawn for BipedPawnComponent {
     fn apply_input(
@@ -183,6 +187,33 @@ impl GameObject for BipedPawnComponent {
                 biped.pitch_pivot = Some(pitch_pivot);
             }
         }
+    }
+
+    fn on_death(entity: Entity, world: &mut World) -> bool {
+        let drop_pos = {
+            let physics = world.resource::<PhysicsWorld>();
+            physics
+                .entity_to_handle
+                .get(&entity)
+                .and_then(|&h| physics.rigid_body_set.get(h))
+                .map(rb_pos)
+                .unwrap_or(Vec3::ZERO)
+        };
+        let held: Vec<Entity> = world
+            .get::<WeaponSlots>(entity)
+            .map(|slots| {
+                [slots.primary.1, slots.pocket.1]
+                    .into_iter()
+                    .flatten()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        for weapon_entity in held {
+            physics.teleport_body(weapon_entity, drop_pos);
+            physics.set_body_enabled(weapon_entity, true);
+        }
+        true
     }
 }
 

@@ -18,6 +18,7 @@ pub struct SpawnCommand {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum MsgType {
     Connected,
+    ClientReady,
     Disconnected,
     ChatMessage(String, String),
     Ping(String),

@@ -1,6 +1,7 @@
 use super::vehicle::{Cockpit, VehicleComponent};
 use super::*;
 use crate::generic::attach_hull_collider;
+use crate::level::SceneSpawnMarker;
 use crate::{GameObject, GameObjectKind};
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -15,13 +16,14 @@ use rapier3d::prelude::*;
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/placeholder_carrier.glb#Scene0";
-const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 5.0, 3.0);
+const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
 const COCKPIT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
 const COCKPIT_EXIT_OFFSET: Vec3 = Vec3::new(2.0, 0.0, 0.0);
 const COCKPIT_RADIUS: f32 = 0.8;
-const THRUST: f32 = 5000.0;
-const ROLL_SPEED: f32 = 1000.0;
-const SENSITIVITY: f32 = 10000000.0;
+const THRUST: f32 = 2000.0;
+const ROLL_SPEED: f32 = 500.0;
+const BASE_SENSITIVITY: f32 = 100000.0;
+const MAX_TORQUE: f32 = 40000.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -48,6 +50,10 @@ pub struct SpaceshipPawnComponent;
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct SceneSpaceship;
+
+impl SceneSpawnMarker for SceneSpaceship {
+    const KIND: GameObjectKind = GameObjectKind::Spaceship;
+}
 
 impl Pawn for SpaceshipPawnComponent {
     fn apply_input(
@@ -99,6 +105,7 @@ impl GameObject for SpaceshipPawnComponent {
                     cmd.starting_velocity.y,
                     cmd.starting_velocity.z,
                 ))
+                .angular_damping(0.5)
                 .build();
             physics.insert_body(entity, rb)
         };
@@ -120,6 +127,33 @@ impl GameObject for SpaceshipPawnComponent {
                 .entity_mut(entity)
                 .insert((SceneRoot(scene), Visibility::default()));
         }
+    }
+
+    fn on_death(entity: Entity, world: &mut World) -> bool {
+        let Some((cockpit_entity, seat_transform)) = ({
+            let mut q = world.query::<(Entity, &Transform, &ChildOf, &Cockpit)>();
+            q.iter(world)
+                .find(|(_, _, child_of, _)| child_of.parent() == entity)
+                .map(|(cockpit_entity, seat_transform, _, _)| {
+                    (cockpit_entity, seat_transform.clone())
+                })
+        }) else {
+            return true;
+        };
+
+        let Some(biped_entity) = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
+            let Some(mut cockpit) = world.get_mut::<Cockpit>(cockpit_entity) else {
+                return None;
+            };
+            super::vehicle::exit_vehicle(&mut physics, entity, &mut cockpit, &seat_transform)
+        }) else {
+            return true;
+        };
+
+        world
+            .entity_mut(biped_entity)
+            .remove::<super::SeatedInVehicle>();
+        true
     }
 }
 
@@ -168,7 +202,7 @@ fn gather_spaceship_input(
         input.roll += 1.0;
     }
     input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
-    let s = sensitivity.base;
+    let s = sensitivity.vehicle_pitch_yaw;
     input.yaw = -mouse.delta.x * s;
     input.pitch = -mouse.delta.y * s;
 
@@ -198,8 +232,11 @@ pub fn apply_spaceship_movement(
 
     let mut torque = local_up * input.yaw;
     torque += local_right * input.pitch;
-    torque *= SENSITIVITY;
+    torque *= BASE_SENSITIVITY;
     torque += local_forward * input.roll * ROLL_SPEED;
-    // cap total torque here
+    let torque_mag = torque.length();
+    if torque_mag > MAX_TORQUE {
+        torque *= MAX_TORQUE / torque_mag;
+    }
     body.apply_torque_impulse(torque, true);
 }

@@ -68,6 +68,7 @@ pub enum SettingsSection {
 pub struct Settings {
     pub mouse_sensitivity: f32,
     pub zoom_sensitivity_blend: f32,
+    pub vehicle_pitch_yaw_sensitivity: f32,
     pub preserve_look_across_planet_snap: bool,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
@@ -81,6 +82,7 @@ impl Default for Settings {
         Self {
             mouse_sensitivity: 0.002,
             zoom_sensitivity_blend: 1.0,
+            vehicle_pitch_yaw_sensitivity: 0.002,
             preserve_look_across_planet_snap: true,
             fov: 90.0,
             physics_interp: PhysicsInterp::RotationOnly,
@@ -122,6 +124,7 @@ fn apply_settings(
 ) {
     sensitivity.base = settings.mouse_sensitivity;
     sensitivity.zoom_blend = settings.zoom_sensitivity_blend;
+    sensitivity.vehicle_pitch_yaw = settings.vehicle_pitch_yaw_sensitivity;
     snap_comp.0 = settings.preserve_look_across_planet_snap;
 
     if let Ok(mut fx) = cam_effects.single_mut() {
@@ -273,6 +276,16 @@ fn show_input_settings(ui: &mut egui::Ui, settings: &mut Settings) {
             .on_hover_text("How far the camera rotates per pixel of mouse movement.");
         ui.add(
             egui::Slider::new(&mut settings.mouse_sensitivity, 0.0001..=0.01)
+                .logarithmic(true)
+                .fixed_decimals(4),
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Vehicle pitch/yaw")
+            .on_hover_text("How far spaceship pitch and yaw rotate per pixel of mouse movement.");
+        ui.add(
+            egui::Slider::new(&mut settings.vehicle_pitch_yaw_sensitivity, 0.0001..=0.01)
                 .logarithmic(true)
                 .fixed_decimals(4),
         );
