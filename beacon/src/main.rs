@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     Json, Router,
     extract::{ConnectInfo, Path, State},
     http::StatusCode,
@@ -8,6 +9,7 @@ use axum::{
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
 // use serde::{Deserialize, Serialize};
 use axum::http::header;
@@ -37,8 +39,8 @@ async fn main() {
         .route("/lobbies/partial", get(list_lobbies_partial))
         .route("/lobbies/register", post(register_lobby))
         .route("/lobbies/{id}", delete(delete_lobby))
+        .route("/assets/{hash}", get(get_asset).put(put_asset))
         .route("/health", get(|| async { "OK" }))
-        // .route("/get-asset")
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
@@ -127,4 +129,44 @@ async fn list_lobbies_partial(State(state): State<AppState>) -> Html<String> {
         .collect();
 
     Html(html)
+}
+
+async fn get_asset(Path(hash): Path<String>) -> Result<Vec<u8>, StatusCode> {
+    let path = asset_path(&hash);
+    std::fs::read(path).map_err(|_| StatusCode::NOT_FOUND)
+}
+
+async fn put_asset(Path(hash): Path<String>, body: Bytes) -> StatusCode {
+    let path = asset_path(&hash);
+    let Some(dir) = path.parent() else {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    };
+    if std::fs::create_dir_all(dir).is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+    match std::fs::write(path, body) {
+        Ok(_) => StatusCode::CREATED,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn asset_path(hash: &str) -> PathBuf {
+    asset_dir().join(sanitize_hash(hash))
+}
+
+fn asset_dir() -> PathBuf {
+    if FsPath::new("asset_blobs").exists() || !cfg!(debug_assertions) {
+        PathBuf::from("asset_blobs")
+    } else {
+        PathBuf::from("../asset_blobs")
+    }
+}
+
+fn sanitize_hash(hash: &str) -> String {
+    hash.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' => ch,
+            _ => '_',
+        })
+        .collect()
 }

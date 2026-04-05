@@ -1,5 +1,6 @@
 use crate::pawn::{BipedPawnComponent, SeatedInVehicle};
 use bevy::prelude::*;
+use common::AssetRef;
 use physics::physics_world::{self, *};
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -28,12 +29,7 @@ pub struct PlanetComponent {
     pub snap_radius: u32,
     pub gravity_radius: u32,
     pub gravity_profile: GravityProfile,
-}
-
-#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
-pub struct PlanetVisual {
-    pub scene_path: String,
+    pub scene: Option<AssetRef>,
 }
 
 pub fn spawn(
@@ -283,12 +279,15 @@ pub fn draw_planet_radii(planets: Query<(&PlanetComponent, &GlobalTransform)>, m
 #[cfg(feature = "client")]
 fn spawn_planet_visuals(
     mut commands: Commands,
-    planets: Query<(Entity, &PlanetVisual), Added<PlanetVisual>>,
+    planets: Query<(Entity, &PlanetComponent), Added<PlanetComponent>>,
     asset_server: Res<AssetServer>,
 ) {
-    for (entity, visual) in planets.iter() {
+    for (entity, planet) in planets.iter() {
+        let Some(scene) = &planet.scene else {
+            continue;
+        };
         commands.entity(entity).insert((
-            SceneRoot(asset_server.load(visual.scene_path.clone())),
+            SceneRoot(asset_server.load(crate::asset_ref::resolve_asset_path(scene))),
             Visibility::default(),
         ));
     }
@@ -300,7 +299,6 @@ impl Plugin for PlanetPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<GravityProfile>()
             .register_type::<PlanetComponent>()
-            .register_type::<PlanetVisual>()
             .add_systems(
                 FixedUpdate,
                 (apply_gravity, orient_bipeds_to_planets).before(step_physics),

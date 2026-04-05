@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
+use common::AssetRef;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::{
     InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
@@ -21,8 +22,8 @@ pub enum ColliderShape {
         half_height: f32,
         radius: f32,
     },
-    /// Path to an OBJ file (relative to assets/) containing VHACD convex hulls.
-    ConvexHulls(String),
+    /// Asset reference to an OBJ file containing VHACD convex hulls.
+    ConvexHulls(AssetRef),
 }
 
 impl Default for ColliderShape {
@@ -51,9 +52,9 @@ pub struct SpawnPoint {
 #[reflect(Resource, Default)]
 pub struct MapMeta {
     /// Visual GLB scenes to load for this level. Client-only.
-    pub visuals: Vec<(String, Transform)>,
+    pub visuals: Vec<(AssetRef, Transform)>,
     /// Optional cubemap path (e.g. KTX2) for the skybox. Client-only.
-    pub skybox: Option<String>,
+    pub skybox: Option<AssetRef>,
     /// Rendered skybox background brightness.
     pub skybox_brightness: f32,
     /// EnvironmentMapLight intensity (scene PBR lighting from the skybox). Client-only.
@@ -208,6 +209,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
 pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<common::AssetRef>();
         app.register_type::<ColliderShape>();
         app.register_type::<StaticCollider>();
         app.register_type::<SpawnPoint>();
@@ -384,8 +386,10 @@ pub fn spawn_static_colliders(
                     &mut world,
                 );
             }
+            // Hash refs download into a persistent local cache, so Bevy still loads a normal file path.
+            let path = crate::asset_ref::resolve_asset_path(path);
             let handle = asset_server
-                .load_with_settings(path.clone(), move |settings: &mut f32| *settings = s);
+                .load_with_settings(path, move |settings: &mut f32| *settings = s);
             pending.0.push((entity, pos, rot, handle));
             continue;
         }
@@ -530,7 +534,10 @@ pub fn load_level_scene(
     };
     for (scene_path, transform) in &meta.visuals {
         let entity = commands
-            .spawn((SceneRoot(asset_server.load(scene_path.clone())), *transform))
+            .spawn((
+                SceneRoot(asset_server.load(crate::asset_ref::resolve_asset_path(scene_path))),
+                *transform,
+            ))
             .id();
         // parent to the scene root so it despawns with it
         commands.entity(root).add_child(entity);
