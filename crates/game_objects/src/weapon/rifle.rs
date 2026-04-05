@@ -1,6 +1,5 @@
 use super::{FireCtx, Weapon, helpers};
 use crate::projectile::rifle;
-use crate::level::SceneSpawnMarker;
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
@@ -20,14 +19,6 @@ impl Plugin for RiflePlugin {
 #[derive(Component, Default, Reflect)]
 pub struct RifleComponent {
     pub cooldown: u32,
-}
-
-#[derive(Component, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
-pub struct SceneRifle;
-
-impl SceneSpawnMarker for SceneRifle {
-    const KIND: GameObjectKind = GameObjectKind::Rifle;
 }
 
 impl Weapon for RifleComponent {

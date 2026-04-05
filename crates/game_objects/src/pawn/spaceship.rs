@@ -1,7 +1,6 @@
-use super::vehicle::{Cockpit, VehicleComponent};
+use super::vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat};
 use super::*;
 use crate::generic::attach_hull_collider;
-use crate::level::SceneSpawnMarker;
 use crate::{GameObject, GameObjectKind};
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -16,10 +15,6 @@ use rapier3d::prelude::*;
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/placeholder_carrier.glb#Scene0";
-const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
-const COCKPIT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
-const COCKPIT_EXIT_OFFSET: Vec3 = Vec3::new(2.0, 0.0, 0.0);
-const COCKPIT_RADIUS: f32 = 0.8;
 const THRUST: f32 = 2000.0;
 const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
@@ -47,14 +42,6 @@ impl Plugin for SpaceshipPlugin {
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipPawnComponent;
 
-#[derive(Component, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
-pub struct SceneSpaceship;
-
-impl SceneSpawnMarker for SceneSpaceship {
-    const KIND: GameObjectKind = GameObjectKind::Spaceship;
-}
-
 impl Pawn for SpaceshipPawnComponent {
     fn apply_input(
         &mut self,
@@ -68,6 +55,13 @@ impl Pawn for SpaceshipPawnComponent {
     }
 }
 
+impl VehiclePawn for SpaceshipPawnComponent {
+    const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
+    const DRIVER_SEAT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
+    const DRIVER_EXIT_OFFSET: Vec3 = Vec3::new(2.0, 0.0, 0.0);
+    const DRIVER_INTERACT_RADIUS: f32 = 0.8;
+}
+
 impl GameObject for SpaceshipPawnComponent {
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
@@ -75,27 +69,14 @@ impl GameObject for SpaceshipPawnComponent {
             rotation: cmd.rotation.into(),
             ..default()
         };
+        let driver_seat = spawn_driver_seat::<SpaceshipPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
-            VehicleComponent {
-                camera_offset: CAMERA_OFFSET,
-            },
+            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(driver_seat),
             GameObjectKind::Spaceship,
             Transform::from(transform),
             cmd.net_id.clone(),
         ));
-        let cockpit = world
-            .spawn((
-                Cockpit {
-                    interact_radius: COCKPIT_RADIUS,
-                    exit_offset: COCKPIT_EXIT_OFFSET,
-                    ..default()
-                },
-                Transform::from_translation(COCKPIT_OFFSET),
-                Visibility::default(),
-            ))
-            .id();
-        world.entity_mut(entity).add_child(cockpit);
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()
@@ -130,19 +111,20 @@ impl GameObject for SpaceshipPawnComponent {
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
-        let Some((cockpit_entity, seat_transform)) = ({
-            let mut q = world.query::<(Entity, &Transform, &ChildOf, &Cockpit)>();
-            q.iter(world)
-                .find(|(_, _, child_of, _)| child_of.parent() == entity)
-                .map(|(cockpit_entity, seat_transform, _, _)| {
-                    (cockpit_entity, seat_transform.clone())
-                })
-        }) else {
+        let Some((driver_seat_entity, seat_transform)) = world
+            .get::<VehicleComponent>(entity)
+            .and_then(|vehicle| {
+                world
+                    .get::<Transform>(vehicle.driver_seat)
+                    .cloned()
+                    .map(|transform| (vehicle.driver_seat, transform))
+            })
+        else {
             return true;
         };
 
         let Some(biped_entity) = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
-            let Some(mut cockpit) = world.get_mut::<Cockpit>(cockpit_entity) else {
+            let Some(mut cockpit) = world.get_mut::<DriverSeat>(driver_seat_entity) else {
                 return None;
             };
             super::vehicle::exit_vehicle(&mut physics, entity, &mut cockpit, &seat_transform)

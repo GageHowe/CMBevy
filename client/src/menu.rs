@@ -1,12 +1,14 @@
 use crate::settings::{Settings, SettingsSection, show_settings_ui};
-use crate::{GameState, HostedServer, ServerAddr, SinglePlayerConfig, UiState};
+use crate::session::{
+    HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,
+    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session,
+    start_hosted_server,
+};
+use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use common::config::{BEACON_URL, LAN_DISCOVERY_PORT};
-use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
-#[cfg(target_os = "linux")]
-use std::os::unix::process::CommandExt;
+use http_common::{LobbyInfo, RegisterRequest};
 
 pub struct MenuPlugin;
 
@@ -82,142 +84,6 @@ struct LobbyBrowser {
     done: bool,
 }
 
-fn beacon_register(
-    req: RegisterRequest,
-    id_slot: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-) {
-    std::thread::spawn(move || {
-        if let Ok(resp) = ureq::post(&format!("{BEACON_URL}/lobbies/register")).send_json(&req) {
-            if let Ok(r) = resp.into_json::<RegisterResponse>() {
-                *id_slot.lock().unwrap() = Some(r.id);
-            }
-        }
-    });
-}
-
-fn fetch_lobbies() -> Result<Vec<LobbyInfo>, String> {
-    ureq::get(&format!("{BEACON_URL}/lobbies"))
-        .call()
-        .map_err(|e| e.to_string())?
-        .into_json()
-        .map_err(|e| e.to_string())
-}
-
-/// Broadcasts a UDP discover probe and collects responses from LAN servers.
-fn fetch_lan_lobbies() -> Result<Vec<LobbyInfo>, String> {
-    use std::net::UdpSocket;
-    use std::time::Duration;
-    let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-    sock.set_broadcast(true).map_err(|e| e.to_string())?;
-    sock.set_read_timeout(Some(Duration::from_millis(1500)))
-        .map_err(|e| e.to_string())?;
-    // probe broadcast + localhost explicitly (broadcast may be blocked on the loopback)
-    let _ = sock.send_to(b"discover", format!("255.255.255.255:{LAN_DISCOVERY_PORT}"));
-    let _ = sock.send_to(b"discover", format!("127.0.0.1:{LAN_DISCOVERY_PORT}"));
-    let mut lobbies = Vec::new();
-    let mut buf = [0u8; 16];
-    loop {
-        match sock.recv_from(&mut buf) {
-            Ok((n, from)) => {
-                if let Ok(port) = std::str::from_utf8(&buf[..n]).unwrap_or("").parse::<u16>() {
-                    lobbies.push(LobbyInfo {
-                        id: String::new(),
-                        name: format!("LAN @ {}", from.ip()),
-                        host: format!("{}:{}", from.ip(), port),
-                        player_count: 0,
-                        max_players: 0,
-                    });
-                }
-            }
-            Err(_) => break, // timeout — done collecting
-        }
-    }
-    Ok(lobbies)
-}
-
-fn asset_base() -> &'static str {
-    if std::path::Path::new("assets").exists() {
-        "assets"
-    } else {
-        "../assets"
-    }
-}
-
-fn scan_dir(dir: &str, ext: &str) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |x| x == ext))
-        .filter_map(|e| {
-            e.path()
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-        })
-        .collect();
-    names.sort();
-    names
-}
-
-fn gameserver_exe() -> std::path::PathBuf {
-    let exe = std::env::current_exe().unwrap_or_default();
-    let dir = exe.parent().unwrap_or(std::path::Path::new("."));
-    let name = if cfg!(windows) {
-        "gameserver.exe"
-    } else {
-        "gameserver"
-    };
-    dir.join(name)
-}
-
-fn spawn_gameserver(port: u16, map: &str, gametype: &str) -> std::io::Result<std::process::Child> {
-    let port = port.to_string();
-    let mut command = std::process::Command::new(gameserver_exe());
-    command
-        .args([
-            "--port",
-            &port,
-            "--map",
-            map,
-            "--gametype",
-            gametype,
-        ])
-        .stdin(std::process::Stdio::piped());
-    #[cfg(target_os = "linux")]
-    unsafe {
-        // Let the kernel terminate the hosted server if the client process disappears.
-        command.pre_exec(|| linux::set_parent_death_signal());
-    }
-    command.spawn()
-}
-
-#[cfg(target_os = "linux")]
-mod linux {
-    use std::io;
-
-    const PR_SET_PDEATHSIG: i32 = 1;
-    const SIGTERM: i32 = 15;
-
-    unsafe extern "C" {
-        fn prctl(option: i32, arg2: i32, arg3: usize, arg4: usize, arg5: usize) -> i32;
-        fn getppid() -> i32;
-    }
-
-    pub(super) fn set_parent_death_signal() -> io::Result<()> {
-        // The parent may already have exited between fork and exec, so verify the parent again.
-        unsafe {
-            if prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            if getppid() == 1 {
-                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
-            }
-        }
-        Ok(())
-    }
-}
-
 fn show_fullscreen_menu(
     ctx: &egui::Context,
     id: &'static str,
@@ -280,445 +146,444 @@ fn main_menu(
         ui.heading(title);
         ui.add_space(8.0);
         match *screen {
-                    Screen::Root => {
-                        if ui.button("Singleplayer").clicked() {
-                            let base = asset_base();
-                            host.maps = scan_dir(&format!("{base}/maps"), "ron");
-                            host.gametypes = scan_dir(&format!("{base}/gametypes"), "lua");
-                            host.map_idx = 0;
-                            host.gametype_idx = 0;
-                            *screen = Screen::SinglePlayer;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Multiplayer").clicked() {
-                            *screen = Screen::Multiplayer;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Settings").clicked() {
-                            *screen = Screen::Settings;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Credits").clicked() {
-                            credits.offset = 0.0;
-                            *screen = Screen::Credits;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Exit").clicked() {
-                            exit.write(AppExit::Success);
-                        }
-                    }
-                    Screen::Credits => {
-                        let lines = credits_lines();
-                        let line_height = 28.0;
-                        let viewport_height = 320.0;
-                        let total_height = lines.len() as f32 * line_height + 120.0;
-                        let max_offset = (total_height - viewport_height).max(0.0);
+            Screen::Root => show_root_screen(ui, &mut host, &mut screen, &mut exit),
+            Screen::Credits => show_credits_screen(ui, &time, &mut credits, &mut screen),
+            Screen::Settings => {
+                show_settings_screen(ui, &mut settings, &mut settings_section, &mut screen)
+            }
+            Screen::SinglePlayer => show_singleplayer_screen(
+                ui,
+                &mut host,
+                &mut hosted,
+                &mut sp_config,
+                &mut next_state,
+                &mut screen,
+            ),
+            Screen::Multiplayer => {
+                show_multiplayer_screen(ui, &mut host, &mut browser, &mut screen)
+            }
+            Screen::CustomGames => show_browser_screen(
+                ui,
+                &mut browser,
+                &mut hosted,
+                &mut server_addr,
+                &mut next_state,
+                &mut screen,
+                "Looking for lobbies…",
+                "No lobbies found.",
+                "Refresh",
+                Screen::Multiplayer,
+                fetch_remote_lobbies,
+                |ui, lobby| {
+                    ui.label(format!(
+                        "{} · {} ({}/{})",
+                        lobby.name, lobby.host, lobby.player_count, lobby.max_players
+                    ));
+                },
+            ),
+            Screen::JoinLan => show_browser_screen(
+                ui,
+                &mut browser,
+                &mut hosted,
+                &mut server_addr,
+                &mut next_state,
+                &mut screen,
+                "Scanning LAN…",
+                "No servers found on LAN.",
+                "Scan again",
+                Screen::Multiplayer,
+                fetch_lan_lobbies,
+                |ui, lobby| {
+                    ui.label(format!("{} · {}", lobby.name, lobby.host));
+                },
+            ),
+            Screen::Matchmaking => show_matchmaking_screen(ui, &mut screen),
+            Screen::Host => show_host_screen(
+                ui,
+                &mut host,
+                &mut hosted,
+                &mut server_addr,
+                &mut next_state,
+                &mut screen,
+            ),
+        }
+    });
+}
 
-                        credits.offset += 22.0 * time.delta_secs();
-                        if credits.offset > max_offset + viewport_height {
-                            credits.offset = 0.0;
-                        }
+fn reset_host_catalog(host: &mut HostState) {
+    host.maps = available_maps();
+    host.gametypes = available_gametypes();
+    host.map_idx = 0;
+    host.gametype_idx = 0;
+}
 
-                        ui.label("Esc or Back returns to the main menu.");
-                        ui.add_space(8.0);
-                        egui::ScrollArea::vertical()
-                            .id_salt("credits_scroll")
-                            .auto_shrink([false, false])
-                            .max_height(viewport_height)
-                            .scroll_bar_visibility(
-                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
-                            )
-                            .scroll_offset(egui::vec2(0.0, credits.offset.min(max_offset)))
-                            .show(ui, |ui| {
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(24.0);
-                                    for line in lines {
-                                        match *line {
-                                            "" => ui.add_space(14.0),
-                                            text if text.starts_with('#') => {
-                                                ui.heading(text.trim_start_matches('#').trim());
-                                                ui.add_space(6.0);
-                                            }
-                                            text => {
-                                                ui.label(text);
-                                                ui.add_space(2.0);
-                                            }
-                                        }
-                                    }
-                                    ui.add_space(24.0);
-                                });
-                            });
-                        ui.add_space(8.0);
-                        if ui.button("Back").clicked() {
-                            credits.offset = 0.0;
-                            *screen = Screen::Root;
-                        }
-                    }
-                    Screen::Settings => {
-                        show_settings_ui(ui, &mut settings, &mut settings_section);
-                        ui.add_space(8.0);
-                        if ui.button("Back").clicked() {
-                            *screen = Screen::Root;
-                        }
-                    }
-                    Screen::SinglePlayer => {
-                        egui::Grid::new("sp_grid")
-                            .num_columns(2)
-                            .spacing([8.0, 4.0])
-                            .show(ui, |ui| {
-                                ui.label("Map");
-                                let map_label = host
-                                    .maps
-                                    .get(host.map_idx)
-                                    .cloned()
-                                    .unwrap_or_else(|| "—".into());
-                                egui::ComboBox::from_id_salt("sp_map_combo")
-                                    .selected_text(&map_label)
-                                    .show_ui(ui, |ui| {
-                                        for i in 0..host.maps.len() {
-                                            let label = host.maps[i].clone();
-                                            ui.selectable_value(&mut host.map_idx, i, label);
-                                        }
-                                    });
-                                ui.end_row();
+fn show_root_screen(
+    ui: &mut egui::Ui,
+    host: &mut HostState,
+    screen: &mut Screen,
+    exit: &mut MessageWriter<AppExit>,
+) {
+    if ui.button("Singleplayer").clicked() {
+        reset_host_catalog(host);
+        *screen = Screen::SinglePlayer;
+    }
+    ui.add_space(4.0);
+    if ui.button("Multiplayer").clicked() {
+        *screen = Screen::Multiplayer;
+    }
+    ui.add_space(4.0);
+    if ui.button("Settings").clicked() {
+        *screen = Screen::Settings;
+    }
+    ui.add_space(4.0);
+    if ui.button("Credits").clicked() {
+        *screen = Screen::Credits;
+    }
+    ui.add_space(4.0);
+    if ui.button("Exit").clicked() {
+        exit.write(AppExit::Success);
+    }
+}
 
-                                ui.label("Mode");
-                                let mode_label = host
-                                    .gametypes
-                                    .get(host.gametype_idx)
-                                    .cloned()
-                                    .unwrap_or_else(|| "—".into());
-                                egui::ComboBox::from_id_salt("sp_mode_combo")
-                                    .selected_text(&mode_label)
-                                    .show_ui(ui, |ui| {
-                                        for i in 0..host.gametypes.len() {
-                                            let label = host.gametypes[i].clone();
-                                            ui.selectable_value(&mut host.gametype_idx, i, label);
-                                        }
-                                    });
-                                ui.end_row();
-                            });
+fn show_credits_screen(
+    ui: &mut egui::Ui,
+    time: &Time,
+    credits: &mut CreditsState,
+    screen: &mut Screen,
+) {
+    let lines = credits_lines();
+    let line_height = 28.0;
+    let viewport_height = 320.0;
+    let total_height = lines.len() as f32 * line_height + 120.0;
+    let max_offset = (total_height - viewport_height).max(0.0);
 
-                        ui.add_space(8.0);
+    credits.offset += 22.0 * time.delta_secs();
+    if credits.offset > max_offset + viewport_height {
+        credits.offset = 0.0;
+    }
 
-                        let can_start = !host.maps.is_empty() && !host.gametypes.is_empty();
-                        if ui
-                            .add_enabled(can_start, egui::Button::new("Start"))
-                            .clicked()
-                        {
-                            let base = asset_base();
-                            sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
-                            sp_config.gametype = format!(
-                                "{base}/gametypes/{}.lua",
-                                host.gametypes[host.gametype_idx]
-                            );
-                            *screen = Screen::Root;
-                            next_state.set(GameState::SinglePlayer);
+    ui.label("Esc or Back returns to the main menu.");
+    ui.add_space(8.0);
+    egui::ScrollArea::vertical()
+        .id_salt("credits_scroll")
+        .auto_shrink([false, false])
+        .max_height(viewport_height)
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        .scroll_offset(egui::vec2(0.0, credits.offset.min(max_offset)))
+        .show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(24.0);
+                for line in lines {
+                    match *line {
+                        "" => ui.add_space(14.0),
+                        text if text.starts_with('#') => {
+                            ui.heading(text.trim_start_matches('#').trim());
+                            ui.add_space(6.0);
                         }
-                        ui.add_space(4.0);
-                        if ui.button("Back").clicked() {
-                            *screen = Screen::Root;
-                        }
-                    }
-                    Screen::Multiplayer => {
-                        if ui.button("Join LAN").clicked() {
-                            *browser = LobbyBrowser::default();
-                            *screen = Screen::JoinLan;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Custom Games").clicked() {
-                            *browser = LobbyBrowser::default();
-                            *screen = Screen::CustomGames;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Matchmaking").clicked() {
-                            *screen = Screen::Matchmaking;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Host").clicked() {
-                            let base = asset_base();
-                            host.maps = scan_dir(&format!("{base}/maps"), "ron");
-                            host.gametypes = scan_dir(&format!("{base}/gametypes"), "lua");
-                            host.map_idx = 0;
-                            host.gametype_idx = 0;
-                            *screen = Screen::Host;
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Back").clicked() {
-                            *screen = Screen::Root;
-                        }
-                    }
-                    Screen::CustomGames => {
-                        // Start fetch when entering with no pending request
-                        if !browser.fetching && browser.rx.is_none() && !browser.done {
-                            let (tx, rx) = std::sync::mpsc::channel();
-                            browser.rx = Some(rx);
-                            browser.fetching = true;
-                            browser.error.clear();
-                            std::thread::spawn(move || {
-                                let _ = tx.send(fetch_lobbies());
-                            });
-                        }
-
-                        // Drain result
-                        if let Some(rx) = &browser.rx {
-                            match rx.try_recv() {
-                                Ok(Ok(lobbies)) => {
-                                    browser.lobbies = lobbies;
-                                    browser.rx = None;
-                                    browser.fetching = false;
-                                    browser.done = true;
-                                }
-                                Ok(Err(e)) => {
-                                    browser.error = e;
-                                    browser.lobbies.clear();
-                                    browser.rx = None;
-                                    browser.fetching = false;
-                                }
-                                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-                                Err(_) => {
-                                    browser.rx = None;
-                                    browser.fetching = false;
-                                }
-                            }
-                        }
-
-                        if browser.fetching {
-                            ui.spinner();
-                            ui.label("Looking for lobbies…");
-                        } else if !browser.error.is_empty() {
-                            ui.colored_label(egui::Color32::RED, &browser.error);
-                        } else if browser.lobbies.is_empty() {
-                            ui.label("No lobbies found.");
-                        } else {
-                            let mut connect_to: Option<String> = None;
-                            egui::ScrollArea::vertical()
-                                .max_height(200.0)
-                                .show(ui, |ui| {
-                                    for lobby in &browser.lobbies {
-                                        ui.horizontal(|ui| {
-                                            ui.label(format!(
-                                                "{} · {} ({}/{})",
-                                                lobby.name,
-                                                lobby.host,
-                                                lobby.player_count,
-                                                lobby.max_players
-                                            ));
-                                            if ui.button("Connect").clicked() {
-                                                connect_to = Some(lobby.host.clone());
-                                            }
-                                        });
-                                    }
-                                });
-                            if let Some(addr) = connect_to {
-                                if let Ok(sa) = addr.parse() {
-                                    server_addr.0 = sa;
-                                    *screen = Screen::Root;
-                                    next_state.set(GameState::Multiplayer);
-                                    *browser = LobbyBrowser::default();
-                                }
-                            }
-                        }
-
-                        ui.add_space(4.0);
-                        if ui.button("Refresh").clicked() {
-                            *browser = LobbyBrowser::default();
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Back").clicked() {
-                            *browser = LobbyBrowser::default();
-                            *screen = Screen::Multiplayer;
-                        }
-                    }
-                    Screen::JoinLan => {
-                        if !browser.fetching && browser.rx.is_none() && !browser.done {
-                            let (tx, rx) = std::sync::mpsc::channel();
-                            browser.rx = Some(rx);
-                            browser.fetching = true;
-                            browser.error.clear();
-                            // 1.5 s blocking scan; must be on a thread
-                            std::thread::spawn(move || {
-                                let _ = tx.send(fetch_lan_lobbies());
-                            });
-                        }
-
-                        if let Some(rx) = &browser.rx {
-                            match rx.try_recv() {
-                                Ok(Ok(lobbies)) => {
-                                    browser.lobbies = lobbies;
-                                    browser.rx = None;
-                                    browser.fetching = false;
-                                    browser.done = true;
-                                }
-                                Ok(Err(e)) => {
-                                    browser.error = e;
-                                    browser.lobbies.clear();
-                                    browser.rx = None;
-                                    browser.fetching = false;
-                                }
-                                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-                                Err(_) => {
-                                    browser.rx = None;
-                                    browser.fetching = false;
-                                }
-                            }
-                        }
-
-                        if browser.fetching {
-                            ui.spinner();
-                            ui.label("Scanning LAN…");
-                        } else if !browser.error.is_empty() {
-                            ui.colored_label(egui::Color32::RED, &browser.error);
-                        } else if browser.lobbies.is_empty() {
-                            ui.label("No servers found on LAN.");
-                        } else {
-                            let mut connect_to: Option<String> = None;
-                            egui::ScrollArea::vertical()
-                                .max_height(200.0)
-                                .show(ui, |ui| {
-                                    for lobby in &browser.lobbies {
-                                        ui.horizontal(|ui| {
-                                            ui.label(format!("{} · {}", lobby.name, lobby.host));
-                                            if ui.button("Connect").clicked() {
-                                                connect_to = Some(lobby.host.clone());
-                                            }
-                                        });
-                                    }
-                                });
-                            if let Some(addr) = connect_to {
-                                if let Ok(sa) = addr.parse() {
-                                    server_addr.0 = sa;
-                                    *screen = Screen::Root;
-                                    next_state.set(GameState::Multiplayer);
-                                    *browser = LobbyBrowser::default();
-                                }
-                            }
-                        }
-
-                        ui.add_space(4.0);
-                        if ui.button("Scan again").clicked() {
-                            *browser = LobbyBrowser::default();
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Back").clicked() {
-                            *browser = LobbyBrowser::default();
-                            *screen = Screen::Multiplayer;
-                        }
-                    }
-                    Screen::Matchmaking => {
-                        ui.label("Matchmaking coming soon.");
-                        ui.add_space(8.0);
-                        if ui.button("Back").clicked() {
-                            *screen = Screen::Multiplayer;
-                        }
-                    }
-                    Screen::Host => {
-                        egui::Grid::new("host_grid")
-                            .num_columns(2)
-                            .spacing([8.0, 4.0])
-                            .show(ui, |ui| {
-                                ui.label("Map");
-                                let map_label = host
-                                    .maps
-                                    .get(host.map_idx)
-                                    .cloned()
-                                    .unwrap_or_else(|| "—".into());
-                                egui::ComboBox::from_id_salt("map_combo")
-                                    .selected_text(&map_label)
-                                    .show_ui(ui, |ui| {
-                                        for i in 0..host.maps.len() {
-                                            let label = host.maps[i].clone();
-                                            ui.selectable_value(&mut host.map_idx, i, label);
-                                        }
-                                    });
-                                ui.end_row();
-
-                                ui.label("Mode");
-                                let mode_label = host
-                                    .gametypes
-                                    .get(host.gametype_idx)
-                                    .cloned()
-                                    .unwrap_or_else(|| "—".into());
-                                egui::ComboBox::from_id_salt("mode_combo")
-                                    .selected_text(&mode_label)
-                                    .show_ui(ui, |ui| {
-                                        for i in 0..host.gametypes.len() {
-                                            let label = host.gametypes[i].clone();
-                                            ui.selectable_value(&mut host.gametype_idx, i, label);
-                                        }
-                                    });
-                                ui.end_row();
-
-                                ui.label("Port");
-                                ui.text_edit_singleline(&mut host.port);
-                                ui.end_row();
-
-                                ui.label("Advertise");
-                                ui.checkbox(&mut host.advertise, "");
-                                ui.end_row();
-
-                                if host.advertise {
-                                    ui.label("Lobby name");
-                                    ui.text_edit_singleline(&mut host.name);
-                                    ui.end_row();
-
-                                    ui.label("Max players");
-                                    ui.text_edit_singleline(&mut host.max_players);
-                                    ui.end_row();
-                                }
-                            });
-
-                        ui.add_space(8.0);
-
-                        let port_ok = host.port.parse::<u16>().is_ok();
-                        let max_players_ok =
-                            !host.advertise || host.max_players.parse::<u8>().is_ok();
-                        let can_host = !host.maps.is_empty()
-                            && !host.gametypes.is_empty()
-                            && port_ok
-                            && max_players_ok;
-                        if ui
-                            .add_enabled(can_host, egui::Button::new("Start & Join"))
-                            .clicked()
-                        {
-                            let port: u16 = host.port.parse().unwrap_or(42070);
-                            let base = asset_base();
-                            // map is asset-relative; gameserver prepends the asset dir itself
-                            let map = format!("maps/{}.ron", host.maps[host.map_idx]);
-                            let gametype = format!(
-                                "{base}/gametypes/{}.lua",
-                                host.gametypes[host.gametype_idx]
-                            );
-                            match spawn_gameserver(port, &map, &gametype) {
-                                Ok(mut child) => {
-                                    let stdin = child.stdin.take().map(std::io::BufWriter::new);
-                                    hosted.child = Some(child);
-                                    hosted.stdin = stdin;
-                                    if host.advertise {
-                                        let req = RegisterRequest {
-                                            quic_port: port,
-                                            name: host.name.clone(),
-                                            max_players: host.max_players.parse().unwrap_or(8),
-                                        };
-                                        beacon_register(
-                                            req,
-                                            std::sync::Arc::clone(&hosted.beacon_id),
-                                        );
-                                    }
-                                    server_addr.0 = format!("127.0.0.1:{port}").parse().unwrap();
-                                    *screen = Screen::Root;
-                                    next_state.set(GameState::Multiplayer);
-                                }
-                                Err(e) => eprintln!("Failed to start gameserver: {e}"),
-                            }
-                        }
-                        ui.add_space(4.0);
-                        if ui.button("Back").clicked() {
-                            *screen = Screen::Multiplayer;
+                        text => {
+                            ui.label(text);
+                            ui.add_space(2.0);
                         }
                     }
                 }
+                ui.add_space(24.0);
+            });
+        });
+    ui.add_space(8.0);
+    if ui.button("Back").clicked() {
+        credits.offset = 0.0;
+        *screen = Screen::Root;
+    }
+}
+
+fn show_settings_screen(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    settings_section: &mut SettingsSection,
+    screen: &mut Screen,
+) {
+    show_settings_ui(ui, settings, settings_section);
+    ui.add_space(8.0);
+    if ui.button("Back").clicked() {
+        *screen = Screen::Root;
+    }
+}
+
+fn show_singleplayer_screen(
+    ui: &mut egui::Ui,
+    host: &mut HostState,
+    hosted: &mut HostedServer,
+    sp_config: &mut SinglePlayerConfig,
+    next_state: &mut NextState<GameState>,
+    screen: &mut Screen,
+) {
+    show_map_gametype_grid(ui, "sp", host);
+    ui.add_space(8.0);
+
+    let can_start = !host.maps.is_empty() && !host.gametypes.is_empty();
+    if ui
+        .add_enabled(can_start, egui::Button::new("Start"))
+        .clicked()
+    {
+        shutdown_session(None, None, hosted);
+        sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
+        sp_config.gametype = gametype_path(&host.gametypes[host.gametype_idx]);
+        *screen = Screen::Root;
+        next_state.set(GameState::SinglePlayer);
+    }
+    ui.add_space(4.0);
+    if ui.button("Back").clicked() {
+        *screen = Screen::Root;
+    }
+}
+
+fn show_multiplayer_screen(
+    ui: &mut egui::Ui,
+    host: &mut HostState,
+    browser: &mut LobbyBrowser,
+    screen: &mut Screen,
+) {
+    if ui.button("Join LAN").clicked() {
+        *browser = LobbyBrowser::default();
+        *screen = Screen::JoinLan;
+    }
+    ui.add_space(4.0);
+    if ui.button("Custom Games").clicked() {
+        *browser = LobbyBrowser::default();
+        *screen = Screen::CustomGames;
+    }
+    ui.add_space(4.0);
+    if ui.button("Matchmaking").clicked() {
+        *screen = Screen::Matchmaking;
+    }
+    ui.add_space(4.0);
+    if ui.button("Host").clicked() {
+        reset_host_catalog(host);
+        *screen = Screen::Host;
+    }
+    ui.add_space(4.0);
+    if ui.button("Back").clicked() {
+        *screen = Screen::Root;
+    }
+}
+
+fn begin_browser_fetch(browser: &mut LobbyBrowser, fetch: fn() -> Result<Vec<LobbyInfo>, String>) {
+    if browser.fetching || browser.rx.is_some() || browser.done {
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    browser.rx = Some(rx);
+    browser.fetching = true;
+    browser.error.clear();
+    std::thread::spawn(move || {
+        let _ = tx.send(fetch());
     });
+}
+
+fn poll_browser_fetch(browser: &mut LobbyBrowser) {
+    let Some(rx) = &browser.rx else {
+        return;
+    };
+    match rx.try_recv() {
+        Ok(Ok(lobbies)) => {
+            browser.lobbies = lobbies;
+            browser.rx = None;
+            browser.fetching = false;
+            browser.done = true;
+        }
+        Ok(Err(e)) => {
+            browser.error = e;
+            browser.lobbies.clear();
+            browser.rx = None;
+            browser.fetching = false;
+        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        Err(_) => {
+            browser.rx = None;
+            browser.fetching = false;
+        }
+    }
+}
+
+fn connect_to_lobby(
+    addr: &str,
+    hosted: &mut HostedServer,
+    server_addr: &mut ServerAddr,
+    next_state: &mut NextState<GameState>,
+    browser: &mut LobbyBrowser,
+    screen: &mut Screen,
+) {
+    if let Ok(sa) = addr.parse() {
+        shutdown_session(None, None, hosted);
+        server_addr.0 = sa;
+        *screen = Screen::Root;
+        next_state.set(GameState::Multiplayer);
+        *browser = LobbyBrowser::default();
+    }
+}
+
+fn show_browser_screen(
+    ui: &mut egui::Ui,
+    browser: &mut LobbyBrowser,
+    hosted: &mut HostedServer,
+    server_addr: &mut ServerAddr,
+    next_state: &mut NextState<GameState>,
+    screen: &mut Screen,
+    loading_label: &str,
+    empty_label: &str,
+    refresh_label: &str,
+    back_screen: Screen,
+    fetch: fn() -> Result<Vec<LobbyInfo>, String>,
+    draw_lobby: impl Fn(&mut egui::Ui, &LobbyInfo),
+) {
+    begin_browser_fetch(browser, fetch);
+    poll_browser_fetch(browser);
+
+    if browser.fetching {
+        ui.spinner();
+        ui.label(loading_label);
+    } else if !browser.error.is_empty() {
+        ui.colored_label(egui::Color32::RED, &browser.error);
+    } else if browser.lobbies.is_empty() {
+        ui.label(empty_label);
+    } else {
+        let mut connect_to: Option<String> = None;
+        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+            for lobby in &browser.lobbies {
+                ui.horizontal(|ui| {
+                    draw_lobby(ui, lobby);
+                    if ui.button("Connect").clicked() {
+                        connect_to = Some(lobby.host.clone());
+                    }
+                });
+            }
+        });
+        if let Some(addr) = connect_to {
+            connect_to_lobby(&addr, hosted, server_addr, next_state, browser, screen);
+        }
+    }
+
+    ui.add_space(4.0);
+    if ui.button(refresh_label).clicked() {
+        *browser = LobbyBrowser::default();
+    }
+    ui.add_space(4.0);
+    if ui.button("Back").clicked() {
+        *browser = LobbyBrowser::default();
+        *screen = back_screen;
+    }
+}
+
+fn show_matchmaking_screen(ui: &mut egui::Ui, screen: &mut Screen) {
+    ui.label("Matchmaking coming soon.");
+    ui.add_space(8.0);
+    if ui.button("Back").clicked() {
+        *screen = Screen::Multiplayer;
+    }
+}
+
+fn show_map_gametype_grid(ui: &mut egui::Ui, id: &'static str, host: &mut HostState) {
+    egui::Grid::new(format!("{id}_grid"))
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label("Map");
+            let map_label = host
+                .maps
+                .get(host.map_idx)
+                .cloned()
+                .unwrap_or_else(|| "—".into());
+            egui::ComboBox::from_id_salt(format!("{id}_map_combo"))
+                .selected_text(&map_label)
+                .show_ui(ui, |ui| {
+                    for i in 0..host.maps.len() {
+                        let label = host.maps[i].clone();
+                        ui.selectable_value(&mut host.map_idx, i, label);
+                    }
+                });
+            ui.end_row();
+
+            ui.label("Mode");
+            let mode_label = host
+                .gametypes
+                .get(host.gametype_idx)
+                .cloned()
+                .unwrap_or_else(|| "—".into());
+            egui::ComboBox::from_id_salt(format!("{id}_mode_combo"))
+                .selected_text(&mode_label)
+                .show_ui(ui, |ui| {
+                    for i in 0..host.gametypes.len() {
+                        let label = host.gametypes[i].clone();
+                        ui.selectable_value(&mut host.gametype_idx, i, label);
+                    }
+                });
+            ui.end_row();
+        });
+}
+
+fn show_host_screen(
+    ui: &mut egui::Ui,
+    host: &mut HostState,
+    hosted: &mut HostedServer,
+    server_addr: &mut ServerAddr,
+    next_state: &mut NextState<GameState>,
+    screen: &mut Screen,
+) {
+    show_map_gametype_grid(ui, "host", host);
+    egui::Grid::new("host_settings_grid")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label("Port");
+            ui.text_edit_singleline(&mut host.port);
+            ui.end_row();
+
+            ui.label("Advertise");
+            ui.checkbox(&mut host.advertise, "");
+            ui.end_row();
+
+            if host.advertise {
+                ui.label("Lobby name");
+                ui.text_edit_singleline(&mut host.name);
+                ui.end_row();
+
+                ui.label("Max players");
+                ui.text_edit_singleline(&mut host.max_players);
+                ui.end_row();
+            }
+        });
+
+    ui.add_space(8.0);
+
+    let port_ok = host.port.parse::<u16>().is_ok();
+    let max_players_ok = !host.advertise || host.max_players.parse::<u8>().is_ok();
+    let can_host = !host.maps.is_empty() && !host.gametypes.is_empty() && port_ok && max_players_ok;
+    if ui
+        .add_enabled(can_host, egui::Button::new("Start & Join"))
+        .clicked()
+    {
+        shutdown_session(None, None, hosted);
+        let port: u16 = host.port.parse().unwrap_or(42070);
+        let map = format!("maps/{}.ron", host.maps[host.map_idx]);
+        let gametype = gametype_path(&host.gametypes[host.gametype_idx]);
+        let advertise = host.advertise.then(|| RegisterRequest {
+            quic_port: port,
+            name: host.name.clone(),
+            max_players: host.max_players.parse().unwrap_or(8),
+        });
+        match start_hosted_server(hosted, port, &map, &gametype, advertise) {
+            Ok(()) => {
+                server_addr.0 = format!("127.0.0.1:{port}").parse().unwrap();
+                *screen = Screen::Root;
+                next_state.set(GameState::Multiplayer);
+            }
+            Err(e) => eprintln!("Failed to start gameserver: {e}"),
+        }
+    }
+    ui.add_space(4.0);
+    if ui.button("Back").clicked() {
+        *screen = Screen::Multiplayer;
+    }
 }
 
 fn credits_lines() -> &'static [&'static str] {

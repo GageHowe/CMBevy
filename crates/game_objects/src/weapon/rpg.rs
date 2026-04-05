@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use crate::level::SceneSpawnMarker;
 use crate::projectile::rpg;
 use crate::{GameObject, GameObjectKind};
 
@@ -22,14 +21,6 @@ impl Plugin for RpgPlugin {
 #[derive(Component, Default, Reflect)]
 pub struct RpgComponent {
     pub cooldown: u32,
-}
-
-#[derive(Component, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
-pub struct SceneRpg;
-
-impl SceneSpawnMarker for SceneRpg {
-    const KIND: GameObjectKind = GameObjectKind::Rpg;
 }
 
 impl Weapon for RpgComponent {

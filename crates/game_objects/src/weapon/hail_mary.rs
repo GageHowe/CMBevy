@@ -1,5 +1,4 @@
 use super::{FireCtx, Weapon, helpers};
-use crate::level::SceneSpawnMarker;
 use crate::projectile::hail_mary;
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
@@ -35,14 +34,6 @@ pub struct HailMaryComponent {
     /// Ticks remaining for muzzle flash visibility. Set to MUZZLE_FLASH_TICKS on fire.
     pub muzzle_flash_ticks: u8,
     pub muzzle_flash_light: Option<Entity>,
-}
-
-#[derive(Component, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
-pub struct SceneHailMary;
-
-impl SceneSpawnMarker for SceneHailMary {
-    const KIND: GameObjectKind = GameObjectKind::HailMary;
 }
 
 impl Weapon for HailMaryComponent {

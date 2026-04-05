@@ -1,10 +1,9 @@
 use bevy::prelude::*;
 use common::game_state::GameState;
 use common::{NetworkID, debug_println};
-use crate::GameObject;
+use crate::dispatch_game_object_on_death;
 use crate::pawn::{HeldWeaponMap, ModeConfig, PendingRespawns, PlayerRegistry};
-use crate::pawn::biped::{BipedPawnComponent, WeaponSlots};
-use crate::pawn::spaceship::SpaceshipPawnComponent;
+use crate::pawn::biped::WeaponSlots;
 use net::message::MsgType;
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_pos, step_physics};
@@ -188,17 +187,7 @@ fn run_death_callback(
     entity: Entity,
     world: &mut World,
 ) -> bool {
-    match kind {
-        common::GameObjectKind::Biped => BipedPawnComponent::on_death(entity, world),
-        common::GameObjectKind::Spaceship => SpaceshipPawnComponent::on_death(entity, world),
-        common::GameObjectKind::Rifle => crate::weapon::rifle::RifleComponent::on_death(entity, world),
-        common::GameObjectKind::HailMary => crate::weapon::hail_mary::HailMaryComponent::on_death(entity, world),
-        common::GameObjectKind::Rpg => crate::weapon::rpg::RpgComponent::on_death(entity, world),
-        common::GameObjectKind::RifleProjectile => crate::projectile::rifle::RifleProjectile::on_death(entity, world),
-        common::GameObjectKind::HailMaryProjectile => crate::projectile::hail_mary::HailMaryProjectile::on_death(entity, world),
-        common::GameObjectKind::RpgProjectile => crate::projectile::rpg::RpgProjectile::on_death(entity, world),
-        _ => true,
-    }
+    dispatch_game_object_on_death(kind, entity, world)
 }
 
 fn collect_weapon_drops(entity: Entity, world: &World) -> Vec<(NetworkID, Vec3)> {
@@ -265,10 +254,10 @@ fn handle_biped_death(entity: Entity, weapon_drops: &[(NetworkID, Vec3)], world:
 }
 
 fn collect_vehicle_eject(entity: Entity, world: &mut World) -> Option<(Entity, NetworkID)> {
-    let mut q = world.query::<(&ChildOf, &crate::pawn::vehicle::Cockpit)>();
-    q.iter(world)
-        .find(|(child_of, _)| child_of.parent() == entity)
-        .and_then(|(_, cockpit)| cockpit.occupant)
+    world
+        .get::<crate::pawn::vehicle::VehicleComponent>(entity)
+        .and_then(|vehicle| world.get::<crate::pawn::vehicle::DriverSeat>(vehicle.driver_seat))
+        .and_then(|cockpit| cockpit.occupant)
         .and_then(|biped_entity| world.get::<NetworkID>(biped_entity).cloned().map(|nid| (biped_entity, nid)))
 }
 

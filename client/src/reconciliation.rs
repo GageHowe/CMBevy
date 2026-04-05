@@ -7,6 +7,7 @@ use common::{NetworkID, PredictedCommand, PredictedCommands};
 use game_objects::components::atmosphere::{
     AtmosphericDragComponent, apply_wind_resistance_impulses,
 };
+use game_objects::NetworkEntityMap;
 use game_objects::pawn::SeatedInVehicle;
 use game_objects::pawn::Pawn;
 use game_objects::pawn::biped::BipedPawnComponent;
@@ -18,7 +19,7 @@ use game_objects::components::planet::{
 use net::message::SimulationState;
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
-    restore_snapshot, snapshot_bodies, step_world,
+    restore_snapshot, snapshot_body_handles, step_world,
 };
 /// manages client-side rollback/correction, like in Rocket League
 pub struct ReconciliationPlugin<S: States + Copy>(pub S);
@@ -105,19 +106,20 @@ fn record_biped_state(
 pub fn apply_physics_corrections(
     mut errors: ResMut<PhysicsErrors>,
     mut world: ResMut<PhysicsWorld>,
-    bodies: Query<(
-        &NetworkID,
-        &RigidBodyHandleComponent,
-        Option<&BipedPawnComponent>,
-    )>,
+    networked: Res<NetworkEntityMap>,
+    bipeds: Query<(), With<BipedPawnComponent>>,
 ) {
     const ALPHA: f32 = 0.2;
     if errors.0.is_empty() {
         return;
     }
-    let handles: HashMap<NetworkID, (RigidBodyHandle, bool)> = bodies
-        .iter()
-        .map(|(nid, h, biped)| (nid.clone(), (h.0, biped.is_some())))
+    let handles: HashMap<NetworkID, (RigidBodyHandle, bool)> = networked
+        .body_pairs()
+        .filter_map(|(net_id, handle)| {
+            networked
+                .get_entity(net_id)
+                .map(|entity| (net_id.clone(), (*handle, bipeds.get(entity).is_ok())))
+        })
         .collect();
     errors.0.retain(|net_id, error| {
         if error.is_nearly_zero() {
@@ -169,7 +171,8 @@ pub fn maybe_reconcile(
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
     _net_stats: Res<NetworkStats>,
-    bodies: Query<(&NetworkID, &RigidBodyHandleComponent, Option<&Possessed>)>,
+    networked: Res<NetworkEntityMap>,
+    possessed: Query<&NetworkID, With<Possessed>>,
     bipeds: Query<
         &RigidBodyHandleComponent,
         (With<BipedPawnComponent>, Without<SeatedInVehicle>),
@@ -192,20 +195,17 @@ pub fn maybe_reconcile(
         return;
     };
 
-    let Some((our_net_id, our_handle, _)) = bodies
-        .iter()
-        .find_map(|(nid, h, p)| p.map(|_| (nid, h, ())))
+    let Ok(our_net_id) = possessed.single() else {
+        return;
+    };
+    let Some(our_handle) = networked.get_body(our_net_id)
     else {
         return;
     };
 
-    let pairs: Vec<(NetworkID, RigidBodyHandle)> = bodies
-        .iter()
-        .map(|(nid, h, _)| (nid.clone(), h.0))
-        .collect();
+    let pairs = networked.body_pairs_vec();
 
-    let current_state =
-        snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+    let current_state = snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
     let current_biped_state = biped_q.single().ok().map(|biped| BipedReplayState {
         jump_cooldown: biped.jump_cooldown,
         is_sliding: biped.is_sliding,
@@ -233,7 +233,7 @@ pub fn maybe_reconcile(
         }
     }
 
-    let our_rb = our_handle.0;
+    let our_rb = our_handle;
     for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
         if let Some(command) = predicted.get(replay_seq).cloned() {
             apply_predicted_command(
@@ -258,7 +258,7 @@ pub fn maybe_reconcile(
         }
     }
 
-    let resim_state = snapshot_bodies(&world, tick.tick, bodies.iter().map(|(nid, h, _)| (nid, h)));
+    let resim_state = snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
     restore_snapshot(&mut world, &current_state, &pairs);
     if let (Some(saved), Ok(mut biped)) = (current_biped_state, biped_q.single_mut()) {
         biped.jump_cooldown = saved.jump_cooldown;

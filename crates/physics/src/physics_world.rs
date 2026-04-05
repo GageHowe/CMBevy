@@ -365,6 +365,32 @@ pub fn snapshot_bodies<'a>(
     }
 }
 
+pub fn snapshot_body_handles<'a>(
+    world: &PhysicsWorld,
+    tick: u64,
+    pairs: impl Iterator<Item = (&'a NetworkID, RigidBodyHandle)>,
+) -> SimulationState {
+    let mut bodies = HashMap::new();
+    for (net_id, handle) in pairs {
+        if let Some(rb) = world.rigid_body_set.get(handle) {
+            bodies.insert(
+                net_id.clone(),
+                BodyState {
+                    position: rb_pos(rb).into(),
+                    rotation: rb_rot(rb).into(),
+                    linvel: rb_vel(rb).into(),
+                    angvel: rb_angvel(rb).into(),
+                },
+            );
+        }
+    }
+    SimulationState {
+        tick,
+        last_input_seq: 0,
+        bodies,
+    }
+}
+
 /// Apply a server snapshot to the physics world.
 /// `pairs` maps NetworkID → RigidBodyHandle for every networked entity.
 pub fn restore_snapshot(

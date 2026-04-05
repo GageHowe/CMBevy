@@ -8,11 +8,6 @@ use physics::physics_world::{
 };
 use rapier3d::prelude::*;
 use serde::de::DeserializeSeed;
-use crate::pawn::biped::SceneBiped;
-use crate::pawn::spaceship::SceneSpaceship;
-use crate::weapon::hail_mary::SceneHailMary;
-use crate::weapon::rifle::SceneRifle;
-use crate::weapon::rpg::SceneRpg;
 
 // ── component / resource types ────────────────────────────────────────────────
 
@@ -72,15 +67,24 @@ pub struct MapMeta {
 #[derive(Component)]
 pub struct LevelSceneRoot;
 
-pub trait SceneSpawnMarker: Component {
-    const KIND: common::GameObjectKind;
-    fn respawn_delay_secs() -> f32 {
-        10.0
+#[derive(Component, Clone, Reflect)]
+#[reflect(Component, Default)]
+pub struct SceneSpawn {
+    pub kind: common::GameObjectKind,
+    pub respawn_delay_secs: f32,
+}
+
+impl Default for SceneSpawn {
+    fn default() -> Self {
+        Self {
+            kind: common::GameObjectKind::Biped,
+            respawn_delay_secs: 10.0,
+        }
     }
 }
 
 #[derive(Component)]
-pub struct SceneSpawner {
+struct SceneSpawner {
     kind: common::GameObjectKind,
     starting_velocity: Vec3,
     respawn_delay_secs: f32,
@@ -89,25 +93,22 @@ pub struct SceneSpawner {
 }
 
 impl SceneSpawner {
-    pub fn is_ready(&self) -> bool {
+    fn is_ready(&self) -> bool {
         self.active_entity.is_some()
     }
 }
 
-pub fn scene_spawns_ready(
-    pending_bipeds: &Query<(), (With<SceneBiped>, Without<SceneSpawner>)>,
-    pending_spaceships: &Query<(), (With<SceneSpaceship>, Without<SceneSpawner>)>,
-    pending_rifles: &Query<(), (With<SceneRifle>, Without<SceneSpawner>)>,
-    pending_hail_marys: &Query<(), (With<SceneHailMary>, Without<SceneSpawner>)>,
-    pending_rpgs: &Query<(), (With<SceneRpg>, Without<SceneSpawner>)>,
-    spawners: &Query<&SceneSpawner>,
-) -> bool {
-    pending_bipeds.is_empty()
-        && pending_spaceships.is_empty()
-        && pending_rifles.is_empty()
-        && pending_hail_marys.is_empty()
-        && pending_rpgs.is_empty()
-        && spawners.iter().all(SceneSpawner::is_ready)
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SceneSpawnState<'w, 's> {
+    pending_markers: Query<'w, 's, (), (With<SceneSpawn>, Without<SceneSpawner>)>,
+    spawners: Query<'w, 's, &'static SceneSpawner>,
+}
+
+impl SceneSpawnState<'_, '_> {
+    pub fn ready(&self) -> bool {
+        self.pending_markers.is_empty()
+            && self.spawners.iter().all(SceneSpawner::is_ready)
+    }
 }
 
 pub fn parented_world_pose(
@@ -207,31 +208,18 @@ pub fn apply_pending_map_scene(world: &mut World) {
 pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<ColliderShape>()
-            .register_type::<StaticCollider>()
-            .register_type::<SpawnPoint>()
-            .register_type::<SceneBiped>()
-            .register_type::<SceneSpaceship>()
-            .register_type::<SceneRifle>()
-            .register_type::<SceneHailMary>()
-            .register_type::<SceneRpg>()
-            .register_type::<MapMeta>()
-            .init_resource::<PendingHullColliders>()
-            // react to scene-spawned components — works on both client and server
-            .add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
+        app.register_type::<ColliderShape>();
+        app.register_type::<StaticCollider>();
+        app.register_type::<SpawnPoint>();
+        app.register_type::<SceneSpawn>();
+        app.register_type::<MapMeta>();
+        app.init_resource::<PendingHullColliders>();
+        // react to scene-spawned components — works on both client and server
+        app.add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
 
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
-        app.add_systems(
-            Update,
-            (
-                init_scene_spawners::<SceneBiped>,
-                init_scene_spawners::<SceneSpaceship>,
-                init_scene_spawners::<SceneRifle>,
-                init_scene_spawners::<SceneHailMary>,
-                init_scene_spawners::<SceneRpg>,
-            ),
-        );
+        app.add_systems(Update, init_scene_spawners);
         app.add_systems(FixedUpdate, tick_scene_spawners);
     }
 }
@@ -263,18 +251,18 @@ fn queue_scene_spawn(
     spawn_cmd
 }
 
-fn init_scene_spawners<T: SceneSpawnMarker>(
+fn init_scene_spawners(
     query: Query<
-        (Entity, Option<&InitialVelocity>),
-        (Added<T>, Without<SceneSpawner>),
+        (Entity, &SceneSpawn, Option<&InitialVelocity>),
+        (Added<SceneSpawn>, Without<SceneSpawner>),
     >,
     mut commands: Commands,
 ) {
-    for (entity, initial_velocity) in query.iter() {
+    for (entity, scene_spawn, initial_velocity) in query.iter() {
         commands.entity(entity).insert(SceneSpawner {
-            kind: T::KIND,
+            kind: scene_spawn.kind.clone(),
             starting_velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            respawn_delay_secs: T::respawn_delay_secs(),
+            respawn_delay_secs: scene_spawn.respawn_delay_secs,
             respawn_timer_secs: 0.0,
             active_entity: None,
         });

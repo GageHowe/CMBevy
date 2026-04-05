@@ -13,24 +13,26 @@ build:
 	cargo build -p client
 	cargo build -p network_emulator
 
-cross-windows:
-	cross build --target x86_64-pc-windows-gnu
+cross-windows-release:
+	cross build --target x86_64-pc-windows-gnu --profile distribution
 
 dev:
 	cargo build -p gameserver && cargo run -p client
 
 s:
 	cargo run -p gameserver
+s-dist:
+	cargo run -p gameserver --profile distribution
 
 c:
 	cargo run -p client
-c-release:
-	cargo run -p client --release
+c-dist:
+	cargo run -p client --profile distribution
 
 emulator:
 	cargo run -p network_emulator --release
 
-build-release:
+build-release: # contains debug info
 	cargo build -p gameserver --release
 	cargo build -p client --release
 	cargo build -p network_emulator --release
@@ -40,19 +42,17 @@ build-distribution:
 	cargo build -p client --profile distribution
 	cargo build -p network_emulator --profile distribution
 
+check:
+	cargo check -p gameserver
+	cargo check -p client
+	cargo check -p network_emulator
+
+clean:
+	cargo clean
+
 build-profiling:
 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p gameserver --profile profiling
 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p client --profile profiling
-
-flamegraph-client:
-	mkdir -p target/profiling
-	ln -sfn ../../assets target/profiling/assets
-	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$(FMOD_CORE_LIB):$(FMOD_STUDIO_LIB):$$LD_LIBRARY_PATH" RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo flamegraph -F 99 -c "record --call-graph fp" --output flamegraph-client.svg --profile profiling -p client -- --server 127.0.0.1:42070
-
-flamegraph-server:
-	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo flamegraph -F 99 -c "record --call-graph fp" --output flamegraph-server.svg --profile profiling -p gameserver -- --port 42070
 
 perf-client: build-profiling
 	mkdir -p target/profiling
@@ -73,11 +73,3 @@ perf-top-client:
 	ln -sfn ../../assets target/profiling/assets
 	mkdir -p $(PERF_BUILDID_DIR)
 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$(FMOD_CORE_LIB):$(FMOD_STUDIO_LIB):$$LD_LIBRARY_PATH" perf top -- target/profiling/client --server 127.0.0.1:42070
-
-check:
-	cargo check -p gameserver
-	cargo check -p client
-	cargo check -p network_emulator
-
-clean:
-	cargo clean

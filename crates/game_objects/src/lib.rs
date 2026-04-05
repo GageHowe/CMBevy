@@ -2,11 +2,13 @@ use bevy::prelude::Command;
 use bevy::prelude::*;
 pub use common::GameObjectKind;
 use net::message::SpawnCommand;
+use physics::physics_world::{RigidBodyHandle, RigidBodyHandleComponent};
 use std::collections::HashMap;
 
 pub mod components;
 pub mod generic;
 pub mod health;
+pub mod interaction;
 pub mod level;
 pub mod pawn;
 pub mod projectile;
@@ -22,11 +24,21 @@ impl Plugin for GameObjectsPlugin {
         app.init_resource::<NetworkEntityMap>()
             .add_systems(
                 PreUpdate,
-                (index_added_network_ids, index_removed_network_ids),
+                (
+                    index_added_network_ids,
+                    index_added_or_changed_rigid_bodies,
+                    index_removed_network_ids,
+                    index_removed_rigid_bodies,
+                ),
             )
             .add_systems(
                 FixedPreUpdate,
-                (index_added_network_ids, index_removed_network_ids),
+                (
+                    index_added_network_ids,
+                    index_added_or_changed_rigid_bodies,
+                    index_removed_network_ids,
+                    index_removed_rigid_bodies,
+                ),
             );
     }
 }
@@ -35,20 +47,52 @@ impl Plugin for GameObjectsPlugin {
 pub struct NetworkEntityMap {
     by_id: HashMap<net::message::NetworkID, Entity>,
     by_entity: HashMap<Entity, net::message::NetworkID>,
+    bodies_by_id: HashMap<net::message::NetworkID, RigidBodyHandle>,
 }
 
 impl NetworkEntityMap {
     pub fn get(&self, net_id: &net::message::NetworkID) -> Option<Entity> {
+        self.get_entity(net_id)
+    }
+
+    pub fn get_entity(&self, net_id: &net::message::NetworkID) -> Option<Entity> {
         self.by_id.get(net_id).copied()
+    }
+
+    pub fn get_body(&self, net_id: &net::message::NetworkID) -> Option<RigidBodyHandle> {
+        self.bodies_by_id.get(net_id).copied()
+    }
+
+    pub fn get_entity_and_body(
+        &self,
+        net_id: &net::message::NetworkID,
+    ) -> Option<(Entity, RigidBodyHandle)> {
+        Some((self.get_entity(net_id)?, self.get_body(net_id)?))
+    }
+
+    pub fn body_pairs(&self) -> impl Iterator<Item = (&net::message::NetworkID, &RigidBodyHandle)> {
+        self.bodies_by_id.iter()
+    }
+
+    pub fn body_pairs_vec(&self) -> Vec<(net::message::NetworkID, RigidBodyHandle)> {
+        self.bodies_by_id
+            .iter()
+            .map(|(net_id, handle)| (net_id.clone(), *handle))
+            .collect()
     }
 
     pub fn insert(&mut self, net_id: net::message::NetworkID, entity: Entity) {
         if let Some(prev_id) = self.by_entity.insert(entity, net_id.clone()) {
             self.by_id.remove(&prev_id);
+            self.bodies_by_id.remove(&prev_id);
         }
         if let Some(prev_entity) = self.by_id.insert(net_id.clone(), entity) {
             self.by_entity.remove(&prev_entity);
         }
+    }
+
+    pub fn insert_body(&mut self, net_id: net::message::NetworkID, handle: RigidBodyHandle) {
+        self.bodies_by_id.insert(net_id, handle);
     }
 
     pub fn remove_entity(&mut self, entity: Entity) {
@@ -56,15 +100,44 @@ impl NetworkEntityMap {
             return;
         };
         self.by_id.remove(&net_id);
+        self.bodies_by_id.remove(&net_id);
+    }
+
+    pub fn remove_body_for_entity(&mut self, entity: Entity) {
+        let Some(net_id) = self.by_entity.get(&entity) else {
+            return;
+        };
+        self.bodies_by_id.remove(net_id);
     }
 }
 
 fn index_added_network_ids(
     mut map: ResMut<NetworkEntityMap>,
-    added: Query<(Entity, &net::message::NetworkID), Added<net::message::NetworkID>>,
+    added: Query<
+        (Entity, &net::message::NetworkID, Option<&RigidBodyHandleComponent>),
+        Added<net::message::NetworkID>,
+    >,
 ) {
-    for (entity, net_id) in added.iter() {
+    for (entity, net_id, body) in added.iter() {
         map.insert(net_id.clone(), entity);
+        if let Some(body) = body {
+            map.insert_body(net_id.clone(), body.0);
+        }
+    }
+}
+
+fn index_added_or_changed_rigid_bodies(
+    mut map: ResMut<NetworkEntityMap>,
+    bodies: Query<
+        (Entity, &RigidBodyHandleComponent),
+        Or<(Added<RigidBodyHandleComponent>, Changed<RigidBodyHandleComponent>)>,
+    >,
+) {
+    for (entity, body) in bodies.iter() {
+        let Some(net_id) = map.by_entity.get(&entity).cloned() else {
+            continue;
+        };
+        map.insert_body(net_id, body.0);
     }
 }
 
@@ -74,6 +147,15 @@ fn index_removed_network_ids(
 ) {
     for entity in removed.read() {
         map.remove_entity(entity);
+    }
+}
+
+fn index_removed_rigid_bodies(
+    mut map: ResMut<NetworkEntityMap>,
+    mut removed: RemovedComponents<RigidBodyHandleComponent>,
+) {
+    for entity in removed.read() {
+        map.remove_body_for_entity(entity);
     }
 }
 
@@ -90,6 +172,23 @@ macro_rules! for_each_game_object {
             GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
             GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile
         )
+    };
+}
+
+macro_rules! dispatch_game_object_match {
+    (
+        $method:ident,
+        $kind:expr,
+        $entity:expr,
+        $world:expr;
+        $($kind_path:path => $ty:path),+ $(,)?
+    ) => {
+        match $kind.clone() {
+            $(
+                $kind_path => <$ty as GameObject>::$method($entity, $world),
+            )+
+            _ => panic!("GameObjectKind::{:?} is not registered for SpawnGameObjectCommand", $kind),
+        }
     };
 }
 
@@ -130,6 +229,10 @@ pub trait GameObject: Default + Reflect {
     fn on_death(_entity: Entity, _world: &mut World) -> bool {
         true
     }
+}
+
+pub fn dispatch_game_object_on_death(kind: GameObjectKind, entity: Entity, world: &mut World) -> bool {
+    for_each_game_object!(dispatch_game_object_match on_death, kind, entity, world;)
 }
 
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.

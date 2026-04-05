@@ -1,11 +1,11 @@
 #[cfg(feature = "client")]
-use super::vehicle::{Cockpit, VehicleComponent, enter_vehicle, ray_hits_cockpit};
+use super::vehicle::{DriverSeat, VehicleComponent, enter_vehicle, ray_hits_cockpit};
 use super::*;
 #[cfg(feature = "client")]
 use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
 use crate::weapon::{hail_mary, rifle, rpg};
-use crate::{GameObject, GameObjectKind, health::Health, level::SceneSpawnMarker};
+use crate::{GameObject, GameObjectKind, health::Health};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -31,9 +31,9 @@ const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS; // 0.8
 const MAX_WALK_SPEED: f32 = 10.0;
 const MAX_SPRINT_SPEED: f32 = 15.0;
 /// max speed gained per tick when accelerating on the ground
-const GROUND_ACCEL: f32 = 5.0;
+const GROUND_ACCEL: f32 = 1.0;
 const JUMP_IMPULSE: f32 = 5.0;
-const AIR_CONTROL: f32 = 0.5; // TODO: make vertical control separate and larger than AIR_CONTROL
+const AIR_CONTROL: f32 = 0.3; // TODO: make vertical control separate and larger than AIR_CONTROL
 const GROUND_DIST: f32 = 0.01; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 25; // ticks (~0.4 s at 60 Hz) before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
@@ -54,14 +54,6 @@ pub struct BipedPawnComponent {
     pub is_sliding: bool,
     /// Client-only cached body rotation used to preserve world look across body rotation.
     pub last_look_frame_body_rot: Option<Quat>,
-}
-
-#[derive(Component, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
-pub struct SceneBiped;
-
-impl SceneSpawnMarker for SceneBiped {
-    const KIND: GameObjectKind = GameObjectKind::Biped;
 }
 
 impl Pawn for BipedPawnComponent {
@@ -210,8 +202,7 @@ impl GameObject for BipedPawnComponent {
             .unwrap_or_default();
         let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
-            physics.teleport_body(weapon_entity, drop_pos);
-            physics.set_body_enabled(weapon_entity, true);
+            crate::weapon::helpers::place_world_weapon(&mut physics, weapon_entity, drop_pos);
         }
         true
     }
@@ -325,19 +316,9 @@ fn gather_biped_input(
 /// moves the biped's yaw and pitch components on Update
 fn preserve_look_across_body_rotation(
     snap_comp: Option<Res<super::LookSnapCompensation>>,
-    mut possessed: Query<
-        (&RigidBodyHandleComponent, &mut BipedPawnComponent),
-        With<Possessed>,
-    >,
+    mut possessed: Query<(&RigidBodyHandleComponent, &mut BipedPawnComponent), With<Possessed>>,
     mut pivots: ParamSet<(
-        Query<
-            &Transform,
-            (
-                With<Possessed>,
-                Without<YawPivot>,
-                Without<PitchPivot>,
-            ),
-        >,
+        Query<&Transform, (With<Possessed>, Without<YawPivot>, Without<PitchPivot>)>,
         Query<(&mut Transform, &mut YawPivot), Without<Possessed>>,
         Query<(&mut Transform, &mut PitchPivot), Without<Possessed>>,
     )>,
@@ -386,14 +367,16 @@ fn preserve_look_across_body_rotation(
         };
         pitch_pivot.pitch
     };
-    let world_forward = prev_body_rot
-        * Quat::from_rotation_y(yaw)
-        * Quat::from_rotation_x(pitch)
-        * Vec3::NEG_Z;
+    let world_forward =
+        prev_body_rot * Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch) * Vec3::NEG_Z;
     let local_forward = (body_rot.inverse() * world_forward).normalize_or_zero();
     if local_forward != Vec3::ZERO {
         let yaw = f32::atan2(-local_forward.x, -local_forward.z);
-        let pitch = local_forward.y.clamp(-1.0, 1.0).asin().clamp(-PITCH_MAX, PITCH_MAX);
+        let pitch = local_forward
+            .y
+            .clamp(-1.0, 1.0)
+            .asin()
+            .clamp(-PITCH_MAX, PITCH_MAX);
         {
             let mut yaw_query = pivots.p1();
             if let Ok((mut yaw_t, mut yaw_pivot)) = yaw_query.get_mut(yaw_e) {
@@ -818,8 +801,11 @@ fn toggle_flashlight(
     mut lights: Query<&mut Visibility, With<SpotLight>>,
     mut quic: ResMut<net::quic::QuicManager>,
     mut on: Local<bool>,
+    mut toggle_pressed: Local<bool>,
 ) {
-    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyY) {
+    if egui_wants.wants_any_input()
+        || !consume_fixed_press(keyboard.pressed(KeyCode::KeyY), &mut toggle_pressed)
+    {
         return;
     }
     *on = !*on;
@@ -914,26 +900,42 @@ pub fn viewmodel_offset(_is_primary: bool) -> Transform {
 }
 
 #[cfg(feature = "client")]
+pub(crate) fn consume_fixed_press(is_down: bool, latched: &mut Local<bool>) -> bool {
+    if !is_down {
+        **latched = false;
+        return false;
+    }
+    if **latched {
+        return false;
+    }
+    **latched = true;
+    true
+}
+
+#[cfg(feature = "client")]
 fn interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
     state: Res<State<common::game_state::GameState>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
-    interactables: Query<&net::message::NetworkID, With<common::interaction::Interactable>>,
+    interactables: Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     camera: Query<Entity, With<Camera3d>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
+    mut interact_pressed: Local<bool>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
     mut cockpit_q: ParamSet<(
-        Query<(Entity, &Cockpit, &GlobalTransform, &ChildOf)>,
-        Query<(&mut Cockpit, &Transform, &ChildOf)>,
+        Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
+        Query<(&mut DriverSeat, &Transform, &ChildOf)>,
     )>,
 ) {
     use common::game_state::GameState;
-    if egui_wants.wants_any_input() || !keyboard.just_pressed(KeyCode::KeyF) {
+    if egui_wants.wants_any_input()
+        || !consume_fixed_press(keyboard.pressed(KeyCode::KeyF), &mut interact_pressed)
+    {
         return;
     }
     let Ok((pawn_entity, biped)) = player.single() else {
@@ -1020,28 +1022,24 @@ fn interact(
             let Ok(mut slots) = possessed_q.single_mut() else {
                 return;
             };
-            let (is_primary, prev_to_hide) = if slots.primary.0.is_none() {
-                slots.primary = (Some(interact_net_id.clone()), Some(hit_entity));
-                (true, None)
-            } else if slots.pocket.0.is_none() {
-                let prev = slots.active().1;
-                slots.pocket = (Some(interact_net_id.clone()), Some(hit_entity));
-                slots.active_primary = false;
-                (false, prev)
-            } else {
+            let Some((is_primary, prev_to_hide)) = crate::weapon::helpers::assign_pickup_slot(
+                &mut slots,
+                interact_net_id.clone(),
+                hit_entity,
+            ) else {
                 return;
             };
             if let Some(prev) = prev_to_hide {
                 commands.entity(prev).insert(Visibility::Hidden);
             }
             let parent = camera.single().ok().or(biped.pitch_pivot).unwrap();
-            world.set_body_enabled(hit_entity, false);
-            commands
-                .entity(hit_entity)
-                .remove::<(RigidBodyHandleComponent, common::interaction::Interactable)>()
-                .set_parent_in_place(parent)
-                .insert(viewmodel_offset(is_primary))
-                .insert(Visibility::Inherited);
+            crate::weapon::helpers::pickup_world_weapon(&mut world, hit_entity);
+            crate::weapon::helpers::attach_local_viewmodel(
+                &mut commands,
+                hit_entity,
+                parent,
+                is_primary,
+            );
         }
         GameState::Multiplayer => {
             quic.send(

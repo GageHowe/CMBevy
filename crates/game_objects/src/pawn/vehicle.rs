@@ -1,5 +1,6 @@
 #[cfg(feature = "client")]
 use super::*;
+use super::Pawn;
 /// VehicleComponent is a shared marker inserted by every vehicle-type pawn (spaceship, car, etc.).
 /// It does NOT implement Pawn — each vehicle type has its own component for that.
 /// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
@@ -16,20 +17,37 @@ use physics::physics_world::sync_physics_visual;
 pub struct VehicleComponent {
     /// Camera position relative to the vehicle when occupied.
     pub camera_offset: Vec3,
+    pub driver_seat: Entity,
+}
+
+impl VehicleComponent {
+    pub fn for_vehicle<T: VehiclePawn>(driver_seat: Entity) -> Self {
+        Self {
+            camera_offset: T::CAMERA_OFFSET,
+            driver_seat,
+        }
+    }
 }
 
 #[derive(Component, Clone, Copy, Reflect)]
 pub struct SeatedInVehicle(pub Entity);
 
-/// A vehicle seat child entity. The child transform defines the seat anchor.
+pub trait VehiclePawn: Pawn {
+    const CAMERA_OFFSET: Vec3;
+    const DRIVER_SEAT_OFFSET: Vec3;
+    const DRIVER_EXIT_OFFSET: Vec3 = Vec3::new(4.0, 0.0, 0.0);
+    const DRIVER_INTERACT_RADIUS: f32 = 1.0;
+}
+
+/// A vehicle seat child entity. The child transform defines the driver anchor.
 #[derive(Component, Reflect)]
-pub struct Cockpit {
+pub struct DriverSeat {
     pub occupant: Option<Entity>,
     pub interact_radius: f32,
     pub exit_offset: Vec3,
 }
 
-impl Default for Cockpit {
+impl Default for DriverSeat {
     fn default() -> Self {
         Self {
             occupant: None,
@@ -43,7 +61,7 @@ pub struct VehiclePlugin;
 impl Plugin for VehiclePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<VehicleComponent>();
-        app.register_type::<Cockpit>();
+        app.register_type::<DriverSeat>();
         app.add_systems(FixedUpdate, sync_seated_bipeds.before(step_physics));
         #[cfg(feature = "client")]
         {
@@ -79,14 +97,30 @@ pub fn ray_hits_cockpit(
     }
 }
 
+pub fn spawn_driver_seat<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
+    let seat = world
+        .spawn((
+            DriverSeat {
+                interact_radius: T::DRIVER_INTERACT_RADIUS,
+                exit_offset: T::DRIVER_EXIT_OFFSET,
+                ..default()
+            },
+            Transform::from_translation(T::DRIVER_SEAT_OFFSET),
+            Visibility::default(),
+        ))
+        .id();
+    world.entity_mut(vehicle_entity).add_child(seat);
+    seat
+}
+
 pub fn enter_vehicle(
     world: &mut PhysicsWorld,
     biped_entity: Entity,
     vehicle_entity: Entity,
-    cockpit: &mut Cockpit,
+    seat: &mut DriverSeat,
     seat_transform: &Transform,
 ) -> bool {
-    if cockpit.occupant.is_some() {
+    if seat.occupant.is_some() {
         return false;
     }
 
@@ -111,17 +145,17 @@ pub fn enter_vehicle(
     );
     world.set_body_enabled(biped_entity, false);
 
-    cockpit.occupant = Some(biped_entity);
+    seat.occupant = Some(biped_entity);
     true
 }
 
 pub fn exit_vehicle(
     world: &mut PhysicsWorld,
     vehicle_entity: Entity,
-    cockpit: &mut Cockpit,
+    seat: &mut DriverSeat,
     seat_transform: &Transform,
 ) -> Option<Entity> {
-    let biped_entity = cockpit.occupant.take()?;
+    let biped_entity = seat.occupant.take()?;
 
     let vehicle_body = world
         .entity_to_handle
@@ -131,7 +165,7 @@ pub fn exit_vehicle(
     let vehicle_rot = rb_rot(vehicle_body);
     let vehicle_vel = rb_vel(vehicle_body);
     let vehicle_angvel = rb_angvel(vehicle_body);
-    let exit_offset = seat_transform.rotation * cockpit.exit_offset + seat_transform.translation;
+    let exit_offset = seat_transform.rotation * seat.exit_offset + seat_transform.translation;
     let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
     let exit_rot = vehicle_rot * seat_transform.rotation;
     world.set_body_enabled(biped_entity, true);
@@ -148,7 +182,8 @@ pub fn exit_vehicle(
 fn sync_seated_bipeds(
     mut world: ResMut<PhysicsWorld>,
     seated: Query<(Entity, &SeatedInVehicle)>,
-    cockpits: Query<(&Transform, &ChildOf), With<Cockpit>>,
+    vehicles: Query<&VehicleComponent>,
+    driver_seats: Query<&Transform, With<DriverSeat>>,
 ) {
     for (biped_entity, seated_in) in seated.iter() {
         let Some(vehicle_handle) = world.entity_to_handle.get(&seated_in.0).copied() else {
@@ -157,10 +192,10 @@ fn sync_seated_bipeds(
         let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else {
             continue;
         };
-        let Some((seat_transform, _)) = cockpits
-            .iter()
-            .find(|(_, child_of)| child_of.parent() == seated_in.0)
-        else {
+        let Ok(vehicle) = vehicles.get(seated_in.0) else {
+            continue;
+        };
+        let Ok(seat_transform) = driver_seats.get(vehicle.driver_seat) else {
             continue;
         };
         let vehicle_pos = rb_pos(vehicle_body);
@@ -177,25 +212,26 @@ fn sync_seated_bipeds(
 fn sync_seated_biped_visuals(
     seated: Query<(Entity, &SeatedInVehicle)>,
     mut transforms: ParamSet<(
-        Query<&Transform, With<VehicleComponent>>,
-        Query<(&Transform, &ChildOf), With<Cockpit>>,
+        Query<(&Transform, &VehicleComponent)>,
+        Query<&Transform, With<DriverSeat>>,
         Query<&mut Transform>,
     )>,
 ) {
     for (biped_entity, seated_in) in seated.iter() {
-        let (vehicle_translation, vehicle_rotation) = {
+        let (vehicle_translation, vehicle_rotation, driver_seat) = {
             let vehicles = transforms.p0();
-            let Ok(vehicle_transform) = vehicles.get(seated_in.0) else {
+            let Ok((vehicle_transform, vehicle)) = vehicles.get(seated_in.0) else {
                 continue;
             };
-            (vehicle_transform.translation, vehicle_transform.rotation)
+            (
+                vehicle_transform.translation,
+                vehicle_transform.rotation,
+                vehicle.driver_seat,
+            )
         };
         let (seat_translation, seat_rotation) = {
-            let cockpits = transforms.p1();
-            let Some((seat_transform, _)) = cockpits
-                .iter()
-                .find(|(_, child_of)| child_of.parent() == seated_in.0)
-            else {
+            let seats = transforms.p1();
+            let Ok(seat_transform) = seats.get(driver_seat) else {
                 continue;
             };
             (seat_transform.translation, seat_transform.rotation)
@@ -212,16 +248,16 @@ fn sync_seated_biped_visuals(
 }
 
 #[cfg(feature = "client")]
-pub fn draw_cockpit_debug(cockpits: Query<(&Cockpit, &GlobalTransform)>, mut gizmos: Gizmos) {
-    for (cockpit, gt) in cockpits.iter() {
+pub fn draw_driver_seat_debug(seats: Query<(&DriverSeat, &GlobalTransform)>, mut gizmos: Gizmos) {
+    for (seat, gt) in seats.iter() {
         let (_, rot, center) = gt.to_scale_rotation_translation();
-        let color = if cockpit.occupant.is_some() {
+        let color = if seat.occupant.is_some() {
             Color::srgba(1.0, 0.2, 0.2, 0.9)
         } else {
             Color::srgba(0.2, 1.0, 0.8, 0.9)
         };
-        gizmos.sphere(center, cockpit.interact_radius, color);
-        let exit_tip = center + rot * cockpit.exit_offset;
+        gizmos.sphere(center, seat.interact_radius, color);
+        let exit_tip = center + rot * seat.exit_offset;
         gizmos.line(center, exit_tip, Color::srgba(1.0, 0.8, 0.2, 0.9));
     }
 }
@@ -263,19 +299,20 @@ fn vehicle_exit_interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     state: Res<State<common::game_state::GameState>>,
     vehicle: Query<
-        (Entity, Option<&net::message::NetworkID>),
+        (Entity, &VehicleComponent, Option<&net::message::NetworkID>),
         (With<VehicleComponent>, With<Possessed>),
     >,
-    mut cockpits: Query<(&mut Cockpit, &Transform, &ChildOf)>,
+    mut driver_seats: Query<(&mut DriverSeat, &Transform)>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
+    mut interact_pressed: Local<bool>,
 ) {
     use common::game_state::GameState;
-    if !keyboard.just_pressed(KeyCode::KeyF) {
+    if !super::biped::consume_fixed_press(keyboard.pressed(KeyCode::KeyF), &mut interact_pressed) {
         return;
     }
-    let Ok((vehicle_entity, net_id)) = vehicle.single() else {
+    let Ok((vehicle_entity, vehicle, net_id)) = vehicle.single() else {
         return;
     };
     match state.get() {
@@ -288,14 +325,12 @@ fn vehicle_exit_interact(
             );
         }
         GameState::SinglePlayer => {
-            let Some((mut cockpit, seat_transform, _)) = cockpits
-                .iter_mut()
-                .find(|(_, _, child_of)| child_of.parent() == vehicle_entity)
+            let Ok((mut seat, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat)
             else {
                 return;
             };
             let Some(biped_entity) =
-                exit_vehicle(&mut world, vehicle_entity, &mut cockpit, seat_transform)
+                exit_vehicle(&mut world, vehicle_entity, &mut seat, seat_transform)
             else {
                 return;
             };

@@ -1,18 +1,18 @@
 use bevy::prelude::*;
 use common::GameObjectKind;
-use physics::physics_world::*;
-#[cfg(feature = "client")]
 use common::NetworkID;
+use physics::physics_world::*;
 #[cfg(feature = "client")]
 use rapier3d::prelude::Vector;
 
 use crate::generic::attach_hull_collider;
+use crate::pawn::biped::WeaponSlots;
 #[cfg(feature = "client")]
-use crate::pawn::biped::{WeaponSlots, viewmodel_offset};
+use crate::pawn::biped::viewmodel_offset;
 use crate::sound::{SoundQueue, SoundRequest};
-use crate::weapon::{WeaponComponent, WeaponCrosshair};
 #[cfg(feature = "client")]
 use crate::weapon::FireCtx;
+use crate::weapon::{WeaponComponent, WeaponCrosshair};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
 pub fn shooter_velocity(world: &PhysicsWorld, shooter: Option<Entity>) -> Vec3 {
@@ -124,7 +124,7 @@ pub fn make_generic_weapon_physics(
                 cmd.starting_velocity.y,
                 cmd.starting_velocity.z,
             ))
-            .angular_damping(2.0)
+            .angular_damping(0.3)
             .build();
         physics.insert_body(entity, rb)
     };
@@ -147,7 +147,7 @@ pub fn insert_generic_weapon(
         WeaponComponent,
         WeaponCrosshair(crosshair_path),
         kind,
-        common::interaction::Interactable { range: 2.0 },
+        crate::interaction::Interactable { range: 2.0 },
         Transform {
             translation: cmd.position,
             rotation: cmd.rotation,
@@ -158,8 +158,7 @@ pub fn insert_generic_weapon(
     ));
 }
 
-#[cfg(feature = "client")]
-pub fn assign_local_pickup_slot(
+pub fn assign_pickup_slot(
     slots: &mut WeaponSlots,
     weapon_id: NetworkID,
     weapon_entity: Entity,
@@ -177,6 +176,29 @@ pub fn assign_local_pickup_slot(
     }
 }
 
+pub fn drop_active_slot(
+    slots: &mut WeaponSlots,
+) -> Option<(NetworkID, Entity)> {
+    let active = slots.active_mut();
+    Some((active.0.take()?, active.1.take()?))
+}
+
+pub fn place_world_weapon(
+    world: &mut PhysicsWorld,
+    weapon_entity: Entity,
+    drop_pos: Vec3,
+) {
+    world.teleport_body(weapon_entity, drop_pos);
+    world.set_body_enabled(weapon_entity, true);
+}
+
+pub fn pickup_world_weapon(
+    world: &mut PhysicsWorld,
+    weapon_entity: Entity,
+) {
+    world.set_body_enabled(weapon_entity, false);
+}
+
 #[cfg(feature = "client")]
 pub fn attach_local_viewmodel(
     commands: &mut Commands,
@@ -186,7 +208,7 @@ pub fn attach_local_viewmodel(
 ) {
     commands
         .entity(weapon_entity)
-        .remove::<(RigidBodyHandleComponent, common::interaction::Interactable)>()
+        .remove::<(RigidBodyHandleComponent, crate::interaction::Interactable)>()
         .set_parent_in_place(parent)
         .insert(viewmodel_offset(is_primary))
         .insert(Visibility::Inherited);
@@ -228,7 +250,7 @@ pub fn set_screen_indicator_position(
 pub fn attach_remote_viewmodel(commands: &mut Commands, weapon_entity: Entity, parent: Entity) {
     commands
         .entity(weapon_entity)
-        .remove::<common::interaction::Interactable>()
+        .remove::<crate::interaction::Interactable>()
         .set_parent_in_place(parent)
         .insert(viewmodel_offset(true));
 }
@@ -240,7 +262,7 @@ pub fn detach_viewmodel(commands: &mut Commands, world: &PhysicsWorld, weapon_en
         .entity(weapon_entity)
         .remove_parent_in_place()
         .insert((
-            common::interaction::Interactable { range: 2.0 },
+            crate::interaction::Interactable { range: 2.0 },
             Visibility::Inherited,
         ));
     if let Some(handle) = handle {

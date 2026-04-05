@@ -1,5 +1,3 @@
-mod config;
-
 use axum::{
     Json, Router,
     extract::{ConnectInfo, Path, State},
@@ -40,6 +38,7 @@ async fn main() {
         .route("/lobbies/register", post(register_lobby))
         .route("/lobbies/{id}", delete(delete_lobby))
         .route("/health", get(|| async { "OK" }))
+        // .route("/get-asset")
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();

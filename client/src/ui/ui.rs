@@ -1,4 +1,5 @@
-use crate::{GameState, PendingExit, UiState};
+use crate::session::PendingExit;
+use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
