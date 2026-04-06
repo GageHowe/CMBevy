@@ -108,6 +108,7 @@ fn show_fullscreen_menu(
 }
 
 fn main_menu(
+    mut commands: Commands,
     mut contexts: EguiContexts,
     mut exit: MessageWriter<AppExit>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -199,6 +200,7 @@ fn main_menu(
             Screen::Matchmaking => show_matchmaking_screen(ui, &mut screen),
             Screen::Host => show_host_screen(
                 ui,
+                &mut commands,
                 &mut host,
                 &mut hosted,
                 &mut server_addr,
@@ -523,6 +525,7 @@ fn show_map_gametype_grid(ui: &mut egui::Ui, id: &'static str, host: &mut HostSt
 
 fn show_host_screen(
     ui: &mut egui::Ui,
+    commands: &mut Commands,
     host: &mut HostState,
     hosted: &mut HostedServer,
     server_addr: &mut ServerAddr,
@@ -577,7 +580,9 @@ fn show_host_screen(
                 *screen = Screen::Root;
                 next_state.set(GameState::Multiplayer);
             }
-            Err(e) => eprintln!("Failed to start gameserver: {e}"),
+            Err(e) => {
+                game_objects::messages::push(commands, format!("Failed to start gameserver: {e}"))
+            }
         }
     }
     ui.add_space(4.0);

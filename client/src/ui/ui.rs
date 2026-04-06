@@ -7,6 +7,7 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_steamworks::Client;
 use common::tick::NetworkStats;
 use game_objects::health::Health;
+use game_objects::messages::{GameMessages, MESSAGE_TTL_SECS};
 use game_objects::pawn::Possessed;
 use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot, WeaponSlots};
 use game_objects::weapon::{WeaponCrosshair, default_crosshair_path};
@@ -40,6 +41,7 @@ impl Plugin for UIPlugin {
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(EguiPrimaryContextPass, gui_top_left)
+            .add_systems(EguiPrimaryContextPass, gui_notifications)
             .add_systems(
                 EguiPrimaryContextPass,
                 gui_chat.run_if(in_state(GameState::Multiplayer)),
@@ -227,6 +229,35 @@ fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Possesse
                     .desired_width(110.0),
             );
             ui.label(format!("{:.0} / {:.0}", health.current, health.max));
+        });
+}
+
+fn gui_notifications(
+    mut contexts: EguiContexts,
+    time: Res<Time>,
+    mut messages: ResMut<GameMessages>,
+) {
+    let now = time.elapsed_secs_f64();
+    messages
+        .0
+        .retain(|entry| now - entry.created_at < MESSAGE_TTL_SECS);
+    if messages.0.is_empty() {
+        return;
+    }
+    egui::Window::new("notifications")
+        .title_bar(false)
+        .movable(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 70.0))
+        .show(contexts.ctx_mut().unwrap(), |ui| {
+            for entry in &messages.0 {
+                let age = (now - entry.created_at).max(0.0);
+                let alpha = (1.0 - age / MESSAGE_TTL_SECS).clamp(0.0, 1.0);
+                let color =
+                    egui::Color32::from_rgba_premultiplied(255, 255, 255, (alpha * 255.0) as u8);
+                ui.colored_label(color, &entry.text);
+            }
         });
 }
 

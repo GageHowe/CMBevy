@@ -159,7 +159,7 @@ pub struct LevelBytes {
     pub compressed: Vec<u8>,
 }
 
-pub fn load_level_source(path: &str, asset_dir: &str) -> LevelBytes {
+pub fn load_level_source(path: &str, asset_dir: &str) -> Result<LevelBytes, String> {
     if path.starts_with("sha256:") {
         return load_remote_level(path);
     }
@@ -168,10 +168,9 @@ pub fn load_level_source(path: &str, asset_dir: &str) -> LevelBytes {
 }
 
 /// Reads a .scn.ron file and returns it as compressed bytes for network transfer.
-pub fn read_and_compress_level(path: &str) -> LevelBytes {
-    let raw =
-        std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read level \"{path}\": {e}"));
-    compress_level_bytes(&raw)
+pub fn read_and_compress_level(path: &str) -> Result<LevelBytes, String> {
+    let raw = std::fs::read(path).map_err(|e| format!("Failed to read level \"{path}\": {e}"))?;
+    Ok(compress_level_bytes(&raw))
 }
 
 /// Compressed .scn.ron bytes received from the server, pending scene spawn.
@@ -188,6 +187,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
         Ok(b) => b,
         Err(e) => {
             error!("map decompress: {e}");
+            crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
     };
@@ -200,6 +200,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
         Ok(d) => d,
         Err(e) => {
             error!("map ron: {e}");
+            crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
     };
@@ -207,12 +208,14 @@ pub fn apply_pending_map_scene(world: &mut World) {
         Ok(s) => s,
         Err(e) => {
             error!("map deserialize: {e}");
+            crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
     };
     drop(registry_guard);
     let handle = world.resource_mut::<Assets<DynamicScene>>().add(scene);
     world.spawn((DynamicSceneRoot(handle), LevelSceneRoot));
+    crate::messages::push_world(world, "Map loaded");
 }
 
 pub fn map_cache_dir() -> PathBuf {
@@ -241,24 +244,24 @@ pub fn compressed_level_hash(compressed: &[u8]) -> Option<String> {
     Some(format!("sha256:{}", hex_sha256(&bytes)))
 }
 
-fn load_remote_level(hash: &str) -> LevelBytes {
+fn load_remote_level(hash: &str) -> Result<LevelBytes, String> {
     if let Some(compressed) = read_cached_map(hash) {
-        return LevelBytes {
+        return Ok(LevelBytes {
             hash: hash.to_string(),
             compressed,
-        };
+        });
     }
     let url = format!("{}/assets/{}", common::config::BEACON_URL, hash);
     let response = ureq::get(&url)
         .call()
-        .unwrap_or_else(|err| panic!("failed to fetch level {hash}: {err}"));
+        .map_err(|err| format!("failed to fetch level {hash}: {err}"))?;
     let mut reader = response.into_reader();
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut reader, &mut bytes)
-        .unwrap_or_else(|err| panic!("failed to read level {hash}: {err}"));
+        .map_err(|err| format!("failed to read level {hash}: {err}"))?;
     let level = compress_level_bytes(&bytes);
     write_cached_map(&level.hash, &level.compressed);
-    level
+    Ok(level)
 }
 
 fn compress_level_bytes(raw: &[u8]) -> LevelBytes {

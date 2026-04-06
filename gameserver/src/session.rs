@@ -877,9 +877,15 @@ fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
     } else {
         "assets"
     };
-    let level = load_level_source(asset_path, asset_dir);
-    commands.insert_resource(PendingMapScene(level.compressed.clone()));
-    commands.insert_resource(level);
+    match load_level_source(asset_path, asset_dir) {
+        Ok(level) => {
+            commands.insert_resource(PendingMapScene(level.compressed.clone()));
+            commands.insert_resource(level);
+        }
+        Err(err) => {
+            game_objects::messages::push(&mut commands, err);
+        }
+    }
 }
 
 fn assign_planet_network_ids(

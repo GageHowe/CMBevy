@@ -150,9 +150,13 @@ fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
             source: None,
         });
     }
-    commands.insert_resource(PendingMapScene(
-        load_level_source(&map, asset_dir).compressed,
-    ));
+    game_objects::messages::push(&mut commands, "Loading map...");
+    match load_level_source(&map, asset_dir) {
+        Ok(level) => {
+            commands.insert_resource(PendingMapScene(level.compressed));
+        }
+        Err(err) => game_objects::messages::push(&mut commands, format!("Map load failed: {err}")),
+    }
 }
 
 fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
@@ -226,7 +230,8 @@ pub fn cleanup_world(
     }
 }
 
-fn connect(mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
+fn connect(mut commands: Commands, mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
+    game_objects::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.0);
 }
 
@@ -579,7 +584,10 @@ fn process_client_message(
             &mut mp.biped_q,
             &mut mp.spawn.commands,
         ),
-        MsgType::Disconnected => next_state.set(GameState::MainMenu),
+        MsgType::Disconnected => {
+            game_objects::messages::push(&mut mp.spawn.commands, "Disconnected.");
+            next_state.set(GameState::MainMenu);
+        }
         MsgType::WeaponPickup(weapon_id, carrier_net_id) => handle_weapon_pickup(
             &weapon_id,
             &carrier_net_id,
@@ -892,10 +900,12 @@ fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) 
 
 fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
     if let Some(compressed) = read_cached_map(&hash) {
+        game_objects::messages::push(commands, "Using cached map.");
         commands.insert_resource(PendingMapScene(compressed));
         commands.insert_resource(PendingWorldReady(true));
         return;
     }
+    game_objects::messages::push(commands, "Downloading map...");
     request_map(quic);
 }
 

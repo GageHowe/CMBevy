@@ -11,6 +11,7 @@ pub mod generic;
 pub mod health;
 pub mod interaction;
 pub mod level;
+pub mod messages;
 pub mod pawn;
 pub mod projectile;
 pub mod sound;
@@ -23,6 +24,7 @@ pub struct GameObjectsPlugin;
 impl Plugin for GameObjectsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
+            .init_resource::<messages::GameMessages>()
             .add_systems(
                 PreUpdate,
                 (
