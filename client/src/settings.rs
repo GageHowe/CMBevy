@@ -83,6 +83,8 @@ pub struct Settings {
     pub anti_aliasing: bool,
     pub auto_exposure: bool,
     pub bloom: bool,
+    pub bloom_intensity: f32,
+    pub bloom_threshold: f32,
     pub ssao_quality: SsaoQuality,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
@@ -98,10 +100,12 @@ impl Default for Settings {
             zoom_sensitivity_blend: 1.0,
             vehicle_pitch_yaw_sensitivity: 0.002,
             preserve_look_across_planet_snap: false,
-            ui_scale: 1.5,
+            ui_scale: 1.25,
             anti_aliasing: true,
             auto_exposure: true,
             bloom: true,
+            bloom_intensity: 0.25,
+            bloom_threshold: 1.0,
             ssao_quality: SsaoQuality::Medium,
             fov: 90.0,
             physics_interp: PhysicsInterp::RotationOnly,
@@ -173,9 +177,13 @@ fn apply_settings(
 
         if settings.bloom {
             camera.insert(bevy::post_process::bloom::Bloom {
-                intensity: 0.4,
+                intensity: settings.bloom_intensity.clamp(0.0, 2.0),
                 composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
                 high_pass_frequency: 0.5,
+                prefilter: bevy::post_process::bloom::BloomPrefilter {
+                    threshold: settings.bloom_threshold.clamp(0.0, 5.0),
+                    threshold_softness: 0.0,
+                },
                 ..default()
             });
         } else {
@@ -270,118 +278,151 @@ pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings, section: &mu
 }
 
 fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
-    ui.horizontal(|ui| {
-        ui.label("Display mode")
-            .on_hover_text("Windowed is normal desktop mode. Borderless fullscreen is fullscreen without exclusive mode.");
-        egui::ComboBox::from_id_salt("display_mode_combo")
-            .selected_text(match settings.display_mode {
-                DisplayMode::Windowed => "Windowed",
-                DisplayMode::BorderlessFullscreen => "Borderless fullscreen",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut settings.display_mode, DisplayMode::Windowed, "Windowed");
-                ui.selectable_value(
-                    &mut settings.display_mode,
-                    DisplayMode::BorderlessFullscreen,
-                    "Borderless fullscreen",
+    egui::CollapsingHeader::new("Display")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Display mode")
+                    .on_hover_text("Windowed is normal desktop mode. Borderless fullscreen is fullscreen without exclusive mode.");
+                egui::ComboBox::from_id_salt("display_mode_combo")
+                    .selected_text(match settings.display_mode {
+                        DisplayMode::Windowed => "Windowed",
+                        DisplayMode::BorderlessFullscreen => "Borderless fullscreen",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut settings.display_mode,
+                            DisplayMode::Windowed,
+                            "Windowed",
+                        );
+                        ui.selectable_value(
+                            &mut settings.display_mode,
+                            DisplayMode::BorderlessFullscreen,
+                            "Borderless fullscreen",
+                        );
+                    });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("VSync").on_hover_text("Controls how frames are presented to the display.");
+                egui::ComboBox::from_id_salt("vsync_combo")
+                    .selected_text(match settings.vsync {
+                        VsyncMode::AutoVsync => "Auto (VSync)",
+                        VsyncMode::AutoNoVsync => "Auto (No VSync)",
+                        VsyncMode::Fifo => "Fifo",
+                        VsyncMode::FifoRelaxed => "Fifo Relaxed",
+                        VsyncMode::Immediate => "Immediate",
+                        VsyncMode::Mailbox => "Mailbox",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.vsync, VsyncMode::AutoVsync, "Auto (VSync)")
+                            .on_hover_text("Picks the best available VSync mode for your platform.");
+                        ui.selectable_value(&mut settings.vsync, VsyncMode::AutoNoVsync, "Auto (No VSync)")
+                            .on_hover_text("Picks the best available non-VSync mode for your platform.");
+                        ui.selectable_value(&mut settings.vsync, VsyncMode::Fifo, "Fifo")
+                            .on_hover_text("Traditional VSync. Frames queue up and are shown on each vertical blank. Eliminates tearing, may increase latency.");
+                        ui.selectable_value(&mut settings.vsync, VsyncMode::FifoRelaxed, "Fifo Relaxed")
+                            .on_hover_text("Like Fifo but shows a late frame immediately instead of waiting for the next blank. Reduces latency spikes at the cost of occasional tearing.");
+                        ui.selectable_value(&mut settings.vsync, VsyncMode::Immediate, "Immediate")
+                            .on_hover_text("No VSync. Frames are shown as soon as they are ready. Lowest latency, but may tear.");
+                        ui.selectable_value(&mut settings.vsync, VsyncMode::Mailbox, "Mailbox")
+                            .on_hover_text("Triple buffering. Replaces the queued frame with the newest one. Low latency with no tearing, but uses more GPU power.");
+                    });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("UI size")
+                    .on_hover_text("Scales the entire interface globally.");
+                show_ui_scale_input(ui, settings);
+            });
+        });
+
+    egui::CollapsingHeader::new("Post Processing")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.checkbox(&mut settings.anti_aliasing, "Anti-aliasing")
+                .on_hover_text("Subpixel Morphological Anti-Aliasing (SMAA). Smoothes rough pixels.");
+
+            ui.checkbox(&mut settings.auto_exposure, "Auto exposure")
+                .on_hover_text("Automatically adapts camera exposure to brightness.");
+
+            ui.checkbox(&mut settings.bloom, "Bloom")
+                .on_hover_text("Adds glow around bright areas.");
+            if settings.bloom {
+                ui.horizontal(|ui| {
+                    ui.label("Bloom intensity")
+                        .on_hover_text("Overall strength of the bloom effect.");
+                    ui.add(egui::Slider::new(&mut settings.bloom_intensity, 0.0..=2.0));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Bloom threshold")
+                        .on_hover_text("Only pixels above this brightness contribute to bloom.");
+                    ui.add(egui::Slider::new(&mut settings.bloom_threshold, 0.0..=5.0));
+                });
+            }
+
+            ui.horizontal(|ui| {
+                ui.label("SSAO").on_hover_text(
+                    "GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.",
                 );
+                egui::ComboBox::from_id_salt("ssao_quality_combo")
+                    .selected_text(match settings.ssao_quality {
+                        SsaoQuality::Off => "Off",
+                        SsaoQuality::Medium => "Medium",
+                        SsaoQuality::High => "High",
+                        SsaoQuality::Ultra => "Ultra",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Off, "Off");
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Medium, "Medium");
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
+                    });
             });
-    });
+        });
 
-    ui.horizontal(|ui| {
-        ui.label("VSync").on_hover_text("Controls how frames are presented to the display.");
-        egui::ComboBox::from_id_salt("vsync_combo")
-            .selected_text(match settings.vsync {
-                VsyncMode::AutoVsync => "Auto (VSync)",
-                VsyncMode::AutoNoVsync => "Auto (No VSync)",
-                VsyncMode::Fifo => "Fifo",
-                VsyncMode::FifoRelaxed => "Fifo Relaxed",
-                VsyncMode::Immediate => "Immediate",
-                VsyncMode::Mailbox => "Mailbox",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut settings.vsync, VsyncMode::AutoVsync, "Auto (VSync)")
-                    .on_hover_text("Picks the best available VSync mode for your platform.");
-                ui.selectable_value(&mut settings.vsync, VsyncMode::AutoNoVsync, "Auto (No VSync)")
-                    .on_hover_text("Picks the best available non-VSync mode for your platform.");
-                ui.selectable_value(&mut settings.vsync, VsyncMode::Fifo, "Fifo")
-                    .on_hover_text("Traditional VSync. Frames queue up and are shown on each vertical blank. Eliminates tearing, may increase latency.");
-                ui.selectable_value(&mut settings.vsync, VsyncMode::FifoRelaxed, "Fifo Relaxed")
-                    .on_hover_text("Like Fifo but shows a late frame immediately instead of waiting for the next blank. Reduces latency spikes at the cost of occasional tearing.");
-                ui.selectable_value(&mut settings.vsync, VsyncMode::Immediate, "Immediate")
-                    .on_hover_text("No VSync. Frames are shown as soon as they are ready. Lowest latency, but may tear.");
-                ui.selectable_value(&mut settings.vsync, VsyncMode::Mailbox, "Mailbox")
-                    .on_hover_text("Triple buffering. Replaces the queued frame with the newest one. Low latency with no tearing, but uses more GPU power.");
+    egui::CollapsingHeader::new("Camera")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Field of view")
+                    .on_hover_text("Horizontal field of view in degrees.");
+                ui.add(egui::Slider::new(&mut settings.fov, 60.0..=160.0).suffix("°"));
             });
-    });
 
-    ui.checkbox(&mut settings.anti_aliasing, "Anti-aliasing")
-        .on_hover_text("Subpixel Morphological Anti-Aliasing (SMAA). Smoothes rough pixels.");
-
-    ui.checkbox(&mut settings.auto_exposure, "Auto exposure")
-        .on_hover_text("Automatically adapts camera exposure to brightness.");
-
-    ui.checkbox(&mut settings.bloom, "Bloom")
-        .on_hover_text("Adds glow around bright areas.");
-
-    ui.horizontal(|ui| {
-        ui.label("SSAO").on_hover_text(
-            "GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.",
-        );
-        egui::ComboBox::from_id_salt("ssao_quality_combo")
-            .selected_text(match settings.ssao_quality {
-                SsaoQuality::Off => "Off",
-                SsaoQuality::Medium => "Medium",
-                SsaoQuality::High => "High",
-                SsaoQuality::Ultra => "Ultra",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Off, "Off");
-                ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Medium, "Medium");
-                ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
-                ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
+            ui.horizontal(|ui| {
+                ui.label("Physics interpolation")
+                    .on_hover_text("How visual positions are smoothed between physics ticks.");
+                ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Off, "Off")
+                    .on_hover_text("No smoothing. Objects snap to their physics position each tick.");
+                ui.selectable_value(
+                    &mut settings.physics_interp,
+                    PhysicsInterp::Interpolate,
+                    "Interpolate",
+                )
+                .on_hover_text("Blends between the previous and current physics tick. Adds one tick of visual latency.");
+                ui.selectable_value(
+                    &mut settings.physics_interp,
+                    PhysicsInterp::Extrapolate,
+                    "Extrapolate",
+                )
+                .on_hover_text("Predicts ahead using current velocity. No added latency but can overshoot.");
+                ui.selectable_value(
+                    &mut settings.physics_interp,
+                    PhysicsInterp::RotationOnly,
+                    "Rotation only",
+                )
+                .on_hover_text("Only smooths rotation; position is not interpolated. Good balance of responsiveness and smoothness.");
             });
-    });
+        });
 
-    ui.horizontal(|ui| {
-        ui.label("Field of view")
-            .on_hover_text("Horizontal field of view in degrees.");
-        ui.add(egui::Slider::new(&mut settings.fov, 60.0..=160.0).suffix("°"));
-    });
-
-    ui.horizontal(|ui| {
-        ui.label("UI size")
-            .on_hover_text("Scales the entire interface globally.");
-        show_ui_scale_input(ui, settings);
-    });
-
-    ui.horizontal(|ui| {
-        ui.label("Physics interpolation")
-            .on_hover_text("How visual positions are smoothed between physics ticks.");
-        ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Off, "Off")
-            .on_hover_text("No smoothing. Objects snap to their physics position each tick.");
-        ui.selectable_value(
-            &mut settings.physics_interp,
-            PhysicsInterp::Interpolate,
-            "Interpolate",
-        )
-        .on_hover_text("Blends between the previous and current physics tick. Adds one tick of visual latency.");
-        ui.selectable_value(
-            &mut settings.physics_interp,
-            PhysicsInterp::Extrapolate,
-            "Extrapolate",
-        )
-        .on_hover_text("Predicts ahead using current velocity. No added latency but can overshoot.");
-        ui.selectable_value(
-            &mut settings.physics_interp,
-            PhysicsInterp::RotationOnly,
-            "Rotation only",
-        )
-        .on_hover_text("Only smooths rotation; position is not interpolated. Good balance of responsiveness and smoothness.");
-    });
-
-    ui.checkbox(&mut settings.debug_render, "Debug rendering")
-        .on_hover_text("Draws physics colliders, planet radii, and projectile paths.");
+    egui::CollapsingHeader::new("Debug")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.checkbox(&mut settings.debug_render, "Debug rendering")
+                .on_hover_text("Draws physics colliders, planet radii, and projectile paths.");
+        });
 }
 
 fn show_ui_scale_input(ui: &mut egui::Ui, settings: &mut Settings) {

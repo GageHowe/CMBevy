@@ -77,7 +77,7 @@ impl Plugin for OutlinePlugin {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct OutlineLabel;
+pub(crate) struct OutlineLabel;
 
 #[derive(Resource)]
 struct OutlinePipeline {

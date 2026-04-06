@@ -29,7 +29,7 @@ pub struct WeaponComponent;
 
 /// UI reads this directly from the active weapon so crosshair selection stays weapon-owned.
 #[derive(Component, Clone, Copy)]
-pub struct WeaponCrosshair(pub &'static str);
+pub struct WeaponCrosshair(pub &'static str, pub Option<f32>);
 
 /// All context a weapon's fixed_update may need: input buttons and output channels.
 /// Fields are optional so weapons compile and behave correctly on the server (no sound/camera).
@@ -60,6 +60,7 @@ pub struct FireCtx<'a> {
 /// Weapons own their complete fire behavior: cooldowns, projectiles, sounds, camera kick, networking.
 pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Default {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair013.png";
+    const PREDICTION_PROJECTILE_SPEED: Option<f32> = None;
     /// Called every FixedPreUpdate tick when this weapon is the active slot.
     /// The weapon reads input from ctx, spawns projectiles/effects, and calls ctx helpers as needed.
     fn fixed_update(
@@ -71,5 +72,5 @@ pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Defaul
 }
 
 pub fn default_crosshair_path() -> &'static str {
-    "textures/crosshairs/crosshair041.png"
+    "textures/crosshairs/crosshair001.png"
 }

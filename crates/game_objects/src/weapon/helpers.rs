@@ -141,11 +141,12 @@ pub fn insert_generic_weapon(
     world: &mut World,
     kind: GameObjectKind,
     crosshair_path: &'static str,
+    prediction_projectile_speed: Option<f32>,
     weapon: impl Bundle,
 ) {
     world.entity_mut(entity).insert((
         WeaponComponent,
-        WeaponCrosshair(crosshair_path),
+        WeaponCrosshair(crosshair_path, prediction_projectile_speed),
         kind,
         crate::interaction::Interactable { range: 2.0 },
         Transform {
@@ -212,38 +213,6 @@ pub fn attach_local_viewmodel(
         .set_parent_in_place(parent)
         .insert(viewmodel_offset(is_primary))
         .insert(Visibility::Inherited);
-}
-
-#[cfg(feature = "client")]
-pub fn spawn_screen_indicator(commands: &mut Commands, image: Handle<Image>) {
-    commands.spawn((
-        crate::weapon::hail_mary::ImpactIndicator,
-        ImageNode::new(image),
-        Node {
-            position_type: PositionType::Absolute,
-            width: Val::Px(24.0),
-            height: Val::Px(24.0),
-            ..default()
-        },
-        ZIndex(10),
-        Visibility::Hidden,
-    ));
-}
-
-#[cfg(feature = "client")]
-pub fn set_screen_indicator_position(
-    node: &mut Node,
-    vis: &mut Visibility,
-    position: Option<Vec2>,
-) {
-    match position {
-        Some(pos) => {
-            node.left = Val::Px(pos.x - 12.0);
-            node.top = Val::Px(pos.y - 12.0);
-            *vis = Visibility::Inherited;
-        }
-        None => *vis = Visibility::Hidden,
-    }
 }
 
 #[cfg(feature = "client")]

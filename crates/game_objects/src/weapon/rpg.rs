@@ -25,6 +25,7 @@ pub struct RpgComponent {
 
 impl Weapon for RpgComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair028.png";
+    const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rpg::SPEED);
 
     fn fixed_update(
         &mut self,
@@ -80,6 +81,7 @@ impl GameObject for RpgComponent {
             world,
             GameObjectKind::Rpg,
             <Self as Weapon>::CROSSHAIR_PATH,
+            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
             RpgComponent::default(),
         );
         helpers::make_generic_weapon_physics(

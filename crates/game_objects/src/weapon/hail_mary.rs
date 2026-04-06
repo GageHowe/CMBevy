@@ -19,10 +19,6 @@ pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, tick_muzzle_flash);
-        #[cfg(feature = "client")]
-        app.add_systems(Update, update_impact_indicator);
-        #[cfg(feature = "client")]
-        app.add_systems(Startup, spawn_impact_indicator);
     }
 }
 
@@ -38,6 +34,7 @@ pub struct HailMaryComponent {
 
 impl Weapon for HailMaryComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair010.png";
+    const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(hail_mary::SPEED);
 
     fn fixed_update(
         &mut self,
@@ -107,6 +104,7 @@ impl GameObject for HailMaryComponent {
             world,
             GameObjectKind::HailMary,
             <Self as Weapon>::CROSSHAIR_PATH,
+            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
             HailMaryComponent {
                 muzzle_flash_light: Some(light),
                 ..default()
@@ -148,56 +146,4 @@ pub fn tick_muzzle_flash(
             }
         }
     }
-}
-
-/// Marker for the Hail Mary impact indicator UI node.
-#[cfg(feature = "client")]
-#[derive(Component)]
-pub struct ImpactIndicator;
-
-/// Spawns the persistent impact indicator UI node (hidden until Hail Mary is active).
-#[cfg(feature = "client")]
-fn spawn_impact_indicator(mut commands: Commands, asset_server: Res<AssetServer>) {
-    helpers::spawn_screen_indicator(
-        &mut commands,
-        asset_server.load("textures/ui/impact_indicator.png"),
-    );
-}
-
-/// Projects the Hail Mary's predicted impact point to screen space and moves the indicator UI node.
-/// Raycasts along the actual projectile travel direction (aim + shooter velocity), matching spawn_projectile.
-#[cfg(feature = "client")]
-fn update_impact_indicator(
-    pawn: Query<(Entity, &crate::pawn::biped::WeaponSlots), With<crate::pawn::Possessed>>,
-    weapons: Query<&HailMaryComponent>,
-    camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    world: Res<PhysicsWorld>,
-    mut indicator: Query<(&mut Node, &mut Visibility), With<ImpactIndicator>>,
-) {
-    let Ok((mut node, mut vis)) = indicator.single_mut() else {
-        return;
-    };
-    let show = (|| -> Option<Vec2> {
-        let (pawn_entity, slots) = pawn.single().ok()?;
-        let weapon_entity = slots.active().1?;
-        weapons.get(weapon_entity).ok()?;
-        let (cam, cam_gt) = camera.single().ok()?;
-        let origin = cam_gt.translation();
-        let aim_dir = *cam_gt.forward();
-        let shooter_vel = world
-            .entity_to_handle
-            .get(&pawn_entity)
-            .and_then(|&h| world.rigid_body_set.get(h))
-            .map(rb_vel)
-            .unwrap_or(Vec3::ZERO);
-        let actual_dir = (aim_dir * hail_mary::SPEED + shooter_vel).normalize_or_zero();
-        const MAX_RANGE: f32 = 500.0;
-        let hit_dist = world
-            .cast_ray(origin, actual_dir, MAX_RANGE, &[pawn_entity])
-            .map(|(_, t)| t)
-            .unwrap_or(MAX_RANGE);
-        cam.world_to_viewport(cam_gt, origin + actual_dir * hit_dist)
-            .ok()
-    })();
-    helpers::set_screen_indicator_position(&mut node, &mut vis, show);
 }
