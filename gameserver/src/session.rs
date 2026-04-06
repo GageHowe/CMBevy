@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::components::planet::PlanetComponent;
+use game_objects::components::planet::GravitySource;
 use game_objects::health::{Health, handle_deaths};
 use game_objects::level::{
     LevelBytes, PendingMapScene, SpawnPoint, load_level_source, parented_world_pose,
@@ -892,8 +892,8 @@ fn assign_planet_network_ids(
     query: Query<
         Entity,
         (
-            With<PlanetComponent>,
             With<RigidBodyHandleComponent>,
+            With<GravitySource>,
             Without<NetworkID>,
         ),
     >,

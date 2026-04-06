@@ -7,8 +7,8 @@ use common::tick::{NetworkStats, Ticker};
 use game_objects::health::Health;
 use game_objects::interaction::Interactable;
 use game_objects::level::{
-    LevelSceneRoot, MapMeta, PendingMapScene, compressed_level_hash, load_level_source,
-    read_cached_map, write_cached_map,
+    LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
+    load_level_source, parented_world_pose, read_cached_map, write_cached_map,
 };
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
@@ -18,7 +18,7 @@ use game_objects::{NetworkEntityMap, SpawnGameObjectCommand};
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
 use net::message::{MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
 use net::quic::QuicManager;
-use physics::physics_world::PhysicsWorld;
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 
@@ -72,6 +72,10 @@ impl Plugin for ClientSessionPlugin {
             .add_systems(
                 OnExit(GameState::SinglePlayer),
                 (cleanup_world, remove_script).chain(),
+            )
+            .add_systems(
+                FixedUpdate,
+                respawn_singleplayer.run_if(in_state(GameState::SinglePlayer)),
             )
             .add_systems(OnEnter(GameState::Multiplayer), connect)
             .add_systems(
@@ -168,6 +172,56 @@ fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResou
         net_id: NetworkID(net_ids.next()),
         position: Vec3::new(0.0, 800.0, 0.0),
         rotation: Quat::IDENTITY,
+        starting_velocity: Vec3::ZERO,
+        server_tick: 0,
+        kind: GameObjectKind::Biped,
+    };
+    let entity = commands.spawn_empty().id();
+    commands.queue(SpawnGameObjectCommand { entity, cmd });
+    commands.entity(entity).insert(Possessed::new(128));
+}
+
+fn respawn_singleplayer(
+    time: Res<Time>,
+    possessed: Query<(), With<Possessed>>,
+    pending_map: Option<Res<PendingMapScene>>,
+    mut timer: Local<Option<f32>>,
+    mut commands: Commands,
+    mut net_ids: ResMut<NetworkIDResource>,
+    spawn_points: Query<(&SpawnPoint, &Transform, Option<&ChildOf>)>,
+    parent_transforms: Query<&Transform>,
+    parent_parents: Query<&ChildOf>,
+    parent_bodies: Query<&RigidBodyHandleComponent>,
+    physics: Res<PhysicsWorld>,
+) {
+    if !possessed.is_empty() || pending_map.is_some() {
+        *timer = None;
+        return;
+    }
+    let remaining = timer.get_or_insert(common::config::RESPAWN_DELAY_SECS);
+    *remaining -= time.delta_secs();
+    if *remaining > 0.0 {
+        return;
+    }
+    *timer = None;
+    let (position, rotation) = spawn_points
+        .iter()
+        .find(|(sp, _, _)| sp.team == 0)
+        .map(|(_, transform, child_of)| {
+            parented_world_pose(
+                transform,
+                child_of,
+                &parent_transforms,
+                &parent_parents,
+                &parent_bodies,
+                &physics,
+            )
+        })
+        .unwrap_or((Vec3::new(0.0, 800.0, 0.0), Quat::IDENTITY));
+    let cmd = SpawnCommand {
+        net_id: NetworkID(net_ids.next()),
+        position,
+        rotation,
         starting_velocity: Vec3::ZERO,
         server_tick: 0,
         kind: GameObjectKind::Biped,

@@ -24,11 +24,22 @@ impl Default for GravityProfile {
 #[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct PlanetComponent {
-    pub inner_radius: u32,
-    pub snap_radius: u32,
-    pub gravity_radius: u32,
-    pub gravity_profile: GravityProfile,
     pub scene: Option<String>,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct GravitySource {
+    pub inner_radius: u32,
+    pub radius: u32,
+    pub gravity_profile: GravityProfile,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct SnapSource {
+    pub inner_radius: u32,
+    pub radius: u32,
 }
 
 pub fn spawn(
@@ -42,38 +53,38 @@ pub fn spawn(
 
 pub fn apply_gravity_impulses(
     world: &mut PhysicsWorld,
-    planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    gravity_sources: &Query<(&GravitySource, &RigidBodyHandleComponent)>,
     gravity_scales: &Query<&physics_world::GravityScale>,
     seated: &Query<&SeatedInVehicle>,
 ) {
     let dt = world.integration_parameters.dt;
 
-    let planet_data: Vec<(Vec3, &PlanetComponent, RigidBodyHandle)> = planets
+    let source_data: Vec<(Vec3, &GravitySource, RigidBodyHandle)> = gravity_sources
         .iter()
-        .filter_map(|(planet, handle)| {
+        .filter_map(|(source, handle)| {
             let rb = world.rigid_body_set.get(handle.0)?;
-            Some((rb_pos(rb), planet, handle.0))
+            Some((rb_pos(rb), source, handle.0))
         })
         .collect();
 
     let mut impulses: Vec<(RigidBodyHandle, Vector)> = Vec::new();
     let mut vel_deltas: Vec<(RigidBodyHandle, Vector)> = Vec::new();
 
-    for (planet_center, planet, planet_handle) in &planet_data {
-        let gravity_radius = planet.gravity_radius as f32;
-        let inner_radius = planet.inner_radius as f32;
+    for (source_center, source, source_handle) in &source_data {
+        let radius = source.radius as f32;
+        let inner_radius = source.inner_radius as f32;
 
-        let affected_handles: Vec<RigidBodyHandle> = if planet.gravity_radius == 0 {
+        let affected_handles: Vec<RigidBodyHandle> = if source.radius == 0 {
             world
                 .rigid_body_set
                 .iter()
-                .filter(|&(h, _)| h != *planet_handle)
+                .filter(|&(h, _)| h != *source_handle)
                 .map(|(h, _)| h)
                 .collect()
         } else {
-            let shape = Ball::new(gravity_radius);
-            let shape_pos = Pose::translation(planet_center.x, planet_center.y, planet_center.z);
-            let filter = QueryFilter::default().exclude_rigid_body(*planet_handle);
+            let shape = Ball::new(radius);
+            let shape_pos = Pose::translation(source_center.x, source_center.y, source_center.z);
+            let filter = QueryFilter::default().exclude_rigid_body(*source_handle);
             let qp = world.broad_phase.as_query_pipeline(
                 world.narrow_phase.query_dispatcher(),
                 &world.rigid_body_set,
@@ -106,17 +117,17 @@ pub fn apply_gravity_impulses(
                 continue;
             }
 
-            let to_planet = *planet_center - rb_pos(rb);
-            let dist = to_planet.length();
+            let to_source = *source_center - rb_pos(rb);
+            let dist = to_source.length();
             if dist < inner_radius || dist < 0.001 {
                 continue;
             }
 
-            let strength = match planet.gravity_profile {
+            let strength = match source.gravity_profile {
                 GravityProfile::InverseSquare(s) => s / (dist * dist),
                 GravityProfile::Linear(s) => {
-                    s * if gravity_radius > 0.0 {
-                        1.0 - (dist / gravity_radius).min(1.0)
+                    s * if radius > 0.0 {
+                        1.0 - (dist / radius).min(1.0)
                     } else {
                         1.0
                     }
@@ -133,7 +144,7 @@ pub fn apply_gravity_impulses(
                 continue;
             }
 
-            let dir = to_planet / dist;
+            let dir = to_source / dist;
             if rb.is_dynamic() {
                 impulses.push((rb_handle, dir * strength * scale * rb.mass() * dt));
             } else if rb.is_kinematic() {
@@ -157,35 +168,86 @@ pub fn apply_gravity_impulses(
 
 pub fn apply_gravity(
     mut world: ResMut<PhysicsWorld>,
-    planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    gravity_sources: Query<(&GravitySource, &RigidBodyHandleComponent)>,
     gravity_scales: Query<&physics_world::GravityScale>,
     seated: Query<&SeatedInVehicle>,
 ) {
-    apply_gravity_impulses(&mut world, &planets, &gravity_scales, &seated);
+    apply_gravity_impulses(&mut world, &gravity_sources, &gravity_scales, &seated);
 }
 
 const ORIENT_SPEED: f32 = 3.0;
 
 pub fn orient_bipeds_to_planets(
     mut world: ResMut<PhysicsWorld>,
-    bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
-    planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    mut bipeds: Query<
+        (&RigidBodyHandleComponent, &mut BipedPawnComponent),
+        Without<SeatedInVehicle>,
+    >,
+    snap_sources: Query<(Entity, &SnapSource, &RigidBodyHandleComponent)>,
 ) {
-    orient_bipeds_to_planets_impulses(&mut world, &bipeds, &planets);
+    let dt = world.integration_parameters.dt;
+    let snap_data: Vec<(Entity, Vec3, f32, f32)> = snap_sources
+        .iter()
+        .filter_map(|(entity, source, handle)| {
+            let rb = world.rigid_body_set.get(handle.0)?;
+            Some((
+                entity,
+                rb_pos(rb),
+                source.inner_radius as f32,
+                source.radius as f32,
+            ))
+        })
+        .collect();
+
+    for (body_handle, mut biped) in bipeds.iter_mut() {
+        let rb_handle = body_handle.0;
+        let (pos, current_rot) = {
+            let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+                continue;
+            };
+            (rb_pos(rb), rb_rot(rb))
+        };
+
+        let nearest = snap_data
+            .iter()
+            .filter_map(|(entity, center, inner_radius, radius)| {
+                let dist = pos.distance(*center);
+                if dist >= *inner_radius && (*radius == 0.0 || dist <= *radius) {
+                    Some((*entity, *center, dist))
+                } else {
+                    None
+                }
+            })
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+
+        let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else {
+            continue;
+        };
+        let Some((snap_entity, snap_center, _)) = nearest else {
+            biped.snap_target = None;
+            continue;
+        };
+        biped.snap_target = Some(snap_entity);
+
+        rb.lock_rotations(true, false);
+
+        let desired_up = (pos - snap_center).normalize();
+        orient_body_to_up(rb, current_rot, desired_up, dt);
+    }
 }
 
 pub fn orient_bipeds_to_planets_impulses(
     world: &mut PhysicsWorld,
     bipeds: &Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
-    planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    snap_sources: &Query<(&SnapSource, &RigidBodyHandleComponent)>,
 ) {
     let dt = world.integration_parameters.dt;
 
-    let planet_data: Vec<(Vec3, f32)> = planets
+    let snap_data: Vec<(Vec3, f32, f32)> = snap_sources
         .iter()
-        .filter_map(|(planet, handle)| {
+        .filter_map(|(source, handle)| {
             let rb = world.rigid_body_set.get(handle.0)?;
-            Some((rb_pos(rb), planet.snap_radius as f32))
+            Some((rb_pos(rb), source.inner_radius as f32, source.radius as f32))
         })
         .collect();
 
@@ -199,11 +261,11 @@ pub fn orient_bipeds_to_planets_impulses(
             (rb_pos(rb), rb_rot(rb))
         };
 
-        let nearest = planet_data
+        let nearest = snap_data
             .iter()
-            .filter_map(|(center, snap_radius)| {
+            .filter_map(|(center, inner_radius, radius)| {
                 let dist = pos.distance(*center);
-                if *snap_radius == 0.0 || dist <= *snap_radius {
+                if dist >= *inner_radius && (*radius == 0.0 || dist <= *radius) {
                     Some((*center, dist))
                 } else {
                     None
@@ -214,61 +276,87 @@ pub fn orient_bipeds_to_planets_impulses(
         let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else {
             continue;
         };
-        let Some((planet_center, _)) = nearest else {
+        let Some((snap_center, _)) = nearest else {
             continue;
         };
 
         rb.lock_rotations(true, false);
 
-        let desired_up = (pos - planet_center).normalize();
-        let current_forward = current_rot * Vec3::NEG_Z;
-        let forward_proj = {
-            let proj = current_forward - current_forward.dot(desired_up) * desired_up;
-            if proj.length_squared() > 1e-6 {
-                proj.normalize()
-            } else {
-                let alt = if desired_up.abs().x < 0.9 {
-                    Vec3::X
-                } else {
-                    Vec3::Z
-                };
-                (alt - alt.dot(desired_up) * desired_up).normalize()
-            }
-        };
-
-        let right = forward_proj.cross(desired_up).normalize();
-        let back = right.cross(desired_up).normalize();
-        let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
-
-        let rot = current_rot.slerp(target_rot, (ORIENT_SPEED * dt).min(1.0));
-        rb.set_rotation(rot, false);
+        let desired_up = (pos - snap_center).normalize();
+        orient_body_to_up(rb, current_rot, desired_up, dt);
     }
 }
 
+fn orient_body_to_up(
+    rb: &mut RigidBody,
+    current_rot: Quat,
+    desired_up: Vec3,
+    dt: f32,
+) {
+    let current_forward = current_rot * Vec3::NEG_Z;
+    let forward_proj = {
+        let proj = current_forward - current_forward.dot(desired_up) * desired_up;
+        if proj.length_squared() > 1e-6 {
+            proj.normalize()
+        } else {
+            let alt = if desired_up.abs().x < 0.9 {
+                Vec3::X
+            } else {
+                Vec3::Z
+            };
+            (alt - alt.dot(desired_up) * desired_up).normalize()
+        }
+    };
+
+    let right = forward_proj.cross(desired_up).normalize();
+    let back = right.cross(desired_up).normalize();
+    let target_rot = Quat::from_mat3(&Mat3::from_cols(right, desired_up, back));
+
+    let rot = current_rot.slerp(target_rot, (ORIENT_SPEED * dt).min(1.0));
+    rb.set_rotation(rot, false);
+}
+
 #[cfg(feature = "client")]
-pub fn draw_planet_radii(planets: Query<(&PlanetComponent, &GlobalTransform)>, mut gizmos: Gizmos) {
-    for (planet, gt) in planets.iter() {
+pub fn draw_planet_radii(
+    sources: Query<
+        (Option<&GravitySource>, Option<&SnapSource>, &GlobalTransform),
+        Or<(With<GravitySource>, With<SnapSource>)>,
+    >,
+    mut gizmos: Gizmos,
+) {
+    for (gravity, snap, gt) in sources.iter() {
         let pos = gt.translation();
-        if planet.inner_radius > 0 {
-            gizmos.sphere(
-                Isometry3d::from_translation(pos),
-                planet.inner_radius as f32,
-                Color::srgba(1.0, 0.0, 0.5, 0.1),
-            );
+        if let Some(gravity) = gravity {
+            if gravity.inner_radius > 0 {
+                gizmos.sphere(
+                    Isometry3d::from_translation(pos),
+                    gravity.inner_radius as f32,
+                    Color::srgba(1.0, 0.0, 0.5, 0.1),
+                );
+            }
+            if gravity.radius > 0 {
+                gizmos.sphere(
+                    Isometry3d::from_translation(pos),
+                    gravity.radius as f32,
+                    Color::srgba(0.0, 0.8, 0.0, 0.1),
+                );
+            }
         }
-        if planet.snap_radius > 0 {
-            gizmos.sphere(
-                Isometry3d::from_translation(pos),
-                planet.snap_radius as f32,
-                Color::srgba(0.9, 0.9, 0.0, 0.1),
-            );
-        }
-        if planet.gravity_radius > 0 {
-            gizmos.sphere(
-                Isometry3d::from_translation(pos),
-                planet.gravity_radius as f32,
-                Color::srgba(0.0, 0.8, 0.0, 0.1),
-            );
+        if let Some(snap) = snap {
+            if snap.inner_radius > 0 {
+                gizmos.sphere(
+                    Isometry3d::from_translation(pos),
+                    snap.inner_radius as f32,
+                    Color::srgba(1.0, 0.0, 0.5, 0.1),
+                );
+            }
+            if snap.radius > 0 {
+                gizmos.sphere(
+                    Isometry3d::from_translation(pos),
+                    snap.radius as f32,
+                    Color::srgba(0.9, 0.9, 0.0, 0.1),
+                );
+            }
         }
     }
 }
@@ -296,6 +384,8 @@ impl Plugin for PlanetPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<GravityProfile>()
             .register_type::<PlanetComponent>()
+            .register_type::<GravitySource>()
+            .register_type::<SnapSource>()
             .add_systems(
                 FixedUpdate,
                 (apply_gravity, orient_bipeds_to_planets).before(step_physics),

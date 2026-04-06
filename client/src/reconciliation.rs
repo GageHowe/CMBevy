@@ -9,7 +9,7 @@ use game_objects::components::atmosphere::{
     AtmosphericDragComponent, apply_wind_resistance_impulses,
 };
 use game_objects::components::planet::{
-    PlanetComponent, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
+    GravitySource, SnapSource, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
 };
 use game_objects::pawn::Pawn;
 use game_objects::pawn::SeatedInVehicle;
@@ -175,7 +175,8 @@ pub fn maybe_reconcile(
     possessed: Query<&NetworkID, With<Possessed>>,
     bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
     seated: Query<&SeatedInVehicle>,
-    planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
+    gravity_sources: Query<(&GravitySource, &RigidBodyHandleComponent)>,
+    snap_sources: Query<(&SnapSource, &RigidBodyHandleComponent)>,
     atmospheres: Query<(
         &AtmosphericDragComponent,
         &Transform,
@@ -185,8 +186,10 @@ pub fn maybe_reconcile(
     predicted: Res<PredictedCommands>,
     history: Res<BipedStateHistory>,
     mut errors: ResMut<PhysicsErrors>,
-    mut biped_q: Query<&mut BipedPawnComponent, With<Possessed>>,
-    mut spaceship_q: Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+    mut pawn_q: ParamSet<(
+        Query<&mut BipedPawnComponent, With<Possessed>>,
+        Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+    )>,
 ) {
     let Some(snapshot) = pending.0.take() else {
         return;
@@ -203,7 +206,7 @@ pub fn maybe_reconcile(
 
     let current_state =
         snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
-    let current_biped_state = biped_q.single().ok().map(|biped| BipedReplayState {
+    let current_biped_state = pawn_q.p0().single().ok().map(|biped| BipedReplayState {
         jump_cooldown: biped.jump_cooldown,
         is_sliding: biped.is_sliding,
     });
@@ -211,7 +214,7 @@ pub fn maybe_reconcile(
     restore_snapshot(&mut world, &snapshot, &pairs);
     if let (Some(saved), Ok(mut biped)) = (
         history.0.get(&snapshot.last_input_seq),
-        biped_q.single_mut(),
+        pawn_q.p0().single_mut(),
     ) {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
@@ -239,13 +242,12 @@ pub fn maybe_reconcile(
                 our_net_id,
                 our_rb,
                 command,
-                &mut biped_q,
-                &mut spaceship_q,
+                &mut pawn_q,
             );
         }
         apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);
-        apply_gravity_impulses(&mut world, &planets, &gravity_scales, &seated);
-        orient_bipeds_to_planets_impulses(&mut world, &bipeds, &planets);
+        apply_gravity_impulses(&mut world, &gravity_sources, &gravity_scales, &seated);
+        orient_bipeds_to_planets_impulses(&mut world, &bipeds, &snap_sources);
         step_world(&mut world);
     }
 
@@ -258,7 +260,7 @@ pub fn maybe_reconcile(
     let resim_state =
         snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
     restore_snapshot(&mut world, &current_state, &pairs);
-    if let (Some(saved), Ok(mut biped)) = (current_biped_state, biped_q.single_mut()) {
+    if let (Some(saved), Ok(mut biped)) = (current_biped_state, pawn_q.p0().single_mut()) {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
     }
@@ -285,15 +287,21 @@ fn apply_predicted_command(
     our_net_id: &NetworkID,
     our_rb: RigidBodyHandle,
     command: PredictedCommand,
-    biped_q: &mut Query<&mut BipedPawnComponent, With<Possessed>>,
-    spaceship_q: &mut Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+    pawn_q: &mut ParamSet<(
+        Query<&mut BipedPawnComponent, With<Possessed>>,
+        Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+    )>,
 ) {
     match command {
         PredictedCommand::Input(input) => {
             let handle = RigidBodyHandleComponent(our_rb);
-            if let Ok(mut b) = biped_q.single_mut() {
-                b.apply_input(world, &handle, input);
-            } else if let Ok(mut s) = spaceship_q.single_mut() {
+            let handled = if let Ok(mut b) = pawn_q.p0().single_mut() {
+                b.apply_input(world, &handle, input.clone());
+                true
+            } else {
+                false
+            };
+            if !handled && let Ok(mut s) = pawn_q.p1().single_mut() {
                 s.apply_input(world, &handle, input);
             }
         }

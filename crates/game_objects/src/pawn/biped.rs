@@ -53,6 +53,7 @@ pub struct BipedPawnComponent {
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
     pub is_sliding: bool,
+    pub snap_target: Option<Entity>,
     /// Client-only cached body rotation used to preserve world look across body rotation.
     pub last_look_frame_body_rot: Option<Quat>,
 }
@@ -183,6 +184,16 @@ impl GameObject for BipedPawnComponent {
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
+        #[cfg(feature = "client")]
+        if world.get::<Possessed>(entity).is_some() {
+            let mut camera_q = world.query_filtered::<Entity, With<Camera3d>>();
+            let camera = camera_q.single(world).ok();
+            if let Some(camera) = camera {
+                if let Ok(mut entity) = world.get_entity_mut(camera) {
+                    entity.remove_parent_in_place();
+                }
+            }
+        }
         let drop_pos = {
             let physics = world.resource::<PhysicsWorld>();
             physics
