@@ -2,8 +2,6 @@ use bevy::prelude::*;
 use common::GameObjectKind;
 use common::NetworkID;
 use physics::physics_world::*;
-#[cfg(feature = "client")]
-use rapier3d::prelude::Vector;
 
 use crate::generic::attach_hull_collider;
 use crate::pawn::biped::WeaponSlots;
@@ -96,16 +94,7 @@ pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld
     let (Some(shooter), Some(shooter_net_id)) = (ctx.shooter, ctx.shooter_net_id) else {
         return;
     };
-    let Some(handle) = world.entity_to_handle.get(&shooter).copied() else {
-        return;
-    };
-    let Some(rb) = world.rigid_body_set.get_mut(handle) else {
-        return;
-    };
-    rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
-    if let Some(predicted) = ctx.predicted.as_mut() {
-        predicted.record_impulse(shooter_net_id.clone(), impulse);
-    }
+    world.apply_game_impulse(shooter, impulse, Some(shooter_net_id), ctx.predicted.as_deref_mut());
 }
 
 pub fn make_generic_weapon_physics(

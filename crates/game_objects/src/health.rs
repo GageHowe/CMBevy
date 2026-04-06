@@ -22,9 +22,16 @@ impl Plugin for HealthPlugin {
 
 fn death_authority(
     state: Option<Res<State<GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
 ) -> bool {
-    is_server.is_some() || state.is_some_and(|s| *s.get() == GameState::SinglePlayer)
+    #[cfg(feature = "client")]
+    {
+        state.is_some_and(|s| *s.get() == GameState::SinglePlayer)
+    }
+    #[cfg(not(feature = "client"))]
+    {
+        let _ = state;
+        true
+    }
 }
 
 #[derive(Component, Clone, Copy)]

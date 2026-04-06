@@ -7,8 +7,8 @@ use common::tick::{NetworkStats, Ticker};
 use game_objects::health::Health;
 use game_objects::interaction::Interactable;
 use game_objects::level::{
-    MapMeta, PendingMapScene, compressed_level_hash, load_level_source, read_cached_map,
-    write_cached_map,
+    LevelSceneRoot, MapMeta, PendingMapScene, compressed_level_hash, load_level_source,
+    read_cached_map, write_cached_map,
 };
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
@@ -82,6 +82,10 @@ impl Plugin for ClientSessionPlugin {
                 Update,
                 send_world_ready.run_if(in_state(GameState::Multiplayer)),
             )
+            .add_systems(
+                Update,
+                mark_world_ready_after_level_load.run_if(in_state(GameState::Multiplayer)),
+            )
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
             .add_systems(
                 Update,
@@ -134,7 +138,7 @@ pub(crate) struct ClientMessageParams<'w, 's> {
 
 fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
     let map = if sp.map.is_empty() {
-        "maps/default.scn.ron".to_string()
+        "maps/default.ron".to_string()
     } else {
         sp.map.clone()
     };
@@ -230,7 +234,13 @@ pub fn cleanup_world(
     }
 }
 
-fn connect(mut commands: Commands, mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
+fn connect(
+    mut commands: Commands,
+    mut quic: ResMut<QuicManager>,
+    addr: Res<ServerAddr>,
+    mut pending: ResMut<PendingWorldReady>,
+) {
+    pending.0 = false;
     game_objects::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.0);
 }
@@ -249,6 +259,15 @@ fn send_world_ready(
         &MsgType::ClientReady,
     );
     pending.0 = false;
+}
+
+fn mark_world_ready_after_level_load(
+    loaded_levels: Query<(), Added<LevelSceneRoot>>,
+    mut pending: ResMut<PendingWorldReady>,
+) {
+    if !loaded_levels.is_empty() {
+        pending.0 = true;
+    }
 }
 
 fn request_map(quic: &mut QuicManager) {
@@ -877,7 +896,6 @@ fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) 
         };
         write_cached_map(&hash, &compressed);
         commands.insert_resource(PendingMapScene(compressed));
-        commands.insert_resource(PendingWorldReady(true));
         return;
     }
     if name != "gametype.lua" {
@@ -900,10 +918,12 @@ fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) 
 
 fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
     if let Some(compressed) = read_cached_map(&hash) {
-        game_objects::messages::push(commands, "Using cached map.");
-        commands.insert_resource(PendingMapScene(compressed));
-        commands.insert_resource(PendingWorldReady(true));
-        return;
+        if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
+            game_objects::messages::push(commands, "Using cached map.");
+            commands.insert_resource(PendingMapScene(compressed));
+            return;
+        }
+        game_objects::messages::push(commands, "Cached map invalid. Redownloading.");
     }
     game_objects::messages::push(commands, "Downloading map...");
     request_map(quic);

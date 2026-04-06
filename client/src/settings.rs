@@ -107,6 +107,7 @@ pub struct Settings {
     pub saturation: f32,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
+    pub cinematic_mode: bool,
     pub debug_render: bool,
     pub vsync: VsyncMode,
     pub display_mode: DisplayMode,
@@ -134,6 +135,7 @@ impl Default for Settings {
             saturation: 1.0,
             fov: 90.0,
             physics_interp: PhysicsInterp::RotationOnly,
+            cinematic_mode: false,
             debug_render: false,
             vsync: VsyncMode::FifoRelaxed,
             display_mode: DisplayMode::Windowed,
@@ -625,8 +627,14 @@ fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
     egui::CollapsingHeader::new("Debug")
         .default_open(false)
         .show(ui, |ui| {
+            ui.checkbox(&mut settings.cinematic_mode, "Cinematic mode")
+                .on_hover_text(
+                    "Hides gameplay helper overlays like planet radii during normal play.",
+                );
             ui.checkbox(&mut settings.debug_render, "Debug rendering")
-                .on_hover_text("Draws physics colliders, planet radii, and projectile paths.");
+                .on_hover_text(
+                    "Draws engineering/debug visuals like collider, seat, and projectile gizmos.",
+                );
         });
 }
 

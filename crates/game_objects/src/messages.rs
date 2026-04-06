@@ -22,6 +22,7 @@ pub fn push(commands: &mut Commands, text: impl Into<String>) {
     commands.queue(move |world: &mut World| push_world(world, text));
 }
 
+/// beautiful
 pub fn push_world(_world: &mut World, text: impl Into<String>) {
     let text = text.into();
     #[cfg(feature = "client")]

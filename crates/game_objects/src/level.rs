@@ -369,14 +369,21 @@ fn tick_scene_spawners(
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     time: Res<Time<Fixed>>,
     state: Option<Res<State<common::game_state::GameState>>>,
-    is_server: Option<Res<common::IsServer>>,
 ) {
-    let should_spawn = is_server.is_some()
-        || state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer);
+    #[cfg(feature = "client")]
+    let should_spawn =
+        state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer);
+    #[cfg(not(feature = "client"))]
+    let should_spawn = {
+        let _ = &state;
+        true
+    };
     if spawners_exist.is_empty() || !should_spawn {
         return;
     }
 
+    #[cfg(feature = "client")]
+    let _ = &mut quic;
     for (_spawner_entity, local_transform, child_of, mut spawner) in spawners.iter_mut() {
         if let Some(active_entity) = spawner.active_entity {
             if existing.get(active_entity).is_ok() {
@@ -423,7 +430,10 @@ fn tick_scene_spawners(
         );
         spawner.active_entity = Some(spawn_entity);
 
-        if is_server.is_some() {
+        #[cfg(feature = "client")]
+        let _ = &spawn_cmd;
+        #[cfg(not(feature = "client"))]
+        {
             if let Some(quic) = quic.as_mut() {
                 quic.send(
                     net::quic::SendTarget::All,

@@ -167,7 +167,7 @@ fn main() {
 
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
-    app.add_systems(Update, draw_planet_radii.run_if(debug_render_on));
+    app.add_systems(Update, draw_planet_radii.run_if(gameplay_overlay_on));
     app.add_systems(Update, draw_driver_seat_debug.run_if(debug_render_on));
     app.add_systems(
         FixedUpdate,
@@ -198,6 +198,10 @@ fn main() {
 
 fn debug_render_on(s: Res<Settings>) -> bool {
     s.debug_render
+}
+
+fn gameplay_overlay_on(s: Res<Settings>) -> bool {
+    !s.cinematic_mode
 }
 
 //

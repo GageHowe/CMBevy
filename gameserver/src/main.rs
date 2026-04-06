@@ -15,7 +15,7 @@ use session::ServerSessionPlugin;
 
 fn parse_args() -> (SocketAddr, String, String) {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
-    let mut map = "maps/default.scn.ron".to_string(); // asset-relative; load_server_level prepends the asset dir for fs reads
+    let mut map = "maps/default.ron".to_string(); // asset-relative; load_server_level prepends the asset dir for fs reads
     let mut gametype = "assets/gametypes/default.lua".to_string();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -84,7 +84,6 @@ fn main() {
             ..default()
         });
 
-    app.insert_resource(common::IsServer);
     app.add_plugins(MasterPlugin);
     app.add_plugins(GameObjectsPlugin);
     app.init_resource::<HeldWeaponMap>();

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use common::PredictedCommands;
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
-use rapier3d::prelude::*;
+use rapier3d::prelude::{Ball, Collider, ColliderHandle, Group, Pose, QueryFilter};
 
 use crate::GameObject;
 use crate::health::Health;
@@ -58,13 +58,15 @@ impl Projectile for RpgProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        if let Some(&rb_handle) = world.entity_to_handle.get(&shooter) {
-            if let Some(rb) = world.rigid_body_set.get_mut(rb_handle) {
-                // Match the predicted launcher recoil so server and client stay on the same path.
-                let impulse = -dir * weapon_recoil_impulse(rb.mass());
-                rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
-            }
-        }
+        let Some(&rb_handle) = world.entity_to_handle.get(&shooter) else {
+            return;
+        };
+        let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+            return;
+        };
+        // Match the predicted launcher recoil so server and client stay on the same path.
+        let impulse = -dir * weapon_recoil_impulse(rb.mass());
+        world.apply_game_impulse(shooter, impulse, None, None);
     }
 
     fn spawn_predicted(
@@ -183,25 +185,22 @@ fn explode(
         let Some(&rb_handle) = world.entity_to_handle.get(&entity) else {
             continue;
         };
-        let Some(rb) = world.rigid_body_set.get_mut(rb_handle) else {
+        let Some(rb) = world.rigid_body_set.get(rb_handle) else {
             continue;
         };
         let dir = (rb_pos(rb) - center).normalize_or_zero();
         let impulse_dir = if dir == Vec3::ZERO { Vec3::Y } else { dir };
         let impulse = impulse_dir * EXPLOSION_IMPULSE * falloff * rb.mass();
-        rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
-        if let (Some(predicted), Some(net_ids)) = (predicted.as_deref_mut(), net_ids) {
-            if let Ok(net_id) = net_ids.get(entity) {
-                predicted.record_impulse(net_id.clone(), impulse);
-            }
-        }
-        if predicted.is_none() {
-            if let Ok(mut health) = health_q.get_mut(entity) {
-                let mut damage = DAMAGE * falloff;
-                if direct_hit == Some(entity) {
-                    damage += DIRECT_HIT_BONUS;
+        let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
+        if world.apply_game_impulse(entity, impulse, net_id, predicted.as_deref_mut()) {
+            if predicted.is_none() {
+                if let Ok(mut health) = health_q.get_mut(entity) {
+                    let mut damage = DAMAGE * falloff;
+                    if direct_hit == Some(entity) {
+                        damage += DIRECT_HIT_BONUS;
+                    }
+                    health.apply_damage(damage);
                 }
-                health.apply_damage(damage);
             }
         }
     }

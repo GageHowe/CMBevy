@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use common::debug_println;
-use common::{BodyState, NetworkID, SimulationState};
+use common::{BodyState, NetworkID, PredictedCommands, SimulationState};
 pub use rapier3d::prelude::RigidBodyHandle;
 pub use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
@@ -200,6 +200,27 @@ impl PhysicsWorld {
                 rb.wake_up(true);
             }
         }
+    }
+
+    /// Shared gameplay impulse path so callers don't have to manually keep prediction in sync.
+    pub fn apply_game_impulse(
+        &mut self,
+        entity: Entity,
+        impulse: Vec3,
+        net_id: Option<&NetworkID>,
+        predicted: Option<&mut PredictedCommands>,
+    ) -> bool {
+        let Some(&handle) = self.entity_to_handle.get(&entity) else {
+            return false;
+        };
+        let Some(rb) = self.rigid_body_set.get_mut(handle) else {
+            return false;
+        };
+        rb.apply_impulse(Vector3::new(impulse.x, impulse.y, impulse.z), true);
+        if let (Some(net_id), Some(predicted)) = (net_id, predicted) {
+            predicted.record_impulse(net_id.clone(), impulse);
+        }
+        true
     }
 
     pub fn insert_fixed_joint(

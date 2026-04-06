@@ -40,6 +40,12 @@ impl Weapon for RifleComponent {
         let velocity = helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
         let temp_id = helpers::next_temp_id(ctx.id_counter.as_deref_mut());
         rifle::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
+        #[cfg(feature = "client")]
+        helpers::apply_local_predicted_impulse(
+            ctx,
+            world,
+            -ctx.aim_dir * rifle::weapon_recoil_impulse(helpers::shooter_mass(world, ctx.shooter)),
+        );
         helpers::queue_fire_sound(
             ctx.sound.as_deref_mut(),
             ctx.camera.is_some(),

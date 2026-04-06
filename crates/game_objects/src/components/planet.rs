@@ -5,7 +5,7 @@ use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[deprecated]
-pub const GRAVITY_STRENGTH: f32 = 9.81;
+pub const BASE_GRAVITY_STRENGTH: f32 = 9.81; // m/s^2
 
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component, Default)]
@@ -245,6 +245,7 @@ pub fn orient_bipeds_to_planets_impulses(
     }
 }
 
+#[cfg(feature = "client")]
 pub fn draw_planet_radii(planets: Query<(&PlanetComponent, &GlobalTransform)>, mut gizmos: Gizmos) {
     for (planet, gt) in planets.iter() {
         let pos = gt.translation();
@@ -252,21 +253,21 @@ pub fn draw_planet_radii(planets: Query<(&PlanetComponent, &GlobalTransform)>, m
             gizmos.sphere(
                 Isometry3d::from_translation(pos),
                 planet.inner_radius as f32,
-                Color::srgba(0.8, 0.2, 0.2, 0.15),
+                Color::srgba(1.0, 0.0, 0.5, 0.1),
             );
         }
         if planet.snap_radius > 0 {
             gizmos.sphere(
                 Isometry3d::from_translation(pos),
                 planet.snap_radius as f32,
-                Color::srgba(0.9, 0.8, 0.1, 0.15),
+                Color::srgba(0.9, 0.9, 0.0, 0.1),
             );
         }
         if planet.gravity_radius > 0 {
             gizmos.sphere(
                 Isometry3d::from_translation(pos),
                 planet.gravity_radius as f32,
-                Color::srgba(0.2, 0.8, 0.2, 0.15),
+                Color::srgba(0.0, 0.8, 0.0, 0.1),
             );
         }
     }

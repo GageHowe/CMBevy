@@ -8,12 +8,14 @@ use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
-use rapier3d::prelude::*;
+use rapier3d::prelude::Group;
 
 pub const SPEED: f32 = 600.0;
 pub const DAMAGE: f32 = 25.0;
 pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
 const RADIUS: f32 = 0.03;
+const HIT_SPEED: f32 = 1.5;
+const RECOIL_SPEED: f32 = 0.4;
 
 #[derive(Component, Reflect)]
 pub struct RifleProjectile {
@@ -27,6 +29,10 @@ impl Default for RifleProjectile {
             lifetime: LIFETIME,
         }
     }
+}
+
+pub fn weapon_recoil_impulse(mass: f32) -> f32 {
+    mass * RECOIL_SPEED
 }
 
 impl Projectile for RifleProjectile {
@@ -63,9 +69,26 @@ impl Projectile for RifleProjectile {
             return;
         };
         commands.entity(entity).despawn();
+        if let Some(&rb_handle) = world.entity_to_handle.get(&hit) {
+            if let Some(rb) = world.rigid_body_set.get(rb_handle) {
+                let impulse = vel.normalize() * HIT_SPEED * rb.mass();
+                world.apply_game_impulse(hit, impulse, None, None);
+            }
+        }
         if let Ok(mut health) = health_q.get_mut(hit) {
             health.apply_damage(DAMAGE);
         }
+    }
+
+    fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
+        let Some(&rb_handle) = world.entity_to_handle.get(&shooter) else {
+            return;
+        };
+        let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+            return;
+        };
+        let impulse = -dir * weapon_recoil_impulse(rb.mass());
+        world.apply_game_impulse(shooter, impulse, None, None);
     }
 
     fn spawn_predicted(

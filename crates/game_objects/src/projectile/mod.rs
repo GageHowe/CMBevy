@@ -2,7 +2,8 @@ use crate::GameObject;
 use crate::health::Health;
 use bevy::prelude::*;
 pub use common::GameObjectKind;
-use net::message::{NetworkID, SpawnCommand};
+use net::message::*;
+use net::quic::*;
 use physics::physics_world::*;
 use rapier3d::prelude::{Group, RigidBodyBuilder, Vector};
 
@@ -63,6 +64,7 @@ impl Plugin for ProjectilePlugin {
                 )
                     .in_set(TrackPredictedProjectilesSet),
             );
+        app.add_observer(on_remove_projectile);
         app.add_plugins((
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
@@ -314,4 +316,29 @@ pub fn tick_projectiles<P: Projectile>(
     for (entity, mut proj, body) in q.iter_mut() {
         proj.tick(entity, body, &mut world, &mut commands, &mut health_q);
     }
+}
+
+#[cfg(feature = "client")]
+fn on_remove_projectile(
+    event: On<Remove, ProjectileState>,
+    net_ids: Query<&NetworkID>,
+    quic: Option<ResMut<QuicManager>>,
+) {
+    let _ = (event, net_ids, quic);
+}
+
+#[cfg(not(feature = "client"))]
+fn on_remove_projectile(
+    event: On<Remove, ProjectileState>,
+    net_ids: Query<&NetworkID>,
+    mut quic: Option<ResMut<QuicManager>>,
+) {
+    let (Some(quic), Ok(net_id)) = (quic.as_mut(), net_ids.get(event.entity)) else {
+        return;
+    };
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::DespawnCommand(net_id.clone()),
+    );
 }

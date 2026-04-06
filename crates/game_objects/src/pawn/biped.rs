@@ -33,7 +33,8 @@ const MAX_SPRINT_SPEED: f32 = 15.0;
 /// max speed gained per tick when accelerating on the ground
 const GROUND_ACCEL: f32 = 1.0;
 const JUMP_IMPULSE: f32 = 5.0;
-const AIR_CONTROL: f32 = 0.3; // TODO: make vertical control separate and larger than AIR_CONTROL
+const AIR_CONTROL: f32 = 0.1;
+const AIR_UP_CONTROL: f32 = 0.35;
 const GROUND_DIST: f32 = 0.01; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 25; // ticks (~0.4 s at 60 Hz) before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
@@ -585,17 +586,59 @@ pub fn draw_biped_debug(
 /// Adjusts the YawPivot Y position to match the current slide state.
 /// No-op on the server (yaw_pivot is None).
 fn update_slide_camera(
-    bipeds: Query<&BipedPawnComponent>,
+    world: Res<PhysicsWorld>,
+    bipeds: Query<(&BipedPawnComponent, &RigidBodyHandleComponent)>,
     mut pivots: Query<&mut Transform, With<YawPivot>>,
 ) {
-    for biped in bipeds.iter() {
+    for (biped, body) in bipeds.iter() {
         let Some(yaw_e) = biped.yaw_pivot else {
             continue;
         };
         let Ok(mut t) = pivots.get_mut(yaw_e) else {
             continue;
         };
-        t.translation.y = if biped.is_sliding { -0.1 } else { 0.4 };
+        let Some(rb) = world.rigid_body_set.get(body.0) else {
+            continue;
+        };
+        let planet_up = rb_rot(rb) * Vec3::Y;
+        let grounded = ground_state(&world, body.0, rb_pos(rb), planet_up).0;
+        t.translation.y = if biped.is_sliding && grounded {
+            -0.1
+        } else {
+            0.4
+        };
+    }
+}
+
+fn ground_state(
+    world: &PhysicsWorld,
+    body_handle: RigidBodyHandle,
+    capsule_pos: Vec3,
+    planet_up: Vec3,
+) -> (bool, Vec3) {
+    let ray_origin = capsule_pos - planet_up * CAPSULE_BOTTOM;
+    let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
+        col.parent().map_or(true, |rb| rb != body_handle)
+    };
+    let filter = QueryFilter::new().predicate(&exclude);
+    let qp = world.broad_phase.as_query_pipeline(
+        world.narrow_phase.query_dispatcher(),
+        &world.rigid_body_set,
+        &world.collider_set,
+        filter,
+    );
+    let ray = Ray::new(ray_origin, -planet_up);
+    if let Some((ch, _)) = qp.cast_ray(&ray, GROUND_DIST, true) {
+        let vel = world
+            .collider_set
+            .get(ch)
+            .and_then(|col| col.parent())
+            .and_then(|rb_h| world.rigid_body_set.get(rb_h))
+            .map(rb_vel)
+            .unwrap_or(Vec3::ZERO);
+        (true, vel)
+    } else {
+        (false, Vec3::ZERO)
     }
 }
 
@@ -682,34 +725,7 @@ pub fn apply_biped_movement(
     }
 
     // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
-    let (grounded, ground_linvel) = {
-        let ray_origin = capsule_pos - planet_up * CAPSULE_BOTTOM;
-        let capsule_handle = body_handle.0;
-        let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
-            col.parent().map_or(true, |rb| rb != capsule_handle)
-        };
-        let filter = QueryFilter::new().predicate(&exclude);
-        let qp = world.broad_phase.as_query_pipeline(
-            world.narrow_phase.query_dispatcher(),
-            &world.rigid_body_set,
-            &world.collider_set,
-            filter,
-        );
-        let ray = Ray::new(ray_origin, -planet_up);
-        if let Some((ch, _)) = qp.cast_ray(&ray, GROUND_DIST, true) {
-            // surface velocity — zero for static geometry, nonzero for moving planets/platforms
-            let vel = world
-                .collider_set
-                .get(ch)
-                .and_then(|col| col.parent())
-                .and_then(|rb_h| world.rigid_body_set.get(rb_h))
-                .map(rb_vel)
-                .unwrap_or(Vec3::ZERO);
-            (true, vel)
-        } else {
-            (false, Vec3::ZERO)
-        }
-    };
+    let (grounded, ground_linvel) = ground_state(world, body_handle.0, capsule_pos, planet_up);
 
     biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
@@ -749,9 +765,14 @@ pub fn apply_biped_movement(
 
     if !grounded {
         let up = input.jump as i8 as f32 - input.slide as i8 as f32;
-        let air_dir = forward * input.forward + right * input.right + planet_up * up;
-        if air_dir.length_squared() > 1e-6 {
-            let impulse = air_dir.normalize() * AIR_CONTROL * capsule_mass;
+        let lateral = (forward * input.forward + right * input.right).normalize_or_zero();
+        let vertical_control = if up > 0.0 {
+            AIR_UP_CONTROL
+        } else {
+            AIR_CONTROL
+        };
+        let impulse = (lateral * AIR_CONTROL + planet_up * up * vertical_control) * capsule_mass;
+        if impulse.length_squared() > 1e-6 {
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
             }
