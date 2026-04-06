@@ -9,6 +9,7 @@ WORKDIR /app
 COPY . .
 # Cranelift is a local-dev speedup; use LLVM for release builds in Docker
 RUN sed -i '/codegen-backend/d' .cargo/config.toml
+RUN sed -i '/^\[target.x86_64-unknown-linux-gnu\]/,+2d' .cargo/config.toml
 RUN cargo build --profile distribution -p beacon
 
 # Runtime
