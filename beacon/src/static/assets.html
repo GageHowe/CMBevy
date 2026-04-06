@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Critical Mass Assets</title>
+        <link rel="stylesheet" href="/theme.css" />
+        <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    </head>
+    <body>
+        <nav>
+            <div class="nav-links">
+                <a class="logo" href="/assets">Asset Registry</a>
+                <a class="nav-link" href="/beacon">Beacon</a>
+            </div>
+            <span class="nav-status">
+                <span class="dot" id="status-dot"></span>
+                <span id="status-text">Connecting...</span>
+            </span>
+        </nav>
+
+        <main>
+            <section class="hero">
+                <p class="eyebrow">Critical Mass</p>
+                <h1>Upload assets and get stable hashes back.</h1>
+                <p>Each upload returns a `sha256:...` asset reference that the game can fetch from the beacon.</p>
+            </section>
+
+            <section class="asset-layout">
+                <section class="panel upload-panel">
+                    <h2>Upload</h2>
+                    <p class="panel-copy">Choose a file, upload it, then copy the returned hash into your asset refs.</p>
+                    <input id="asset-file" type="file" />
+                    <button id="upload-button" type="button" onclick="uploadSelectedFile()">Upload Asset</button>
+                    <p id="upload-status" class="muted">No upload in progress.</p>
+                    <div id="upload-result" class="upload-result" hidden>
+                        <label for="asset-hash">Hash</label>
+                        <div class="hash-row">
+                            <input id="asset-hash" type="text" readonly />
+                            <button type="button" class="ghost" onclick="copyHash()">Copy</button>
+                        </div>
+                        <a id="asset-link" class="ghost-link" href="#" target="_blank" rel="noreferrer">Open uploaded asset</a>
+                    </div>
+                </section>
+
+                <section class="panel asset-browser">
+                    <div class="panel-head">
+                        <div>
+                            <h2>Uploaded Assets</h2>
+                            <p class="panel-copy">Filter by filename or hash.</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="ghost"
+                            hx-get="/assets/list"
+                            hx-include="#asset-filter"
+                            hx-target="#asset-list"
+                            hx-indicator="#asset-spinner"
+                        >
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="controls">
+                        <input
+                            id="asset-filter"
+                            name="q"
+                            type="text"
+                            placeholder="Filter assets..."
+                            hx-get="/assets/list"
+                            hx-trigger="load, input changed delay:200ms"
+                            hx-target="#asset-list"
+                            hx-indicator="#asset-spinner"
+                        />
+                        <span id="asset-spinner" class="htmx-indicator">↻</span>
+                    </div>
+                    <section id="asset-list">
+                        <div class="empty">Loading assets...</div>
+                    </section>
+                </section>
+            </section>
+        </main>
+
+        <script>
+            async function checkStatus() {
+                try {
+                    const res = await fetch("/health");
+                    const dot = document.getElementById("status-dot");
+                    const txt = document.getElementById("status-text");
+                    if (res.ok) {
+                        dot.className = "dot online";
+                        txt.textContent = "Online";
+                    } else {
+                        dot.className = "dot offline";
+                        txt.textContent = "Offline";
+                    }
+                } catch {
+                    document.getElementById("status-dot").className = "dot offline";
+                    document.getElementById("status-text").textContent = "Offline";
+                }
+            }
+
+            async function uploadSelectedFile() {
+                const input = document.getElementById("asset-file");
+                const status = document.getElementById("upload-status");
+                const result = document.getElementById("upload-result");
+                const button = document.getElementById("upload-button");
+                const file = input.files[0];
+                if (!file) {
+                    status.textContent = "Choose a file first.";
+                    return;
+                }
+
+                button.disabled = true;
+                status.textContent = `Uploading ${file.name}...`;
+                result.hidden = true;
+
+                try {
+                    const response = await fetch("/assets", {
+                        method: "POST",
+                        headers: { "x-asset-filename": file.name },
+                        body: await file.arrayBuffer(),
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Upload failed with ${response.status}`);
+                    }
+                    const payload = await response.json();
+                    document.getElementById("asset-hash").value = payload.hash;
+                    document.getElementById("asset-link").href = `/assets/${payload.hash}`;
+                    status.textContent = `${payload.file_name} uploaded successfully.`;
+                    result.hidden = false;
+                    htmx.ajax("GET", "/assets/list?q=" + encodeURIComponent(document.getElementById("asset-filter").value), "#asset-list");
+                } catch (error) {
+                    status.textContent = error.message;
+                } finally {
+                    button.disabled = false;
+                }
+            }
+
+            async function copyHash() {
+                const hash = document.getElementById("asset-hash").value;
+                if (!hash) {
+                    return;
+                }
+                await navigator.clipboard.writeText(hash);
+            }
+
+            checkStatus();
+            setInterval(checkStatus, 10000);
+        </script>
+    </body>
+</html>
