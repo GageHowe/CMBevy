@@ -11,6 +11,7 @@ use game_objects::pawn::vehicle::*;
 use game_objects::pawn::{
     HeldWeaponMap, ModeConfig, PawnInputKind, PendingRespawns, PlayerRegistry, SeatedInVehicle,
 };
+use game_objects::weapon::tether::{TetherEndpoint, TetherGunComponent};
 use game_objects::*;
 use net::message::{
     GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand,
@@ -132,7 +133,38 @@ impl Plugin for ServerSessionPlugin {
                     .after(step_physics)
                     .before(broadcast_tick),
             )
+            .add_systems(
+                FixedUpdate,
+                broadcast_tether_updates
+                    .after(step_physics)
+                    .before(broadcast_tick),
+            )
             .add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
+    }
+}
+
+fn tether_endpoint_net(
+    endpoint: TetherEndpoint,
+    net_ids: &Query<&NetworkID>,
+) -> Option<(NetworkID, Vec3)> {
+    Some((net_ids.get(endpoint.entity).ok()?.clone(), endpoint.local_anchor))
+}
+
+fn broadcast_tether_updates(
+    mut quic: ResMut<QuicManager>,
+    weapons: Query<(&NetworkID, &TetherGunComponent), Changed<TetherGunComponent>>,
+    net_ids: Query<&NetworkID>,
+) {
+    for (weapon_id, weapon) in &weapons {
+        quic.send(
+            SendTarget::All,
+            Channel::Unordered,
+            &MsgType::TetherState {
+                weapon: weapon_id.clone(),
+                left: weapon.left.and_then(|endpoint| tether_endpoint_net(endpoint, &net_ids)),
+                right: weapon.right.and_then(|endpoint| tether_endpoint_net(endpoint, &net_ids)),
+            },
+        );
     }
 }
 
@@ -636,6 +668,7 @@ fn handle_fire_request(
     origin: Vec3,
     dir: Vec3,
     registry: &PlayerRegistry,
+    all_networked: &NetworkEntityMap,
     pawn_slots: &Query<&mut WeaponSlots>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
@@ -656,12 +689,17 @@ fn handle_fire_request(
     if !shooter_holds {
         return;
     }
+    let Some(weapon_entity) = find_networked_entity(all_networked, &weapon_net_id) else {
+        return;
+    };
     let Some(fired) = projectile::fire_authoritative(
         kind,
         origin,
         dir,
         shooter_entity,
         tick,
+        weapon_entity,
+        temp_id,
         commands,
         world,
         net_ids,
@@ -828,6 +866,7 @@ fn process_server_message(
             origin,
             dir,
             registry,
+            &sp.all_networked,
             &sp.pawn_slots,
             &mut sp.commands,
             &mut sp.world,

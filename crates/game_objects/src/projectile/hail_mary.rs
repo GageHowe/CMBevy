@@ -75,6 +75,7 @@ impl Projectile for HailMaryProjectile {
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
+        _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
         spawn(origin, velocity, commands, world, shooter, temp_id)

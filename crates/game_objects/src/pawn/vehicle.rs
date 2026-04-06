@@ -311,6 +311,7 @@ fn vehicle_exit_interact(
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
     mut interact_pressed: Local<bool>,
+    object_kinds: Query<&crate::GameObjectKind>,
 ) {
     use common::game_state::GameState;
     if !super::biped::consume_fixed_press(keyboard.pressed(KeyCode::KeyF), &mut interact_pressed) {
@@ -342,6 +343,9 @@ fn vehicle_exit_interact(
                 .entity(biped_entity)
                 .remove::<SeatedInVehicle>()
                 .insert(Possessed::new(128));
+            if let Ok(kind) = object_kinds.get(vehicle_entity) {
+                crate::messages::push(&mut commands, format!("Exited {kind:?}"));
+            }
         }
         _ => {}
     }

@@ -15,6 +15,7 @@ use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
 use game_objects::weapon::helpers as weapon_helpers;
+use game_objects::weapon::tether::{TetherEndpoint, TetherGunComponent, sync_endpoints};
 use game_objects::{NetworkEntityMap, SpawnGameObjectCommand};
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
 use net::message::{MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
@@ -139,6 +140,9 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     camera: Query<'w, 's, Entity, With<Camera3d>>,
     projectile_q: Query<'w, 's, (Entity, &'static ProjectileState)>,
     predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
+    tether_weapons: Query<'w, 's, &'static mut TetherGunComponent>,
+    object_kinds: Query<'w, 's, &'static GameObjectKind>,
+    seated: Query<'w, 's, &'static SeatedInVehicle>,
 }
 
 fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
@@ -634,8 +638,11 @@ fn process_client_message(
         MsgType::SeatState(biped_net_id, vehicle_net_id) => handle_seat_state(
             &biped_net_id,
             vehicle_net_id.as_ref(),
+            local_net_id.as_ref(),
             just_spawned,
             &mp.networked,
+            &mp.object_kinds,
+            &mp.seated,
             &mut mp.spawn.commands,
             &mut mp.world,
         ),
@@ -658,6 +665,7 @@ fn process_client_message(
             &mp.networked,
             &mp.camera,
             &mut mp.biped_q,
+            &mp.object_kinds,
             &mut mp.spawn.commands,
             &mut mp.world,
         ),
@@ -682,6 +690,18 @@ fn process_client_message(
         MsgType::HealthUpdate(net_id, current) => {
             handle_health_update(&net_id, current, &mp.networked, &mut mp.health_q);
         }
+        MsgType::TetherState {
+            weapon,
+            left,
+            right,
+        } => handle_tether_state(
+            &weapon,
+            left,
+            right,
+            &mp.networked,
+            &mut mp.world,
+            &mut mp.tether_weapons,
+        ),
         MsgType::Pong(text) => {
             debug_println!("Client: Got PONG \"{text}\"");
             gui.push_log(format!("pong: {text}"));
@@ -754,8 +774,11 @@ fn handle_possess(
 fn handle_seat_state(
     biped_net_id: &NetworkID,
     vehicle_net_id: Option<&NetworkID>,
+    local_net_id: Option<&NetworkID>,
     just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
     networked: &NetworkEntityMap,
+    object_kinds: &Query<&GameObjectKind>,
+    seated: &Query<&SeatedInVehicle>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -772,10 +795,22 @@ fn handle_seat_state(
             commands
                 .entity(biped_entity)
                 .insert(SeatedInVehicle(vehicle_entity));
+            if local_net_id == Some(biped_net_id)
+                && let Ok(kind) = object_kinds.get(vehicle_entity)
+            {
+                game_objects::messages::push(commands, format!("Entered {kind:?}"));
+            }
         }
         None => {
+            let old_vehicle = seated.get(biped_entity).ok().map(|seat| seat.0);
             world.set_body_enabled(biped_entity, true);
             commands.entity(biped_entity).remove::<SeatedInVehicle>();
+            if local_net_id == Some(biped_net_id)
+                && let Some(vehicle_entity) = old_vehicle
+                && let Ok(kind) = object_kinds.get(vehicle_entity)
+            {
+                game_objects::messages::push(commands, format!("Exited {kind:?}"));
+            }
         }
     }
 }
@@ -831,6 +866,7 @@ fn handle_weapon_pickup(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
         Query<&BipedPawnComponent>,
     )>,
+    object_kinds: &Query<&GameObjectKind>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -853,6 +889,9 @@ fn handle_weapon_pickup(
             }
             if let Some(parent) = camera.single().ok().or(pivot_e) {
                 weapon_helpers::attach_local_viewmodel(commands, weapon_entity, parent, is_primary);
+            }
+            if let Ok(kind) = object_kinds.get(weapon_entity) {
+                game_objects::messages::push(commands, format!("Picked up {kind:?}"));
             }
         }
         return;
@@ -930,6 +969,39 @@ fn handle_health_update(
         return;
     };
     health.current = current;
+}
+
+fn tether_endpoint_from_net(
+    endpoint: Option<(NetworkID, Vec3)>,
+    networked: &NetworkEntityMap,
+) -> Option<TetherEndpoint> {
+    let (net_id, local_anchor) = endpoint?;
+    Some(TetherEndpoint {
+        entity: find_networked_entity(networked, &net_id)?,
+        local_anchor,
+    })
+}
+
+fn handle_tether_state(
+    weapon_id: &NetworkID,
+    left: Option<(NetworkID, Vec3)>,
+    right: Option<(NetworkID, Vec3)>,
+    networked: &NetworkEntityMap,
+    world: &mut PhysicsWorld,
+    weapons: &mut Query<&mut TetherGunComponent>,
+) {
+    let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
+        return;
+    };
+    let Ok(mut weapon) = weapons.get_mut(weapon_entity) else {
+        return;
+    };
+    sync_endpoints(
+        &mut weapon,
+        tether_endpoint_from_net(left, networked),
+        tether_endpoint_from_net(right, networked),
+        world,
+    );
 }
 
 fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {

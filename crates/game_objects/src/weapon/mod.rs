@@ -8,6 +8,7 @@ pub mod hail_mary;
 pub mod helpers;
 pub mod rifle;
 pub mod rpg;
+pub mod tether;
 
 /// Shared weapon plugin.
 pub struct WeaponPlugin;
@@ -18,6 +19,7 @@ impl Plugin for WeaponPlugin {
             rifle::RiflePlugin,
             hail_mary::HailMaryPlugin,
             rpg::RpgPlugin,
+            tether::TetherGunPlugin,
             crate::projectile::ProjectilePlugin,
         ));
     }
@@ -34,6 +36,7 @@ pub struct WeaponCrosshair(pub &'static str, pub Option<f32>);
 /// All context a weapon's fixed_update may need: input buttons and output channels.
 /// Fields are optional so weapons compile and behave correctly on the server (no sound/camera).
 pub struct FireCtx<'a> {
+    pub weapon: Entity,
     pub want_fire: bool,
     pub want_alt_fire: bool,
     pub origin: Vec3,

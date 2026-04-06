@@ -10,6 +10,7 @@ use rapier3d::prelude::{Group, RigidBodyBuilder, Vector};
 pub mod hail_mary;
 pub mod rifle;
 pub mod rpg;
+pub mod tether;
 
 pub struct FiredProjectile {
     pub net_id: NetworkID,
@@ -22,7 +23,8 @@ macro_rules! for_each_projectile_type {
             $($args)*
             rifle::RifleProjectile,
             hail_mary::HailMaryProjectile,
-            rpg::RpgProjectile
+            rpg::RpgProjectile,
+            tether::TetherHookProjectile
         )
     };
 }
@@ -34,6 +36,8 @@ macro_rules! fire_authoritative_match {
         $dir:expr,
         $shooter:expr,
         $tick:expr,
+        $weapon:expr,
+        $temp_id:expr,
         $commands:expr,
         $world:expr,
         $net_ids:expr;
@@ -42,7 +46,7 @@ macro_rules! fire_authoritative_match {
         match $kind {
             $(
                 <$ty as Projectile>::KIND => Some(<$ty as Projectile>::fire_authoritative(
-                    $origin, $dir, $shooter, $tick, $commands, $world, $net_ids,
+                    $origin, $dir, $shooter, $tick, $weapon, $temp_id, $commands, $world, $net_ids,
                 )),
             )+
             _ => None,
@@ -69,6 +73,7 @@ impl Plugin for ProjectilePlugin {
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
             rpg::RpgProjectilePlugin,
+            tether::TetherHookProjectilePlugin,
         ));
     }
 }
@@ -79,6 +84,8 @@ pub fn fire_authoritative(
     dir: Vec3,
     shooter: Entity,
     tick: u64,
+    weapon: Entity,
+    temp_id: u32,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut net::message::NetworkIDResource,
@@ -87,7 +94,7 @@ pub fn fire_authoritative(
     if dir == Vec3::ZERO {
         return None;
     }
-    for_each_projectile_type!(fire_authoritative_match kind, origin, dir, shooter, tick, commands, world, net_ids;)
+    for_each_projectile_type!(fire_authoritative_match kind, origin, dir, shooter, tick, weapon, temp_id, commands, world, net_ids;)
 }
 
 pub fn make_generic_projectile_physics(
@@ -103,6 +110,7 @@ pub fn make_generic_projectile_physics(
         RigidBodyBuilder::kinematic_velocity_based()
             .translation(origin)
             .linvel(Vector::new(velocity.x, velocity.y, velocity.z))
+            .ccd_enabled(true)
             .build(),
     )
 }
@@ -169,6 +177,8 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         dir: Vec3,
         shooter: Entity,
         tick: u64,
+        weapon: Entity,
+        temp_id: u32,
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         net_ids: &mut net::message::NetworkIDResource,
@@ -181,8 +191,15 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
             .unwrap_or(Vec3::ZERO);
         Self::on_authoritative_fire(dir, shooter, world);
         let starting_velocity = dir * Self::SPEED + shooter_velocity;
-        let entity =
-            Self::spawn_predicted(origin, starting_velocity, commands, world, Some(shooter), 0);
+        let entity = Self::spawn_predicted(
+            origin,
+            starting_velocity,
+            commands,
+            world,
+            Some(shooter),
+            Some(weapon),
+            temp_id,
+        );
         let net_id = NetworkID(net_ids.next());
         commands.entity(entity).insert(net_id.clone());
         FiredProjectile {
@@ -204,6 +221,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
+        weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity;
 }

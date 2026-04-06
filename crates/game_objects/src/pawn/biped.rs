@@ -5,6 +5,8 @@ use super::*;
 use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
 use crate::weapon::{hail_mary, rifle, rpg};
+#[cfg(feature = "client")]
+use crate::weapon::tether;
 use crate::{GameObject, GameObjectKind, health::Health};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
@@ -236,6 +238,8 @@ impl Plugin for BipedPlugin {
                 biped_fire::<hail_mary::HailMaryComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 biped_fire::<rpg::RpgComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
+                biped_fire::<tether::TetherGunComponent>
+                    .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 interact.run_if(
                     in_state(common::game_state::GameState::SinglePlayer)
@@ -911,6 +915,7 @@ pub fn biped_fire<W: Weapon>(
     };
     let (_, cam_rot, _) = cam_gt.to_scale_rotation_translation();
     let mut ctx = FireCtx {
+        weapon: weapon_entity,
         want_fire: !blocked && mouse.pressed(MouseButton::Left),
         want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
         origin,
@@ -961,6 +966,7 @@ fn interact(
     mut quic: ResMut<net::quic::QuicManager>,
     mut interact_pressed: Local<bool>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
+    object_kinds: Query<&GameObjectKind>,
     mut cockpit_q: ParamSet<(
         Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
         Query<(&mut DriverSeat, &Transform, &ChildOf)>,
@@ -1026,6 +1032,9 @@ fn interact(
                     .insert(super::SeatedInVehicle(vehicle_entity));
                 commands.entity(pawn_entity).remove::<Possessed>();
                 commands.entity(vehicle_entity).insert(Possessed::new(128));
+                if let Ok(kind) = object_kinds.get(vehicle_entity) {
+                    crate::messages::push(&mut commands, format!("Entered {kind:?}"));
+                }
                 return;
             }
             GameState::Multiplayer => {
@@ -1074,6 +1083,9 @@ fn interact(
                 parent,
                 is_primary,
             );
+            if let Ok(kind) = object_kinds.get(hit_entity) {
+                crate::messages::push(&mut commands, format!("Picked up {kind:?}"));
+            }
         }
         GameState::Multiplayer => {
             quic.send(

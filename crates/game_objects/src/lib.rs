@@ -179,9 +179,11 @@ macro_rules! for_each_game_object {
             GameObjectKind::Rifle => weapon::rifle::RifleComponent,
             GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent,
             GameObjectKind::Rpg => weapon::rpg::RpgComponent,
+            GameObjectKind::TetherGun => weapon::tether::TetherGunComponent,
             GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
             GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
-            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile
+            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile,
+            GameObjectKind::TetherHookProjectile => projectile::tether::TetherHookProjectile
         )
     };
 }

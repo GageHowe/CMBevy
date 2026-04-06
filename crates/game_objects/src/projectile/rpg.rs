@@ -75,6 +75,7 @@ impl Projectile for RpgProjectile {
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
+        _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
         spawn(origin, velocity, commands, world, shooter, temp_id)
@@ -110,6 +111,7 @@ fn tick_inner(
             health_q,
             net_ids,
             predicted,
+            None,
         );
         return;
     }
@@ -118,9 +120,12 @@ fn tick_inner(
     }
     let prev = curr - vel * dt;
     let exclude = [entity, projectile.shooter.unwrap_or(entity)];
-    if let Some(hit) = world.cast_sphere(prev, vel.normalize(), RADIUS, step, &exclude) {
+    let dir = vel.normalize();
+    if let Some((hit, toi, normal)) = world.cast_sphere(prev, dir, RADIUS, step, &exclude) {
+        let hit_point = prev + dir * toi;
+        let impulse_dir = normal.normalize_or_zero();
         explode(
-            curr,
+            hit_point,
             Some(hit),
             entity,
             projectile.shooter,
@@ -129,6 +134,7 @@ fn tick_inner(
             health_q,
             net_ids,
             predicted,
+            Some((hit, impulse_dir, hit_point)),
         );
     }
 }
@@ -143,6 +149,7 @@ fn explode(
     health_q: &mut Query<&mut Health>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
+    direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
 ) {
     let mut affected: HashMap<Entity, f32> = HashMap::new();
     let excluded: Vec<RigidBodyHandle> = [Some(projectile), shooter]
@@ -172,9 +179,13 @@ fn explode(
         let Some(rb) = world.rigid_body_set.get(rb_handle) else {
             continue;
         };
-        let offset = rb_pos(rb) - center;
-        let dist = offset.length();
-        let falloff = (1.0 - dist / EXPLOSION_RADIUS).clamp(0.0, 1.0);
+        let falloff = if direct_hit == Some(entity) {
+            1.0
+        } else {
+            let offset = rb_pos(rb) - center;
+            let dist = offset.length();
+            (1.0 - dist / EXPLOSION_RADIUS).clamp(0.0, 1.0)
+        };
         if falloff > affected.get(&entity).copied().unwrap_or(0.0) {
             affected.insert(entity, falloff);
         }
@@ -188,11 +199,23 @@ fn explode(
         let Some(rb) = world.rigid_body_set.get(rb_handle) else {
             continue;
         };
-        let dir = (rb_pos(rb) - center).normalize_or_zero();
-        let impulse_dir = if dir == Vec3::ZERO { Vec3::Y } else { dir };
+        let radial_dir = (rb_pos(rb) - center).normalize_or_zero();
+        let impulse_dir =
+            if let Some((hit, dir, _)) = direct_hit_impulse && hit == entity {
+                dir
+            } else if radial_dir == Vec3::ZERO {
+                Vec3::Y
+            } else {
+                radial_dir
+            };
         let impulse = impulse_dir * EXPLOSION_IMPULSE * falloff * rb.mass();
         let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
-        if world.apply_game_impulse(entity, impulse, net_id, predicted.as_deref_mut()) {
+        let point = direct_hit_impulse.and_then(
+            |(hit, _, hit_point)| {
+                if hit == entity { Some(hit_point) } else { None }
+            },
+        );
+        if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut()) {
             if predicted.is_none() {
                 if let Ok(mut health) = health_q.get_mut(entity) {
                     let mut damage = DAMAGE * falloff;

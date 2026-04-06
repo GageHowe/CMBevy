@@ -53,6 +53,8 @@ pub enum GameObjectKind {
     HailMary,
     HailMaryProjectile,
     RifleProjectile,
+    TetherGun,
+    TetherHookProjectile,
     Rpg,
     RpgProjectile,
 }

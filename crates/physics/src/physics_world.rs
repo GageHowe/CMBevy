@@ -258,13 +258,31 @@ impl PhysicsWorld {
         Some(self.impulse_joint_set.insert(body1, body2, joint, true))
     }
 
+    pub fn insert_rope_joint(
+        &mut self,
+        body1_entity: Entity,
+        body2_entity: Entity,
+        anchor1: Vec3,
+        anchor2: Vec3,
+        max_dist: f32,
+        contacts_enabled: bool,
+    ) -> Option<ImpulseJointHandle> {
+        let body1 = *self.entity_to_handle.get(&body1_entity)?;
+        let body2 = *self.entity_to_handle.get(&body2_entity)?;
+        let joint = RopeJointBuilder::new(max_dist.max(0.001))
+            .local_anchor1(anchor1)
+            .local_anchor2(anchor2)
+            .contacts_enabled(contacts_enabled);
+        Some(self.impulse_joint_set.insert(body1, body2, joint, true))
+    }
+
     pub fn remove_impulse_joint(&mut self, handle: ImpulseJointHandle) {
         self.impulse_joint_set.remove(handle, true);
     }
 }
 
 impl PhysicsWorld {
-    /// Cast a sphere and return the first entity hit.
+    /// Cast a sphere and return the first entity hit, sweep distance, and target surface normal.
     /// `exclude` lists entities whose colliders are skipped (e.g. shooter + self).
     pub fn cast_sphere(
         &self,
@@ -273,7 +291,7 @@ impl PhysicsWorld {
         radius: f32,
         max_distance: f32,
         exclude: &[Entity],
-    ) -> Option<Entity> {
+    ) -> Option<(Entity, f32, Vec3)> {
         use rapier3d::parry::query::ShapeCastOptions;
         let excluded: Vec<RigidBodyHandle> = exclude
             .iter()
@@ -298,9 +316,13 @@ impl PhysicsWorld {
             &shape,
             ShapeCastOptions::with_max_time_of_impact(max_distance),
         )
-        .and_then(|(ch, _)| {
+        .and_then(|(ch, hit)| {
             let rb_handle = self.collider_set.get(ch)?.parent()?;
-            Some(*self.handle_to_entity.get(&rb_handle)?)
+            Some((
+                *self.handle_to_entity.get(&rb_handle)?,
+                hit.time_of_impact,
+                hit.normal2,
+            ))
         })
     }
 
