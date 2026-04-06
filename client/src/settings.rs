@@ -346,7 +346,7 @@ fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.horizontal(|ui| {
         ui.label("Field of view")
             .on_hover_text("Horizontal field of view in degrees.");
-        ui.add(egui::Slider::new(&mut settings.fov, 60.0..=120.0).suffix("°"));
+        ui.add(egui::Slider::new(&mut settings.fov, 60.0..=160.0).suffix("°"));
     });
 
     ui.horizontal(|ui| {
