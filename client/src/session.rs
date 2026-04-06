@@ -172,7 +172,7 @@ fn load_skybox(
     let (Some(path), Ok(cam)) = (&meta.skybox, camera.single()) else {
         return;
     };
-    let image: Handle<Image> = asset_server.load(game_objects::asset_ref::resolve_asset_path(path));
+    let image: Handle<Image> = asset_server.load(game_objects::asset_path::resolve_asset_path(path));
     commands.entity(cam).insert((
         Skybox {
             image: image.clone(),

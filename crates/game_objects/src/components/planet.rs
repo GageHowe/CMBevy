@@ -1,6 +1,5 @@
 use crate::pawn::{BipedPawnComponent, SeatedInVehicle};
 use bevy::prelude::*;
-use common::AssetRef;
 use physics::physics_world::{self, *};
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -29,7 +28,7 @@ pub struct PlanetComponent {
     pub snap_radius: u32,
     pub gravity_radius: u32,
     pub gravity_profile: GravityProfile,
-    pub scene: Option<AssetRef>,
+    pub scene: Option<String>,
 }
 
 pub fn spawn(
@@ -287,7 +286,7 @@ fn spawn_planet_visuals(
             continue;
         };
         commands.entity(entity).insert((
-            SceneRoot(asset_server.load(crate::asset_ref::resolve_asset_path(scene))),
+            SceneRoot(asset_server.load(crate::asset_path::resolve_asset_path(scene))),
             Visibility::default(),
         ));
     }

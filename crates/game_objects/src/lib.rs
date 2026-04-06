@@ -5,7 +5,7 @@ use net::message::SpawnCommand;
 use physics::physics_world::{RigidBodyHandle, RigidBodyHandleComponent};
 use std::collections::HashMap;
 
-pub mod asset_ref;
+pub mod asset_path;
 pub mod components;
 pub mod generic;
 pub mod health;

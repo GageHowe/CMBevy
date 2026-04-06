@@ -15,6 +15,6 @@ RUN cargo build --profile distribution -p beacon
 FROM debian:bookworm-slim
 WORKDIR /app
 COPY --from=builder /app/target/distribution/beacon .
-COPY beacon/schema.sql .
+# COPY beacon/schema.sql .
 EXPOSE 8000
 CMD ["./beacon"]

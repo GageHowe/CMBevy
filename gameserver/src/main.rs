@@ -2,13 +2,13 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use physics::physics_world::*;
-use std::net::SocketAddr;
 use game_objects::level::LevelPlugin;
 use game_objects::pawn::HeldWeaponMap;
 use game_objects::weapon::WeaponPlugin;
 use game_objects::*;
 use master_plugin::MasterPlugin;
+use physics::physics_world::*;
+use std::net::SocketAddr;
 
 mod session;
 use session::ServerSessionPlugin;

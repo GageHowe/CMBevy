@@ -2,6 +2,7 @@ use axum::{
     body::Bytes,
     Json, Router,
     extract::{ConnectInfo, Path, State},
+    http::HeaderMap,
     http::StatusCode,
     response::Html,
     routing::{delete, get, post},
@@ -15,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use axum::http::header;
 use axum::response::Response;
 use http_common::*;
+
+const FILENAME_HEADER: &str = "x-asset-filename";
 
 #[derive(Clone)]
 struct AppState {
@@ -131,12 +134,18 @@ async fn list_lobbies_partial(State(state): State<AppState>) -> Html<String> {
     Html(html)
 }
 
-async fn get_asset(Path(hash): Path<String>) -> Result<Vec<u8>, StatusCode> {
+async fn get_asset(Path(hash): Path<String>) -> Result<Response, StatusCode> {
     let path = asset_path(&hash);
-    std::fs::read(path).map_err(|_| StatusCode::NOT_FOUND)
+    let bytes = std::fs::read(path).map_err(|_| StatusCode::NOT_FOUND)?;
+    let file_name = std::fs::read_to_string(asset_meta_path(&hash)).ok();
+    let mut builder = Response::builder();
+    if let Some(file_name) = file_name.as_deref() {
+        builder = builder.header(FILENAME_HEADER, file_name.trim());
+    }
+    builder.body(bytes.into()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-async fn put_asset(Path(hash): Path<String>, body: Bytes) -> StatusCode {
+async fn put_asset(Path(hash): Path<String>, headers: HeaderMap, body: Bytes) -> StatusCode {
     let path = asset_path(&hash);
     let Some(dir) = path.parent() else {
         return StatusCode::INTERNAL_SERVER_ERROR;
@@ -144,14 +153,23 @@ async fn put_asset(Path(hash): Path<String>, body: Bytes) -> StatusCode {
     if std::fs::create_dir_all(dir).is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
-    match std::fs::write(path, body) {
-        Ok(_) => StatusCode::CREATED,
+    match std::fs::write(&path, body) {
+        Ok(_) => {
+            if let Some(file_name) = headers.get(FILENAME_HEADER).and_then(|value| value.to_str().ok()) {
+                let _ = std::fs::write(asset_meta_path(&hash), file_name);
+            }
+            StatusCode::CREATED
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
 fn asset_path(hash: &str) -> PathBuf {
     asset_dir().join(sanitize_hash(hash))
+}
+
+fn asset_meta_path(hash: &str) -> PathBuf {
+    asset_dir().join(format!("{}.name", sanitize_hash(hash)))
 }
 
 fn asset_dir() -> PathBuf {
