@@ -115,7 +115,11 @@ impl NetworkEntityMap {
 fn index_added_network_ids(
     mut map: ResMut<NetworkEntityMap>,
     added: Query<
-        (Entity, &net::message::NetworkID, Option<&RigidBodyHandleComponent>),
+        (
+            Entity,
+            &net::message::NetworkID,
+            Option<&RigidBodyHandleComponent>,
+        ),
         Added<net::message::NetworkID>,
     >,
 ) {
@@ -131,7 +135,10 @@ fn index_added_or_changed_rigid_bodies(
     mut map: ResMut<NetworkEntityMap>,
     bodies: Query<
         (Entity, &RigidBodyHandleComponent),
-        Or<(Added<RigidBodyHandleComponent>, Changed<RigidBodyHandleComponent>)>,
+        Or<(
+            Added<RigidBodyHandleComponent>,
+            Changed<RigidBodyHandleComponent>,
+        )>,
     >,
 ) {
     for (entity, body) in bodies.iter() {
@@ -232,7 +239,11 @@ pub trait GameObject: Default + Reflect {
     }
 }
 
-pub fn dispatch_game_object_on_death(kind: GameObjectKind, entity: Entity, world: &mut World) -> bool {
+pub fn dispatch_game_object_on_death(
+    kind: GameObjectKind,
+    entity: Entity,
+    world: &mut World,
+) -> bool {
     for_each_game_object!(dispatch_game_object_match on_death, kind, entity, world;)
 }
 

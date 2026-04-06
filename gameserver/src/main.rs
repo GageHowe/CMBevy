@@ -2,7 +2,7 @@
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use game_objects::level::LevelPlugin;
+use game_objects::level::{LevelPlugin, apply_pending_map_scene};
 use game_objects::pawn::HeldWeaponMap;
 use game_objects::weapon::WeaponPlugin;
 use game_objects::*;
@@ -89,6 +89,7 @@ fn main() {
     app.add_plugins(GameObjectsPlugin);
     app.init_resource::<HeldWeaponMap>();
     app.add_plugins(LevelPlugin);
+    app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(FixedPreUpdate, session::on_message);
     app.add_systems(
         FixedUpdate,

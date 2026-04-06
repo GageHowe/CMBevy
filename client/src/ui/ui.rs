@@ -310,7 +310,12 @@ fn update_prediction_reticle(
                 continue;
             };
             if world
-                .cast_ray(origin, (target_pos - origin).normalize_or_zero(), origin.distance(target_pos), &[pawn_entity])
+                .cast_ray(
+                    origin,
+                    (target_pos - origin).normalize_or_zero(),
+                    origin.distance(target_pos),
+                    &[pawn_entity],
+                )
                 .is_some_and(|(hit, _)| hit != target_entity)
             {
                 continue;
@@ -327,7 +332,9 @@ fn update_prediction_reticle(
                 .unwrap_or(Vec3::ZERO);
             let relative_position = target_pos - origin;
             let relative_velocity = target_velocity - shooter_velocity;
-            let Some(time) = solve_intercept_time(relative_position, relative_velocity, projectile_speed) else {
+            let Some(time) =
+                solve_intercept_time(relative_position, relative_velocity, projectile_speed)
+            else {
                 continue;
             };
             let relative_intercept = relative_position + relative_velocity * time;
@@ -350,7 +357,11 @@ fn update_prediction_reticle(
     }
 }
 
-fn solve_intercept_time(relative_position: Vec3, relative_velocity: Vec3, speed: f32) -> Option<f32> {
+fn solve_intercept_time(
+    relative_position: Vec3,
+    relative_velocity: Vec3,
+    speed: f32,
+) -> Option<f32> {
     let a = relative_velocity.length_squared() - speed * speed;
     let b = 2.0 * relative_position.dot(relative_velocity);
     let c = relative_position.length_squared();

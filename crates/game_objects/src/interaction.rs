@@ -7,4 +7,3 @@ use bevy::prelude::*;
 pub struct Interactable {
     pub range: f32,
 }
-

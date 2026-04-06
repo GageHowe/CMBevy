@@ -19,6 +19,7 @@ pub struct SpawnCommand {
 pub enum MsgType {
     Connected,
     ClientReady,
+    RequestMap,
     Disconnected,
     ChatMessage(String, String),
     Ping(String),
@@ -49,5 +50,6 @@ pub enum MsgType {
     TimePong(u64),
     FlashlightToggle,
     FlashlightState(NetworkID, bool),
+    MapHash(String),
     FileData(String, Vec<u8>),
 }

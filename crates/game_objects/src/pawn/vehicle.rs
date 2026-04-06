@@ -1,16 +1,14 @@
+use super::Pawn;
 #[cfg(feature = "client")]
 use super::*;
-use super::Pawn;
 /// VehicleComponent is a shared marker inserted by every vehicle-type pawn (spaceship, car, etc.).
 /// It does NOT implement Pawn — each vehicle type has its own component for that.
 /// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
 /// across all vehicle types.
 use bevy::prelude::*;
-use physics::physics_world::{
-    PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics,
-};
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
+use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
 
 /// Marks an entity as a driveable vehicle.
 #[derive(Component, Reflect)]
@@ -204,7 +202,13 @@ fn sync_seated_bipeds(
         let seat_rot = vehicle_rot * seat_transform.rotation;
         let vehicle_vel = rb_vel(vehicle_body);
         let vehicle_angvel = rb_angvel(vehicle_body);
-        world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
+        world.set_body_pose(
+            biped_entity,
+            seat_pos,
+            seat_rot,
+            vehicle_vel,
+            vehicle_angvel,
+        );
     }
 }
 
@@ -325,8 +329,7 @@ fn vehicle_exit_interact(
             );
         }
         GameState::SinglePlayer => {
-            let Ok((mut seat, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat)
-            else {
+            let Ok((mut seat, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
                 return;
             };
             let Some(biped_entity) =

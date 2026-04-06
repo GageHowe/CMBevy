@@ -1,15 +1,19 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
+use game_objects::components::planet::PlanetComponent;
 use game_objects::health::{Health, handle_deaths};
-use game_objects::level::{LevelBytes, SpawnPoint, parented_world_pose, read_and_compress_level};
+use game_objects::level::{
+    LevelBytes, PendingMapScene, SpawnPoint, load_level_source, parented_world_pose,
+};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::vehicle::*;
 use game_objects::pawn::{
     HeldWeaponMap, ModeConfig, PawnInputKind, PendingRespawns, PlayerRegistry, SeatedInVehicle,
 };
-use game_objects::components::planet::PlanetComponent;
 use game_objects::*;
-use net::message::{GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
+use net::message::{
+    GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand,
+};
 use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget};
 use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
@@ -323,13 +327,23 @@ fn send_connection_files(
         quic.send(
             SendTarget::One(conn_id),
             Channel::Ordered,
-            &MsgType::FileData("map.scn.ron".into(), lb.0.clone()),
+            &MsgType::MapHash(lb.hash.clone()),
         );
     }
     if let Some(cfg) = script_config {
         if let Ok(src) = std::fs::read(&cfg.path) {
             quic.send_file(SendTarget::One(conn_id), "gametype.lua".into(), src);
         }
+    }
+}
+
+fn send_map_file(conn_id: ConnectionId, level_bytes: Option<&LevelBytes>, quic: &mut QuicManager) {
+    if let Some(lb) = level_bytes {
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::FileData("map.scn.ron".into(), lb.compressed.clone()),
+        );
     }
 }
 
@@ -473,8 +487,7 @@ fn try_vehicle_interact(
     let Ok(vehicle) = vehicles.get(target_entity) else {
         return false;
     };
-    let Ok((mut cockpit, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat)
-    else {
+    let Ok((mut cockpit, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
         return false;
     };
 
@@ -502,7 +515,13 @@ fn try_vehicle_interact(
     }
 
     if cockpit.occupant.is_some()
-        || !vehicle_in_range(world, player_entity, target_entity, &cockpit, seat_transform)
+        || !vehicle_in_range(
+            world,
+            player_entity,
+            target_entity,
+            &cockpit,
+            seat_transform,
+        )
     {
         return true;
     }
@@ -575,7 +594,8 @@ fn try_weapon_interact(
     };
     if slots.is_full() {
         let drop_pos = player_pos.unwrap_or(Vec3::ZERO);
-        let Some((drop_id, drop_entity)) = game_objects::weapon::helpers::drop_active_slot(&mut slots)
+        let Some((drop_id, drop_entity)) =
+            game_objects::weapon::helpers::drop_active_slot(&mut slots)
         else {
             return;
         };
@@ -761,6 +781,7 @@ fn process_server_message(
 ) {
     match msg {
         MsgType::Connected => send_connection_files(conn_id, level_bytes, script_config, quic),
+        MsgType::RequestMap => send_map_file(conn_id, level_bytes, quic),
         MsgType::ClientReady => {
             pending_connections.0.insert(conn_id);
         }
@@ -827,7 +848,11 @@ fn process_server_message(
         }
         MsgType::Ping(text) => {
             common::debug_println!("Got a ping from conn_id {:?} with text {}", conn_id, text);
-            quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Pong(text));
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::Pong(text),
+            );
         }
         MsgType::ChatMessage(sender, text) => {
             common::debug_println!("GameServer: Got ChatMessage: [{sender}] {text}");
@@ -845,21 +870,16 @@ fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
     quic.start_server(addr.0);
 }
 
-fn load_server_level(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    level_path: Res<LevelPath>,
-) {
+fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
     let asset_path = &level_path.0;
     let asset_dir = if cfg!(debug_assertions) {
         concat!(env!("CARGO_MANIFEST_DIR"), "/../assets")
     } else {
         "assets"
     };
-    let fs_path = format!("{asset_dir}/{asset_path}");
-    commands.insert_resource(LevelBytes(read_and_compress_level(&fs_path)));
-    let handle: Handle<DynamicScene> = asset_server.load(asset_path.clone());
-    commands.spawn(bevy::scene::DynamicSceneRoot(handle));
+    let level = load_level_source(asset_path, asset_dir);
+    commands.insert_resource(PendingMapScene(level.compressed.clone()));
+    commands.insert_resource(level);
 }
 
 fn assign_planet_network_ids(

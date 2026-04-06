@@ -4,18 +4,18 @@ use std::collections::{HashMap, HashSet};
 
 use common::tick::{NetworkStats, Ticker};
 use common::{NetworkID, PredictedCommand, PredictedCommands};
+use game_objects::NetworkEntityMap;
 use game_objects::components::atmosphere::{
     AtmosphericDragComponent, apply_wind_resistance_impulses,
 };
-use game_objects::NetworkEntityMap;
-use game_objects::pawn::SeatedInVehicle;
-use game_objects::pawn::Pawn;
-use game_objects::pawn::biped::BipedPawnComponent;
-use game_objects::pawn::spaceship::SpaceshipPawnComponent;
-use game_objects::pawn::{GatherInputSet, Possessed};
 use game_objects::components::planet::{
     PlanetComponent, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
 };
+use game_objects::pawn::Pawn;
+use game_objects::pawn::SeatedInVehicle;
+use game_objects::pawn::biped::BipedPawnComponent;
+use game_objects::pawn::spaceship::SpaceshipPawnComponent;
+use game_objects::pawn::{GatherInputSet, Possessed};
 use net::message::SimulationState;
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
@@ -173,10 +173,7 @@ pub fn maybe_reconcile(
     _net_stats: Res<NetworkStats>,
     networked: Res<NetworkEntityMap>,
     possessed: Query<&NetworkID, With<Possessed>>,
-    bipeds: Query<
-        &RigidBodyHandleComponent,
-        (With<BipedPawnComponent>, Without<SeatedInVehicle>),
-    >,
+    bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
     seated: Query<&SeatedInVehicle>,
     planets: Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
     atmospheres: Query<(
@@ -198,14 +195,14 @@ pub fn maybe_reconcile(
     let Ok(our_net_id) = possessed.single() else {
         return;
     };
-    let Some(our_handle) = networked.get_body(our_net_id)
-    else {
+    let Some(our_handle) = networked.get_body(our_net_id) else {
         return;
     };
 
     let pairs = networked.body_pairs_vec();
 
-    let current_state = snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
+    let current_state =
+        snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
     let current_biped_state = biped_q.single().ok().map(|biped| BipedReplayState {
         jump_cooldown: biped.jump_cooldown,
         is_sliding: biped.is_sliding,
@@ -258,7 +255,8 @@ pub fn maybe_reconcile(
         }
     }
 
-    let resim_state = snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
+    let resim_state =
+        snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
     restore_snapshot(&mut world, &current_state, &pairs);
     if let (Some(saved), Ok(mut biped)) = (current_biped_state, biped_q.single_mut()) {
         biped.jump_cooldown = saved.jump_cooldown;

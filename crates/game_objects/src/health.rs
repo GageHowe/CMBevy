@@ -1,9 +1,9 @@
+use crate::dispatch_game_object_on_death;
+use crate::pawn::biped::WeaponSlots;
+use crate::pawn::{HeldWeaponMap, ModeConfig, PendingRespawns, PlayerRegistry};
 use bevy::prelude::*;
 use common::game_state::GameState;
 use common::{NetworkID, debug_println};
-use crate::dispatch_game_object_on_death;
-use crate::pawn::{HeldWeaponMap, ModeConfig, PendingRespawns, PlayerRegistry};
-use crate::pawn::biped::WeaponSlots;
 use net::message::MsgType;
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_pos, step_physics};
@@ -13,7 +13,10 @@ pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, apply_collision_damage.after(step_physics));
-        app.add_systems(FixedUpdate, handle_deaths.after(step_physics).run_if(death_authority));
+        app.add_systems(
+            FixedUpdate,
+            handle_deaths.after(step_physics).run_if(death_authority),
+        );
     }
 }
 
@@ -133,10 +136,12 @@ pub fn apply_collision_damage(
 
 pub fn handle_deaths(world: &mut World) {
     let dead: Vec<(Entity, Option<common::GameObjectKind>, Option<NetworkID>)> = {
-        let mut q = world.query_filtered::<
-            (Entity, &Health, Option<&common::GameObjectKind>, Option<&NetworkID>),
-            Changed<Health>,
-        >();
+        let mut q = world.query_filtered::<(
+            Entity,
+            &Health,
+            Option<&common::GameObjectKind>,
+            Option<&NetworkID>,
+        ), Changed<Health>>();
         q.iter(world)
             .filter(|(_, health, _, _)| health.current <= 0.0)
             .map(|(entity, _, kind, net_id)| (entity, kind.cloned(), net_id.cloned()))
@@ -182,11 +187,7 @@ pub fn handle_deaths(world: &mut World) {
     }
 }
 
-fn run_death_callback(
-    kind: common::GameObjectKind,
-    entity: Entity,
-    world: &mut World,
-) -> bool {
+fn run_death_callback(kind: common::GameObjectKind, entity: Entity, world: &mut World) -> bool {
     dispatch_game_object_on_death(kind, entity, world)
 }
 
@@ -258,7 +259,12 @@ fn collect_vehicle_eject(entity: Entity, world: &mut World) -> Option<(Entity, N
         .get::<crate::pawn::vehicle::VehicleComponent>(entity)
         .and_then(|vehicle| world.get::<crate::pawn::vehicle::DriverSeat>(vehicle.driver_seat))
         .and_then(|cockpit| cockpit.occupant)
-        .and_then(|biped_entity| world.get::<NetworkID>(biped_entity).cloned().map(|nid| (biped_entity, nid)))
+        .and_then(|biped_entity| {
+            world
+                .get::<NetworkID>(biped_entity)
+                .cloned()
+                .map(|nid| (biped_entity, nid))
+        })
 }
 
 fn handle_spaceship_death(biped_entity: Entity, biped_net_id: NetworkID, world: &mut World) {

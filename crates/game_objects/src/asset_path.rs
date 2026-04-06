@@ -51,7 +51,10 @@ fn fetch_asset(hash: &str, fallback_path: &Path) {
     std::io::Read::read_to_end(&mut reader, &mut bytes)
         .unwrap_or_else(|err| panic!("failed to read asset {hash}: {err}"));
     std::fs::write(&cache_path, bytes).unwrap_or_else(|err| {
-        panic!("failed to write cached asset {}: {err}", cache_path.display())
+        panic!(
+            "failed to write cached asset {}: {err}",
+            cache_path.display()
+        )
     });
     if cache_path != fallback_path {
         let _ = std::fs::remove_file(fallback_path);

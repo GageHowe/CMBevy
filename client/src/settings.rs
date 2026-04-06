@@ -258,7 +258,8 @@ fn sync_dynamic_graphics_settings(
     if !added_directional_lights.is_empty() {
         directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
         for mut directional_light in &mut added_directional_lights {
-            directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+            directional_light.shadows_enabled =
+                !matches!(settings.shadow_quality, ShadowQuality::Off);
         }
     }
 }
@@ -340,7 +341,11 @@ fn apply_camera_graphics(
     apply_render_scale(camera, settings, window_size);
 }
 
-fn apply_render_scale(camera: &mut EntityCommands, settings: &Settings, window_size: Option<UVec2>) {
+fn apply_render_scale(
+    camera: &mut EntityCommands,
+    settings: &Settings,
+    window_size: Option<UVec2>,
+) {
     let render_scale = settings.render_scale.clamp(0.25, 1.0);
     if render_scale >= 0.99 {
         camera.remove::<bevy::camera::MainPassResolutionOverride>();

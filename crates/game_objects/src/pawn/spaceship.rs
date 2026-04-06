@@ -111,9 +111,8 @@ impl GameObject for SpaceshipPawnComponent {
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
-        let Some((driver_seat_entity, seat_transform)) = world
-            .get::<VehicleComponent>(entity)
-            .and_then(|vehicle| {
+        let Some((driver_seat_entity, seat_transform)) =
+            world.get::<VehicleComponent>(entity).and_then(|vehicle| {
                 world
                     .get::<Transform>(vehicle.driver_seat)
                     .cloned()

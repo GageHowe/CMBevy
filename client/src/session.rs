@@ -1,28 +1,31 @@
+use bevy::app::AppExit;
 use bevy::core_pipeline::Skybox;
 use bevy::prelude::*;
-use bevy::app::AppExit;
+use common::GameObjectKind;
 use common::debug_println;
 use common::tick::{NetworkStats, Ticker};
-use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
-use common::GameObjectKind;
 use game_objects::health::Health;
 use game_objects::interaction::Interactable;
-use game_objects::level::{LevelSceneRoot, MapMeta, PendingMapScene};
+use game_objects::level::{
+    MapMeta, PendingMapScene, compressed_level_hash, load_level_source, read_cached_map,
+    write_cached_map,
+};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
 use game_objects::weapon::helpers as weapon_helpers;
 use game_objects::{NetworkEntityMap, SpawnGameObjectCommand};
+use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
 use net::message::{MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
 use net::quic::QuicManager;
 use physics::physics_world::PhysicsWorld;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 
+use crate::GameState;
 use crate::reconciliation::PendingReconciliation;
 use crate::settings::Settings;
 use crate::ui::ui::GuiState;
-use crate::GameState;
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub std::net::SocketAddr);
@@ -75,7 +78,10 @@ impl Plugin for ClientSessionPlugin {
                 OnExit(GameState::Multiplayer),
                 (cleanup_world, disconnect, remove_script).chain(),
             )
-            .add_systems(Update, send_world_ready.run_if(in_state(GameState::Multiplayer)))
+            .add_systems(
+                Update,
+                send_world_ready.run_if(in_state(GameState::Multiplayer)),
+            )
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
             .add_systems(
                 Update,
@@ -126,15 +132,16 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
 }
 
-fn load_sp_level(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    sp: Res<SinglePlayerConfig>,
-) {
+fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
     let map = if sp.map.is_empty() {
         "maps/default.scn.ron".to_string()
     } else {
         sp.map.clone()
+    };
+    let asset_dir = if cfg!(debug_assertions) {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../assets")
+    } else {
+        "assets"
     };
     if !sp.gametype.is_empty() {
         commands.insert_resource(scripting::ScriptConfig {
@@ -143,9 +150,8 @@ fn load_sp_level(
             source: None,
         });
     }
-    commands.spawn((
-        bevy::scene::DynamicSceneRoot(asset_server.load(map)),
-        LevelSceneRoot,
+    commands.insert_resource(PendingMapScene(
+        load_level_source(&map, asset_dir).compressed,
     ));
 }
 
@@ -172,7 +178,8 @@ fn load_skybox(
     let (Some(path), Ok(cam)) = (&meta.skybox, camera.single()) else {
         return;
     };
-    let image: Handle<Image> = asset_server.load(game_objects::asset_path::resolve_asset_path(path));
+    let image: Handle<Image> =
+        asset_server.load(game_objects::asset_path::resolve_asset_path(path));
     commands.entity(cam).insert((
         Skybox {
             image: image.clone(),
@@ -237,6 +244,14 @@ fn send_world_ready(
         &MsgType::ClientReady,
     );
     pending.0 = false;
+}
+
+fn request_map(quic: &mut QuicManager) {
+    quic.send(
+        net::quic::SendTarget::One(net::quic::SERVER_CONN_ID),
+        net::quic::Channel::Ordered,
+        &MsgType::RequestMap,
+    );
 }
 
 fn disconnect(
@@ -398,8 +413,8 @@ fn beacon_register(
     id_slot: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 ) {
     std::thread::spawn(move || {
-        if let Ok(resp) = ureq::post(&format!("{}/lobbies/register", common::config::BEACON_URL))
-            .send_json(&req)
+        if let Ok(resp) =
+            ureq::post(&format!("{}/lobbies/register", common::config::BEACON_URL)).send_json(&req)
         {
             if let Ok(r) = resp.into_json::<RegisterResponse>() {
                 *id_slot.lock().unwrap() = Some(r.id);
@@ -448,14 +463,7 @@ fn spawn_gameserver(port: u16, map: &str, gametype: &str) -> std::io::Result<std
     let port = port.to_string();
     let mut command = std::process::Command::new(gameserver_exe());
     command
-        .args([
-            "--port",
-            &port,
-            "--map",
-            map,
-            "--gametype",
-            gametype,
-        ])
+        .args(["--port", &port, "--map", map, "--gametype", gametype])
         .stdin(std::process::Stdio::piped());
     #[cfg(target_os = "linux")]
     unsafe {
@@ -509,6 +517,7 @@ pub(crate) fn on_message(
     while let Some(msg) = quic.inbound.pop_front() {
         process_client_message(
             msg.msg,
+            &mut quic,
             &mut gui,
             &mut mp,
             &mut ticker,
@@ -526,6 +535,7 @@ pub(crate) fn on_message(
 
 fn process_client_message(
     msg: MsgType,
+    quic: &mut QuicManager,
     gui: &mut GuiState,
     mp: &mut ClientMessageParams<'_, '_>,
     ticker: &mut Ticker,
@@ -540,7 +550,10 @@ fn process_client_message(
 ) {
     match msg {
         MsgType::Connected => {}
-        MsgType::SpawnCommand(cmd) => handle_spawn_command(&mut mp.spawn.commands, just_spawned, cmd),
+        MsgType::MapHash(hash) => handle_map_hash(hash, quic, &mut mp.spawn.commands),
+        MsgType::SpawnCommand(cmd) => {
+            handle_spawn_command(&mut mp.spawn.commands, just_spawned, cmd)
+        }
         MsgType::Possess(net_id) => handle_possess(
             net_id,
             local_net_id,
@@ -610,7 +623,9 @@ fn process_client_message(
                 pending.0 = Some(st);
             }
         }
-        MsgType::FileData(name, compressed) => handle_file_data(name, compressed, &mut mp.spawn.commands),
+        MsgType::FileData(name, compressed) => {
+            handle_file_data(name, compressed, &mut mp.spawn.commands)
+        }
         MsgType::FlashlightState(net_id, on) => handle_flashlight_state(
             &net_id,
             on,
@@ -683,7 +698,9 @@ fn handle_seat_state(
     match vehicle_net_id.and_then(|id| find_networked_entity(networked, id)) {
         Some(vehicle_entity) => {
             world.set_body_enabled(biped_entity, false);
-            commands.entity(biped_entity).insert(SeatedInVehicle(vehicle_entity));
+            commands
+                .entity(biped_entity)
+                .insert(SeatedInVehicle(vehicle_entity));
         }
         None => {
             world.set_body_enabled(biped_entity, true);
@@ -697,12 +714,10 @@ fn handle_despawn(
     local_net_id: &mut Option<NetworkID>,
     networked: &NetworkEntityMap,
     camera: &Query<Entity, With<Camera3d>>,
-    biped_q: &mut ParamSet<
-        (
-            Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
-            Query<&BipedPawnComponent>,
-        ),
-    >,
+    biped_q: &mut ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
     commands: &mut Commands,
 ) {
     let Some(entity) = find_networked_entity(networked, net_id) else {
@@ -741,12 +756,10 @@ fn handle_weapon_pickup(
     local_net_id: Option<&NetworkID>,
     networked: &NetworkEntityMap,
     camera: &Query<Entity, With<Camera3d>>,
-    biped_q: &mut ParamSet<
-        (
-            Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
-            Query<&BipedPawnComponent>,
-        ),
-    >,
+    biped_q: &mut ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -789,12 +802,10 @@ fn handle_weapon_drop(
     drop_pos: Vec3,
     local_net_id: Option<&NetworkID>,
     networked: &NetworkEntityMap,
-    biped_q: &mut ParamSet<
-        (
-            Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
-            Query<&BipedPawnComponent>,
-        ),
-    >,
+    biped_q: &mut ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -808,7 +819,9 @@ fn handle_weapon_drop(
         }
         weapon_helpers::detach_viewmodel(commands, world, weapon_entity);
     } else {
-        commands.entity(weapon_entity).insert((Interactable { range: 2.0 }, Visibility::Inherited));
+        commands
+            .entity(weapon_entity)
+            .insert((Interactable { range: 2.0 }, Visibility::Inherited));
     }
 }
 
@@ -850,6 +863,11 @@ fn handle_health_update(
 
 fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {
     if name == "map.scn.ron" {
+        let Some(hash) = compressed_level_hash(&compressed) else {
+            eprintln!("FileData: failed to hash map.scn.ron");
+            return;
+        };
+        write_cached_map(&hash, &compressed);
         commands.insert_resource(PendingMapScene(compressed));
         commands.insert_resource(PendingWorldReady(true));
         return;
@@ -872,6 +890,15 @@ fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) 
     }
 }
 
+fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
+    if let Some(compressed) = read_cached_map(&hash) {
+        commands.insert_resource(PendingMapScene(compressed));
+        commands.insert_resource(PendingWorldReady(true));
+        return;
+    }
+    request_map(quic);
+}
+
 fn handle_flashlight_state(
     net_id: &NetworkID,
     on: bool,
@@ -891,7 +918,11 @@ fn handle_flashlight_state(
     };
     for child in children.iter() {
         if let Ok(mut vis) = lights.get_mut(child) {
-            *vis = if on { Visibility::Inherited } else { Visibility::Hidden };
+            *vis = if on {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
         }
     }
 }

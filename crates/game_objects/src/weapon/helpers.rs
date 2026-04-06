@@ -177,26 +177,17 @@ pub fn assign_pickup_slot(
     }
 }
 
-pub fn drop_active_slot(
-    slots: &mut WeaponSlots,
-) -> Option<(NetworkID, Entity)> {
+pub fn drop_active_slot(slots: &mut WeaponSlots) -> Option<(NetworkID, Entity)> {
     let active = slots.active_mut();
     Some((active.0.take()?, active.1.take()?))
 }
 
-pub fn place_world_weapon(
-    world: &mut PhysicsWorld,
-    weapon_entity: Entity,
-    drop_pos: Vec3,
-) {
+pub fn place_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity, drop_pos: Vec3) {
     world.teleport_body(weapon_entity, drop_pos);
     world.set_body_enabled(weapon_entity, true);
 }
 
-pub fn pickup_world_weapon(
-    world: &mut PhysicsWorld,
-    weapon_entity: Entity,
-) {
+pub fn pickup_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity) {
     world.set_body_enabled(weapon_entity, false);
 }
 

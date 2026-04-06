@@ -6,6 +6,7 @@ use bevy::window::PresentMode;
 use camera::spawn_camera;
 use common::debug_println;
 pub use common::game_state::GameState;
+use game_objects::GameObjectsPlugin;
 use game_objects::pawn::vehicle::draw_driver_seat_debug;
 use game_objects::pawn::{self, *};
 use game_objects::projectile::hail_mary::HailMaryProjectile;
@@ -13,7 +14,6 @@ use game_objects::projectile::rifle::*;
 use game_objects::projectile::rpg::RpgProjectile;
 use game_objects::projectile::*;
 use game_objects::weapon::WeaponPlugin;
-use game_objects::GameObjectsPlugin;
 use reconciliation::*;
 use std::net::SocketAddr;
 use tick_sync::TickSyncPlugin;
@@ -31,10 +31,10 @@ use menu::MenuPlugin;
 use outline::OutlinePlugin;
 use session::{ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig};
 
+use game_objects::components::planet::draw_planet_radii;
 use game_objects::level::{
     LevelPlugin, MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene,
 };
-use game_objects::components::planet::draw_planet_radii;
 use master_plugin::MasterPlugin;
 use physics::physics_world::{step_physics, sync_physics_visual};
 use settings::{Settings, SettingsPlugin};

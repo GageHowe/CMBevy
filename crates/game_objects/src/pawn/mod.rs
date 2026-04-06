@@ -177,7 +177,12 @@ pub fn apply_server_input(
             };
             biped.look_yaw = input.look_yaw;
             biped.look_pitch = input.look_pitch;
-            biped::apply_biped_movement(world, &RigidBodyHandleComponent(handle), input, &mut biped);
+            biped::apply_biped_movement(
+                world,
+                &RigidBodyHandleComponent(handle),
+                input,
+                &mut biped,
+            );
             true
         }
         PawnInputKind::Spaceship(input) => {

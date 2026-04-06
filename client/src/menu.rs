@@ -1,9 +1,8 @@
-use crate::settings::{Settings, SettingsSection, show_settings_ui};
 use crate::session::{
     HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,
-    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session,
-    start_hosted_server,
+    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
 };
+use crate::settings::{Settings, SettingsSection, show_settings_ui};
 use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::prelude::*;
@@ -262,7 +261,6 @@ fn show_credits_screen(
         credits.offset = 0.0;
     }
 
-    ui.label("Esc or Back returns to the main menu.");
     ui.add_space(8.0);
     egui::ScrollArea::vertical()
         .id_salt("credits_scroll")
@@ -448,16 +446,18 @@ fn show_browser_screen(
         ui.label(empty_label);
     } else {
         let mut connect_to: Option<String> = None;
-        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-            for lobby in &browser.lobbies {
-                ui.horizontal(|ui| {
-                    draw_lobby(ui, lobby);
-                    if ui.button("Connect").clicked() {
-                        connect_to = Some(lobby.host.clone());
-                    }
-                });
-            }
-        });
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .show(ui, |ui| {
+                for lobby in &browser.lobbies {
+                    ui.horizontal(|ui| {
+                        draw_lobby(ui, lobby);
+                        if ui.button("Connect").clicked() {
+                            connect_to = Some(lobby.host.clone());
+                        }
+                    });
+                }
+            });
         if let Some(addr) = connect_to {
             connect_to_lobby(&addr, hosted, server_addr, next_state, browser, screen);
         }
@@ -587,27 +587,24 @@ fn show_host_screen(
 }
 
 fn credits_lines() -> &'static [&'static str] {
-    // Keep the content in one list so adding/removing names or image markers stays trivial.
     &[
+        "",
         "# Critical Mass",
-        "A game by the Critical Mass team",
         "",
-        "# Design",
-        "Replace with final design credits",
-        "",
-        "# Engineering",
-        "Replace with final programming credits",
-        "",
-        "# Art",
-        "Replace with final art credits",
+        "# Programming",
+        "Gage Howe",
         "",
         "# Audio",
-        "Replace with final audio credits",
+        "Griffin Guge",
+        "",
+        "# Art",
+        "your mother",
+        "Various placeholder assets from kenney.nl, poly.pizza",
         "",
         "# Special Thanks",
         "Friends, testers, and contributors",
         "",
-        "Thank you for playing.",
+        "Thanks for playing!",
     ]
 }
 

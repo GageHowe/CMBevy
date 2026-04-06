@@ -176,10 +176,7 @@ pub fn orient_bipeds_to_planets(
 
 pub fn orient_bipeds_to_planets_impulses(
     world: &mut PhysicsWorld,
-    bipeds: &Query<
-        &RigidBodyHandleComponent,
-        (With<BipedPawnComponent>, Without<SeatedInVehicle>),
-    >,
+    bipeds: &Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
     planets: &Query<(&PlanetComponent, &RigidBodyHandleComponent)>,
 ) {
     let dt = world.integration_parameters.dt;

@@ -8,6 +8,8 @@ use physics::physics_world::{
 };
 use rapier3d::prelude::*;
 use serde::de::DeserializeSeed;
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 
 // ── component / resource types ────────────────────────────────────────────────
 
@@ -106,8 +108,7 @@ pub struct SceneSpawnState<'w, 's> {
 
 impl SceneSpawnState<'_, '_> {
     pub fn ready(&self) -> bool {
-        self.pending_markers.is_empty()
-            && self.spawners.iter().all(SceneSpawner::is_ready)
+        self.pending_markers.is_empty() && self.spawners.iter().all(SceneSpawner::is_ready)
     }
 }
 
@@ -152,14 +153,25 @@ pub struct PendingHullColliders(pub Vec<(Entity, Vec3, Quat, Handle<ConvexHullAs
 
 /// Compressed raw .scn.ron bytes to send to new clients on connect.
 /// Server-only; set in the level-load startup system.
-#[derive(Resource)]
-pub struct LevelBytes(pub Vec<u8>);
+#[derive(Resource, Clone)]
+pub struct LevelBytes {
+    pub hash: String,
+    pub compressed: Vec<u8>,
+}
+
+pub fn load_level_source(path: &str, asset_dir: &str) -> LevelBytes {
+    if path.starts_with("sha256:") {
+        return load_remote_level(path);
+    }
+    let fs_path = format!("{asset_dir}/{path}");
+    read_and_compress_level(&fs_path)
+}
 
 /// Reads a .scn.ron file and returns it as compressed bytes for network transfer.
-pub fn read_and_compress_level(path: &str) -> Vec<u8> {
+pub fn read_and_compress_level(path: &str) -> LevelBytes {
     let raw =
         std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read level \"{path}\": {e}"));
-    zstd::stream::encode_all(raw.as_slice(), 3).expect("level: zstd compress failed")
+    compress_level_bytes(&raw)
 }
 
 /// Compressed .scn.ron bytes received from the server, pending scene spawn.
@@ -201,6 +213,78 @@ pub fn apply_pending_map_scene(world: &mut World) {
     drop(registry_guard);
     let handle = world.resource_mut::<Assets<DynamicScene>>().add(scene);
     world.spawn((DynamicSceneRoot(handle), LevelSceneRoot));
+}
+
+pub fn map_cache_dir() -> PathBuf {
+    if std::path::Path::new("map_cache").exists() || !cfg!(debug_assertions) {
+        PathBuf::from("map_cache")
+    } else {
+        PathBuf::from("../map_cache")
+    }
+}
+
+pub fn map_cache_path(hash: &str) -> PathBuf {
+    map_cache_dir().join(format!("{}.zst", sanitize_hash(hash)))
+}
+
+pub fn read_cached_map(hash: &str) -> Option<Vec<u8>> {
+    std::fs::read(map_cache_path(hash)).ok()
+}
+
+pub fn write_cached_map(hash: &str, compressed: &[u8]) {
+    std::fs::create_dir_all(map_cache_dir()).expect("map cache dir create failed");
+    std::fs::write(map_cache_path(hash), compressed).expect("map cache write failed");
+}
+
+pub fn compressed_level_hash(compressed: &[u8]) -> Option<String> {
+    let bytes = zstd::stream::decode_all(compressed).ok()?;
+    Some(format!("sha256:{}", hex_sha256(&bytes)))
+}
+
+fn load_remote_level(hash: &str) -> LevelBytes {
+    if let Some(compressed) = read_cached_map(hash) {
+        return LevelBytes {
+            hash: hash.to_string(),
+            compressed,
+        };
+    }
+    let url = format!("{}/assets/{}", common::config::BEACON_URL, hash);
+    let response = ureq::get(&url)
+        .call()
+        .unwrap_or_else(|err| panic!("failed to fetch level {hash}: {err}"));
+    let mut reader = response.into_reader();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut reader, &mut bytes)
+        .unwrap_or_else(|err| panic!("failed to read level {hash}: {err}"));
+    let level = compress_level_bytes(&bytes);
+    write_cached_map(&level.hash, &level.compressed);
+    level
+}
+
+fn compress_level_bytes(raw: &[u8]) -> LevelBytes {
+    LevelBytes {
+        hash: format!("sha256:{}", hex_sha256(raw)),
+        compressed: zstd::stream::encode_all(raw, 3).expect("level: zstd compress failed"),
+    }
+}
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
+}
+
+fn sanitize_hash(hash: &str) -> String {
+    hash.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | ':' => ch,
+            _ => '_',
+        })
+        .collect()
 }
 
 // ── plugin ────────────────────────────────────────────────────────────────────
@@ -300,8 +384,7 @@ fn tick_scene_spawners(
         }
 
         if spawner.respawn_timer_secs > 0.0 {
-            spawner.respawn_timer_secs =
-                (spawner.respawn_timer_secs - time.delta_secs()).max(0.0);
+            spawner.respawn_timer_secs = (spawner.respawn_timer_secs - time.delta_secs()).max(0.0);
             if spawner.respawn_timer_secs > 0.0 {
                 continue;
             }
@@ -386,8 +469,8 @@ pub fn spawn_static_colliders(
             }
             // Hash refs download into a persistent local cache, so Bevy still loads a normal file path.
             let path = crate::asset_path::resolve_asset_path(path);
-            let handle = asset_server
-                .load_with_settings(path, move |settings: &mut f32| *settings = s);
+            let handle =
+                asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
             pending.0.push((entity, pos, rot, handle));
             continue;
         }
