@@ -9,74 +9,70 @@
     </head>
     <body>
         <nav>
-            <div class="nav-links">
-                <a class="logo" href="/assets">Asset Registry</a>
-                <a class="nav-link" href="/beacon">Beacon</a>
+            <div class="row">
+                <a class="nav-link active" href="/assets">Assets</a>
+                <a class="nav-link" href="/beacon">Lobbies</a>
             </div>
-            <span class="nav-status">
-                <span class="dot" id="status-dot"></span>
+            <span class="status row">
+                <span class="status-dot" id="status-dot"></span>
                 <span id="status-text">Connecting...</span>
             </span>
         </nav>
 
         <main>
-            <section class="hero">
-                <p class="eyebrow">Critical Mass</p>
-                <h1>Upload assets and get stable hashes back.</h1>
-                <p>Each upload returns a `sha256:...` asset reference that the game can fetch from the beacon.</p>
+            <section class="stack">
+                <h1>Asset Uploads</h1>
+                <p>Upload a file to get a `sha256:...` hash. Map files can reference that hash later.</p>
             </section>
 
-            <section class="asset-layout">
-                <section class="panel upload-panel">
-                    <h2>Upload</h2>
-                    <p class="panel-copy">Choose a file, upload it, then copy the returned hash into your asset refs.</p>
-                    <input id="asset-file" type="file" />
-                    <button id="upload-button" type="button" onclick="uploadSelectedFile()">Upload Asset</button>
-                    <p id="upload-status" class="muted">No upload in progress.</p>
-                    <div id="upload-result" class="upload-result" hidden>
-                        <label for="asset-hash">Hash</label>
-                        <div class="hash-row">
-                            <input id="asset-hash" type="text" readonly />
-                            <button type="button" class="ghost" onclick="copyHash()">Copy</button>
-                        </div>
-                        <a id="asset-link" class="ghost-link" href="#" target="_blank" rel="noreferrer">Open uploaded asset</a>
-                    </div>
-                </section>
+            <section class="stack">
+                <h2>Upload</h2>
+                <div class="row">
+                    <input id="asset-file" class="hidden" type="file" onchange="updateSelectedFile()" />
+                    <button type="button" class="ghost" onclick="document.getElementById('asset-file').click()">Choose file</button>
+                    <span id="selected-file" class="status">No file selected.</span>
+                </div>
+                <div class="row">
+                    <button id="upload-button" type="button" onclick="uploadSelectedFile()">Upload</button>
+                </div>
+                <p id="upload-status" class="muted">No upload in progress.</p>
+                <div id="upload-result" class="stack" hidden>
+                    <label for="asset-hash">Hash</label>
+                    <input id="asset-hash" class="grow" type="text" readonly />
+                </div>
+            </section>
 
-                <section class="panel asset-browser">
-                    <div class="panel-head">
-                        <div>
-                            <h2>Uploaded Assets</h2>
-                            <p class="panel-copy">Filter by filename or hash.</p>
-                        </div>
-                        <button
-                            type="button"
-                            class="ghost"
-                            hx-get="/assets/list"
-                            hx-include="#asset-filter"
-                            hx-target="#asset-list"
-                            hx-indicator="#asset-spinner"
-                        >
-                            Refresh
-                        </button>
-                    </div>
-                    <div class="controls">
-                        <input
-                            id="asset-filter"
-                            name="q"
-                            type="text"
-                            placeholder="Filter assets..."
-                            hx-get="/assets/list"
-                            hx-trigger="load, input changed delay:200ms"
-                            hx-target="#asset-list"
-                            hx-indicator="#asset-spinner"
-                        />
-                        <span id="asset-spinner" class="htmx-indicator">↻</span>
-                    </div>
-                    <section id="asset-list">
-                        <div class="empty">Loading assets...</div>
-                    </section>
-                </section>
+            <section class="stack">
+                <div class="footer">
+                    <h2>Uploaded Files</h2>
+                    <button
+                        type="button"
+                        class="ghost"
+                        hx-get="/assets/list"
+                        hx-include="#asset-filter"
+                        hx-target="#asset-list"
+                        hx-indicator="#asset-spinner"
+                    >
+                        Refresh
+                    </button>
+                </div>
+                <div class="row">
+                    <input
+                        class="grow"
+                        id="asset-filter"
+                        name="q"
+                        type="text"
+                        placeholder="Filter by name or hash..."
+                        hx-get="/assets/list"
+                        hx-trigger="load, input changed delay:200ms"
+                        hx-target="#asset-list"
+                        hx-indicator="#asset-spinner"
+                    />
+                    <span id="asset-spinner" class="htmx-indicator">↻</span>
+                </div>
+                <div id="asset-list">
+                    <div class="empty">Loading assets...</div>
+                </div>
             </section>
         </main>
 
@@ -87,14 +83,14 @@
                     const dot = document.getElementById("status-dot");
                     const txt = document.getElementById("status-text");
                     if (res.ok) {
-                        dot.className = "dot online";
+                        dot.className = "status-dot online";
                         txt.textContent = "Online";
                     } else {
-                        dot.className = "dot offline";
+                        dot.className = "status-dot offline";
                         txt.textContent = "Offline";
                     }
                 } catch {
-                    document.getElementById("status-dot").className = "dot offline";
+                    document.getElementById("status-dot").className = "status-dot offline";
                     document.getElementById("status-text").textContent = "Offline";
                 }
             }
@@ -125,10 +121,9 @@
                     }
                     const payload = await response.json();
                     document.getElementById("asset-hash").value = payload.hash;
-                    document.getElementById("asset-link").href = `/assets/${payload.hash}`;
                     status.textContent = `${payload.file_name} uploaded successfully.`;
                     result.hidden = false;
-                    htmx.ajax("GET", "/assets/list?q=" + encodeURIComponent(document.getElementById("asset-filter").value), "#asset-list");
+                    reloadAssets();
                 } catch (error) {
                     status.textContent = error.message;
                 } finally {
@@ -136,12 +131,31 @@
                 }
             }
 
-            async function copyHash() {
-                const hash = document.getElementById("asset-hash").value;
-                if (!hash) {
-                    return;
-                }
+            function updateSelectedFile() {
+                const file = document.getElementById("asset-file").files[0];
+                document.getElementById("selected-file").textContent = file
+                    ? file.name
+                    : "No file selected.";
+            }
+
+            async function voteAsset(hash, vote) {
+                await fetch(`/assets/${hash}/vote/${vote}`, { method: "POST" });
+                reloadAssets();
+            }
+
+            async function copyAssetHash(hash) {
                 await navigator.clipboard.writeText(hash);
+            }
+
+            function reloadAssets() {
+                htmx.ajax(
+                    "GET",
+                    "/assets/list?q=" +
+                        encodeURIComponent(
+                            document.getElementById("asset-filter").value,
+                        ),
+                    "#asset-list",
+                );
             }
 
             checkStatus();

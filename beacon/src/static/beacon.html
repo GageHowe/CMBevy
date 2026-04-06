@@ -9,48 +9,51 @@
     </head>
     <body>
         <nav>
-            <div class="nav-links">
-                <a class="logo" href="/beacon">Custom Lobbies</a>
+            <a href="/assets">Beacon</a>
+            <div class="row">
                 <a class="nav-link" href="/assets">Assets</a>
+                <a class="nav-link active" href="/beacon">Lobbies</a>
             </div>
-            <span class="nav-status">
-                <span class="dot" id="status-dot"></span>
+            <span class="status row">
+                <span class="status-dot" id="status-dot"></span>
                 <span id="status-text">Connecting...</span>
             </span>
         </nav>
 
         <main>
-            <section class="hero">
-                <p class="eyebrow">Critical Mass</p>
-                <h1>Find a Game</h1>
-                <p>Browse open lobbies and jump straight in.</p>
+            <section class="stack">
+                <h1>Lobbies</h1>
+                <p>Browse registered lobbies.</p>
             </section>
 
-            <section class="controls">
-                <input
-                    type="text"
-                    placeholder="Search lobbies..."
-                    id="search"
-                    oninput="filterLobbies(this.value)"
-                />
-                <button
+            <section class="stack">
+                <div class="row">
+                    <input
+                        class="grow"
+                        type="text"
+                        placeholder="Search lobbies..."
+                        id="search"
+                        oninput="filterLobbies(this.value)"
+                    />
+                    <button
+                        hx-get="/lobbies/partial"
+                        hx-target="#lobby-grid"
+                        hx-trigger="click"
+                        hx-indicator="#spinner"
+                    >
+                        Refresh
+                    </button>
+                    <span id="spinner" class="htmx-indicator">↻</span>
+                </div>
+
+                <div
+                    id="lobby-grid"
                     hx-get="/lobbies/partial"
-                    hx-target="#lobby-grid"
-                    hx-trigger="click"
-                    hx-indicator="#spinner"
+                    hx-trigger="load, every 5s"
+                    hx-swap="innerHTML"
                 >
-                    Refresh
-                </button>
-                <span id="spinner" class="htmx-indicator">↻</span>
-            </section>
-
-            <section
-                id="lobby-grid"
-                hx-get="/lobbies/partial"
-                hx-trigger="load, every 5s"
-                hx-swap="innerHTML"
-            >
-                <div class="empty">Loading lobbies...</div>
+                    <div class="empty">Loading lobbies...</div>
+                </div>
             </section>
         </main>
 
@@ -61,14 +64,14 @@
                     const dot = document.getElementById("status-dot");
                     const txt = document.getElementById("status-text");
                     if (res.ok) {
-                        dot.className = "dot online";
+                        dot.className = "status-dot online";
                         txt.textContent = "Online";
                     } else {
-                        dot.className = "dot offline";
+                        dot.className = "status-dot offline";
                         txt.textContent = "Offline";
                     }
                 } catch {
-                    document.getElementById("status-dot").className = "dot offline";
+                    document.getElementById("status-dot").className = "status-dot offline";
                     document.getElementById("status-text").textContent = "Offline";
                 }
             }
