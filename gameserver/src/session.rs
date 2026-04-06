@@ -3,8 +3,9 @@ use common::tick::Ticker;
 use game_objects::components::planet::GravitySource;
 use game_objects::health::{Health, handle_deaths};
 use game_objects::level::{
-    LevelBytes, PendingMapScene, SpawnPoint, load_level_source, parented_world_pose,
+    LevelBytes, PendingMapScene, SpawnPoint, default_asset_dir, load_level_source,
 };
+use game_objects::lifecycle::{pick_spawn_point, spawn_game_object};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::vehicle::*;
 use game_objects::pawn::{
@@ -146,20 +147,15 @@ fn spawn_player(
     commands: &mut Commands,
     tick: u64,
 ) {
-    let net_id = NetworkID(net_ids.next());
-    let spawn_cmd = SpawnCommand {
-        net_id: net_id.clone(),
-        position: spawn_pos.into(),
-        starting_velocity: Vec3::ZERO.into(),
-        rotation: spawn_rot.into(),
-        server_tick: tick,
+    let (entity, net_id, spawn_cmd) = spawn_game_object(
         kind,
-    };
-    let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand {
-        entity,
-        cmd: spawn_cmd.clone(),
-    });
+        spawn_pos,
+        spawn_rot,
+        Vec3::ZERO,
+        tick,
+        commands,
+        net_ids,
+    );
 
     for &other_conn_id in registry.by_conn.keys() {
         quic.send(
@@ -872,12 +868,7 @@ fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
 
 fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
     let asset_path = &level_path.0;
-    let asset_dir = if cfg!(debug_assertions) {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../assets")
-    } else {
-        "assets"
-    };
-    match load_level_source(asset_path, asset_dir) {
+    match load_level_source(asset_path, default_asset_dir()) {
         Ok(level) => {
             commands.insert_resource(PendingMapScene(level.compressed.clone()));
             commands.insert_resource(level);
@@ -910,39 +901,6 @@ fn init_mode_config(world: &mut World) {
         .map(|d| d as f32)
         .unwrap_or(common::config::RESPAWN_DELAY_SECS);
     world.insert_resource(ModeConfig { respawn_delay });
-}
-
-pub(crate) fn pick_spawn_point(
-    spawn_points: &Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
-    parent_transforms: &Query<&Transform>,
-    parent_parents: &Query<&ChildOf>,
-    parent_bodies: &Query<&RigidBodyHandleComponent>,
-    physics: &PhysicsWorld,
-    team: u8,
-    counter: usize,
-) -> Option<(Vec3, Quat)> {
-    let count = spawn_points
-        .iter()
-        .filter(|(_, sp, _, _)| sp.team == team)
-        .count();
-    if count == 0 {
-        return None;
-    }
-    let Some((_, _, t, child_of)) = spawn_points
-        .iter()
-        .filter(|(_, sp, _, _)| sp.team == team)
-        .nth(counter % count)
-    else {
-        return None;
-    };
-    Some(parented_world_pose(
-        t,
-        child_of,
-        parent_transforms,
-        parent_parents,
-        parent_bodies,
-        physics,
-    ))
 }
 
 fn tick_respawns(

@@ -167,6 +167,14 @@ pub fn load_level_source(path: &str, asset_dir: &str) -> Result<LevelBytes, Stri
     read_and_compress_level(&fs_path)
 }
 
+pub fn default_asset_dir() -> &'static str {
+    if cfg!(debug_assertions) {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets")
+    } else {
+        "assets"
+    }
+}
+
 /// Reads a .scn.ron file and returns it as compressed bytes for network transfer.
 pub fn read_and_compress_level(path: &str) -> Result<LevelBytes, String> {
     let raw = std::fs::read(path).map_err(|e| format!("Failed to read level \"{path}\": {e}"))?;

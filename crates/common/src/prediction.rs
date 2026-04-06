@@ -7,7 +7,11 @@ use std::collections::HashMap;
 #[derive(Clone)]
 pub enum PredictedCommand {
     Input(PawnInputKind),
-    Impulse { target: NetworkID, impulse: Vec3 },
+    Impulse {
+        target: NetworkID,
+        impulse: Vec3,
+        point: Option<Vec3>,
+    },
 }
 
 #[derive(Resource, Default)]
@@ -27,7 +31,19 @@ impl PredictedCommands {
         self.record(PredictedCommand::Input(input))
     }
     pub fn record_impulse(&mut self, target: NetworkID, impulse: Vec3) -> u64 {
-        self.record(PredictedCommand::Impulse { target, impulse })
+        self.record_impulse_at(target, impulse, None)
+    }
+    pub fn record_impulse_at(
+        &mut self,
+        target: NetworkID,
+        impulse: Vec3,
+        point: Option<Vec3>,
+    ) -> u64 {
+        self.record(PredictedCommand::Impulse {
+            target,
+            impulse,
+            point,
+        })
     }
     pub fn get(&self, seq: u64) -> Option<&PredictedCommand> {
         self.history.get(&seq)

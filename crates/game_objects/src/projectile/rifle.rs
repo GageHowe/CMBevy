@@ -65,14 +65,16 @@ impl Projectile for RifleProjectile {
         let prev = curr - vel * dt;
         // exclude both self and shooter so the ray isn't blocked by the shooter's capsule on spawn
         let exclude = [entity, self.shooter.unwrap_or(entity)];
-        let Some((hit, _)) = world.cast_ray(prev, vel.normalize(), step, &exclude) else {
+        let dir = vel.normalize();
+        let Some((hit, toi)) = world.cast_ray(prev, dir, step, &exclude) else {
             return;
         };
+        let hit_point = prev + dir * toi;
         commands.entity(entity).despawn();
         if let Some(&rb_handle) = world.entity_to_handle.get(&hit) {
             if let Some(rb) = world.rigid_body_set.get(rb_handle) {
-                let impulse = vel.normalize() * HIT_SPEED * rb.mass();
-                world.apply_game_impulse(hit, impulse, None, None);
+                let impulse = dir * HIT_SPEED * rb.mass();
+                world.apply_game_impulse_at(hit, impulse, Some(hit_point), None, None);
             }
         }
         if let Ok(mut health) = health_q.get_mut(hit) {

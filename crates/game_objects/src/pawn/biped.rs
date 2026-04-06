@@ -39,7 +39,7 @@ const GROUND_DIST: f32 = 0.01; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 20; // ticks before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
 const MAIN_FRICTION: f32 = 1.5;
-const SLIDE_FRICTION: f32 = 0.75;
+const SLIDE_FRICTION: f32 = 0.1;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -52,6 +52,10 @@ pub struct BipedPawnComponent {
     /// Ccached pivot entities set by setup_camera_rig; None on the server.
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
+    #[reflect(ignore)]
+    pub flashlight: Option<Entity>,
+    #[reflect(ignore)]
+    pub collider: Option<ColliderHandle>,
     pub is_sliding: bool,
     pub snap_target: Option<Entity>,
     /// Client-only cached body rotation used to preserve world look across body rotation.
@@ -87,7 +91,7 @@ impl GameObject for BipedPawnComponent {
         ));
 
         // physics
-        let rb_handle = {
+        let (rb_handle, collider_handle) = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let capsule_rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
@@ -101,31 +105,23 @@ impl GameObject for BipedPawnComponent {
                 .ccd_enabled(true)
                 .build();
             let rb_handle = physics.insert_body(entity, capsule_rb);
-            let player_collision =
-                InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
-            let player_solver = InteractionGroups::new(
-                GROUP_PLAYER,
-                Group::ALL & !GROUP_PROJECTILE,
-                InteractionTestMode::And,
-            );
-            let capsule_collider = ColliderBuilder::capsule_y(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
-                .friction(MAIN_FRICTION)
-                .restitution(MAIN_RESTITUTION)
-                .restitution_combine_rule(CoefficientCombineRule::Min)
-                .collision_groups(player_collision)
-                .solver_groups(player_solver)
-                .build();
+            let capsule_collider = make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION);
             let PhysicsWorld {
                 collider_set,
                 rigid_body_set,
                 ..
             } = &mut *physics;
-            collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
-            rb_handle
+            let collider_handle =
+                collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
+            (rb_handle, collider_handle)
         };
-        world
-            .entity_mut(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
+        {
+            let mut entity = world.entity_mut(entity);
+            entity.insert(RigidBodyHandleComponent(rb_handle));
+            if let Some(mut biped) = entity.get_mut::<BipedPawnComponent>() {
+                biped.collider = Some(collider_handle);
+            }
+        }
         #[cfg(feature = "client")]
         {
             // placeholder — matches physics capsule dimensions exactly; swap for a real model later
@@ -148,7 +144,7 @@ impl GameObject for BipedPawnComponent {
                 .spawn((
                     SpotLight {
                         intensity: 20000.0,
-                        range: 500.0,
+                        range: 5.0,
                         outer_angle: 0.4,
                         inner_angle: 0.3,
                         shadows_enabled: true,
@@ -179,6 +175,7 @@ impl GameObject for BipedPawnComponent {
             if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
                 biped.yaw_pivot = Some(yaw_pivot);
                 biped.pitch_pivot = Some(pitch_pivot);
+                biped.flashlight = Some(light);
             }
         }
     }
@@ -653,13 +650,7 @@ fn ground_state(
     }
 }
 
-/// Replaces the capsule collider on a biped rigid body.
-fn replace_capsule_collider(
-    world: &mut PhysicsWorld,
-    rb_handle: RigidBodyHandle,
-    half_height: f32,
-    friction: f32,
-) {
+fn make_biped_capsule_collider(half_height: f32, friction: f32) -> Collider {
     let player_collision =
         InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
     let player_solver = InteractionGroups::new(
@@ -667,12 +658,28 @@ fn replace_capsule_collider(
         Group::ALL & !GROUP_PROJECTILE,
         InteractionTestMode::And,
     );
-    // remove old collider
-    if let Some(&old_ch) = world
-        .rigid_body_set
-        .get(rb_handle)
-        .and_then(|rb| rb.colliders().first())
-    {
+    // offset the collider so its bottom stays at foot level (body center is always CAPSULE_BOTTOM above ground)
+    let y_offset = (half_height + CAPSULE_RADIUS) - CAPSULE_BOTTOM;
+    ColliderBuilder::capsule_y(half_height, CAPSULE_RADIUS)
+        .translation(Vector3::new(0.0, y_offset, 0.0))
+        .friction(friction)
+        .friction_combine_rule(CoefficientCombineRule::Min)
+        .restitution(MAIN_RESTITUTION)
+        .restitution_combine_rule(CoefficientCombineRule::Min)
+        .collision_groups(player_collision)
+        .solver_groups(player_solver)
+        .build()
+}
+
+/// Replaces the capsule collider on a biped rigid body.
+fn replace_capsule_collider(
+    world: &mut PhysicsWorld,
+    rb_handle: RigidBodyHandle,
+    old_ch: Option<ColliderHandle>,
+    half_height: f32,
+    friction: f32,
+) -> ColliderHandle {
+    if let Some(old_ch) = old_ch {
         let PhysicsWorld {
             collider_set,
             island_manager,
@@ -681,22 +688,16 @@ fn replace_capsule_collider(
         } = &mut *world;
         collider_set.remove(old_ch, island_manager, rigid_body_set, false);
     }
-    // offset the collider so its bottom stays at foot level (body center is always CAPSULE_BOTTOM above ground)
-    let y_offset = (half_height + CAPSULE_RADIUS) - CAPSULE_BOTTOM;
-    let new_col = ColliderBuilder::capsule_y(half_height, CAPSULE_RADIUS)
-        .translation(Vector3::new(0.0, y_offset, 0.0))
-        .friction(friction)
-        .restitution(0.0)
-        .restitution_combine_rule(CoefficientCombineRule::Min)
-        .collision_groups(player_collision)
-        .solver_groups(player_solver)
-        .build();
     let PhysicsWorld {
         collider_set,
         rigid_body_set,
         ..
     } = &mut *world;
-    collider_set.insert_with_parent(new_col, rb_handle, rigid_body_set);
+    collider_set.insert_with_parent(
+        make_biped_capsule_collider(half_height, friction),
+        rb_handle,
+        rigid_body_set,
+    )
 }
 
 pub fn apply_biped_movement(
@@ -732,7 +733,13 @@ pub fn apply_biped_movement(
         } else {
             (CAPSULE_HALF_HEIGHT, MAIN_FRICTION)
         };
-        replace_capsule_collider(world, body_handle.0, half_height, friction);
+        biped.collider = Some(replace_capsule_collider(
+            world,
+            body_handle.0,
+            biped.collider,
+            half_height,
+            friction,
+        ));
     }
 
     // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
@@ -829,7 +836,6 @@ fn toggle_flashlight(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Res<EguiWantsInput>,
     possessed_q: Query<&BipedPawnComponent, With<Possessed>>,
-    pitch_pivot: Query<&Children, With<PitchPivot>>,
     mut lights: Query<&mut Visibility, With<SpotLight>>,
     mut quic: ResMut<net::quic::QuicManager>,
     mut on: Local<bool>,
@@ -842,17 +848,13 @@ fn toggle_flashlight(
     }
     *on = !*on;
     if let Ok(biped) = possessed_q.single() {
-        if let Some(pitch_e) = biped.pitch_pivot {
-            if let Ok(children) = pitch_pivot.get(pitch_e) {
-                for child in children.iter() {
-                    if let Ok(mut vis) = lights.get_mut(child) {
-                        *vis = if *on {
-                            Visibility::Inherited
-                        } else {
-                            Visibility::Hidden
-                        };
-                    }
-                }
+        if let Some(light) = biped.flashlight {
+            if let Ok(mut vis) = lights.get_mut(light) {
+                *vis = if *on {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
             }
         }
     }

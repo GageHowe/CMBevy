@@ -11,6 +11,7 @@ pub mod generic;
 pub mod health;
 pub mod interaction;
 pub mod level;
+pub mod lifecycle;
 pub mod messages;
 pub mod pawn;
 pub mod projectile;

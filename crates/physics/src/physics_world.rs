@@ -210,15 +210,33 @@ impl PhysicsWorld {
         net_id: Option<&NetworkID>,
         predicted: Option<&mut PredictedCommands>,
     ) -> bool {
+        self.apply_game_impulse_at(entity, impulse, None, net_id, predicted)
+    }
+
+    /// Shared gameplay impulse path so off-center hits also replay through prediction.
+    pub fn apply_game_impulse_at(
+        &mut self,
+        entity: Entity,
+        impulse: Vec3,
+        point: Option<Vec3>,
+        net_id: Option<&NetworkID>,
+        predicted: Option<&mut PredictedCommands>,
+    ) -> bool {
         let Some(&handle) = self.entity_to_handle.get(&entity) else {
             return false;
         };
         let Some(rb) = self.rigid_body_set.get_mut(handle) else {
             return false;
         };
-        rb.apply_impulse(Vector3::new(impulse.x, impulse.y, impulse.z), true);
+        let impulse_vec = impulse;
+        let impulse = Vector3::new(impulse_vec.x, impulse_vec.y, impulse_vec.z);
+        if let Some(point) = point {
+            rb.apply_impulse_at_point(impulse, point, true);
+        } else {
+            rb.apply_impulse(impulse, true);
+        }
         if let (Some(net_id), Some(predicted)) = (net_id, predicted) {
-            predicted.record_impulse(net_id.clone(), impulse);
+            predicted.record_impulse_at(net_id.clone(), impulse_vec, point);
         }
         true
     }

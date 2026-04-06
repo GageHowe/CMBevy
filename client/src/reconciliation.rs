@@ -305,7 +305,11 @@ fn apply_predicted_command(
                 s.apply_input(world, &handle, input);
             }
         }
-        PredictedCommand::Impulse { target, impulse } => {
+        PredictedCommand::Impulse {
+            target,
+            impulse,
+            point,
+        } => {
             let handle = if &target == our_net_id {
                 Some(our_rb)
             } else {
@@ -318,7 +322,12 @@ fn apply_predicted_command(
                 return;
             };
             if let Some(rb) = world.rigid_body_set.get_mut(handle) {
-                rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+                let impulse = Vector::new(impulse.x, impulse.y, impulse.z);
+                if let Some(point) = point {
+                    rb.apply_impulse_at_point(impulse, point, true);
+                } else {
+                    rb.apply_impulse(impulse, true);
+                }
             }
         }
     }

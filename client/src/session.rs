@@ -8,8 +8,9 @@ use game_objects::health::Health;
 use game_objects::interaction::Interactable;
 use game_objects::level::{
     LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
-    load_level_source, parented_world_pose, read_cached_map, write_cached_map,
+    default_asset_dir, load_level_source, read_cached_map, write_cached_map,
 };
+use game_objects::lifecycle::{pick_spawn_point, spawn_game_object};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
@@ -146,11 +147,6 @@ fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
     } else {
         sp.map.clone()
     };
-    let asset_dir = if cfg!(debug_assertions) {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../assets")
-    } else {
-        "assets"
-    };
     if !sp.gametype.is_empty() {
         commands.insert_resource(scripting::ScriptConfig {
             path: sp.gametype.clone(),
@@ -159,7 +155,7 @@ fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
         });
     }
     game_objects::messages::push(&mut commands, "Loading map...");
-    match load_level_source(&map, asset_dir) {
+    match load_level_source(&map, default_asset_dir()) {
         Ok(level) => {
             commands.insert_resource(PendingMapScene(level.compressed));
         }
@@ -168,16 +164,15 @@ fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
 }
 
 fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
-    let cmd = SpawnCommand {
-        net_id: NetworkID(net_ids.next()),
-        position: Vec3::new(0.0, 800.0, 0.0),
-        rotation: Quat::IDENTITY,
-        starting_velocity: Vec3::ZERO,
-        server_tick: 0,
-        kind: GameObjectKind::Biped,
-    };
-    let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand { entity, cmd });
+    let (entity, _, _) = spawn_game_object(
+        GameObjectKind::Biped,
+        Vec3::new(0.0, 800.0, 0.0),
+        Quat::IDENTITY,
+        Vec3::ZERO,
+        0,
+        &mut commands,
+        &mut net_ids,
+    );
     commands.entity(entity).insert(Possessed::new(128));
 }
 
@@ -188,7 +183,7 @@ fn respawn_singleplayer(
     mut timer: Local<Option<f32>>,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
-    spawn_points: Query<(&SpawnPoint, &Transform, Option<&ChildOf>)>,
+    spawn_points: Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
     parent_transforms: Query<&Transform>,
     parent_parents: Query<&ChildOf>,
     parent_bodies: Query<&RigidBodyHandleComponent>,
@@ -204,30 +199,25 @@ fn respawn_singleplayer(
         return;
     }
     *timer = None;
-    let (position, rotation) = spawn_points
-        .iter()
-        .find(|(sp, _, _)| sp.team == 0)
-        .map(|(_, transform, child_of)| {
-            parented_world_pose(
-                transform,
-                child_of,
-                &parent_transforms,
-                &parent_parents,
-                &parent_bodies,
-                &physics,
-            )
-        })
-        .unwrap_or((Vec3::new(0.0, 800.0, 0.0), Quat::IDENTITY));
-    let cmd = SpawnCommand {
-        net_id: NetworkID(net_ids.next()),
+    let (position, rotation) = pick_spawn_point(
+        &spawn_points,
+        &parent_transforms,
+        &parent_parents,
+        &parent_bodies,
+        &physics,
+        0,
+        0,
+    )
+    .unwrap_or((Vec3::new(0.0, 800.0, 0.0), Quat::IDENTITY));
+    let (entity, _, _) = spawn_game_object(
+        GameObjectKind::Biped,
         position,
         rotation,
-        starting_velocity: Vec3::ZERO,
-        server_tick: 0,
-        kind: GameObjectKind::Biped,
-    };
-    let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand { entity, cmd });
+        Vec3::ZERO,
+        0,
+        &mut commands,
+        &mut net_ids,
+    );
     commands.entity(entity).insert(Possessed::new(128));
 }
 
