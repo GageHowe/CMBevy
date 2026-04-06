@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
+use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext, egui};
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
@@ -20,10 +22,12 @@ impl Plugin for SettingsPlugin {
                 PostUpdate,
                 apply_settings.run_if(resource_changed::<Settings>),
             )
+            .add_systems(PostUpdate, sync_dynamic_graphics_settings)
             .add_systems(
                 PostUpdate,
                 save_settings.run_if(resource_changed::<Settings>),
-            );
+            )
+            .add_systems(Last, apply_fps_cap);
     }
 }
 
@@ -63,6 +67,15 @@ pub enum SsaoQuality {
     Ultra,
 }
 
+#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+pub enum ShadowQuality {
+    Off,
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsSection {
     #[default]
@@ -86,6 +99,12 @@ pub struct Settings {
     pub bloom_intensity: f32,
     pub bloom_threshold: f32,
     pub ssao_quality: SsaoQuality,
+    pub render_scale: f32,
+    pub shadow_quality: ShadowQuality,
+    pub fps_cap: u16,
+    pub gamma: f32,
+    pub contrast: f32,
+    pub saturation: f32,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
     pub debug_render: bool,
@@ -107,6 +126,12 @@ impl Default for Settings {
             bloom_intensity: 0.25,
             bloom_threshold: 1.0,
             ssao_quality: SsaoQuality::Medium,
+            render_scale: 1.0,
+            shadow_quality: ShadowQuality::Medium,
+            fps_cap: 0,
+            gamma: 1.0,
+            contrast: 1.0,
+            saturation: 1.0,
             fov: 90.0,
             physics_interp: PhysicsInterp::RotationOnly,
             debug_render: false,
@@ -145,6 +170,8 @@ fn apply_settings(
     mut interp_mode: ResMut<PhysicsInterpMode>,
     mut cam_effects: Query<(Entity, &mut CameraEffector), With<Camera3d>>,
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
+    mut directional_lights: Query<&mut DirectionalLight>,
+    mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
     mut egui_context_settings: Query<&mut EguiContextSettings, With<PrimaryEguiContext>>,
 ) {
     sensitivity.base = settings.mouse_sensitivity;
@@ -152,82 +179,9 @@ fn apply_settings(
     sensitivity.vehicle_pitch_yaw = settings.vehicle_pitch_yaw_sensitivity;
     snap_comp.0 = settings.preserve_look_across_planet_snap;
 
-    if let Ok((camera_entity, mut fx)) = cam_effects.single_mut() {
-        fx.base_fov = settings.fov;
-        fx.current_fov = settings.fov;
-
-        let mut camera = commands.entity(camera_entity);
-        if settings.anti_aliasing {
-            camera.insert(bevy::anti_alias::smaa::Smaa::default());
-        } else {
-            camera.remove::<bevy::anti_alias::smaa::Smaa>();
-        }
-
-        if settings.auto_exposure {
-            camera.insert(bevy::post_process::auto_exposure::AutoExposure {
-                range: -12.0..=4.0,
-                speed_brighten: 0.2,
-                speed_darken: 0.1,
-                filter: 0.0..=0.50,
-                ..default()
-            });
-        } else {
-            camera.remove::<bevy::post_process::auto_exposure::AutoExposure>();
-        }
-
-        if settings.bloom {
-            camera.insert(bevy::post_process::bloom::Bloom {
-                intensity: settings.bloom_intensity.clamp(0.0, 2.0),
-                composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
-                high_pass_frequency: 0.5,
-                prefilter: bevy::post_process::bloom::BloomPrefilter {
-                    threshold: settings.bloom_threshold.clamp(0.0, 5.0),
-                    threshold_softness: 0.0,
-                },
-                ..default()
-            });
-        } else {
-            camera.remove::<bevy::post_process::bloom::Bloom>();
-        }
-
-        match settings.ssao_quality {
-            SsaoQuality::Off => {
-                camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
-            }
-            SsaoQuality::Medium => {
-                camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                    quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Medium,
-                    ..default()
-                });
-            }
-            SsaoQuality::High => {
-                camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                    quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::High,
-                    ..default()
-                });
-            }
-            SsaoQuality::Ultra => {
-                camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                    quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
-                    ..default()
-                });
-            }
-        }
-    }
-
-    *interp_mode = match settings.physics_interp {
-        PhysicsInterp::Off => PhysicsInterpMode::Off,
-        PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
-        PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
-        PhysicsInterp::RotationOnly => PhysicsInterpMode::RotationOnly,
-    };
-
-    if let Ok(mut egui_settings) = egui_context_settings.single_mut() {
-        // Keep UI scaling global so every egui surface stays in sync with the saved setting.
-        egui_settings.scale_factor = settings.ui_scale;
-    }
-
+    let mut window_size = None;
     if let Ok(mut window) = window_q.single_mut() {
+        window_size = Some(window.physical_size());
         window.present_mode = match settings.vsync {
             VsyncMode::AutoVsync => PresentMode::AutoVsync,
             VsyncMode::AutoNoVsync => PresentMode::AutoNoVsync,
@@ -245,6 +199,190 @@ fn apply_settings(
             }
         };
     }
+
+    if let Ok((camera_entity, mut fx)) = cam_effects.single_mut() {
+        fx.base_fov = settings.fov;
+        fx.current_fov = settings.fov;
+
+        let mut camera = commands.entity(camera_entity);
+        apply_camera_graphics(&mut camera, &settings, window_size);
+    }
+
+    *interp_mode = match settings.physics_interp {
+        PhysicsInterp::Off => PhysicsInterpMode::Off,
+        PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
+        PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
+        PhysicsInterp::RotationOnly => PhysicsInterpMode::RotationOnly,
+    };
+
+    if let Ok(mut egui_settings) = egui_context_settings.single_mut() {
+        // Keep UI scaling global so every egui surface stays in sync with the saved setting.
+        egui_settings.scale_factor = settings.ui_scale;
+    }
+
+    directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
+    for mut directional_light in &mut directional_lights {
+        directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+    }
+}
+
+fn sync_dynamic_graphics_settings(
+    mut commands: Commands,
+    settings: Option<Res<Settings>>,
+    primary_window_q: Query<&Window, With<PrimaryWindow>>,
+    resized_window_q: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
+    camera_entities: Query<Entity, With<Camera3d>>,
+    added_cameras: Query<Entity, Added<Camera3d>>,
+    mut added_directional_lights: Query<&mut DirectionalLight, Added<DirectionalLight>>,
+    mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
+) {
+    let Some(settings) = settings else {
+        return;
+    };
+
+    let window_size = primary_window_q.single().ok().map(Window::physical_size);
+    let window_changed = resized_window_q.single().is_ok();
+
+    for camera_entity in &added_cameras {
+        let mut camera = commands.entity(camera_entity);
+        apply_camera_graphics(&mut camera, &settings, window_size);
+    }
+
+    if window_changed {
+        for camera_entity in &camera_entities {
+            let mut camera = commands.entity(camera_entity);
+            apply_render_scale(&mut camera, &settings, window_size);
+        }
+    }
+
+    if !added_directional_lights.is_empty() {
+        directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
+        for mut directional_light in &mut added_directional_lights {
+            directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+        }
+    }
+}
+
+fn apply_camera_graphics(
+    camera: &mut EntityCommands,
+    settings: &Settings,
+    window_size: Option<UVec2>,
+) {
+    if settings.anti_aliasing {
+        camera.insert(bevy::anti_alias::smaa::Smaa::default());
+    } else {
+        camera.remove::<bevy::anti_alias::smaa::Smaa>();
+    }
+
+    if settings.auto_exposure {
+        camera.insert(bevy::post_process::auto_exposure::AutoExposure {
+            range: -12.0..=4.0,
+            speed_brighten: 0.2,
+            speed_darken: 0.1,
+            filter: 0.0..=0.50,
+            ..default()
+        });
+    } else {
+        camera.remove::<bevy::post_process::auto_exposure::AutoExposure>();
+    }
+
+    if settings.bloom {
+        camera.insert(bevy::post_process::bloom::Bloom {
+            intensity: settings.bloom_intensity.clamp(0.0, 2.0),
+            composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
+            high_pass_frequency: 0.5,
+            prefilter: bevy::post_process::bloom::BloomPrefilter {
+                threshold: settings.bloom_threshold.clamp(0.0, 5.0),
+                threshold_softness: 0.0,
+            },
+            ..default()
+        });
+    } else {
+        camera.remove::<bevy::post_process::bloom::Bloom>();
+    }
+
+    match settings.ssao_quality {
+        SsaoQuality::Off => {
+            camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
+        }
+        SsaoQuality::Medium => {
+            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Medium,
+                ..default()
+            });
+        }
+        SsaoQuality::High => {
+            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::High,
+                ..default()
+            });
+        }
+        SsaoQuality::Ultra => {
+            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
+                ..default()
+            });
+        }
+    }
+
+    camera.insert(ColorGrading::with_identical_sections(
+        ColorGradingGlobal {
+            post_saturation: settings.saturation.clamp(0.0, 2.0),
+            ..default()
+        },
+        ColorGradingSection {
+            contrast: settings.contrast.clamp(0.5, 1.5),
+            gamma: settings.gamma.clamp(0.5, 2.0),
+            ..default()
+        },
+    ));
+
+    apply_render_scale(camera, settings, window_size);
+}
+
+fn apply_render_scale(camera: &mut EntityCommands, settings: &Settings, window_size: Option<UVec2>) {
+    let render_scale = settings.render_scale.clamp(0.25, 1.0);
+    if render_scale >= 0.99 {
+        camera.remove::<bevy::camera::MainPassResolutionOverride>();
+        return;
+    }
+
+    let Some(window_size) = window_size else {
+        return;
+    };
+
+    // Main-pass override gives us a simple 3D render scale while leaving UI crisp.
+    let scaled = window_size.as_vec2() * render_scale;
+    let scaled = scaled.max(Vec2::splat(1.0)).round().as_uvec2();
+    camera.insert(bevy::camera::MainPassResolutionOverride(scaled));
+}
+
+fn shadow_map_size(shadow_quality: &ShadowQuality) -> usize {
+    match shadow_quality {
+        ShadowQuality::Off => 1024,
+        ShadowQuality::Low => 1024,
+        ShadowQuality::Medium => 2048,
+        ShadowQuality::High => 4096,
+    }
+}
+
+fn apply_fps_cap(settings: Option<Res<Settings>>, mut last_frame_end: Local<Option<Instant>>) {
+    let Some(settings) = settings else {
+        return;
+    };
+
+    let fps_cap = settings.fps_cap;
+    let now = Instant::now();
+    if let Some(last_frame_end) = *last_frame_end {
+        if fps_cap > 0 {
+            let target_frame_time = Duration::from_secs_f64(1.0 / fps_cap as f64);
+            let elapsed = now.saturating_duration_since(last_frame_end);
+            if elapsed < target_frame_time {
+                std::thread::sleep(target_frame_time - elapsed);
+            }
+        }
+    }
+    *last_frame_end = Some(Instant::now());
 }
 
 fn save_settings(settings: Res<Settings>) {
@@ -335,6 +473,50 @@ fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
                     .on_hover_text("Scales the entire interface globally.");
                 show_ui_scale_input(ui, settings);
             });
+
+            ui.horizontal(|ui| {
+                ui.label("FPS cap")
+                    .on_hover_text("Limits the client update rate. Uncapped leaves frame pacing to VSync and hardware.");
+                egui::ComboBox::from_id_salt("fps_cap_combo")
+                    .selected_text(fps_cap_label(settings.fps_cap))
+                    .show_ui(ui, |ui| {
+                        for fps_cap in [0, 30, 60, 90, 120, 144, 165, 240] {
+                            ui.selectable_value(
+                                &mut settings.fps_cap,
+                                fps_cap,
+                                fps_cap_label(fps_cap),
+                            );
+                        }
+                    });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Render scale")
+                    .on_hover_text("Renders the 3D main pass below native resolution, then upscales. UI stays sharp.");
+                ui.add(
+                    egui::Slider::new(&mut settings.render_scale, 0.25..=1.0)
+                        .step_by(0.05)
+                        .fixed_decimals(2),
+                );
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Shadow quality")
+                    .on_hover_text("Controls directional shadow map quality. Off disables sun shadows entirely.");
+                egui::ComboBox::from_id_salt("shadow_quality_combo")
+                    .selected_text(match settings.shadow_quality {
+                        ShadowQuality::Off => "Off",
+                        ShadowQuality::Low => "Low",
+                        ShadowQuality::Medium => "Medium",
+                        ShadowQuality::High => "High",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Off, "Off");
+                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Low, "Low");
+                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Medium, "Medium");
+                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::High, "High");
+                    });
+            });
         });
 
     egui::CollapsingHeader::new("Post Processing")
@@ -379,6 +561,24 @@ fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
                         ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
                         ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
                     });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Gamma")
+                    .on_hover_text("Nonlinear brightness shaping applied through Bevy color grading.");
+                ui.add(egui::Slider::new(&mut settings.gamma, 0.5..=2.0).fixed_decimals(2));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Contrast")
+                    .on_hover_text("Moves colors toward or away from neutral gray.");
+                ui.add(egui::Slider::new(&mut settings.contrast, 0.5..=1.5).fixed_decimals(2));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Saturation")
+                    .on_hover_text("Post-tonemap saturation. Lower values desaturate, higher values intensify color.");
+                ui.add(egui::Slider::new(&mut settings.saturation, 0.0..=2.0).fixed_decimals(2));
             });
         });
 
@@ -452,6 +652,20 @@ fn show_ui_scale_input(ui: &mut egui::Ui, settings: &mut Settings) {
             text = format!("{:.0}", settings.ui_scale * 100.0);
         }
         ui.data_mut(|data| data.insert_persisted(id, text));
+    }
+}
+
+fn fps_cap_label(fps_cap: u16) -> &'static str {
+    match fps_cap {
+        0 => "Uncapped",
+        30 => "30",
+        60 => "60",
+        90 => "90",
+        120 => "120",
+        144 => "144",
+        165 => "165",
+        240 => "240",
+        _ => "Custom",
     }
 }
 
