@@ -36,10 +36,10 @@ const JUMP_IMPULSE: f32 = 5.0;
 const AIR_CONTROL: f32 = 0.1;
 const AIR_UP_CONTROL: f32 = 0.35;
 const GROUND_DIST: f32 = 0.01; // must be nearly touching to count as grounded
-const JUMP_COOLDOWN: u8 = 25; // ticks (~0.4 s at 60 Hz) before another jump
+const JUMP_COOLDOWN: u8 = 20; // ticks before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
-const MAIN_FRICTION: f32 = 1.0;
-const SLIDE_FRICTION: f32 = 1.0;
+const MAIN_FRICTION: f32 = 1.5;
+const SLIDE_FRICTION: f32 = 0.75;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
