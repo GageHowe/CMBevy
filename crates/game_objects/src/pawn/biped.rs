@@ -103,6 +103,9 @@ impl GameObject for BipedPawnComponent {
                 // .ccd_enabled(true) was causing issues with relative velocity
                 .build();
             let rb_handle = physics.insert_body(entity, capsule_rb);
+            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+                rb.set_rotation(transform.rotation, true);
+            }
             let capsule_collider = make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION);
             let PhysicsWorld {
                 collider_set,
@@ -939,14 +942,17 @@ pub fn biped_fire(
         return;
     };
     let (_, _, origin) = pivot_gt.to_scale_rotation_translation();
-    commands.run_system_with(driver.fixed_update, WeaponFireInput {
-        weapon: weapon_entity,
-        want_fire: !blocked && mouse.pressed(MouseButton::Left),
-        want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
-        origin,
-        shooter: pawn_entity,
-        tick: ticker.tick,
-    });
+    commands.run_system_with(
+        driver.fixed_update,
+        WeaponFireInput {
+            weapon: weapon_entity,
+            want_fire: !blocked && mouse.pressed(MouseButton::Left),
+            want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
+            origin,
+            shooter: pawn_entity,
+            tick: ticker.tick,
+        },
+    );
 }
 
 /// Viewmodel transform offset relative to the camera/pitch pivot.

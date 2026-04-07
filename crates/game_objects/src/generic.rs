@@ -70,6 +70,9 @@ pub fn spawn_generic(
         .translation(transform.translation)
         .build();
     let rb_handle = world.insert_body(entity, rb);
+    if let Some(rb) = world.rigid_body_set.get_mut(rb_handle) {
+        rb.set_rotation(transform.rotation, true);
+    }
     commands
         .entity(entity)
         .insert(RigidBodyHandleComponent(rb_handle));

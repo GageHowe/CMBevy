@@ -4,8 +4,12 @@ use bevy::prelude::*;
 use quinn::crypto::rustls::QuicClientConfig;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
+
+const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(250);
+const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(1);
 
 use crate::quic::{
     Channel, QuicManager, SERVER_CONN_ID, TransportEvent, drain_transport_events,
@@ -157,18 +161,24 @@ fn run_client_worker(
             }
         };
         endpoint.set_default_client_config(make_client_config());
-        let connection = match endpoint.connect(server_addr, "localhost") {
-            Ok(connecting) => match connecting.await {
-                Ok(connection) => connection,
-                Err(e) => {
-                    eprintln!("Failed to open QUIC connection: {e}");
+        let connection = loop {
+            match cmd_rx.try_recv() {
+                Ok(ClientCommand::Shutdown) | Err(mpsc::error::TryRecvError::Disconnected) => {
                     return;
                 }
-            },
-            Err(e) => {
-                eprintln!("Failed to start QUIC connect: {e}");
-                return;
+                Ok(ClientCommand::Send { .. }) | Err(mpsc::error::TryRecvError::Empty) => {}
             }
+            match tokio::time::timeout(
+                CONNECT_ATTEMPT_TIMEOUT,
+                connect_once(&endpoint, server_addr),
+            )
+            .await
+            {
+                Ok(Ok(connection)) => break connection,
+                Ok(Err(e)) => eprintln!("Failed to open QUIC connection: {e}; retrying..."),
+                Err(_) => eprintln!("Timed out opening QUIC connection; retrying..."),
+            }
+            tokio::time::sleep(CONNECT_RETRY_DELAY).await;
         };
 
         let close_tx = event_tx.clone();
@@ -195,6 +205,17 @@ fn run_client_worker(
         }
         endpoint.wait_idle().await;
     });
+}
+
+async fn connect_once(
+    endpoint: &quinn::Endpoint,
+    server_addr: SocketAddr,
+) -> Result<quinn::Connection, String> {
+    endpoint
+        .connect(server_addr, "localhost")
+        .map_err(|e| format!("start connect: {e}"))?
+        .await
+        .map_err(|e| format!("open connection: {e}"))
 }
 
 fn make_client_config() -> quinn::ClientConfig {

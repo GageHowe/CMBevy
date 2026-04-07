@@ -2,7 +2,6 @@
 // this manages the physics simulation and syncs it with clients
 
 use bevy::prelude::*;
-use common::debug_println;
 use common::{BodyState, NetworkID, PredictedCommands, SimulationState};
 pub use rapier3d::prelude::RigidBodyHandle;
 pub use rapier3d::prelude::Vector3;
@@ -156,9 +155,7 @@ impl PhysicsWorld {
                 true,
             );
         } else {
-            debug_println!(
-                "Warning: tried to remove_rigidbody but entity {entity} is not in entity_to_handle"
-            )
+            warn!("tried to remove_rigidbody but entity {entity} is not in entity_to_handle")
         }
     }
 

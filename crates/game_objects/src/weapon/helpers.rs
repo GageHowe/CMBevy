@@ -94,7 +94,11 @@ pub fn make_generic_weapon_physics(
             ))
             .angular_damping(0.3)
             .build();
-        physics.insert_body(entity, rb)
+        let rb_handle = physics.insert_body(entity, rb);
+        if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+            rb.set_rotation(cmd.rotation, true);
+        }
+        rb_handle
     };
     world
         .entity_mut(entity)

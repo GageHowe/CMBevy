@@ -2,19 +2,20 @@ use bevy::app::AppExit;
 use bevy::core_pipeline::Skybox;
 use bevy::prelude::*;
 use common::GameObjectKind;
-use common::debug_println;
 use common::tick::{NetworkStats, Ticker};
+use game_objects::NetworkEntityMap;
 use game_objects::health::Health;
 use game_objects::level::{
     LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash, default_asset_dir,
     load_level_source, read_cached_map, write_cached_map,
 };
-use game_objects::lifecycle::{pick_spawn_point_with_velocity, spawn_game_object};
+use game_objects::lifecycle::{
+    pick_spawn_point_with_velocity, queue_spawn_command, spawn_game_object,
+};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
 use game_objects::weapon::helpers as weapon_helpers;
-use game_objects::{NetworkEntityMap, SpawnGameObjectCommand};
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
 use net::message::{MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
 use net::quic::QuicManager;
@@ -301,6 +302,7 @@ fn send_world_ready(
         net::quic::Channel::Ordered,
         &MsgType::ClientReady,
     );
+    info!("Client: sent ClientReady");
     pending.0 = false;
 }
 
@@ -617,9 +619,12 @@ fn process_client_message(
 ) {
     match msg {
         MsgType::Connected => {}
-        MsgType::MapHash(hash) => handle_map_hash(hash, quic, &mut mp.spawn.commands),
+        MsgType::MapHash(hash) => {
+            info!("Client: received MapHash {hash}");
+            handle_map_hash(hash, quic, &mut mp.spawn.commands)
+        }
         MsgType::SpawnCommand(cmd) => {
-            handle_spawn_command(&mut mp.spawn.commands, just_spawned, cmd)
+            handle_spawn_command(&mut mp.spawn.commands, &mp.networked, just_spawned, cmd)
         }
         MsgType::Possess(net_id) => handle_possess(
             net_id,
@@ -686,7 +691,7 @@ fn process_client_message(
             handle_health_update(&net_id, current, &mp.networked, &mut mp.health_q);
         }
         MsgType::Pong(text) => {
-            debug_println!("Client: Got PONG \"{text}\"");
+            info!("Client: Got PONG \"{text}\"");
             gui.push_log(format!("pong: {text}"));
         }
         MsgType::ChatMessage(sender, text) => gui.push_log(format!("[{sender}] {text}")),
@@ -708,7 +713,7 @@ fn process_client_message(
             &mp.spawn.entity_children,
             &mut mp.spawn.lights,
         ),
-        other => debug_println!("Client: Got unhandled message: {other:?}"),
+        other => warn!("Client: Got unhandled message: {other:?}"),
     }
 }
 
@@ -718,13 +723,19 @@ fn find_networked_entity(networked: &NetworkEntityMap, net_id: &NetworkID) -> Op
 
 fn handle_spawn_command(
     commands: &mut Commands,
+    networked: &NetworkEntityMap,
     just_spawned: &mut std::collections::HashMap<NetworkID, (Entity, u64)>,
     cmd: SpawnCommand,
 ) {
     let net_id = cmd.net_id.clone();
     let server_tick = cmd.server_tick;
-    let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand { entity, cmd });
+    let entity = if let Some(entity) = networked.get(&net_id) {
+        game_objects::lifecycle::queue_spawn_command_on(entity, cmd, commands);
+        entity
+    } else {
+        let (entity, _, _) = queue_spawn_command(cmd, commands);
+        entity
+    };
     just_spawned.insert(net_id, (entity, server_tick));
 }
 
@@ -962,6 +973,7 @@ fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) 
             eprintln!("FileData: failed to hash map.scn.ron");
             return;
         };
+        info!("Client: received map.scn.ron {hash}");
         write_cached_map(&hash, &compressed);
         commands.insert_resource(PendingMapScene(compressed));
         return;

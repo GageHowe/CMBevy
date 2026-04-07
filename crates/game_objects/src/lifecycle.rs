@@ -5,7 +5,7 @@ use net::message::{NetworkID, NetworkIDResource, SpawnCommand};
 use crate::SpawnGameObjectCommand;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_vel};
 
-use crate::level::{SpawnPoint, parented_world_pose};
+use crate::level::{SpawnPoint, parent_body_handle, parented_world_pose};
 
 pub fn spawn_game_object(
     kind: GameObjectKind,
@@ -26,11 +26,20 @@ pub fn spawn_game_object(
         kind,
     };
     let entity = commands.spawn_empty().id();
-    commands.queue(SpawnGameObjectCommand {
-        entity,
-        cmd: cmd.clone(),
-    });
+    queue_spawn_command_on(entity, cmd.clone(), commands);
     (entity, net_id, cmd)
+}
+
+pub fn queue_spawn_command(cmd: SpawnCommand, commands: &mut Commands) -> (Entity, NetworkID, u64) {
+    let net_id = cmd.net_id.clone();
+    let server_tick = cmd.server_tick;
+    let entity = commands.spawn_empty().id();
+    queue_spawn_command_on(entity, cmd, commands);
+    (entity, net_id, server_tick)
+}
+
+pub fn queue_spawn_command_on(entity: Entity, cmd: SpawnCommand, commands: &mut Commands) {
+    commands.queue(SpawnGameObjectCommand { entity, cmd });
 }
 
 pub fn pick_spawn_point(
@@ -91,15 +100,7 @@ fn resolve_spawn_point(
     parent_bodies: &Query<&RigidBodyHandleComponent>,
     physics: &PhysicsWorld,
 ) -> Option<(Vec3, Quat, Vec3)> {
-    let mut current_parent = child_of.map(ChildOf::parent);
-    let mut parent_body = None;
-    while let Some(parent) = current_parent {
-        if let Ok(handle) = parent_bodies.get(parent) {
-            parent_body = physics.rigid_body_set.get(handle.0);
-            break;
-        }
-        current_parent = parent_parents.get(parent).ok().map(ChildOf::parent);
-    }
+    let parent_body = parent_body_handle(child_of, parent_parents, parent_bodies);
     if child_of.is_some() && parent_body.is_none() {
         return None;
     }
@@ -112,6 +113,7 @@ fn resolve_spawn_point(
         physics,
     );
     let velocity = parent_body
+        .and_then(|handle| physics.rigid_body_set.get(handle))
         .map(|rb| {
             let offset = position - rb_pos(rb);
             rb_vel(rb) + rb_angvel(rb).cross(offset)

@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::components::planet::GravitySource;
 use game_objects::health::{Health, handle_deaths};
 use game_objects::level::{
     LevelBytes, PendingMapScene, SpawnPoint, default_asset_dir, load_level_source,
@@ -68,7 +67,7 @@ pub(crate) struct ServerMessageParams<'w, 's> {
     parent_transforms: Query<'w, 's, &'static Transform>,
     parent_parents: Query<'w, 's, &'static ChildOf>,
     parent_bodies: Query<'w, 's, &'static RigidBodyHandleComponent>,
-    scene_spawn_state: game_objects::level::SceneSpawnState<'w, 's>,
+    level_ready: game_objects::level::LevelReadyState<'w, 's>,
     spawnables: Query<
         'w,
         's,
@@ -113,14 +112,7 @@ impl Plugin for ServerSessionPlugin {
             .init_resource::<PendingInputs>()
             .init_resource::<LastProcessedInputSeq>()
             .init_resource::<BodyHistory>()
-            .add_systems(
-                Update,
-                (
-                    tick_respawns,
-                    process_console_commands,
-                    assign_planet_network_ids,
-                ),
-            )
+            .add_systems(Update, (tick_respawns, process_console_commands))
             .add_systems(
                 Startup,
                 (load_server_level, start_server, init_mode_config).chain(),
@@ -148,6 +140,7 @@ fn spawn_player(
     commands: &mut Commands,
     tick: u64,
 ) {
+    let kind_debug = format!("{kind:?}");
     let (entity, net_id, spawn_cmd) = spawn_game_object(
         kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
     );
@@ -171,6 +164,7 @@ fn spawn_player(
     );
 
     registry.insert(conn_id, entity, net_id);
+    info!("GameServer: spawned {kind_debug} for conn {conn_id}");
 }
 
 fn slots_to_held(slots: &Option<&WeaponSlots>) -> Vec<(NetworkID, Entity)> {
@@ -261,6 +255,7 @@ fn handle_connected(
         team,
         registry.by_conn.len(),
     ) else {
+        warn!("conn {conn_id}: server ready but no spawn point resolved");
         return false;
     };
 
@@ -356,7 +351,7 @@ fn handle_disconnected(
 ) {
     pending_respawns.0.remove(&conn_id);
     if let Some((entity, net_id)) = registry.remove_by_conn(conn_id) {
-        common::debug_println!(
+        info!(
             "GameServer: Player disconnected: entity={entity} conn={:?}",
             conn_id
         );
@@ -814,15 +809,6 @@ pub(crate) fn on_message(
     tick: Res<Ticker>,
     level_bytes: Option<Res<LevelBytes>>,
 ) {
-    flush_pending_connections(
-        &mut quic,
-        &mut registry,
-        &mut pending_connections,
-        &mut net_ids,
-        &mut sp,
-        tick.tick,
-    );
-
     while let Some(msg) = quic.inbound.pop_front() {
         process_server_message(
             msg.conn_id,
@@ -839,6 +825,15 @@ pub(crate) fn on_message(
             tick.tick,
         );
     }
+
+    flush_pending_connections(
+        &mut quic,
+        &mut registry,
+        &mut pending_connections,
+        &mut net_ids,
+        &mut sp,
+        tick.tick,
+    );
 }
 
 fn flush_pending_connections(
@@ -855,7 +850,8 @@ fn flush_pending_connections(
             pending_connections.0.remove(&conn_id);
             continue;
         }
-        if !sp.scene_spawn_state.ready() {
+        if let Some(reason) = sp.level_ready.reason() {
+            info!("pending conn {conn_id}: server world not ready: {reason}");
             continue;
         }
         if handle_connected(
@@ -895,9 +891,13 @@ fn process_server_message(
     tick: u64,
 ) {
     match msg {
-        MsgType::Connected => send_connection_files(conn_id, level_bytes, script_config, quic),
+        MsgType::Connected => {
+            info!("GameServer: conn {conn_id} connected; sending map metadata");
+            send_connection_files(conn_id, level_bytes, script_config, quic);
+        }
         MsgType::RequestMap => send_map_file(conn_id, level_bytes, quic),
         MsgType::ClientReady => {
+            info!("GameServer: conn {conn_id} sent ClientReady");
             pending_connections.0.insert(conn_id);
         }
         MsgType::Disconnected => {
@@ -973,7 +973,7 @@ fn process_server_message(
             );
         }
         MsgType::Ping(text) => {
-            common::debug_println!("Got a ping from conn_id {:?} with text {}", conn_id, text);
+            info!("Got a ping from conn_id {:?} with text {}", conn_id, text);
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
@@ -981,14 +981,14 @@ fn process_server_message(
             );
         }
         MsgType::ChatMessage(sender, text) => {
-            common::debug_println!("GameServer: Got ChatMessage: [{sender}] {text}");
+            info!("GameServer: Got ChatMessage: [{sender}] {text}");
             quic.send(
                 SendTarget::All,
                 Channel::Ordered,
                 &MsgType::ChatMessage(sender, text),
             );
         }
-        other => common::debug_println!("Unhandled: {other:?}"),
+        other => warn!("Unhandled: {other:?}"),
     }
 }
 
@@ -1006,23 +1006,6 @@ fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
         Err(err) => {
             game_objects::messages::push(&mut commands, err);
         }
-    }
-}
-
-fn assign_planet_network_ids(
-    query: Query<
-        Entity,
-        (
-            With<RigidBodyHandleComponent>,
-            With<GravitySource>,
-            Without<NetworkID>,
-        ),
-    >,
-    mut commands: Commands,
-    mut net_ids: ResMut<NetworkIDResource>,
-) {
-    for entity in query.iter() {
-        commands.entity(entity).insert(NetworkID(net_ids.next()));
     }
 }
 

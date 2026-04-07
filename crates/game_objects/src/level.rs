@@ -1,3 +1,4 @@
+use crate::lifecycle::spawn_game_object;
 use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
@@ -101,21 +102,52 @@ struct SceneSpawner {
     active_entity: Option<Entity>,
 }
 
-impl SceneSpawner {
-    fn is_ready(&self) -> bool {
-        self.active_entity.is_some()
-    }
-}
-
 #[derive(bevy::ecs::system::SystemParam)]
-pub struct SceneSpawnState<'w, 's> {
+pub struct LevelReadyState<'w, 's> {
+    pending_map: Option<Res<'w, PendingMapScene>>,
+    roots: Query<'w, 's, (), With<LevelSceneRoot>>,
+    pending_hulls: Res<'w, PendingHullColliders>,
     pending_markers: Query<'w, 's, (), (With<SceneSpawn>, Without<SceneSpawner>)>,
-    spawners: Query<'w, 's, &'static SceneSpawner>,
+    scene_bodies: Query<
+        'w,
+        's,
+        &'static SceneRigidBody,
+        (
+            With<RigidBodyHandleComponent>,
+            Without<net::message::NetworkID>,
+        ),
+    >,
 }
 
-impl SceneSpawnState<'_, '_> {
+impl LevelReadyState<'_, '_> {
     pub fn ready(&self) -> bool {
-        self.pending_markers.is_empty() && self.spawners.iter().all(SceneSpawner::is_ready)
+        self.pending_map.is_none()
+            && !self.roots.is_empty()
+            && self.pending_hulls.0.is_empty()
+            && self.pending_markers.is_empty()
+            && !self.pending_scene_network_ids()
+    }
+
+    pub fn reason(&self) -> Option<&'static str> {
+        if self.pending_map.is_some() {
+            Some("map pending")
+        } else if self.roots.is_empty() {
+            Some("level root missing")
+        } else if !self.pending_hulls.0.is_empty() {
+            Some("hull colliders pending")
+        } else if !self.pending_markers.is_empty() {
+            Some("scene spawners initializing")
+        } else if self.pending_scene_network_ids() {
+            Some("scene network ids pending")
+        } else {
+            None
+        }
+    }
+
+    fn pending_scene_network_ids(&self) -> bool {
+        self.scene_bodies
+            .iter()
+            .any(|scene_body| matches!(scene_body, SceneRigidBody::Dynamic))
     }
 }
 
@@ -148,6 +180,21 @@ pub fn parented_world_pose(
     }
 
     (translation, rotation)
+}
+
+pub fn parent_body_handle(
+    child_of: Option<&ChildOf>,
+    parent_parents: &Query<&ChildOf>,
+    parent_bodies: &Query<&RigidBodyHandleComponent>,
+) -> Option<RigidBodyHandle> {
+    let mut current_parent = child_of.map(ChildOf::parent);
+    while let Some(parent) = current_parent {
+        if let Ok(handle) = parent_bodies.get(parent) {
+            return Some(handle.0);
+        }
+        current_parent = parent_parents.get(parent).ok().map(ChildOf::parent);
+    }
+    None
 }
 
 // ── pending hull collider queue ───────────────────────────────────────────────
@@ -318,7 +365,15 @@ impl Plugin for LevelPlugin {
         app.register_type::<MapMeta>();
         app.init_resource::<PendingHullColliders>();
         // react to scene-spawned components — works on both client and server
-        app.add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
+        app.add_systems(
+            Update,
+            (
+                spawn_static_colliders,
+                spawn_hull_colliders,
+                assign_scene_network_ids,
+            ),
+        );
+        app.add_systems(FixedPreUpdate, assign_scene_network_ids);
         #[cfg(feature = "client")]
         app.add_systems(Update, spawn_scene_models);
 
@@ -330,31 +385,6 @@ impl Plugin for LevelPlugin {
 }
 
 // ── systems ───────────────────────────────────────────────────────────────────
-
-fn queue_scene_spawn(
-    spawn_entity: Entity,
-    position: Vec3,
-    rotation: Quat,
-    kind: common::GameObjectKind,
-    starting_velocity: Vec3,
-    commands: &mut Commands,
-    net_id_res: &mut ResMut<net::message::NetworkIDResource>,
-) -> net::message::SpawnCommand {
-    let net_id = net::message::NetworkID(net_id_res.next());
-    let spawn_cmd = net::message::SpawnCommand {
-        net_id,
-        position,
-        rotation,
-        starting_velocity,
-        server_tick: 0,
-        kind,
-    };
-    commands.queue(crate::SpawnGameObjectCommand {
-        entity: spawn_entity,
-        cmd: spawn_cmd.clone(),
-    });
-    spawn_cmd
-}
 
 fn init_scene_spawners(
     query: Query<
@@ -371,6 +401,36 @@ fn init_scene_spawners(
             respawn_timer_secs: 0.0,
             active_entity: None,
         });
+    }
+}
+
+fn assign_scene_network_ids(
+    query: Query<
+        (
+            Entity,
+            &SceneRigidBody,
+            &Transform,
+            Option<&net::message::NetworkID>,
+        ),
+        With<RigidBodyHandleComponent>,
+    >,
+    mut commands: Commands,
+    mut net_ids: ResMut<net::message::NetworkIDResource>,
+) {
+    let mut bodies: Vec<_> = query
+        .iter()
+        .filter(|(_, scene_body, _, _)| matches!(scene_body, SceneRigidBody::Dynamic))
+        .collect();
+    bodies.sort_by_key(|(_, _, transform, _)| {
+        let t = transform.translation;
+        (t.x.to_bits(), t.y.to_bits(), t.z.to_bits())
+    });
+    for (index, (entity, _, _, current_id)) in bodies.into_iter().enumerate() {
+        let id = (index + 1) as u64;
+        net_ids.reserve(id);
+        if current_id.is_none() {
+            commands.entity(entity).insert(net::message::NetworkID(id));
+        }
     }
 }
 
@@ -418,6 +478,12 @@ fn tick_scene_spawners(
             }
         }
 
+        // Parented spawns authored on moving bodies must wait for the parent body
+        // or they lose inherited velocity and start from the wrong frame.
+        let parent_body = parent_body_handle(child_of, &parent_parents, &parent_bodies);
+        if child_of.is_some() && parent_body.is_none() {
+            continue;
+        }
         let (position, rotation) = parented_world_pose(
             local_transform,
             child_of,
@@ -426,9 +492,8 @@ fn tick_scene_spawners(
             &parent_bodies,
             &physics,
         );
-        let inherited_velocity = child_of
-            .and_then(|child_of| parent_bodies.get(child_of.parent()).ok())
-            .and_then(|handle| physics.rigid_body_set.get(handle.0))
+        let inherited_velocity = parent_body
+            .and_then(|handle| physics.rigid_body_set.get(handle))
             .map(|rb| {
                 let linear = rb_vel(rb);
                 let angular = rb_angvel(rb);
@@ -436,13 +501,12 @@ fn tick_scene_spawners(
                 linear + angular.cross(offset)
             })
             .unwrap_or(Vec3::ZERO);
-        let spawn_entity = commands.spawn_empty().id();
-        let spawn_cmd = queue_scene_spawn(
-            spawn_entity,
+        let (spawn_entity, _, spawn_cmd) = spawn_game_object(
+            spawner.kind.clone(),
             position,
             rotation,
-            spawner.kind.clone(),
             spawner.starting_velocity + inherited_velocity,
+            0,
             &mut commands,
             &mut net_id_res,
         );

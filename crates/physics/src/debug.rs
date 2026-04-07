@@ -1,6 +1,5 @@
 use bevy::math::primitives::Cuboid as BevyCuboid;
 use bevy::prelude::*;
-use common::debug_println;
 use rapier3d::prelude::*;
 
 /// Extracts a Bevy Isometry3d from a Rapier rigid body's current position.
@@ -30,6 +29,6 @@ pub fn draw_collider(collider: &Collider, iso: Isometry3d, color: Color, gizmos:
             color,
         );
     } else {
-        debug_println!("draw_collider: No matching type!")
+        warn!("draw_collider: no matching type")
     }
 }

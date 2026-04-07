@@ -25,6 +25,7 @@ pub struct GameObjectsPlugin;
 impl Plugin for GameObjectsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
+            .register_type::<net::message::NetworkID>()
             .init_resource::<messages::GameMessages>()
             .add_systems(
                 PreUpdate,

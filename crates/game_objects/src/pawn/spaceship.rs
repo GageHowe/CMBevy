@@ -90,7 +90,11 @@ impl GameObject for SpaceshipPawnComponent {
                 ))
                 .angular_damping(0.5)
                 .build();
-            physics.insert_body(entity, rb)
+            let rb_handle = physics.insert_body(entity, rb);
+            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+                rb.set_rotation(transform.rotation, true);
+            }
+            rb_handle
         };
         attach_hull_collider(
             entity,

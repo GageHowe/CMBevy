@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 /// component to mark entities that should be networked.
 /// NetworkID is managed by the server.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Component, Hash)]
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Component, Hash, Reflect, Default,
+)]
+#[reflect(Component, Default)]
 pub struct NetworkID(pub u64);
 
 /// server-side resource that keeps track of the next available NetworkID to use
@@ -17,6 +20,10 @@ impl NetworkIDResource {
     pub fn next(&mut self) -> u64 {
         self.last_id += 1;
         self.last_id
+    }
+
+    pub fn reserve(&mut self, id: u64) {
+        self.last_id = self.last_id.max(id);
     }
 }
 

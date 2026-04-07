@@ -94,12 +94,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy::asset::AssetPlugin {
-            file_path: if cfg!(debug_assertions) {
-                "../assets"
-            } else {
-                "assets"
-            }
-            .to_string(),
+            file_path: game_objects::level::default_asset_dir().to_string(),
             ..default()
         })
         .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader

@@ -4,7 +4,6 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use camera::spawn_camera;
-use common::debug_println;
 pub use common::game_state::GameState;
 use game_objects::GameObjectsPlugin;
 use game_objects::pawn::vehicle::draw_driver_seat_debug;
@@ -181,7 +180,7 @@ fn main() {
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
     );
 
-    debug_println!("starting client...\n");
+    info!("starting client...");
     app.run();
 }
 

@@ -2,8 +2,8 @@ use crate::dispatch_game_object_on_death;
 use crate::pawn::biped::WeaponSlots;
 use crate::pawn::{HeldWeaponMap, ModeConfig, PendingRespawns, PlayerRegistry};
 use bevy::prelude::*;
+use common::NetworkID;
 use common::game_state::GameState;
-use common::{NetworkID, debug_println};
 use net::message::MsgType;
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_pos, step_physics};
@@ -126,7 +126,7 @@ pub fn apply_collision_damage(
                 if damage <= 0.0 {
                     continue;
                 }
-                debug_println!("collision impulse: {impulse:.2}  damage: {damage:.1}");
+                info!("collision impulse: {impulse:.2}  damage: {damage:.1}");
                 *damage_map.entry(entity).or_default() += damage;
             }
         }
