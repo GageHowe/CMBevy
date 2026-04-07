@@ -235,13 +235,7 @@ impl Plugin for BipedPlugin {
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
                 move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
-                biped_fire::<rifle::RifleComponent>
-                    .run_if(resource_exists::<ButtonInput<MouseButton>>),
-                biped_fire::<pistol::PistolComponent>
-                    .run_if(resource_exists::<ButtonInput<MouseButton>>),
-                biped_fire::<hail_mary::HailMaryComponent>
-                    .run_if(resource_exists::<ButtonInput<MouseButton>>),
-                biped_fire::<rpg::RpgComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
+                biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
                 toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 interact
@@ -921,12 +915,17 @@ fn toggle_flashlight(
 /// Forwards input to the possessed biped's active weapon each FixedPreUpdate tick.
 /// All fire logic (projectiles, sound, camera kick, networking) is handled by the weapon.
 #[cfg(feature = "client")]
-pub fn biped_fire<W: Weapon>(
+pub fn biped_fire(
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     pawn: Query<(Entity, &WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
-    mut weapons: Query<&mut W>,
+    mut weapons: ParamSet<(
+        Query<&mut rifle::RifleComponent>,
+        Query<&mut pistol::PistolComponent>,
+        Query<&mut hail_mary::HailMaryComponent>,
+        Query<&mut rpg::RpgComponent>,
+    )>,
     net_ids: Query<&NetworkID>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
@@ -942,9 +941,6 @@ pub fn biped_fire<W: Weapon>(
         return;
     };
     let Some(weapon_entity) = slots.active().1 else {
-        return;
-    };
-    let Ok(mut weapon) = weapons.get_mut(weapon_entity) else {
         return;
     };
     let Some(pitch_e) = biped.pitch_pivot else {
@@ -976,7 +972,15 @@ pub fn biped_fire<W: Weapon>(
         id_counter: id_counter.as_mut().map(|c| &mut c.count),
         predicted: predicted.as_deref_mut(),
     };
-    weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+    if let Ok(mut weapon) = weapons.p0().get_mut(weapon_entity) {
+        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+    } else if let Ok(mut weapon) = weapons.p1().get_mut(weapon_entity) {
+        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+    } else if let Ok(mut weapon) = weapons.p2().get_mut(weapon_entity) {
+        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+    } else if let Ok(mut weapon) = weapons.p3().get_mut(weapon_entity) {
+        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+    }
 }
 
 /// Viewmodel transform offset relative to the camera/pitch pivot.
