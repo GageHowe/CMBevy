@@ -12,36 +12,3 @@ linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 [target.aarch64-apple-darwin]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
-
-[profile.dev]
-opt-level = 1
-lto = false
-strip = "debuginfo" # speeds up linker
-
-# compile some dev depencencies with optimizations
-[profile.dev.package.rapier3d]
-opt-level = 3
-[profile.dev.package.parry3d]
-opt-level = 3
-[profile.dev.package.nalgebra]
-opt-level = 3
-[profile.dev.package.serde]
-opt-level = 3
-[profile.dev.package.postcard]
-opt-level = 3
-[profile.dev.package.zstd]
-opt-level = 3
-[profile.dev.package.bevy_ecs]
-opt-level = 3
-[profile.dev.package.bevy_transform]
-opt-level = 3
-
-[profile.release]
-opt-level = 3
-#debug = true
-lto = "thin"
-strip = true
-codegen-units = 1
-panic = "abort"
-
-# https://doc.rust-lang.org/beta/unstable-book/compiler-flags/debug_info_for_profiling.html

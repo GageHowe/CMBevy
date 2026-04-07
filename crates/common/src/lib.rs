@@ -8,7 +8,6 @@ pub mod ring_buffer;
 pub mod slow_update;
 pub mod tick;
 pub mod types;
-
 pub use input::*;
 pub use prediction::*;
 pub use types::*;

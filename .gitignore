@@ -5,3 +5,4 @@ dist/
 *.exe
 *.sqlite
 Cargo.lock
+perf.data*
