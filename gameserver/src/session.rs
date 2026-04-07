@@ -239,7 +239,12 @@ fn kill_player(
         .unwrap_or(Vec3::ZERO);
     for (wid, weapon_entity) in held_weapons {
         held_weapon_map.0.remove(&wid);
-        game_objects::weapon::helpers::place_world_weapon(world, weapon_entity, drop_pos);
+        game_objects::weapon::helpers::place_world_weapon(
+            world,
+            weapon_entity,
+            drop_pos,
+            Vec3::ZERO,
+        );
         quic.send(
             SendTarget::All,
             Channel::Ordered,
@@ -498,6 +503,45 @@ fn body_position(world: &PhysicsWorld, entity: Entity) -> Option<Vec3> {
         .map(rb_pos)
 }
 
+fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
+    world
+        .entity_to_handle
+        .get(&entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(|rb| rb_rot(rb) * Vec3::NEG_Z)
+        .unwrap_or(Vec3::NEG_Z)
+}
+
+fn weapon_drop_pose(world: &PhysicsWorld, player_entity: Entity) -> (Vec3, Vec3) {
+    let pos = body_position(world, player_entity).unwrap_or(Vec3::ZERO);
+    let forward = body_forward(world, player_entity);
+    (pos + forward, forward * 8.0)
+}
+
+fn drop_weapon(
+    weapon_id: NetworkID,
+    owner_id: NetworkID,
+    weapon_entity: Entity,
+    owner_entity: Entity,
+    world: &mut PhysicsWorld,
+    held_weapons: &mut HeldWeaponMap,
+    quic: &mut QuicManager,
+) {
+    let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity);
+    held_weapons.0.remove(&weapon_id);
+    game_objects::weapon::helpers::place_world_weapon(
+        world,
+        weapon_entity,
+        drop_pos,
+        drop_velocity,
+    );
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::WeaponDrop(weapon_id, owner_id, drop_pos),
+    );
+}
+
 fn try_vehicle_interact(
     conn_id: ConnectionId,
     player_entity: Entity,
@@ -621,19 +665,20 @@ fn try_weapon_interact(
         return;
     };
     if slots.is_full() {
-        let drop_pos = player_pos.unwrap_or(Vec3::ZERO);
         let Some((drop_id, drop_entity)) =
             game_objects::weapon::helpers::drop_active_slot(&mut slots)
         else {
             return;
         };
         drop(slots);
-        held_weapons.0.remove(&drop_id);
-        game_objects::weapon::helpers::place_world_weapon(world, drop_entity, drop_pos);
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::WeaponDrop(drop_id, player_net_id.clone(), drop_pos),
+        drop_weapon(
+            drop_id,
+            player_net_id.clone(),
+            drop_entity,
+            player_entity,
+            world,
+            held_weapons,
+            quic,
         );
         let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
             return;
@@ -657,6 +702,36 @@ fn try_weapon_interact(
         SendTarget::All,
         Channel::Ordered,
         &MsgType::WeaponPickup(target_net_id, player_net_id),
+    );
+}
+
+fn handle_drop_weapon(
+    conn_id: ConnectionId,
+    registry: &PlayerRegistry,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    held_weapons: &mut HeldWeaponMap,
+    world: &mut PhysicsWorld,
+    quic: &mut QuicManager,
+) {
+    let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
+        return;
+    };
+    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+        return;
+    };
+    let Some((weapon_id, weapon_entity)) = game_objects::weapon::helpers::drop_active_slot(&mut slots)
+    else {
+        return;
+    };
+    drop(slots);
+    drop_weapon(
+        weapon_id,
+        player_net_id.clone(),
+        weapon_entity,
+        player_entity,
+        world,
+        held_weapons,
+        quic,
     );
 }
 
@@ -852,6 +927,14 @@ fn process_server_message(
                 &mut sp.commands,
             );
         }
+        MsgType::DropWeapon => handle_drop_weapon(
+            conn_id,
+            registry,
+            &mut sp.pawn_slots,
+            &mut sp.held_weapons,
+            &mut sp.world,
+            quic,
+        ),
         MsgType::FireRequest {
             weapon: weapon_net_id,
             kind,

@@ -9,7 +9,7 @@ use super::{FireCtx, Weapon, helpers};
 
 const HULL_PATH: &str = "collision/placeholder_ar.obj";
 #[cfg(feature = "client")]
-const SCENE_PATH: &str = "models/Low Poly Firearms Bundle-glb/RPG Launcher.glb#Scene0";
+const SCENE_PATH: &str = "models/launcher_placeholder_2.glb#Scene0";
 
 pub const COOLDOWN_TICKS: u32 = 45;
 

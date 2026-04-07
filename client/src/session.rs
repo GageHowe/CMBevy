@@ -5,7 +5,6 @@ use common::GameObjectKind;
 use common::debug_println;
 use common::tick::{NetworkStats, Ticker};
 use game_objects::health::Health;
-use game_objects::interaction::Interactable;
 use game_objects::level::{
     LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
     default_asset_dir, load_level_source, read_cached_map, write_cached_map,
@@ -922,16 +921,14 @@ fn handle_weapon_drop(
     let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
         return;
     };
-    weapon_helpers::place_world_weapon(world, weapon_entity, drop_pos);
+    weapon_helpers::place_world_weapon(world, weapon_entity, drop_pos, Vec3::ZERO);
     if local_net_id == Some(carrier_id) {
         if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
             slots.remove_by_net_id(weapon_id);
         }
         weapon_helpers::detach_viewmodel(commands, world, weapon_entity);
     } else {
-        commands
-            .entity(weapon_entity)
-            .insert((Interactable { range: 2.0 }, Visibility::Inherited));
+        weapon_helpers::detach_viewmodel(commands, world, weapon_entity);
     }
 }
 
@@ -944,13 +941,17 @@ fn handle_projectile_confirm(
 ) {
     if let Some(entity) = predicted_projectiles.get(temp_id) {
         predicted_projectiles.remove_temp_id(temp_id);
-        commands.entity(entity).insert(net_id);
+        if let Ok(mut entity) = commands.get_entity(entity) {
+            entity.insert(net_id);
+        }
         return;
     }
     for (entity, state) in projectile_q.iter() {
         if state.temp_id == temp_id {
             predicted_projectiles.remove_temp_id(temp_id);
-            commands.entity(entity).insert(net_id);
+            if let Ok(mut entity) = commands.get_entity(entity) {
+                entity.insert(net_id);
+            }
             break;
         }
     }

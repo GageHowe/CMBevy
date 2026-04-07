@@ -14,7 +14,7 @@ pub const SPEED: f32 = 600.0;
 pub const DAMAGE: f32 = 25.0;
 pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
 const RADIUS: f32 = 0.03;
-const HIT_SPEED: f32 = 1.5;
+const HIT_IMPULSE: f32 = 1.5;
 const RECOIL_SPEED: f32 = 0.4;
 
 #[derive(Component, Reflect)]
@@ -71,12 +71,7 @@ impl Projectile for RifleProjectile {
         };
         let hit_point = prev + dir * toi;
         commands.entity(entity).despawn();
-        if let Some(&rb_handle) = world.entity_to_handle.get(&hit) {
-            if let Some(rb) = world.rigid_body_set.get(rb_handle) {
-                let impulse = dir * HIT_SPEED * rb.mass();
-                world.apply_game_impulse_at(hit, impulse, Some(hit_point), None, None);
-            }
-        }
+        world.apply_game_impulse_at(hit, dir * HIT_IMPULSE, Some(hit_point), None, None);
         if let Ok(mut health) = health_q.get_mut(hit) {
             health.apply_damage(DAMAGE);
         }

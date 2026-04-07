@@ -510,6 +510,9 @@ pub fn sync_physics_visual(
         let Some(body) = world.rigid_body_set.get(body_handle.0) else {
             continue;
         };
+        if !body.is_enabled() {
+            continue;
+        }
         let cur_pos = rb_pos(body);
         let cur_rot = rb_rot(body);
         let linvel = rb_vel(body);
@@ -535,9 +538,13 @@ pub fn sync_physics_to_transforms(
     mut query: Query<(&RigidBodyHandleComponent, &mut Transform)>,
 ) {
     for (body_handle, mut transform) in query.iter_mut() {
-        if let Some(body) = world.rigid_body_set.get(body_handle.0) {
-            transform.translation = rb_pos(body);
-            transform.rotation = rb_rot(body);
+        let Some(body) = world.rigid_body_set.get(body_handle.0) else {
+            continue;
+        };
+        if !body.is_enabled() {
+            continue;
         }
+        transform.translation = rb_pos(body);
+        transform.rotation = rb_rot(body);
     }
 }

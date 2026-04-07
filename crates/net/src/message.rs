@@ -31,6 +31,7 @@ pub enum MsgType {
     Possess(NetworkID),
     SeatState(NetworkID, Option<NetworkID>),
     Interact(NetworkID),
+    DropWeapon,
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
     FireRequest {

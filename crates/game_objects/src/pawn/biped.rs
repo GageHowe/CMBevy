@@ -213,7 +213,7 @@ impl GameObject for BipedPawnComponent {
             .unwrap_or_default();
         let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
-            crate::weapon::helpers::place_world_weapon(&mut physics, weapon_entity, drop_pos);
+            crate::weapon::helpers::place_world_weapon(&mut physics, weapon_entity, drop_pos, Vec3::ZERO);
         }
         true
     }
@@ -232,7 +232,6 @@ impl Plugin for BipedPlugin {
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
                 move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
-                switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
                 biped_fire::<rifle::RifleComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 biped_fire::<hail_mary::HailMaryComponent>
@@ -241,6 +240,7 @@ impl Plugin for BipedPlugin {
                 biped_fire::<tether::TetherGunComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 interact.run_if(
                     in_state(common::game_state::GameState::SinglePlayer)
                         .or(in_state(common::game_state::GameState::Multiplayer)),
@@ -261,7 +261,13 @@ impl Plugin for BipedPlugin {
         #[cfg(feature = "client")]
         {
             // re-parent camera under pitch pivot when a biped is possessed
-            app.add_systems(Update, attach_camera_on_possess);
+            app.add_systems(
+                Update,
+                (
+                    attach_camera_on_possess,
+                    switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
+                ),
+            );
         }
     }
 }
@@ -502,11 +508,12 @@ fn apply_camera_effects(
 #[cfg(feature = "client")]
 fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
+    egui_wants_input: Option<Res<EguiWantsInput>>,
     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
     mut visibility: Query<&mut Visibility>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
 ) {
-    if scroll.delta.y == 0.0 {
+    if scroll.delta.y == 0.0 || egui_wants_input.map_or(false, |e| e.wants_any_input()) {
         return;
     }
     let Ok(mut slots) = pawn.single_mut() else {
@@ -1065,6 +1072,20 @@ fn interact(
             let Ok(mut slots) = possessed_q.single_mut() else {
                 return;
             };
+            if slots.is_full()
+                && let Some((_drop_id, drop_entity)) =
+                    crate::weapon::helpers::drop_active_slot(&mut slots)
+            {
+                let drop_velocity =
+                    forward * 8.0 + crate::weapon::helpers::shooter_velocity(&world, Some(pawn_entity));
+                crate::weapon::helpers::detach_viewmodel(&mut commands, &world, drop_entity);
+                crate::weapon::helpers::place_world_weapon(
+                    &mut world,
+                    drop_entity,
+                    origin + forward,
+                    drop_velocity,
+                );
+            }
             let Some((is_primary, prev_to_hide)) = crate::weapon::helpers::assign_pickup_slot(
                 &mut slots,
                 interact_net_id.clone(),
@@ -1092,6 +1113,67 @@ fn interact(
                 net::quic::SendTarget::All,
                 net::quic::Channel::Ordered,
                 &net::message::MsgType::Interact(interact_net_id),
+            );
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "client")]
+fn drop_active_weapon(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Res<EguiWantsInput>,
+    state: Res<State<common::game_state::GameState>>,
+    player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
+    pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
+    mut slots_q: Query<&mut WeaponSlots, With<Possessed>>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    mut quic: ResMut<net::quic::QuicManager>,
+    mut drop_pressed: Local<bool>,
+) {
+    use common::game_state::GameState;
+    if egui_wants.wants_any_input()
+        || !consume_fixed_press(keyboard.pressed(KeyCode::KeyP), &mut drop_pressed)
+    {
+        return;
+    }
+    match state.get() {
+        GameState::Multiplayer => {
+            quic.send(
+                net::quic::SendTarget::All,
+                net::quic::Channel::Ordered,
+                &net::message::MsgType::DropWeapon,
+            );
+        }
+        GameState::SinglePlayer => {
+            let Ok((pawn_entity, biped)) = player.single() else {
+                return;
+            };
+            let Ok(mut slots) = slots_q.single_mut() else {
+                return;
+            };
+            let Some((_weapon_id, weapon_entity)) =
+                crate::weapon::helpers::drop_active_slot(&mut slots)
+            else {
+                return;
+            };
+            let Some(pitch_e) = biped.pitch_pivot else {
+                return;
+            };
+            let Ok(pivot_gt) = pitch_pivots.get(pitch_e) else {
+                return;
+            };
+            let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
+            let forward = rot * Vec3::NEG_Z;
+            let drop_velocity =
+                forward * 8.0 + crate::weapon::helpers::shooter_velocity(&world, Some(pawn_entity));
+            crate::weapon::helpers::detach_viewmodel(&mut commands, &world, weapon_entity);
+            crate::weapon::helpers::place_world_weapon(
+                &mut world,
+                weapon_entity,
+                origin + forward,
+                drop_velocity,
             );
         }
         _ => {}

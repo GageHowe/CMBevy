@@ -171,8 +171,19 @@ pub fn drop_active_slot(slots: &mut WeaponSlots) -> Option<(NetworkID, Entity)> 
     Some((active.0.take()?, active.1.take()?))
 }
 
-pub fn place_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity, drop_pos: Vec3) {
+pub fn place_world_weapon(
+    world: &mut PhysicsWorld,
+    weapon_entity: Entity,
+    drop_pos: Vec3,
+    drop_velocity: Vec3,
+) {
     world.teleport_body(weapon_entity, drop_pos);
+    if let Some(&handle) = world.entity_to_handle.get(&weapon_entity)
+        && let Some(rb) = world.rigid_body_set.get_mut(handle)
+    {
+        rb.set_linvel(Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z), true);
+        rb.set_angvel(Vector3::ZERO, true);
+    }
     world.set_body_enabled(weapon_entity, true);
 }
 
@@ -189,7 +200,7 @@ pub fn attach_local_viewmodel(
 ) {
     commands
         .entity(weapon_entity)
-        .remove::<(RigidBodyHandleComponent, crate::interaction::Interactable)>()
+        .remove::<crate::interaction::Interactable>()
         .set_parent_in_place(parent)
         .insert(viewmodel_offset(is_primary))
         .insert(Visibility::Inherited);
