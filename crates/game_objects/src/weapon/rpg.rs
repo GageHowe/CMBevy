@@ -5,7 +5,7 @@ use rapier3d::prelude::*;
 use crate::projectile::{helpers as projectile_helpers, rpg};
 use crate::{GameObject, GameObjectKind};
 
-use super::{FireCtx, Weapon, helpers};
+use super::{FireCtx, Weapon, helpers, weapon_bundle};
 
 pub const COOLDOWN_TICKS: u32 = 45;
 
@@ -74,6 +74,7 @@ impl Weapon for RpgComponent {
 
 impl GameObject for RpgComponent {
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let weapon = weapon_bundle(RpgComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
@@ -82,7 +83,7 @@ impl GameObject for RpgComponent {
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
-            RpgComponent::default(),
+            weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,

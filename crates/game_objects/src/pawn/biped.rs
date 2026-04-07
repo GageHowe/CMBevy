@@ -2,9 +2,7 @@
 use super::vehicle::{DriverSeat, VehicleComponent, enter_vehicle, ray_hits_cockpit};
 use super::*;
 #[cfg(feature = "client")]
-use crate::weapon::{FireCtx, Weapon};
-#[cfg(feature = "client")]
-use crate::weapon::{hail_mary, pistol, rifle, rpg};
+use crate::weapon::{WeaponDriver, WeaponFireInput};
 use crate::{GameObject, GameObjectKind, health::Health};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
@@ -920,27 +918,18 @@ pub fn biped_fire(
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     pawn: Query<(Entity, &WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
-    mut weapons: ParamSet<(
-        Query<&mut rifle::RifleComponent>,
-        Query<&mut pistol::PistolComponent>,
-        Query<&mut hail_mary::HailMaryComponent>,
-        Query<&mut rpg::RpgComponent>,
-    )>,
-    net_ids: Query<&NetworkID>,
-    mut world: ResMut<PhysicsWorld>,
+    drivers: Query<&WeaponDriver>,
     mut commands: Commands,
-    mut quic: Option<ResMut<net::quic::QuicManager>>,
-    mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
     ticker: Res<common::tick::Ticker>,
-    mut camera_fx: Query<(&mut CameraEffector, &GlobalTransform), With<Camera3d>>,
-    mut id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    mut predicted: Option<ResMut<common::PredictedCommands>>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
     let Ok((pawn_entity, slots, biped)) = pawn.single() else {
         return;
     };
     let Some(weapon_entity) = slots.active().1 else {
+        return;
+    };
+    let Ok(driver) = drivers.get(weapon_entity) else {
         return;
     };
     let Some(pitch_e) = biped.pitch_pivot else {
@@ -950,37 +939,14 @@ pub fn biped_fire(
         return;
     };
     let (_, _, origin) = pivot_gt.to_scale_rotation_translation();
-
-    // use camera's GlobalTransform for aim so kick offsets affect projectile direction
-    let Ok((mut cam_fx, cam_gt)) = camera_fx.single_mut() else {
-        return;
-    };
-    let (_, cam_rot, _) = cam_gt.to_scale_rotation_translation();
-    let mut ctx = FireCtx {
+    commands.run_system_with(driver.fixed_update, WeaponFireInput {
         weapon: weapon_entity,
         want_fire: !blocked && mouse.pressed(MouseButton::Left),
         want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
         origin,
-        aim_dir: cam_rot * Vec3::NEG_Z,
-        shooter: Some(pawn_entity),
+        shooter: pawn_entity,
         tick: ticker.tick,
-        net_id: net_ids.get(weapon_entity).ok(),
-        shooter_net_id: net_ids.get(pawn_entity).ok(),
-        sound: sound_queue.as_deref_mut(),
-        camera: Some(&mut *cam_fx),
-        quic: quic.as_deref_mut(),
-        id_counter: id_counter.as_mut().map(|c| &mut c.count),
-        predicted: predicted.as_deref_mut(),
-    };
-    if let Ok(mut weapon) = weapons.p0().get_mut(weapon_entity) {
-        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
-    } else if let Ok(mut weapon) = weapons.p1().get_mut(weapon_entity) {
-        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
-    } else if let Ok(mut weapon) = weapons.p2().get_mut(weapon_entity) {
-        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
-    } else if let Ok(mut weapon) = weapons.p3().get_mut(weapon_entity) {
-        weapon.fixed_update(&mut world, &mut commands, &mut ctx);
-    }
+    });
 }
 
 /// Viewmodel transform offset relative to the camera/pitch pivot.

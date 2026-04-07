@@ -1,4 +1,4 @@
-use super::{FireCtx, Weapon, helpers};
+use super::{FireCtx, Weapon, helpers, weapon_bundle};
 use crate::projectile::{hail_mary, helpers as projectile_helpers};
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
@@ -102,6 +102,13 @@ impl GameObject for HailMaryComponent {
                 Visibility::Hidden,
             ))
             .id();
+        let weapon = weapon_bundle(
+            HailMaryComponent {
+                muzzle_flash_light: Some(light),
+                ..default()
+            },
+            world,
+        );
         helpers::insert_generic_weapon(
             entity,
             cmd,
@@ -110,10 +117,7 @@ impl GameObject for HailMaryComponent {
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
-            HailMaryComponent {
-                muzzle_flash_light: Some(light),
-                ..default()
-            },
+            weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
