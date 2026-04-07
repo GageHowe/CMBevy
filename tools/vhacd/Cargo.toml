@@ -1,0 +1,16 @@
+[package]
+name = "vhacd"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vhacd"
+path = "src/main.rs"
+
+[dependencies]
+gltf = "1"
+parry3d = "0.26"
+clap = { version = "4", features = ["derive"] }

@@ -1,5 +1,5 @@
 [package]
-name = "decomp"
+name = "coacd"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,10 +7,11 @@ edition = "2024"
 workspace = true
 
 [[bin]]
-name = "decomp"
+name = "coacd"
 path = "src/main.rs"
 
 [dependencies]
 gltf = "1"
-parry3d = "0.26"
+miniacd = { git = "https://github.com/kylc/miniacd" }
+glamx = "0.1"
 clap = { version = "4", features = ["derive"] }
