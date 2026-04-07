@@ -15,8 +15,15 @@ use session::ServerSessionPlugin;
 
 fn parse_args() -> (SocketAddr, String, String) {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
-    let mut map = "maps/default.ron".to_string(); // asset-relative; load_server_level prepends the asset dir for fs reads
-    let mut gametype = "assets/gametypes/default.lua".to_string();
+    let mut map = format!(
+        "maps/{}",
+        first_asset_name("maps", "ron").expect("no maps found in assets/maps")
+    );
+    let mut gametype = format!(
+        "{}/gametypes/{}",
+        game_objects::level::default_asset_dir(),
+        first_asset_name("gametypes", "lua").expect("no gametypes found in assets/gametypes")
+    );
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -39,6 +46,23 @@ fn parse_args() -> (SocketAddr, String, String) {
         }
     }
     (addr.parse().unwrap(), map, gametype)
+}
+
+fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
+    let asset_dir = game_objects::level::default_asset_dir();
+    let mut names: Vec<String> = std::fs::read_dir(format!("{asset_dir}/{dir}"))
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|x| x == ext))
+        .filter_map(|entry| {
+            entry
+                .path()
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .collect();
+    names.sort();
+    names.into_iter().next()
 }
 
 /// Responds to UDP "discover" probes so LAN clients can find this server.

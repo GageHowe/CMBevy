@@ -5,13 +5,12 @@ use game_objects::health::{Health, handle_deaths};
 use game_objects::level::{
     LevelBytes, PendingMapScene, SpawnPoint, default_asset_dir, load_level_source,
 };
-use game_objects::lifecycle::{pick_spawn_point, spawn_game_object};
+use game_objects::lifecycle::{pick_spawn_point_with_velocity, spawn_game_object};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::vehicle::*;
 use game_objects::pawn::{
     HeldWeaponMap, ModeConfig, PawnInputKind, PendingRespawns, PlayerRegistry, SeatedInVehicle,
 };
-use game_objects::weapon::tether::{TetherEndpoint, TetherGunComponent};
 use game_objects::*;
 use net::message::{
     GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand,
@@ -133,38 +132,7 @@ impl Plugin for ServerSessionPlugin {
                     .after(step_physics)
                     .before(broadcast_tick),
             )
-            .add_systems(
-                FixedUpdate,
-                broadcast_tether_updates
-                    .after(step_physics)
-                    .before(broadcast_tick),
-            )
             .add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
-    }
-}
-
-fn tether_endpoint_net(
-    endpoint: TetherEndpoint,
-    net_ids: &Query<&NetworkID>,
-) -> Option<(NetworkID, Vec3)> {
-    Some((net_ids.get(endpoint.entity).ok()?.clone(), endpoint.local_anchor))
-}
-
-fn broadcast_tether_updates(
-    mut quic: ResMut<QuicManager>,
-    weapons: Query<(&NetworkID, &TetherGunComponent), Changed<TetherGunComponent>>,
-    net_ids: Query<&NetworkID>,
-) {
-    for (weapon_id, weapon) in &weapons {
-        quic.send(
-            SendTarget::All,
-            Channel::Unordered,
-            &MsgType::TetherState {
-                weapon: weapon_id.clone(),
-                left: weapon.left.and_then(|endpoint| tether_endpoint_net(endpoint, &net_ids)),
-                right: weapon.right.and_then(|endpoint| tether_endpoint_net(endpoint, &net_ids)),
-            },
-        );
     }
 }
 
@@ -173,6 +141,7 @@ fn spawn_player(
     kind: GameObjectKind,
     spawn_pos: Vec3,
     spawn_rot: Quat,
+    spawn_vel: Vec3,
     quic: &mut QuicManager,
     registry: &mut PlayerRegistry,
     net_ids: &mut NetworkIDResource,
@@ -180,13 +149,7 @@ fn spawn_player(
     tick: u64,
 ) {
     let (entity, net_id, spawn_cmd) = spawn_game_object(
-        kind,
-        spawn_pos,
-        spawn_rot,
-        Vec3::ZERO,
-        tick,
-        commands,
-        net_ids,
+        kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
     );
 
     for &other_conn_id in registry.by_conn.keys() {
@@ -289,7 +252,7 @@ fn handle_connected(
         teams.len().max(1)
     };
     let team = (registry.by_conn.len() % num_teams) as u8;
-    let Some((sp, sr)) = pick_spawn_point(
+    let Some((sp, sr, sv)) = pick_spawn_point_with_velocity(
         spawn_points,
         parent_transforms,
         parent_parents,
@@ -341,6 +304,7 @@ fn handle_connected(
         GameObjectKind::Biped,
         sp,
         sr,
+        sv,
         quic,
         registry,
         net_ids,
@@ -450,6 +414,7 @@ fn handle_interact(
     conn_id: ConnectionId,
     target_net_id: NetworkID,
     registry: &mut PlayerRegistry,
+    pending_inputs: &PendingInputs,
     all_networked: &NetworkEntityMap,
     quic: &mut QuicManager,
     world: &mut PhysicsWorld,
@@ -492,6 +457,12 @@ fn handle_interact(
         world,
         held_weapons,
         pawn_slots,
+        pending_inputs
+            .0
+            .get(&conn_id)
+            .map(|(_, input)| input)
+            .and_then(|input| biped_aim_dir(world, player_entity, Some(input)))
+            .unwrap_or_else(|| body_forward(world, player_entity)),
     );
 }
 
@@ -512,10 +483,39 @@ fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
         .unwrap_or(Vec3::NEG_Z)
 }
 
-fn weapon_drop_pose(world: &PhysicsWorld, player_entity: Entity) -> (Vec3, Vec3) {
+fn weapon_drop_pose(world: &PhysicsWorld, player_entity: Entity, drop_dir: Vec3) -> (Vec3, Vec3) {
     let pos = body_position(world, player_entity).unwrap_or(Vec3::ZERO);
-    let forward = body_forward(world, player_entity);
-    (pos + forward, forward * 8.0)
+    let forward = drop_dir
+        .normalize_or_zero()
+        .try_normalize()
+        .unwrap_or_else(|| body_forward(world, player_entity));
+    let velocity = world
+        .entity_to_handle
+        .get(&player_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(rb_vel)
+        .unwrap_or(Vec3::ZERO);
+    (pos + forward, velocity + forward * 8.0)
+}
+
+fn biped_aim_dir(
+    world: &PhysicsWorld,
+    entity: Entity,
+    input: Option<&PawnInputKind>,
+) -> Option<Vec3> {
+    let PawnInputKind::Biped(input) = input? else {
+        return None;
+    };
+    world
+        .entity_to_handle
+        .get(&entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(|rb| {
+            rb_rot(rb)
+                * Quat::from_rotation_y(input.look_yaw)
+                * Quat::from_rotation_x(input.look_pitch)
+                * Vec3::NEG_Z
+        })
 }
 
 fn drop_weapon(
@@ -523,11 +523,12 @@ fn drop_weapon(
     owner_id: NetworkID,
     weapon_entity: Entity,
     owner_entity: Entity,
+    drop_dir: Vec3,
     world: &mut PhysicsWorld,
     held_weapons: &mut HeldWeaponMap,
     quic: &mut QuicManager,
 ) {
-    let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity);
+    let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity, drop_dir);
     held_weapons.0.remove(&weapon_id);
     game_objects::weapon::helpers::place_world_weapon(
         world,
@@ -652,6 +653,7 @@ fn try_weapon_interact(
     world: &mut PhysicsWorld,
     held_weapons: &mut HeldWeaponMap,
     pawn_slots: &mut Query<&mut WeaponSlots>,
+    drop_dir: Vec3,
 ) {
     if held_weapons.0.contains_key(&target_net_id) {
         return;
@@ -676,6 +678,7 @@ fn try_weapon_interact(
             player_net_id.clone(),
             drop_entity,
             player_entity,
+            drop_dir,
             world,
             held_weapons,
             quic,
@@ -712,6 +715,7 @@ fn handle_drop_weapon(
     held_weapons: &mut HeldWeaponMap,
     world: &mut PhysicsWorld,
     quic: &mut QuicManager,
+    drop_dir: Vec3,
 ) {
     let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
         return;
@@ -719,7 +723,8 @@ fn handle_drop_weapon(
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
         return;
     };
-    let Some((weapon_id, weapon_entity)) = game_objects::weapon::helpers::drop_active_slot(&mut slots)
+    let Some((weapon_id, weapon_entity)) =
+        game_objects::weapon::helpers::drop_active_slot(&mut slots)
     else {
         return;
     };
@@ -729,6 +734,7 @@ fn handle_drop_weapon(
         player_net_id.clone(),
         weapon_entity,
         player_entity,
+        drop_dir,
         world,
         held_weapons,
         quic,
@@ -916,6 +922,7 @@ fn process_server_message(
                 conn_id,
                 target_net_id,
                 registry,
+                pending_inputs,
                 &sp.all_networked,
                 quic,
                 &mut sp.world,
@@ -927,13 +934,14 @@ fn process_server_message(
                 &mut sp.commands,
             );
         }
-        MsgType::DropWeapon => handle_drop_weapon(
+        MsgType::DropWeapon(drop_dir) => handle_drop_weapon(
             conn_id,
             registry,
             &mut sp.pawn_slots,
             &mut sp.held_weapons,
             &mut sp.world,
             quic,
+            drop_dir,
         ),
         MsgType::FireRequest {
             weapon: weapon_net_id,
@@ -1050,7 +1058,7 @@ fn tick_respawns(
         .collect();
     for (conn_id, kind) in ready {
         pending.0.remove(&conn_id);
-        let Some((sp, sr)) = pick_spawn_point(
+        let Some((sp, sr, sv)) = pick_spawn_point_with_velocity(
             &spawn_points,
             &parent_transforms,
             &parent_parents,
@@ -1066,6 +1074,7 @@ fn tick_respawns(
             kind,
             sp,
             sr,
+            sv,
             &mut quic,
             &mut registry,
             &mut net_ids,

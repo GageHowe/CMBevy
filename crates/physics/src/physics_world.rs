@@ -202,6 +202,38 @@ impl PhysicsWorld {
         }
     }
 
+    pub fn predicted_body_point(
+        &self,
+        entity: Entity,
+        local_point: Vec3,
+    ) -> Option<(Vec3, Quat, Vec3, Vec3)> {
+        let rb = self
+            .entity_to_handle
+            .get(&entity)
+            .and_then(|&handle| self.rigid_body_set.get(handle))?;
+        let linvel = rb_vel(rb);
+        let angvel = rb_angvel(rb);
+        let predicted = rb.predict_position_using_velocity(self.integration_parameters.dt);
+        let predicted_pos = Vec3::new(
+            predicted.translation.x,
+            predicted.translation.y,
+            predicted.translation.z,
+        );
+        let predicted_rot = Quat::from_xyzw(
+            predicted.rotation.x,
+            predicted.rotation.y,
+            predicted.rotation.z,
+            predicted.rotation.w,
+        );
+        let offset = predicted_rot * local_point;
+        Some((
+            predicted_pos + offset,
+            predicted_rot,
+            linvel + angvel.cross(offset),
+            angvel,
+        ))
+    }
+
     /// Shared gameplay impulse path so callers don't have to manually keep prediction in sync.
     pub fn apply_game_impulse(
         &mut self,

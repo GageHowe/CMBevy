@@ -4,15 +4,14 @@ use bevy::prelude::*;
 use common::PredictedCommands;
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
-use rapier3d::prelude::{Ball, Collider, ColliderHandle, Group, Pose, QueryFilter};
+use rapier3d::prelude::{Ball, Collider, ColliderHandle, Pose, QueryFilter};
 
 use crate::GameObject;
 use crate::health::Health;
 
-use super::{
-    Projectile, ProjectileState, insert_generic_remote_projectile, make_generic_projectile_physics,
-    tick_projectiles,
-};
+#[cfg(feature = "client")]
+use super::ProjectileState;
+use super::{Projectile, helpers, tick_projectiles};
 use common::GameObjectKind;
 
 pub const SPEED: f32 = 60.0;
@@ -245,28 +244,24 @@ pub fn spawn(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    let entity = commands
-        .spawn((
-            GameObjectKind::RpgProjectile,
-            RpgProjectile {
-                shooter,
-                lifetime: LIFETIME,
-            },
-            ProjectileState { temp_id },
-            Transform::from_translation(origin),
-        ))
-        .id();
-    let rb_handle =
-        make_generic_projectile_physics(entity, origin, velocity, RADIUS, Group::NONE, world);
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
-    entity
+    helpers::spawn_projectile(
+        GameObjectKind::RpgProjectile,
+        RpgProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
+        origin,
+        velocity,
+        RADIUS,
+        temp_id,
+        commands,
+        world,
+    )
 }
 
 impl GameObject for RpgProjectile {
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-        insert_generic_remote_projectile(
+        helpers::insert_remote_projectile(
             entity,
             cmd,
             world,

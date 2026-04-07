@@ -236,14 +236,7 @@ pub fn maybe_reconcile(
     let our_rb = our_handle;
     for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
         if let Some(command) = predicted.get(replay_seq).cloned() {
-            apply_predicted_command(
-                &mut world,
-                &pairs,
-                our_net_id,
-                our_rb,
-                command,
-                &mut pawn_q,
-            );
+            apply_predicted_command(&mut world, &pairs, our_net_id, our_rb, command, &mut pawn_q);
         }
         apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);
         apply_gravity_impulses(&mut world, &gravity_sources, &gravity_scales, &seated);

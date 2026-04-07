@@ -5,12 +5,11 @@ pub use common::GameObjectKind;
 use net::message::*;
 use net::quic::*;
 use physics::physics_world::*;
-use rapier3d::prelude::{Group, RigidBodyBuilder, Vector};
 
 pub mod hail_mary;
+pub mod helpers;
 pub mod rifle;
 pub mod rpg;
-pub mod tether;
 
 pub struct FiredProjectile {
     pub net_id: NetworkID,
@@ -22,9 +21,9 @@ macro_rules! for_each_projectile_type {
         $m!(
             $($args)*
             rifle::RifleProjectile,
+            rifle::PistolProjectile,
             hail_mary::HailMaryProjectile,
-            rpg::RpgProjectile,
-            tether::TetherHookProjectile
+            rpg::RpgProjectile
         )
     };
 }
@@ -45,9 +44,9 @@ macro_rules! fire_authoritative_match {
     ) => {
         match $kind {
             $(
-                <$ty as Projectile>::KIND => Some(<$ty as Projectile>::fire_authoritative(
+                <$ty as Projectile>::KIND => <$ty as Projectile>::fire_authoritative(
                     $origin, $dir, $shooter, $tick, $weapon, $temp_id, $commands, $world, $net_ids,
-                )),
+                ),
             )+
             _ => None,
         }
@@ -73,7 +72,6 @@ impl Plugin for ProjectilePlugin {
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
             rpg::RpgProjectilePlugin,
-            tether::TetherHookProjectilePlugin,
         ));
     }
 }
@@ -97,68 +95,13 @@ pub fn fire_authoritative(
     for_each_projectile_type!(fire_authoritative_match kind, origin, dir, shooter, tick, weapon, temp_id, commands, world, net_ids;)
 }
 
-pub fn make_generic_projectile_physics(
-    entity: Entity,
-    origin: Vec3,
-    velocity: Vec3,
-    _radius: f32,
-    _solver_memberships: Group,
-    world: &mut PhysicsWorld,
-) -> RigidBodyHandle {
-    world.insert_body(
-        entity,
-        RigidBodyBuilder::kinematic_velocity_based()
-            .translation(origin)
-            .linvel(Vector::new(velocity.x, velocity.y, velocity.z))
-            .ccd_enabled(true)
-            .build(),
-    )
-}
-
-pub fn insert_generic_remote_projectile(
-    entity: Entity,
-    cmd: &SpawnCommand,
-    world: &mut World,
-    projectile: impl Bundle,
-    radius: f32,
-    fire_sound: &'static str,
-) {
-    world.entity_mut(entity).insert((
-        cmd.kind.clone(),
-        projectile,
-        ProjectileState { temp_id: 0 },
-        Transform::from_translation(cmd.position),
-        cmd.net_id.clone(),
-    ));
-    let rb_handle = {
-        let mut physics = world.resource_mut::<PhysicsWorld>();
-        make_generic_projectile_physics(
-            entity,
-            cmd.position,
-            cmd.starting_velocity,
-            radius,
-            Group::ALL & !GROUP_PLAYER,
-            &mut physics,
-        )
-    };
-    world
-        .entity_mut(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
-    if let Some(mut sq) = world.get_resource_mut::<crate::sound::SoundQueue>() {
-        sq.0.push(crate::sound::SoundRequest {
-            event: fire_sound,
-            position: Some(cmd.position),
-            velocity: Vec3::ZERO,
-        });
-    }
-}
-
 /// Per-projectile-type behavior. Analogous to Weapon / Pawn.
 /// The implementing type IS the component (fields: shooter, lifetime, etc.).
 /// Requires GameObject so spawn-from-SpawnCommand is also defined per type.
 pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
     const KIND: GameObjectKind;
     const SPEED: f32;
+    const IMPULSE: f32 = 0.0;
     /// Handles lifetime, hit detection, and on-hit effects.
     /// Server-side / singleplayer only — caller registers with appropriate run_if.
     fn tick(
@@ -182,15 +125,10 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         net_ids: &mut net::message::NetworkIDResource,
-    ) -> FiredProjectile {
-        let shooter_velocity = world
-            .entity_to_handle
-            .get(&shooter)
-            .and_then(|&h| world.rigid_body_set.get(h))
-            .map(rb_vel)
-            .unwrap_or(Vec3::ZERO);
+    ) -> Option<FiredProjectile> {
         Self::on_authoritative_fire(dir, shooter, world);
-        let starting_velocity = dir * Self::SPEED + shooter_velocity;
+        let starting_velocity =
+            helpers::projectile_velocity(world, Some(shooter), dir, Self::SPEED);
         let entity = Self::spawn_predicted(
             origin,
             starting_velocity,
@@ -202,7 +140,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         );
         let net_id = NetworkID(net_ids.next());
         commands.entity(entity).insert(net_id.clone());
-        FiredProjectile {
+        Some(FiredProjectile {
             net_id: net_id.clone(),
             spawn_cmd: SpawnCommand {
                 net_id,
@@ -212,7 +150,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
                 server_tick: tick,
                 kind: Self::KIND,
             },
-        }
+        })
     }
 
     fn spawn_predicted(

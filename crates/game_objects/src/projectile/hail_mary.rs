@@ -1,7 +1,4 @@
-use super::{
-    Projectile, ProjectileState, insert_generic_remote_projectile, make_generic_projectile_physics,
-    tick_projectiles,
-};
+use super::{Projectile, helpers, tick_projectiles};
 use crate::GameObject;
 use crate::health::Health;
 use crate::sound::SoundEmitter;
@@ -9,7 +6,6 @@ use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
-use rapier3d::prelude::*;
 
 pub const SPEED: f32 = 600.0;
 pub const DAMAGE: f32 = 100.0;
@@ -33,6 +29,7 @@ impl Default for HailMaryProjectile {
 impl Projectile for HailMaryProjectile {
     const KIND: GameObjectKind = GameObjectKind::HailMaryProjectile;
     const SPEED: f32 = SPEED;
+    const IMPULSE: f32 = 1.5;
 
     fn tick(
         &mut self,
@@ -42,31 +39,22 @@ impl Projectile for HailMaryProjectile {
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
     ) {
-        self.lifetime = self.lifetime.saturating_sub(1);
-        if self.lifetime == 0 {
-            commands.entity(entity).despawn();
-            return;
-        }
-        let Some(rb) = world.rigid_body_set.get(body.0) else {
-            return;
-        };
-        let vel = rb_vel(rb);
-        let dt = world.integration_parameters.dt;
-        let step = vel.length() * dt;
-        if step < 0.001 {
-            return;
-        }
-        let curr = rb_pos(rb);
-        let prev = curr - vel * dt;
-        // exclude both self and shooter so the ray isn't blocked by the shooter's capsule on spawn
-        let exclude = [entity, self.shooter.unwrap_or(entity)];
-        let Some((hit, _)) = world.cast_ray(prev, vel.normalize(), step, &exclude) else {
+        let Some(hit) = helpers::tick_raycast_projectile(
+            &mut self.lifetime,
+            self.shooter,
+            entity,
+            body,
+            world,
+            commands,
+        ) else {
             return;
         };
-        commands.entity(entity).despawn();
-        if let Ok(mut health) = health_q.get_mut(hit) {
-            health.apply_damage(DAMAGE);
-        }
+        helpers::apply_raycast_hit::<Self>(hit, world, health_q, DAMAGE);
+    }
+
+    fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
+        let impulse = helpers::recoil_impulse::<Self>(dir, 1.0);
+        world.apply_game_impulse(shooter, impulse, None, None);
     }
 
     fn spawn_predicted(
@@ -92,26 +80,24 @@ pub fn spawn(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    let entity = commands
-        .spawn((
-            GameObjectKind::HailMaryProjectile,
+    let entity = helpers::spawn_projectile(
+        GameObjectKind::HailMaryProjectile,
+        (
             HailMaryProjectile {
                 shooter,
                 lifetime: LIFETIME,
             },
-            ProjectileState { temp_id },
-            Transform::from_translation(origin),
             SoundEmitter {
                 event: "event:/Weapons/SniperProjectileSound",
             },
-        ))
-        .id();
-    // no solver contacts here because projectile hit detection is manual via cast_ray.
-    let rb_handle =
-        make_generic_projectile_physics(entity, origin, velocity, RADIUS, Group::NONE, world);
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
+        ),
+        origin,
+        velocity,
+        RADIUS,
+        temp_id,
+        commands,
+        world,
+    );
     // add point light
     let light = commands
         .spawn((
@@ -133,7 +119,7 @@ pub fn spawn(
 /// starting_velocity already includes the shooter's velocity, computed server-side.
 impl GameObject for HailMaryProjectile {
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-        insert_generic_remote_projectile(
+        helpers::insert_remote_projectile(
             entity,
             cmd,
             world,

@@ -10,16 +10,8 @@ use crate::pawn::biped::viewmodel_offset;
 use crate::sound::{SoundQueue, SoundRequest};
 #[cfg(feature = "client")]
 use crate::weapon::FireCtx;
-use crate::weapon::{WeaponComponent, WeaponCrosshair};
+use crate::weapon::{AimReticle, WeaponComponent};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
-
-pub fn shooter_velocity(world: &PhysicsWorld, shooter: Option<Entity>) -> Vec3 {
-    shooter
-        .and_then(|e| world.entity_to_handle.get(&e).copied())
-        .and_then(|h| world.rigid_body_set.get(h))
-        .map(rb_vel)
-        .unwrap_or(Vec3::ZERO)
-}
 
 pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
     shooter
@@ -27,24 +19,6 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
         .and_then(|h| world.rigid_body_set.get(h))
         .map(|rb| rb.mass())
         .unwrap_or(0.0)
-}
-
-pub fn projectile_velocity(
-    world: &PhysicsWorld,
-    shooter: Option<Entity>,
-    aim_dir: Vec3,
-    speed: f32,
-) -> Vec3 {
-    aim_dir * speed + shooter_velocity(world, shooter)
-}
-
-pub fn next_temp_id(id_counter: Option<&mut u32>) -> u32 {
-    id_counter
-        .map(|counter| {
-            *counter = counter.wrapping_add(1);
-            *counter
-        })
-        .unwrap_or(0)
 }
 
 pub fn queue_fire_sound(
@@ -94,7 +68,12 @@ pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld
     let (Some(shooter), Some(shooter_net_id)) = (ctx.shooter, ctx.shooter_net_id) else {
         return;
     };
-    world.apply_game_impulse(shooter, impulse, Some(shooter_net_id), ctx.predicted.as_deref_mut());
+    world.apply_game_impulse(
+        shooter,
+        impulse,
+        Some(shooter_net_id),
+        ctx.predicted.as_deref_mut(),
+    );
 }
 
 pub fn make_generic_weapon_physics(
@@ -129,13 +108,14 @@ pub fn insert_generic_weapon(
     cmd: &net::message::SpawnCommand,
     world: &mut World,
     kind: GameObjectKind,
+    _model_path: &'static str,
     crosshair_path: &'static str,
     prediction_projectile_speed: Option<f32>,
     weapon: impl Bundle,
 ) {
     world.entity_mut(entity).insert((
         WeaponComponent,
-        WeaponCrosshair(crosshair_path, prediction_projectile_speed),
+        AimReticle(crosshair_path, prediction_projectile_speed),
         kind,
         crate::interaction::Interactable { range: 2.0 },
         Transform {
@@ -146,6 +126,13 @@ pub fn insert_generic_weapon(
         cmd.net_id.clone(),
         weapon,
     ));
+    #[cfg(feature = "client")]
+    {
+        let scene = world.resource::<AssetServer>().load(_model_path);
+        world
+            .entity_mut(entity)
+            .insert((SceneRoot(scene), Visibility::default()));
+    }
 }
 
 pub fn assign_pickup_slot(
@@ -181,7 +168,10 @@ pub fn place_world_weapon(
     if let Some(&handle) = world.entity_to_handle.get(&weapon_entity)
         && let Some(rb) = world.rigid_body_set.get_mut(handle)
     {
-        rb.set_linvel(Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z), true);
+        rb.set_linvel(
+            Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z),
+            true,
+        );
         rb.set_angvel(Vector3::ZERO, true);
     }
     world.set_body_enabled(weapon_entity, true);

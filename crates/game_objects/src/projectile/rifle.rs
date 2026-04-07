@@ -1,27 +1,29 @@
-use super::{
-    Projectile, ProjectileState, insert_generic_remote_projectile, make_generic_projectile_physics,
-    tick_projectiles,
-};
+use super::{Projectile, helpers, tick_projectiles};
 use crate::GameObject;
 use crate::health::Health;
 use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
-use rapier3d::prelude::Group;
 
 pub const SPEED: f32 = 600.0;
 pub const DAMAGE: f32 = 25.0;
+pub const PISTOL_DAMAGE: f32 = 15.0;
 pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
 const RADIUS: f32 = 0.03;
-const HIT_IMPULSE: f32 = 1.5;
-const RECOIL_SPEED: f32 = 0.4;
 
 #[derive(Component, Reflect)]
 pub struct RifleProjectile {
     pub shooter: Option<Entity>,
     pub lifetime: u32,
 }
+
+#[derive(Component, Reflect)]
+pub struct PistolProjectile {
+    pub shooter: Option<Entity>,
+    pub lifetime: u32,
+}
+
 impl Default for RifleProjectile {
     fn default() -> Self {
         Self {
@@ -31,13 +33,19 @@ impl Default for RifleProjectile {
     }
 }
 
-pub fn weapon_recoil_impulse(mass: f32) -> f32 {
-    mass * RECOIL_SPEED
+impl Default for PistolProjectile {
+    fn default() -> Self {
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
+    }
 }
 
 impl Projectile for RifleProjectile {
     const KIND: GameObjectKind = GameObjectKind::RifleProjectile;
     const SPEED: f32 = SPEED;
+    const IMPULSE: f32 = 1.5;
 
     fn tick(
         &mut self,
@@ -47,44 +55,21 @@ impl Projectile for RifleProjectile {
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
     ) {
-        self.lifetime = self.lifetime.saturating_sub(1);
-        if self.lifetime == 0 {
-            commands.entity(entity).despawn();
-            return;
-        }
-        let Some(rb) = world.rigid_body_set.get(body.0) else {
-            return;
-        };
-        let vel = rb_vel(rb);
-        let dt = world.integration_parameters.dt;
-        let step = vel.length() * dt;
-        if step < 0.001 {
-            return;
-        }
-        let curr = rb_pos(rb);
-        let prev = curr - vel * dt;
-        // exclude both self and shooter so the ray isn't blocked by the shooter's capsule on spawn
-        let exclude = [entity, self.shooter.unwrap_or(entity)];
-        let dir = vel.normalize();
-        let Some((hit, toi)) = world.cast_ray(prev, dir, step, &exclude) else {
+        let Some(hit) = helpers::tick_raycast_projectile(
+            &mut self.lifetime,
+            self.shooter,
+            entity,
+            body,
+            world,
+            commands,
+        ) else {
             return;
         };
-        let hit_point = prev + dir * toi;
-        commands.entity(entity).despawn();
-        world.apply_game_impulse_at(hit, dir * HIT_IMPULSE, Some(hit_point), None, None);
-        if let Ok(mut health) = health_q.get_mut(hit) {
-            health.apply_damage(DAMAGE);
-        }
+        helpers::apply_raycast_hit::<Self>(hit, world, health_q, DAMAGE);
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        let Some(&rb_handle) = world.entity_to_handle.get(&shooter) else {
-            return;
-        };
-        let Some(rb) = world.rigid_body_set.get(rb_handle) else {
-            return;
-        };
-        let impulse = -dir * weapon_recoil_impulse(rb.mass());
+        let impulse = helpers::recoil_impulse::<Self>(dir, 1.0);
         world.apply_game_impulse(shooter, impulse, None, None);
     }
 
@@ -101,6 +86,50 @@ impl Projectile for RifleProjectile {
     }
 }
 
+impl Projectile for PistolProjectile {
+    const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
+    const SPEED: f32 = SPEED;
+    const IMPULSE: f32 = 1.5;
+
+    fn tick(
+        &mut self,
+        entity: Entity,
+        body: &RigidBodyHandleComponent,
+        world: &mut PhysicsWorld,
+        commands: &mut Commands,
+        health_q: &mut Query<&mut Health>,
+    ) {
+        let Some(hit) = helpers::tick_raycast_projectile(
+            &mut self.lifetime,
+            self.shooter,
+            entity,
+            body,
+            world,
+            commands,
+        ) else {
+            return;
+        };
+        helpers::apply_raycast_hit::<Self>(hit, world, health_q, PISTOL_DAMAGE);
+    }
+
+    fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
+        let impulse = helpers::recoil_impulse::<Self>(dir, 1.0);
+        world.apply_game_impulse(shooter, impulse, None, None);
+    }
+
+    fn spawn_predicted(
+        origin: Vec3,
+        velocity: Vec3,
+        commands: &mut Commands,
+        world: &mut PhysicsWorld,
+        shooter: Option<Entity>,
+        _weapon: Option<Entity>,
+        temp_id: u32,
+    ) -> Entity {
+        spawn_pistol(origin, velocity, commands, world, shooter, temp_id)
+    }
+}
+
 /// Spawns a rifle projectile (local prediction on client, authoritative on server).
 /// velocity = pre-computed velocity (SPEED * dir + shooter_vel).
 pub fn spawn(
@@ -111,35 +140,69 @@ pub fn spawn(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    let entity = commands
-        .spawn((
-            GameObjectKind::RifleProjectile,
-            RifleProjectile {
-                shooter,
-                lifetime: LIFETIME,
-            },
-            ProjectileState { temp_id },
-            Transform::from_translation(origin),
-        ))
-        .id();
-    // no solver contacts here because projectile hit detection is manual via cast_ray.
-    let rb_handle =
-        make_generic_projectile_physics(entity, origin, velocity, RADIUS, Group::NONE, world);
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
-    entity
+    helpers::spawn_projectile(
+        GameObjectKind::RifleProjectile,
+        RifleProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
+        origin,
+        velocity,
+        RADIUS,
+        temp_id,
+        commands,
+        world,
+    )
+}
+
+pub fn spawn_pistol(
+    origin: Vec3,
+    velocity: Vec3,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    shooter: Option<Entity>,
+    temp_id: u32,
+) -> Entity {
+    helpers::spawn_projectile(
+        GameObjectKind::PistolProjectile,
+        PistolProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
+        origin,
+        velocity,
+        RADIUS,
+        temp_id,
+        commands,
+        world,
+    )
 }
 
 /// Spawns a rifle projectile when a SpawnCommand arrives (other clients receiving server broadcast).
 /// starting_velocity already includes the shooter's velocity, computed server-side.
 impl GameObject for RifleProjectile {
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-        insert_generic_remote_projectile(
+        helpers::insert_remote_projectile(
             entity,
             cmd,
             world,
             RifleProjectile {
+                shooter: None,
+                lifetime: LIFETIME,
+            },
+            RADIUS,
+            "event:/Weapons/RifleShot",
+        );
+    }
+}
+
+impl GameObject for PistolProjectile {
+    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+        helpers::insert_remote_projectile(
+            entity,
+            cmd,
+            world,
+            PistolProjectile {
                 shooter: None,
                 lifetime: LIFETIME,
             },
@@ -156,21 +219,30 @@ impl Plugin for RifleProjectilePlugin {
         // run on the server (no GameState resource) and in singleplayer; skip on multiplayer client
         app.add_systems(
             FixedUpdate,
-            tick_projectiles::<RifleProjectile>
+            (
+                tick_projectiles::<RifleProjectile>,
+                tick_projectiles::<PistolProjectile>,
+            )
                 .after(step_physics)
                 .run_if(|state: Option<Res<State<GameState>>>| {
                     state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
                 }),
         );
         #[cfg(feature = "client")]
-        app.add_systems(bevy::prelude::Update, add_visual);
+        app.add_systems(
+            bevy::prelude::Update,
+            (
+                add_visual::<RifleProjectile>,
+                add_visual::<PistolProjectile>,
+            ),
+        );
     }
 }
 
-/// Adds a visible mesh to newly spawned rifle projectile entities (client-only).
+/// Adds a visible mesh to newly spawned rifle-style projectile entities (client-only).
 #[cfg(feature = "client")]
-fn add_visual(
-    q: Query<Entity, Added<RifleProjectile>>,
+fn add_visual<P: Component>(
+    q: Query<Entity, Added<P>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,

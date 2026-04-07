@@ -6,9 +6,9 @@ use physics::physics_world::PhysicsWorld;
 
 pub mod hail_mary;
 pub mod helpers;
+pub mod pistol;
 pub mod rifle;
 pub mod rpg;
-pub mod tether;
 
 /// Shared weapon plugin.
 pub struct WeaponPlugin;
@@ -17,9 +17,9 @@ impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             rifle::RiflePlugin,
+            pistol::PistolPlugin,
             hail_mary::HailMaryPlugin,
             rpg::RpgPlugin,
-            tether::TetherGunPlugin,
             crate::projectile::ProjectilePlugin,
         ));
     }
@@ -29,9 +29,9 @@ impl Plugin for WeaponPlugin {
 #[derive(Component)]
 pub struct WeaponComponent;
 
-/// UI reads this directly from the active weapon so crosshair selection stays weapon-owned.
+/// UI reads this from the active controllable object so reticle selection stays gameplay-owned.
 #[derive(Component, Clone, Copy)]
-pub struct WeaponCrosshair(pub &'static str, pub Option<f32>);
+pub struct AimReticle(pub &'static str, pub Option<f32>);
 
 /// All context a weapon's fixed_update may need: input buttons and output channels.
 /// Fields are optional so weapons compile and behave correctly on the server (no sound/camera).
@@ -62,6 +62,8 @@ pub struct FireCtx<'a> {
 /// Per-weapon-type firing logic. Implement on each weapon component.
 /// Weapons own their complete fire behavior: cooldowns, projectiles, sounds, camera kick, networking.
 pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Default {
+    const MODEL_PATH: &'static str;
+    const COLLIDER_PATH: &'static str;
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair013.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = None;
     /// Called every FixedPreUpdate tick when this weapon is the active slot.

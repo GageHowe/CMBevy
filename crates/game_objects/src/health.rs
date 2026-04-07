@@ -20,9 +20,7 @@ impl Plugin for HealthPlugin {
     }
 }
 
-fn death_authority(
-    state: Option<Res<State<GameState>>>,
-) -> bool {
+fn death_authority(state: Option<Res<State<GameState>>>) -> bool {
     #[cfg(feature = "client")]
     {
         state.is_some_and(|s| *s.get() == GameState::SinglePlayer)

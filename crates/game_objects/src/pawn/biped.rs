@@ -4,9 +4,7 @@ use super::*;
 #[cfg(feature = "client")]
 use crate::weapon::{FireCtx, Weapon};
 #[cfg(feature = "client")]
-use crate::weapon::{hail_mary, rifle, rpg};
-#[cfg(feature = "client")]
-use crate::weapon::tether;
+use crate::weapon::{hail_mary, pistol, rifle, rpg};
 use crate::{GameObject, GameObjectKind, health::Health};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
@@ -104,7 +102,7 @@ impl GameObject for BipedPawnComponent {
                 ))
                 .angular_damping(5.0)
                 .lock_rotations()
-                .ccd_enabled(true)
+                // .ccd_enabled(true) was causing issues with relative velocity
                 .build();
             let rb_handle = physics.insert_body(entity, capsule_rb);
             let capsule_collider = make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION);
@@ -213,7 +211,12 @@ impl GameObject for BipedPawnComponent {
             .unwrap_or_default();
         let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
-            crate::weapon::helpers::place_world_weapon(&mut physics, weapon_entity, drop_pos, Vec3::ZERO);
+            crate::weapon::helpers::place_world_weapon(
+                &mut physics,
+                weapon_entity,
+                drop_pos,
+                Vec3::ZERO,
+            );
         }
         true
     }
@@ -234,17 +237,19 @@ impl Plugin for BipedPlugin {
                 move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
                 biped_fire::<rifle::RifleComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
+                biped_fire::<pistol::PistolComponent>
+                    .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 biped_fire::<hail_mary::HailMaryComponent>
                     .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 biped_fire::<rpg::RpgComponent>.run_if(resource_exists::<ButtonInput<MouseButton>>),
-                biped_fire::<tether::TetherGunComponent>
-                    .run_if(resource_exists::<ButtonInput<MouseButton>>),
                 toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
-                interact.run_if(
-                    in_state(common::game_state::GameState::SinglePlayer)
-                        .or(in_state(common::game_state::GameState::Multiplayer)),
-                ),
+                interact
+                    .run_if(
+                        in_state(common::game_state::GameState::SinglePlayer)
+                            .or(in_state(common::game_state::GameState::Multiplayer)),
+                    )
+                    .run_if(resource_exists::<ButtonInput<KeyCode>>),
             )
                 .chain(),
         );
@@ -265,6 +270,7 @@ impl Plugin for BipedPlugin {
                 Update,
                 (
                     attach_camera_on_possess,
+                    hide_weapons_while_seated,
                     switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
                 ),
             );
@@ -813,11 +819,13 @@ pub fn apply_biped_movement(
 /// Runs in Update so commands from OnEnter/FixedPostUpdate have already flushed.
 #[cfg(feature = "client")]
 fn attach_camera_on_possess(
-    bipeds: Query<&BipedPawnComponent, Added<Possessed>>,
+    bipeds: Query<(&BipedPawnComponent, &WeaponSlots), Added<Possessed>>,
     camera: Query<(Entity, &Projection), With<Camera3d>>,
     mut commands: Commands,
 ) {
-    let Ok(biped) = bipeds.single() else { return };
+    let Ok((biped, slots)) = bipeds.single() else {
+        return;
+    };
     let Ok((cam, proj)) = camera.single() else {
         return;
     };
@@ -839,6 +847,37 @@ fn attach_camera_on_possess(
         },
     ));
     commands.entity(pitch_e).add_child(cam);
+    set_weapon_slot_visibility(&mut commands, slots);
+}
+
+#[cfg(feature = "client")]
+fn hide_weapons_while_seated(
+    seated: Query<&WeaponSlots, Added<super::SeatedInVehicle>>,
+    mut commands: Commands,
+) {
+    for slots in seated.iter() {
+        for weapon in [slots.primary.1, slots.pocket.1].into_iter().flatten() {
+            commands.entity(weapon).insert(Visibility::Hidden);
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+fn set_weapon_slot_visibility(commands: &mut Commands, slots: &WeaponSlots) {
+    if let Some(weapon) = slots.primary.1 {
+        commands.entity(weapon).insert(if slots.active_primary {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+    if let Some(weapon) = slots.pocket.1 {
+        commands.entity(weapon).insert(if slots.active_primary {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
+    }
 }
 
 /// Y key toggles the local player's flashlight. Sends FlashlightToggle to server when connected.
@@ -960,18 +999,16 @@ pub(crate) fn consume_fixed_press(is_down: bool, latched: &mut Local<bool>) -> b
 
 #[cfg(feature = "client")]
 fn interact(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    egui_wants: Res<EguiWantsInput>,
     state: Res<State<common::game_state::GameState>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     interactables: Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
-    camera: Query<Entity, With<Camera3d>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
-    mut interact_pressed: Local<bool>,
+    mut interaction: ResMut<InteractionGate>,
+    ticker: Res<common::tick::Ticker>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
     object_kinds: Query<&GameObjectKind>,
     mut cockpit_q: ParamSet<(
@@ -980,11 +1017,6 @@ fn interact(
     )>,
 ) {
     use common::game_state::GameState;
-    if egui_wants.wants_any_input()
-        || !consume_fixed_press(keyboard.pressed(KeyCode::KeyF), &mut interact_pressed)
-    {
-        return;
-    }
     let Ok((pawn_entity, biped)) = player.single() else {
         return;
     };
@@ -1015,6 +1047,9 @@ fn interact(
     }
 
     if let Some((_, cockpit_entity, vehicle_entity)) = cockpit_target {
+        if !interaction.consume_queued(ticker.tick) {
+            return;
+        }
         match state.get() {
             GameState::SinglePlayer => {
                 let mut cockpits = cockpit_q.p1();
@@ -1066,6 +1101,9 @@ fn interact(
         return;
     };
     let interact_net_id = interact_net_id.clone();
+    if !interaction.consume_queued(ticker.tick) {
+        return;
+    }
 
     match state.get() {
         GameState::SinglePlayer => {
@@ -1076,8 +1114,8 @@ fn interact(
                 && let Some((_drop_id, drop_entity)) =
                     crate::weapon::helpers::drop_active_slot(&mut slots)
             {
-                let drop_velocity =
-                    forward * 8.0 + crate::weapon::helpers::shooter_velocity(&world, Some(pawn_entity));
+                let drop_velocity = forward * 8.0
+                    + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
                 crate::weapon::helpers::detach_viewmodel(&mut commands, &world, drop_entity);
                 crate::weapon::helpers::place_world_weapon(
                     &mut world,
@@ -1096,12 +1134,11 @@ fn interact(
             if let Some(prev) = prev_to_hide {
                 commands.entity(prev).insert(Visibility::Hidden);
             }
-            let parent = camera.single().ok().or(biped.pitch_pivot).unwrap();
             crate::weapon::helpers::pickup_world_weapon(&mut world, hit_entity);
             crate::weapon::helpers::attach_local_viewmodel(
                 &mut commands,
                 hit_entity,
-                parent,
+                pitch_e,
                 is_primary,
             );
             if let Ok(kind) = object_kinds.get(hit_entity) {
@@ -1140,10 +1177,20 @@ fn drop_active_weapon(
     }
     match state.get() {
         GameState::Multiplayer => {
+            let Ok((_pawn_entity, biped)) = player.single() else {
+                return;
+            };
+            let Some(pitch_e) = biped.pitch_pivot else {
+                return;
+            };
+            let Ok(pivot_gt) = pitch_pivots.get(pitch_e) else {
+                return;
+            };
+            let (_, rot, _) = pivot_gt.to_scale_rotation_translation();
             quic.send(
                 net::quic::SendTarget::All,
                 net::quic::Channel::Ordered,
-                &net::message::MsgType::DropWeapon,
+                &net::message::MsgType::DropWeapon(rot * Vec3::NEG_Z),
             );
         }
         GameState::SinglePlayer => {
@@ -1166,8 +1213,8 @@ fn drop_active_weapon(
             };
             let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
             let forward = rot * Vec3::NEG_Z;
-            let drop_velocity =
-                forward * 8.0 + crate::weapon::helpers::shooter_velocity(&world, Some(pawn_entity));
+            let drop_velocity = forward * 8.0
+                + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
             crate::weapon::helpers::detach_viewmodel(&mut commands, &world, weapon_entity);
             crate::weapon::helpers::place_world_weapon(
                 &mut world,

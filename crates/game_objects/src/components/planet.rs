@@ -23,12 +23,6 @@ impl Default for GravityProfile {
 
 #[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
-pub struct PlanetComponent {
-    pub scene: Option<String>,
-}
-
-#[derive(Component, Serialize, Deserialize, Clone, Reflect, Default)]
-#[reflect(Component, Default)]
 pub struct GravitySource {
     pub inner_radius: u32,
     pub radius: u32,
@@ -40,15 +34,6 @@ pub struct GravitySource {
 pub struct SnapSource {
     pub inner_radius: u32,
     pub radius: u32,
-}
-
-pub fn spawn(
-    planet: PlanetComponent,
-    transform: Transform,
-    commands: &mut Commands,
-    _world: &mut PhysicsWorld,
-) -> Entity {
-    commands.spawn((planet, transform)).id()
 }
 
 pub fn apply_gravity_impulses(
@@ -91,14 +76,16 @@ pub fn apply_gravity_impulses(
                 &world.collider_set,
                 filter,
             );
-            let collider_handles: Vec<ColliderHandle> = qp
-                .intersect_shape(shape_pos, &shape)
-                .map(|(ch, _)| ch)
-                .collect();
-            collider_handles
-                .iter()
-                .filter_map(|ch| world.collider_set.get(*ch).and_then(|c| c.parent()))
-                .collect()
+            let mut handles = Vec::new();
+            for (ch, _) in qp.intersect_shape(shape_pos, &shape) {
+                let Some(rb_handle) = world.collider_set.get(ch).and_then(|c| c.parent()) else {
+                    continue;
+                };
+                if !handles.contains(&rb_handle) {
+                    handles.push(rb_handle);
+                }
+            }
+            handles
         };
 
         for rb_handle in affected_handles {
@@ -287,12 +274,7 @@ pub fn orient_bipeds_to_planets_impulses(
     }
 }
 
-fn orient_body_to_up(
-    rb: &mut RigidBody,
-    current_rot: Quat,
-    desired_up: Vec3,
-    dt: f32,
-) {
+fn orient_body_to_up(rb: &mut RigidBody, current_rot: Quat, desired_up: Vec3, dt: f32) {
     let current_forward = current_rot * Vec3::NEG_Z;
     let forward_proj = {
         let proj = current_forward - current_forward.dot(desired_up) * desired_up;
@@ -319,7 +301,11 @@ fn orient_body_to_up(
 #[cfg(feature = "client")]
 pub fn draw_planet_radii(
     sources: Query<
-        (Option<&GravitySource>, Option<&SnapSource>, &GlobalTransform),
+        (
+            Option<&GravitySource>,
+            Option<&SnapSource>,
+            &GlobalTransform,
+        ),
         Or<(With<GravitySource>, With<SnapSource>)>,
     >,
     mut gizmos: Gizmos,
@@ -361,36 +347,16 @@ pub fn draw_planet_radii(
     }
 }
 
-#[cfg(feature = "client")]
-fn spawn_planet_visuals(
-    mut commands: Commands,
-    planets: Query<(Entity, &PlanetComponent), Added<PlanetComponent>>,
-    asset_server: Res<AssetServer>,
-) {
-    for (entity, planet) in planets.iter() {
-        let Some(scene) = &planet.scene else {
-            continue;
-        };
-        commands.entity(entity).insert((
-            SceneRoot(asset_server.load(crate::asset_path::resolve_asset_path(scene))),
-            Visibility::default(),
-        ));
-    }
-}
-
 pub struct PlanetPlugin;
 
 impl Plugin for PlanetPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<GravityProfile>()
-            .register_type::<PlanetComponent>()
             .register_type::<GravitySource>()
             .register_type::<SnapSource>()
             .add_systems(
                 FixedUpdate,
                 (apply_gravity, orient_bipeds_to_planets).before(step_physics),
             );
-        #[cfg(feature = "client")]
-        app.add_systems(Update, spawn_planet_visuals);
     }
 }

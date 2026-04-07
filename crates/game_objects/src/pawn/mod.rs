@@ -46,6 +46,15 @@ impl CameraEffector {
     pub fn add_shake(&mut self, amount: f32) {
         self.shake += amount;
     }
+    pub fn current_zoom_factor(&self) -> f32 {
+        let base = (self.base_fov.to_radians() * 0.5).tan();
+        let current = (self.current_fov.to_radians() * 0.5).tan();
+        if current > 0.0 {
+            (base / current).max(1.0)
+        } else {
+            1.0
+        }
+    }
 }
 // pub mod dep;
 
@@ -135,6 +144,9 @@ pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
+        #[cfg(feature = "client")]
+        app.init_resource::<InteractionGate>()
+            .add_systems(Update, queue_interaction_input);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
@@ -147,6 +159,51 @@ impl Default for LookSnapCompensation {
     fn default() -> Self {
         Self(true)
     }
+}
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct InteractionGate {
+    pressed: bool,
+    queued: bool,
+    next_tick: u64,
+}
+
+#[cfg(feature = "client")]
+impl InteractionGate {
+    const COOLDOWN_TICKS: u64 = 12;
+
+    pub fn queue(&mut self, is_down: bool, tick: u64) {
+        if !is_down {
+            self.pressed = false;
+            return;
+        }
+        if self.pressed || tick < self.next_tick {
+            return;
+        }
+        self.pressed = true;
+        self.queued = true;
+    }
+
+    pub fn consume_queued(&mut self, tick: u64) -> bool {
+        if !self.queued || tick < self.next_tick {
+            return false;
+        }
+        self.queued = false;
+        self.next_tick = tick + Self::COOLDOWN_TICKS;
+        true
+    }
+}
+
+#[cfg(feature = "client")]
+fn queue_interaction_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    ticker: Res<common::tick::Ticker>,
+    mut interaction: ResMut<InteractionGate>,
+) {
+    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
+    interaction.queue(!blocked && keyboard.pressed(KeyCode::KeyF), ticker.tick);
 }
 
 /// all pawns implement this; defines input and movement

@@ -6,15 +6,14 @@ use common::debug_println;
 use common::tick::{NetworkStats, Ticker};
 use game_objects::health::Health;
 use game_objects::level::{
-    LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
-    default_asset_dir, load_level_source, read_cached_map, write_cached_map,
+    LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash, default_asset_dir,
+    load_level_source, read_cached_map, write_cached_map,
 };
-use game_objects::lifecycle::{pick_spawn_point, spawn_game_object};
+use game_objects::lifecycle::{pick_spawn_point_with_velocity, spawn_game_object};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::{Possessed, SeatedInVehicle};
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
 use game_objects::weapon::helpers as weapon_helpers;
-use game_objects::weapon::tether::{TetherEndpoint, TetherGunComponent, sync_endpoints};
 use game_objects::{NetworkEntityMap, SpawnGameObjectCommand};
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
 use net::message::{MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand};
@@ -58,6 +57,8 @@ impl HostedServer {
 pub(crate) struct SinglePlayerConfig {
     pub map: String,
     pub gametype: String,
+    timer: Option<f32>,
+    spawned_once: bool,
 }
 
 pub struct ClientSessionPlugin;
@@ -68,7 +69,7 @@ impl Plugin for ClientSessionPlugin {
             .init_resource::<PendingWorldReady>()
             .add_systems(
                 OnEnter(GameState::SinglePlayer),
-                (load_sp_level, spawn_local_player).chain(),
+                (reset_singleplayer_spawn_state, load_sp_level).chain(),
             )
             .add_systems(
                 OnExit(GameState::SinglePlayer),
@@ -106,6 +107,11 @@ impl Plugin for ClientSessionPlugin {
     }
 }
 
+fn reset_singleplayer_spawn_state(mut sp: ResMut<SinglePlayerConfig>) {
+    sp.timer = None;
+    sp.spawned_once = false;
+}
+
 #[derive(Resource, Default)]
 pub struct LastServerState(pub Option<SimulationState>);
 
@@ -139,26 +145,22 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     camera: Query<'w, 's, Entity, With<Camera3d>>,
     projectile_q: Query<'w, 's, (Entity, &'static ProjectileState)>,
     predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
-    tether_weapons: Query<'w, 's, &'static mut TetherGunComponent>,
     object_kinds: Query<'w, 's, &'static GameObjectKind>,
     seated: Query<'w, 's, &'static SeatedInVehicle>,
 }
 
 fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
-    let map = if sp.map.is_empty() {
-        "maps/default.ron".to_string()
-    } else {
-        sp.map.clone()
-    };
-    if !sp.gametype.is_empty() {
-        commands.insert_resource(scripting::ScriptConfig {
-            path: sp.gametype.clone(),
-            is_server: false,
-            source: None,
-        });
+    if sp.map.is_empty() || sp.gametype.is_empty() {
+        game_objects::messages::push(&mut commands, "No map or mode selected.");
+        return;
     }
+    commands.insert_resource(scripting::ScriptConfig {
+        path: sp.gametype.clone(),
+        is_server: false,
+        source: None,
+    });
     game_objects::messages::push(&mut commands, "Loading map...");
-    match load_level_source(&map, default_asset_dir()) {
+    match load_level_source(&sp.map, default_asset_dir()) {
         Ok(level) => {
             commands.insert_resource(PendingMapScene(level.compressed));
         }
@@ -166,24 +168,10 @@ fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
     }
 }
 
-fn spawn_local_player(mut commands: Commands, mut net_ids: ResMut<NetworkIDResource>) {
-    let (entity, _, _) = spawn_game_object(
-        GameObjectKind::Biped,
-        Vec3::new(0.0, 800.0, 0.0),
-        Quat::IDENTITY,
-        Vec3::ZERO,
-        0,
-        &mut commands,
-        &mut net_ids,
-    );
-    commands.entity(entity).insert(Possessed::new(128));
-}
-
 fn respawn_singleplayer(
     time: Res<Time>,
     possessed: Query<(), With<Possessed>>,
     pending_map: Option<Res<PendingMapScene>>,
-    mut timer: Local<Option<f32>>,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
     spawn_points: Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
@@ -191,18 +179,24 @@ fn respawn_singleplayer(
     parent_parents: Query<&ChildOf>,
     parent_bodies: Query<&RigidBodyHandleComponent>,
     physics: Res<PhysicsWorld>,
+    mut sp: ResMut<SinglePlayerConfig>,
 ) {
     if !possessed.is_empty() || pending_map.is_some() {
-        *timer = None;
+        sp.timer = None;
         return;
     }
-    let remaining = timer.get_or_insert(common::config::RESPAWN_DELAY_SECS);
+    let respawn_delay = if sp.spawned_once {
+        common::config::RESPAWN_DELAY_SECS
+    } else {
+        0.0
+    };
+    let remaining = sp.timer.get_or_insert(respawn_delay);
     *remaining -= time.delta_secs();
     if *remaining > 0.0 {
         return;
     }
-    *timer = None;
-    let (position, rotation) = pick_spawn_point(
+    sp.timer = None;
+    let Some((position, rotation, velocity)) = pick_spawn_point_with_velocity(
         &spawn_points,
         &parent_transforms,
         &parent_parents,
@@ -210,18 +204,20 @@ fn respawn_singleplayer(
         &physics,
         0,
         0,
-    )
-    .unwrap_or((Vec3::new(0.0, 800.0, 0.0), Quat::IDENTITY));
+    ) else {
+        return;
+    };
     let (entity, _, _) = spawn_game_object(
         GameObjectKind::Biped,
         position,
         rotation,
-        Vec3::ZERO,
+        velocity,
         0,
         &mut commands,
         &mut net_ids,
     );
     commands.entity(entity).insert(Possessed::new(128));
+    sp.spawned_once = true;
 }
 
 fn load_skybox(
@@ -689,18 +685,6 @@ fn process_client_message(
         MsgType::HealthUpdate(net_id, current) => {
             handle_health_update(&net_id, current, &mp.networked, &mut mp.health_q);
         }
-        MsgType::TetherState {
-            weapon,
-            left,
-            right,
-        } => handle_tether_state(
-            &weapon,
-            left,
-            right,
-            &mp.networked,
-            &mut mp.world,
-            &mut mp.tether_weapons,
-        ),
         MsgType::Pong(text) => {
             debug_println!("Client: Got PONG \"{text}\"");
             gui.push_log(format!("pong: {text}"));
@@ -939,18 +923,18 @@ fn handle_projectile_confirm(
     projectile_q: &Query<(Entity, &ProjectileState)>,
     commands: &mut Commands,
 ) {
-    if let Some(entity) = predicted_projectiles.get(temp_id) {
+    if let Some(projectile_entity) = predicted_projectiles.get(temp_id) {
         predicted_projectiles.remove_temp_id(temp_id);
-        if let Ok(mut entity) = commands.get_entity(entity) {
-            entity.insert(net_id);
+        if let Ok(mut entity_commands) = commands.get_entity(projectile_entity) {
+            entity_commands.insert(net_id);
         }
         return;
     }
-    for (entity, state) in projectile_q.iter() {
+    for (projectile_entity, state) in projectile_q.iter() {
         if state.temp_id == temp_id {
             predicted_projectiles.remove_temp_id(temp_id);
-            if let Ok(mut entity) = commands.get_entity(entity) {
-                entity.insert(net_id);
+            if let Ok(mut entity_commands) = commands.get_entity(projectile_entity) {
+                entity_commands.insert(net_id.clone());
             }
             break;
         }
@@ -970,39 +954,6 @@ fn handle_health_update(
         return;
     };
     health.current = current;
-}
-
-fn tether_endpoint_from_net(
-    endpoint: Option<(NetworkID, Vec3)>,
-    networked: &NetworkEntityMap,
-) -> Option<TetherEndpoint> {
-    let (net_id, local_anchor) = endpoint?;
-    Some(TetherEndpoint {
-        entity: find_networked_entity(networked, &net_id)?,
-        local_anchor,
-    })
-}
-
-fn handle_tether_state(
-    weapon_id: &NetworkID,
-    left: Option<(NetworkID, Vec3)>,
-    right: Option<(NetworkID, Vec3)>,
-    networked: &NetworkEntityMap,
-    world: &mut PhysicsWorld,
-    weapons: &mut Query<&mut TetherGunComponent>,
-) {
-    let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
-        return;
-    };
-    let Ok(mut weapon) = weapons.get_mut(weapon_entity) else {
-        return;
-    };
-    sync_endpoints(
-        &mut weapon,
-        tether_endpoint_from_net(left, networked),
-        tether_endpoint_from_net(right, networked),
-        world,
-    );
 }
 
 fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {

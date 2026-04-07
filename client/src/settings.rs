@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::outline::OutlineSettings;
 use bevy::prelude::*;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
@@ -326,6 +327,15 @@ fn apply_camera_graphics(
                 ..default()
             });
         }
+    }
+
+    if settings.cinematic_mode {
+        camera.remove::<OutlineSettings>();
+    } else {
+        camera.insert(OutlineSettings {
+            threshold: 0.10,
+            color: Vec4::new(0.5, 0.5, 0.5, 0.03),
+        });
     }
 
     camera.insert(ColorGrading::with_identical_sections(

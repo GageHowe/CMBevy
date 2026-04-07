@@ -8,9 +8,9 @@ use bevy_steamworks::Client;
 use common::tick::NetworkStats;
 use game_objects::health::Health;
 use game_objects::messages::{GameMessages, MESSAGE_TTL_SECS};
-use game_objects::pawn::Possessed;
 use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot, WeaponSlots};
-use game_objects::weapon::{WeaponCrosshair, default_crosshair_path};
+use game_objects::pawn::{Possessed, VehicleComponent};
+use game_objects::weapon::{AimReticle, default_crosshair_path};
 use net::message::MsgType;
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_vel};
@@ -268,26 +268,31 @@ fn gui_notifications(
         });
 }
 
-/// Updates the crosshair image when the active weapon slot changes.
+/// Updates the crosshair image from the active controllable object.
 fn update_reticle(
-    possessed: Query<&WeaponSlots, (With<Possessed>, Changed<WeaponSlots>)>,
-    crosshairs: Query<&WeaponCrosshair>,
+    biped: Query<&WeaponSlots, With<Possessed>>,
+    vehicle: Query<&AimReticle, (With<Possessed>, With<VehicleComponent>)>,
+    reticles: Query<&AimReticle>,
     mut crosshair: Query<&mut ImageNode, With<Crosshair>>,
     asset_server: Res<AssetServer>,
+    mut current: Local<Option<&'static str>>,
 ) {
-    let Ok(slots) = possessed.single() else {
+    let path = vehicle
+        .single()
+        .ok()
+        .map(|reticle| reticle.0)
+        .or_else(|| {
+            let slots = biped.single().ok()?;
+            let weapon_entity = slots.active().1?;
+            reticles.get(weapon_entity).ok().map(|reticle| reticle.0)
+        })
+        .unwrap_or(default_crosshair_path());
+    if *current == Some(path) {
         return;
-    };
-    let path = if let Some(e) = slots.active().1 {
-        crosshairs
-            .get(e)
-            .map(|crosshair| crosshair.0)
-            .unwrap_or(default_crosshair_path())
-    } else {
-        default_crosshair_path()
-    };
+    }
     if let Ok(mut img) = crosshair.single_mut() {
         img.image = asset_server.load(path);
+        *current = Some(path);
     }
 }
 
@@ -312,7 +317,7 @@ fn spawn_prediction_reticle(mut commands: Commands, asset_server: Res<AssetServe
 fn update_prediction_reticle(
     pawn: Query<(Entity, &WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
-    weapons: Query<&WeaponCrosshair>,
+    weapons: Query<&AimReticle>,
     targets: Query<(Entity, &GlobalTransform, &Health), Without<Possessed>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     world: Res<PhysicsWorld>,

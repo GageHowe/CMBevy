@@ -7,9 +7,9 @@ use common::NetworkIDResource;
 use common::slow_update::SlowSchedulePlugin;
 use common::tick::*;
 use game_objects::components::atmosphere::AtmospherePlugin;
+use game_objects::components::planet::PlanetPlugin;
 use game_objects::generic::swap_hull_colliders;
 use game_objects::health::HealthPlugin;
-use game_objects::components::planet::PlanetPlugin;
 #[cfg(feature = "client")]
 use net::clientonly::NetClientPlugin;
 #[cfg(not(feature = "client"))]

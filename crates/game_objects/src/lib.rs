@@ -176,14 +176,14 @@ macro_rules! for_each_game_object {
             $($args)*
             GameObjectKind::Biped => pawn::biped::BipedPawnComponent,
             GameObjectKind::Spaceship => pawn::spaceship::SpaceshipPawnComponent,
+            GameObjectKind::Pistol => weapon::pistol::PistolComponent,
             GameObjectKind::Rifle => weapon::rifle::RifleComponent,
             GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent,
             GameObjectKind::Rpg => weapon::rpg::RpgComponent,
-            GameObjectKind::TetherGun => weapon::tether::TetherGunComponent,
+            GameObjectKind::PistolProjectile => projectile::rifle::PistolProjectile,
             GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
             GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
-            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile,
-            GameObjectKind::TetherHookProjectile => projectile::tether::TetherHookProjectile
+            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile
         )
     };
 }

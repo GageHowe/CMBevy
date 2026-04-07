@@ -1,15 +1,13 @@
 use super::{FireCtx, Weapon, helpers};
-use crate::projectile::rifle;
+use crate::projectile::{helpers as projectile_helpers, rifle};
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
-const HULL_PATH: &str = "collision/placeholder_ar.obj";
-#[cfg(feature = "client")]
-const SCENE_PATH: &str = "models/placeholder_ar.glb#Scene0";
-
 pub const COOLDOWN_TICKS: u32 = 6; // 10 rounds/sec at 60 Hz
+const ZOOM_MULTIPLIER: f32 = 2.5;
+const ZOOMED_KICK_SCALE: f32 = 0.45;
 
 pub struct RiflePlugin;
 impl Plugin for RiflePlugin {
@@ -22,6 +20,8 @@ pub struct RifleComponent {
 }
 
 impl Weapon for RifleComponent {
+    const MODEL_PATH: &'static str = "models/placeholder_ar.glb#Scene0";
+    const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair007.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rifle::SPEED);
 
@@ -31,41 +31,62 @@ impl Weapon for RifleComponent {
         commands: &mut Commands,
         ctx: &mut FireCtx,
     ) {
+        let zoom_blend = if let Some(cam) = ctx.camera.as_mut() {
+            cam.zoom_multiplier = if ctx.want_alt_fire {
+                ZOOM_MULTIPLIER
+            } else {
+                1.0
+            };
+            ((cam.current_zoom_factor() - 1.0) / (ZOOM_MULTIPLIER - 1.0)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let kick_scale = 1.0 + (ZOOMED_KICK_SCALE - 1.0) * zoom_blend;
         self.cooldown = self.cooldown.saturating_sub(1);
         if !ctx.want_fire || self.cooldown > 0 {
             return;
         }
         self.cooldown = COOLDOWN_TICKS;
 
-        let velocity = helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
-        let temp_id = helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-        rifle::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
-        #[cfg(feature = "client")]
-        helpers::apply_local_predicted_impulse(
-            ctx,
-            world,
-            -ctx.aim_dir * rifle::weapon_recoil_impulse(helpers::shooter_mass(world, ctx.shooter)),
-        );
-        helpers::queue_fire_sound(
-            ctx.sound.as_deref_mut(),
-            ctx.camera.is_some(),
-            "event:/Weapons/RifleShotLocal",
-            "event:/Weapons/RifleShot",
-            ctx.origin,
-        );
-        if let Some(cam) = ctx.camera.as_mut() {
-            cam.add_kick((2.0, 0.5), (-1.0, 1.0), 20.0);
-        }
-        #[cfg(feature = "client")]
-        helpers::send_fire_request(
-            ctx.quic.as_deref_mut(),
-            ctx.net_id,
-            net::message::GameObjectKind::RifleProjectile,
-            temp_id,
-            ctx.origin,
-            ctx.aim_dir,
+        fire_rifle_projectile(world, commands, ctx, kick_scale);
+    }
+}
+
+pub fn fire_rifle_projectile(
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+    ctx: &mut FireCtx,
+    kick_scale: f32,
+) {
+    let velocity =
+        projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
+    let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
+    rifle::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
+    #[cfg(feature = "client")]
+    projectile_helpers::apply_recoil::<rifle::RifleProjectile>(ctx, world, kick_scale);
+    helpers::queue_fire_sound(
+        ctx.sound.as_deref_mut(),
+        ctx.camera.is_some(),
+        "event:/Weapons/RifleShotLocal",
+        "event:/Weapons/RifleShot",
+        ctx.origin,
+    );
+    if let Some(cam) = ctx.camera.as_mut() {
+        cam.add_kick(
+            (2.0 * kick_scale, 0.5 * kick_scale),
+            (-kick_scale, kick_scale),
+            20.0,
         );
     }
+    #[cfg(feature = "client")]
+    helpers::send_fire_request(
+        ctx.quic.as_deref_mut(),
+        ctx.net_id,
+        net::message::GameObjectKind::RifleProjectile,
+        temp_id,
+        ctx.origin,
+        ctx.aim_dir,
+    );
 }
 
 impl GameObject for RifleComponent {
@@ -75,6 +96,7 @@ impl GameObject for RifleComponent {
             cmd,
             world,
             GameObjectKind::Rifle,
+            <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
             RifleComponent::default(),
@@ -82,16 +104,9 @@ impl GameObject for RifleComponent {
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            HULL_PATH,
+            <Self as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-        #[cfg(feature = "client")]
-        {
-            let scene = world.resource::<AssetServer>().load(SCENE_PATH);
-            world
-                .entity_mut(entity)
-                .insert((SceneRoot(scene), Visibility::default()));
-        }
     }
 }

@@ -31,7 +31,7 @@ pub enum MsgType {
     Possess(NetworkID),
     SeatState(NetworkID, Option<NetworkID>),
     Interact(NetworkID),
-    DropWeapon,
+    DropWeapon(Vec3),
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
     FireRequest {
@@ -47,11 +47,6 @@ pub enum MsgType {
     },
     HitResult(Vec3, Vec3, Option<NetworkID>),
     HealthUpdate(NetworkID, f32),
-    TetherState {
-        weapon: NetworkID,
-        left: Option<(NetworkID, Vec3)>,
-        right: Option<(NetworkID, Vec3)>,
-    },
     TimePing(u64),
     TimePong(u64),
     FlashlightToggle,

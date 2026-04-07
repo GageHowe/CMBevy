@@ -77,10 +77,15 @@ pub fn apply_wind_resistance_impulses(
             &world.collider_set,
             QueryFilter::default(),
         );
-        let affected: Vec<RigidBodyHandle> = qp
-            .intersect_shape(shape_pos, &shape)
-            .filter_map(|(ch, _)| world.collider_set.get(ch).and_then(|c| c.parent()))
-            .collect();
+        let mut affected: Vec<RigidBodyHandle> = Vec::new();
+        for (ch, _) in qp.intersect_shape(shape_pos, &shape) {
+            let Some(rb_handle) = world.collider_set.get(ch).and_then(|c| c.parent()) else {
+                continue;
+            };
+            if !affected.contains(&rb_handle) {
+                affected.push(rb_handle);
+            }
+        }
 
         for rb_handle in affected {
             if world

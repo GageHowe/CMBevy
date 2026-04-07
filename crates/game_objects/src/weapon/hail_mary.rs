@@ -1,5 +1,5 @@
 use super::{FireCtx, Weapon, helpers};
-use crate::projectile::hail_mary;
+use crate::projectile::{hail_mary, helpers as projectile_helpers};
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
@@ -10,10 +10,6 @@ use rapier3d::prelude::ColliderBuilder;
 
 const MUZZLE_FLASH_TICKS: u8 = 3;
 pub const COOLDOWN_TICKS: u32 = 120; // fixed ticks between shots
-
-const HULL_PATH: &str = "collision/placeholder_ar.obj";
-#[cfg(feature = "client")]
-const SCENE_PATH: &str = "models/hail_mary_placeholder_2.glb#Scene0";
 
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
@@ -33,6 +29,8 @@ pub struct HailMaryComponent {
 }
 
 impl Weapon for HailMaryComponent {
+    const MODEL_PATH: &'static str = "models/hail_mary_placeholder_2.glb#Scene0";
+    const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair010.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(hail_mary::SPEED);
 
@@ -57,10 +55,16 @@ impl Weapon for HailMaryComponent {
         self.fire_requested = false;
         self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
 
-        let velocity =
-            helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, hail_mary::SPEED);
-        let temp_id = helpers::next_temp_id(ctx.id_counter.as_deref_mut());
+        let velocity = projectile_helpers::projectile_velocity(
+            world,
+            ctx.shooter,
+            ctx.aim_dir,
+            hail_mary::SPEED,
+        );
+        let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
         hail_mary::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
+        #[cfg(feature = "client")]
+        projectile_helpers::apply_recoil::<hail_mary::HailMaryProjectile>(ctx, world, 1.0);
         helpers::queue_fire_sound(
             ctx.sound.as_deref_mut(),
             ctx.camera.is_some(),
@@ -103,6 +107,7 @@ impl GameObject for HailMaryComponent {
             cmd,
             world,
             GameObjectKind::HailMary,
+            <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
             HailMaryComponent {
@@ -113,18 +118,11 @@ impl GameObject for HailMaryComponent {
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            HULL_PATH,
+            <Self as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
         world.entity_mut(entity).add_child(light);
-        #[cfg(feature = "client")]
-        {
-            let scene = world.resource::<AssetServer>().load(SCENE_PATH);
-            world
-                .entity_mut(entity)
-                .insert((SceneRoot(scene), Visibility::default()));
-        }
     }
 }
 

@@ -1,6 +1,7 @@
 use super::vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat};
 use super::*;
 use crate::generic::attach_hull_collider;
+use crate::weapon::AimReticle;
 use crate::{GameObject, GameObjectKind};
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -73,6 +74,7 @@ impl GameObject for SpaceshipPawnComponent {
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(driver_seat),
+            AimReticle("textures/crosshairs/crosshair001.png", None),
             GameObjectKind::Spaceship,
             Transform::from(transform),
             cmd.net_id.clone(),

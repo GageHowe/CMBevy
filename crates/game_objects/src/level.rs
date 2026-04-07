@@ -41,6 +41,13 @@ pub struct StaticCollider {
     pub scale: f32,
 }
 
+/// Client-only GLB scene attached to an authored map entity.
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct SceneModel {
+    pub path: String,
+}
+
 /// Player/bot spawn point placed in the scene. Position/rotation come from Transform.
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
@@ -305,12 +312,15 @@ impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<ColliderShape>();
         app.register_type::<StaticCollider>();
+        app.register_type::<SceneModel>();
         app.register_type::<SpawnPoint>();
         app.register_type::<SceneSpawn>();
         app.register_type::<MapMeta>();
         app.init_resource::<PendingHullColliders>();
         // react to scene-spawned components — works on both client and server
         app.add_systems(Update, (spawn_static_colliders, spawn_hull_colliders));
+        #[cfg(feature = "client")]
+        app.add_systems(Update, spawn_scene_models);
 
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
@@ -551,6 +561,20 @@ pub fn spawn_hull_colliders(
             &mut commands,
             &mut world,
         );
+    }
+}
+
+#[cfg(feature = "client")]
+pub fn spawn_scene_models(
+    mut commands: Commands,
+    models: Query<(Entity, &SceneModel), Added<SceneModel>>,
+    asset_server: Res<AssetServer>,
+) {
+    for (entity, model) in &models {
+        commands.entity(entity).insert((
+            SceneRoot(asset_server.load(crate::asset_path::resolve_asset_path(&model.path))),
+            Visibility::default(),
+        ));
     }
 }
 

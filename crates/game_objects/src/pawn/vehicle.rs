@@ -155,25 +155,21 @@ pub fn exit_vehicle(
 ) -> Option<Entity> {
     let biped_entity = seat.occupant.take()?;
 
+    let exit_offset = seat_transform.rotation * seat.exit_offset + seat_transform.translation;
+    // let (exit_pos, vehicle_rot, exit_vel, vehicle_angvel) =
+    //     world.predicted_body_point(vehicle_entity, exit_offset)?;
     let vehicle_body = world
         .entity_to_handle
         .get(&vehicle_entity)
         .and_then(|&h| world.rigid_body_set.get(h))?;
     let vehicle_pos = rb_pos(vehicle_body);
     let vehicle_rot = rb_rot(vehicle_body);
-    let vehicle_vel = rb_vel(vehicle_body);
+    let exit_vel = rb_vel(vehicle_body);
     let vehicle_angvel = rb_angvel(vehicle_body);
-    let exit_offset = seat_transform.rotation * seat.exit_offset + seat_transform.translation;
     let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
     let exit_rot = vehicle_rot * seat_transform.rotation;
     world.set_body_enabled(biped_entity, true);
-    world.set_body_pose(
-        biped_entity,
-        exit_pos,
-        exit_rot,
-        vehicle_vel,
-        vehicle_angvel,
-    );
+    world.set_body_pose(biped_entity, exit_pos, exit_rot, exit_vel, vehicle_angvel);
     Some(biped_entity)
 }
 
@@ -300,7 +296,6 @@ pub fn attach_camera_on_possess_vehicle(
 /// In multiplayer the server handles the exit; in singleplayer it's handled locally.
 #[cfg(feature = "client")]
 fn vehicle_exit_interact(
-    keyboard: Res<ButtonInput<KeyCode>>,
     state: Res<State<common::game_state::GameState>>,
     vehicle: Query<
         (Entity, &VehicleComponent, Option<&net::message::NetworkID>),
@@ -310,16 +305,17 @@ fn vehicle_exit_interact(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
-    mut interact_pressed: Local<bool>,
+    mut interaction: ResMut<InteractionGate>,
+    ticker: Res<common::tick::Ticker>,
     object_kinds: Query<&crate::GameObjectKind>,
 ) {
     use common::game_state::GameState;
-    if !super::biped::consume_fixed_press(keyboard.pressed(KeyCode::KeyF), &mut interact_pressed) {
-        return;
-    }
     let Ok((vehicle_entity, vehicle, net_id)) = vehicle.single() else {
         return;
     };
+    if !interaction.consume_queued(ticker.tick) {
+        return;
+    }
     match state.get() {
         GameState::Multiplayer => {
             let Some(net_id) = net_id else { return };
