@@ -32,11 +32,10 @@ foreach ($runtimeDll in @("steam_api64.dll", "fmod.dll", "fmodstudio.dll")) {
     Copy-Item $src "$DistDir\$runtimeDll"
 }
 
-Write-Host "Copying assets (excluding blender sources)..."
+Write-Host "Copying assets..."
 $AssetsDir = "$RepoRoot\assets"
-Get-ChildItem $AssetsDir -Directory | Where-Object { $_.Name -ne "blender" } | ForEach-Object {
-    Copy-Item $_.FullName "$DistDir\assets\$($_.Name)" -Recurse
-}
+New-Item -ItemType Directory -Path "$DistDir\assets" -Force | Out-Null
+Copy-Item "$AssetsDir\*" "$DistDir\assets" -Recurse
 
 Write-Host "Zipping..."
 $ZipPath = "$RepoRoot\dist\criticalmass-windows-$Version.zip"

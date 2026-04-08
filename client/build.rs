@@ -5,12 +5,14 @@ fn main() {
         return;
     };
 
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../assets");
+    println!("cargo:rerun-if-changed=../dev-assets/lib");
+
     add_linux_fmod_rpath();
     stage_assets(&target_dir);
-    stage_linux_fmod_libs(&target_dir);
+    stage_fmod_runtime(&target_dir);
     copy_steam_runtime(&target_dir);
-
-    println!("cargo:rerun-if-changed=build.rs");
 }
 
 fn target_dir() -> Option<PathBuf> {
@@ -23,11 +25,14 @@ fn repo_root() -> PathBuf {
     manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf()
 }
 
+fn target_os() -> String {
+    std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default()
+}
+
 fn add_linux_fmod_rpath() {
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
-    if target_os != "linux" {
+    if target_os() != "linux" {
         return;
     }
     let arch_dir = match target_arch.as_str() {
@@ -37,7 +42,7 @@ fn add_linux_fmod_rpath() {
         "arm" => "arm",
         _ => return,
     };
-    let sdk_root = repo_root().join("assets/lib/fmodstudioapi20312linux");
+    let sdk_root = repo_root().join("dev-assets/lib/fmodstudioapi20312linux");
     let core_dir = sdk_root.join(format!("api/core/lib/{arch_dir}"));
     let studio_dir = sdk_root.join(format!("api/studio/lib/{arch_dir}"));
     println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
@@ -45,49 +50,73 @@ fn add_linux_fmod_rpath() {
     println!("cargo:rustc-link-search=native={}", studio_dir.display());
 }
 
-// libfmodstudio.so has RUNPATH=$ORIGIN, meaning it looks for libfmod.so in the same directory
-// it was loaded from. Staging both FMOD libs next to the executable keeps runtime loading simple.
-fn stage_linux_fmod_libs(target_dir: &std::path::Path) {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::symlink;
-
-        let sdk_root = repo_root().join("assets/lib/fmodstudioapi20312linux");
-        let core_lib = sdk_root.join("api/core/lib/x86_64");
-        let studio_lib = sdk_root.join("api/studio/lib/x86_64");
-
-        for (src, name) in [
-            (core_lib.join("libfmod.so.14"), "libfmod.so.14"),
-            (
-                studio_lib.join("libfmodstudio.so.14"),
-                "libfmodstudio.so.14",
-            ),
-        ] {
-            let dst = target_dir.join(name);
-            if !dst.exists() {
-                let _ = symlink(&src, &dst);
-            }
+fn stage_fmod_runtime(target_dir: &std::path::Path) {
+    match target_os().as_str() {
+        "linux" => {
+            let sdk_root = repo_root().join("dev-assets/lib/fmodstudioapi20312linux");
+            let core_lib = sdk_root.join("api/core/lib/x86_64/libfmod.so.14");
+            let studio_lib = sdk_root.join("api/studio/lib/x86_64/libfmodstudio.so.14");
+            stage_file(&core_lib, &target_dir.join("libfmod.so.14"));
+            stage_file(&studio_lib, &target_dir.join("libfmodstudio.so.14"));
         }
+        "windows" => {
+            let lib_root = repo_root().join("dev-assets/lib");
+            stage_file(&lib_root.join("fmod.dll"), &target_dir.join("fmod.dll"));
+            stage_file(
+                &lib_root.join("fmodstudio.dll"),
+                &target_dir.join("fmodstudio.dll"),
+            );
+        }
+        _ => {}
     }
 }
 
 // Keep runtime assets next to the built executable so both cargo-run and shipped builds use
 // the same path convention.
 fn stage_assets(target_dir: &std::path::Path) {
-    let link = target_dir.join("assets");
-    if !link.exists() {
-        #[cfg(unix)]
-        let _ = std::os::unix::fs::symlink(repo_root().join("assets"), &link);
-        #[cfg(windows)]
-        let _ = std::os::windows::fs::symlink_dir(repo_root().join("assets"), &link);
+    let src = repo_root().join("assets");
+    let dst = target_dir.join("assets");
+    copy_dir(&src, &dst);
+}
+
+fn stage_file(src: &std::path::Path, dst: &std::path::Path) {
+    if !src.exists() {
+        return;
+    }
+    if std::fs::symlink_metadata(dst).is_ok() {
+        let _ = std::fs::remove_file(dst);
+    }
+    let _ = std::fs::copy(src, dst);
+}
+
+fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
+    if !src.exists() {
+        return;
+    }
+    if std::fs::symlink_metadata(dst).is_ok() {
+        let _ = std::fs::remove_dir_all(dst);
+        let _ = std::fs::remove_file(dst);
+    }
+    let _ = std::fs::create_dir_all(dst);
+    let Ok(entries) = std::fs::read_dir(src) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir(&src_path, &dst_path);
+        } else {
+            stage_file(&src_path, &dst_path);
+        }
     }
 }
 
 fn copy_steam_runtime(target_dir: &std::path::Path) {
     let build_dir = target_dir.join("build");
-    let lib_name = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("windows") => "steam_api64.dll",
-        Ok("linux") => "libsteam_api.so",
+    let lib_name = match target_os().as_str() {
+        "windows" => "steam_api64.dll",
+        "linux" => "libsteam_api.so",
         _ => return,
     };
     if let Ok(entries) = std::fs::read_dir(build_dir) {

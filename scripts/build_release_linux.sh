@@ -29,13 +29,8 @@ for lib in libsteam_api.so libfmod.so.14 libfmodstudio.so.14; do
     cp "target/release/$lib" "$DIST_DIR/$lib"
 done
 
-echo "Copying assets (excluding blender sources)..."
-for dir in assets/*/; do
-    name="$(basename "$dir")"
-    if [ "$name" != "blender" ]; then
-        cp -r "$dir" "$DIST_DIR/assets/$name"
-    fi
-done
+echo "Copying assets..."
+cp -r assets/. "$DIST_DIR/assets/"
 
 echo "Zipping..."
 ZIP_PATH="$REPO_ROOT/dist/criticalmass-linux-$VERSION.zip"

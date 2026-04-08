@@ -48,22 +48,22 @@ check:
 clean:
 	cargo clean
 
-build-profiling:
-	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p gameserver --profile profiling
-	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p client --profile profiling
+# build-profiling:
+# 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p gameserver --profile profiling
+# 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p client --profile profiling
 
-perf-client: build-profiling
-	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf record -F 99 --call-graph fp -- target/profiling/client --server 127.0.0.1:42070
+# perf-client: build-profiling
+# 	mkdir -p $(PERF_BUILDID_DIR)
+# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf record -F 99 --call-graph fp -- target/profiling/client --server 127.0.0.1:42070
 
-perf-server: build-profiling
-	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf record -F 99 --call-graph fp -- target/profiling/gameserver --port 42070
+# perf-server: build-profiling
+# 	mkdir -p $(PERF_BUILDID_DIR)
+# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf record -F 99 --call-graph fp -- target/profiling/gameserver --port 42070
 
-perf-report:
-	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf report
+# perf-report:
+# 	mkdir -p $(PERF_BUILDID_DIR)
+# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf report
 
-perf-top-client:
-	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf top -- target/profiling/client --server 127.0.0.1:42070
+# perf-top-client:
+# 	mkdir -p $(PERF_BUILDID_DIR)
+# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf top -- target/profiling/client --server 127.0.0.1:42070

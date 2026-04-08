@@ -15,7 +15,24 @@ cargo run -p network_emulator -- --loss 0.05 --mindelay 40 --maxdelay 80
 cargo run --bin client -- --server 127.0.0.1:42069
 ```
 
-Or, just run scripts/build_release_windows.ps1 and the Windows build will appear in dist/
+## Packaging
+
+Linux:
+
+```bash
+./scripts/build_release_linux.sh 0.1.0
+```
+
+Windows:
+
+```powershell
+./scripts/build_release_windows.ps1 -Version 0.1.0
+```
+
+Outputs:
+* `dist/linux/` or `dist/windows/` contains the final runnable folder
+* `dist/criticalmass-linux-<version>.zip` or `dist/criticalmass-windows-<version>.zip` is ready for itch.io upload
+* the same unzipped folder can be used as the Steam depot payload
 
 ## Implementation inspiration
 * https://github.com/Henauxg/bevy_quinnet/

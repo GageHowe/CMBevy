@@ -13,7 +13,7 @@ workspace = true
 common = { path = "../common" }
 physics = { path = "../physics" }
 net = { path = "../net" }
-bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
+bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded", "https"] }
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
 bevy_egui = { version = "0.39.1", optional = true }
 postcard = { version = "1", features = ["alloc"] }
