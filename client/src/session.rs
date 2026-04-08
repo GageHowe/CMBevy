@@ -161,7 +161,7 @@ fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
         source: None,
     });
     game_objects::messages::push(&mut commands, "Loading map...");
-    match load_level_source(&sp.map, default_asset_dir()) {
+    match load_level_source(&sp.map, &default_asset_dir()) {
         Ok(level) => {
             commands.insert_resource(PendingMapScene(level.compressed));
         }
@@ -361,15 +361,19 @@ fn debug_render_on(settings: Res<Settings>) -> bool {
 }
 
 pub(crate) fn available_maps() -> Vec<String> {
-    scan_dir(&format!("{}/maps", asset_base()), "ron")
+    scan_dir(common::config::asset_dir().join("maps"), "ron")
 }
 
 pub(crate) fn available_gametypes() -> Vec<String> {
-    scan_dir(&format!("{}/gametypes", asset_base()), "lua")
+    scan_dir(common::config::asset_dir().join("gametypes"), "lua")
 }
 
 pub(crate) fn gametype_path(name: &str) -> String {
-    format!("{}/gametypes/{name}.lua", asset_base())
+    common::config::asset_dir()
+        .join("gametypes")
+        .join(format!("{name}.lua"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub(crate) fn fetch_remote_lobbies() -> Result<Vec<LobbyInfo>, String> {
@@ -492,15 +496,7 @@ fn beacon_register(
     });
 }
 
-fn asset_base() -> &'static str {
-    if std::path::Path::new("assets").exists() {
-        "assets"
-    } else {
-        "../assets"
-    }
-}
-
-fn scan_dir(dir: &str, ext: &str) -> Vec<String> {
+fn scan_dir(dir: impl AsRef<std::path::Path>, ext: &str) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };

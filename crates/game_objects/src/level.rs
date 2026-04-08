@@ -213,25 +213,22 @@ pub struct LevelBytes {
     pub compressed: Vec<u8>,
 }
 
-pub fn load_level_source(path: &str, asset_dir: &str) -> Result<LevelBytes, String> {
+pub fn load_level_source(path: &str, asset_dir: &std::path::Path) -> Result<LevelBytes, String> {
     if path.starts_with("sha256:") {
         return load_remote_level(path);
     }
-    let fs_path = format!("{asset_dir}/{path}");
-    read_and_compress_level(&fs_path)
+    read_and_compress_level(asset_dir.join(path))
 }
 
-pub fn default_asset_dir() -> &'static str {
-    if cfg!(debug_assertions) {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets")
-    } else {
-        "assets"
-    }
+pub fn default_asset_dir() -> std::path::PathBuf {
+    common::config::asset_dir()
 }
 
 /// Reads a .scn.ron file and returns it as compressed bytes for network transfer.
-pub fn read_and_compress_level(path: &str) -> Result<LevelBytes, String> {
-    let raw = std::fs::read(path).map_err(|e| format!("Failed to read level \"{path}\": {e}"))?;
+pub fn read_and_compress_level(path: impl AsRef<std::path::Path>) -> Result<LevelBytes, String> {
+    let path = path.as_ref();
+    let raw = std::fs::read(path)
+        .map_err(|e| format!("Failed to read level \"{}\": {e}", path.display()))?;
     Ok(compress_level_bytes(&raw))
 }
 
@@ -375,7 +372,10 @@ impl Plugin for LevelPlugin {
         );
         app.add_systems(FixedPreUpdate, assign_scene_network_ids);
         #[cfg(feature = "client")]
-        app.add_systems(Update, spawn_scene_models);
+        {
+            app.init_resource::<FallbackMaterial>();
+            app.add_systems(Update, (spawn_scene_models, apply_fallback_material));
+        }
 
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
@@ -625,6 +625,55 @@ pub fn spawn_hull_colliders(
             &mut commands,
             &mut world,
         );
+    }
+}
+
+// Placeholder material applied to any mesh that ships without one (e.g. Blender exports with no
+// material assigned). Loaded once at startup so the handle is stable and cheap to clone.
+#[cfg(feature = "client")]
+#[derive(Resource)]
+struct FallbackMaterial(Handle<StandardMaterial>);
+
+#[cfg(feature = "client")]
+impl FromWorld for FallbackMaterial {
+    fn from_world(world: &mut World) -> Self {
+        let texture = world
+            .resource::<AssetServer>()
+            .load("textures/placeholder_texture.png");
+        let mat = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial {
+                base_color_texture: Some(texture),
+                ..Default::default()
+            });
+        FallbackMaterial(mat)
+    }
+}
+
+#[cfg(feature = "client")]
+fn apply_fallback_material(
+    mut commands: Commands,
+    fallback: Res<FallbackMaterial>,
+    // Bevy's GLTF loader always inserts a white StandardMaterial for no-material primitives, so
+    // we can't use Without<MeshMaterial3d>. Instead, catch both: truly material-less entities
+    // and those whose material has no texture (i.e. the GLTF default white).
+    no_mat: Query<Entity, (Added<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
+    has_mat: Query<(Entity, &MeshMaterial3d<StandardMaterial>), Added<Mesh3d>>,
+    materials: Res<Assets<StandardMaterial>>,
+) {
+    for entity in &no_mat {
+        commands
+            .entity(entity)
+            .insert(MeshMaterial3d(fallback.0.clone()));
+    }
+    for (entity, mat_handle) in &has_mat {
+        if let Some(mat) = materials.get(&mat_handle.0) {
+            if mat.base_color_texture.is_none() {
+                commands
+                    .entity(entity)
+                    .insert(MeshMaterial3d(fallback.0.clone()));
+            }
+        }
     }
 }
 

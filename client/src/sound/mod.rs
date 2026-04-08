@@ -12,17 +12,12 @@ impl Plugin for SoundPlugin {
 mod fmod_impl {
     use bevy::prelude::*;
     use bevy::transform::TransformSystems;
+    use common::config;
     use game_objects::components::atmosphere::AreaReverbComponent;
     use game_objects::pawn::Possessed;
     use game_objects::sound::{SoundEmitter, SoundQueue};
     use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
 
-    /// FMOD Studio .bank files to load at startup, relative to the working directory.
-    const BANK_PATHS: &[&str] = &[
-        "assets/fmod-out/Desktop/Master.bank",
-        "assets/fmod-out/Desktop/Master.strings.bank",
-        "assets/fmod-out/Desktop/SFX.bank",
-    ];
     const GLOBAL_ATMOSPHERE_REVERB: &str = "GlobalAtmosphereReverb";
     const IN_SPACE_FILTER: &str = "InSpaceFilter";
 
@@ -77,11 +72,16 @@ mod fmod_impl {
         else {
             return;
         };
+        let bank_paths = [
+            config::asset_dir().join("fmod-out/Desktop/Master.bank"),
+            config::asset_dir().join("fmod-out/Desktop/Master.strings.bank"),
+            config::asset_dir().join("fmod-out/Desktop/SFX.bank"),
+        ];
         let mut banks = Vec::new();
-        for path in BANK_PATHS {
-            match system.load_bank_file(path, fmod::LoadBank::NORMAL) {
+        for path in &bank_paths {
+            match system.load_bank_file(path.to_string_lossy().as_ref(), fmod::LoadBank::NORMAL) {
                 Ok(bank) => banks.push(bank),
-                Err(e) => warn!("FMOD: could not load '{path}': {e:?}"),
+                Err(e) => warn!("FMOD: could not load '{}': {e:?}", path.display()),
             }
         }
         commands.insert_resource(FmodStudio {

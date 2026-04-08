@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="AudioFile" id="{5f6c7bdb-1a5f-4463-b546-11aba7c1f72b}">
+		<property name="assetPath">
+			<value>Misc Ship Elements (Extra)/InsectShip_SFX/MP3/GGA_Insect_BarrelRoll_2.mp3</value>
+		</property>
+		<property name="frequencyInKHz">
+			<value>48</value>
+		</property>
+		<property name="channelCount">
+			<value>2</value>
+		</property>
+		<property name="length">
+			<value>2.5920000000000001</value>
+		</property>
+		<relationship name="masterAssetFolder">
+			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
+		</relationship>
+	</object>
+</objects>

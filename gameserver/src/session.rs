@@ -998,7 +998,7 @@ fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
 
 fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
     let asset_path = &level_path.0;
-    match load_level_source(asset_path, default_asset_dir()) {
+    match load_level_source(asset_path, &default_asset_dir()) {
         Ok(level) => {
             commands.insert_resource(PendingMapScene(level.compressed.clone()));
             commands.insert_resource(level);

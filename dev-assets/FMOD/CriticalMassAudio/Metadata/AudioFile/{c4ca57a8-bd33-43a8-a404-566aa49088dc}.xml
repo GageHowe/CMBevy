@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="AudioFile" id="{c4ca57a8-bd33-43a8-a404-566aa49088dc}">
+		<property name="assetPath">
+			<value>Ship/Raw/MP3/GGA_Ship_Rapid Fire (End).mp3</value>
+		</property>
+		<property name="frequencyInKHz">
+			<value>48</value>
+		</property>
+		<property name="channelCount">
+			<value>2</value>
+		</property>
+		<property name="length">
+			<value>1.056</value>
+		</property>
+		<relationship name="masterAssetFolder">
+			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
+		</relationship>
+	</object>
+</objects>

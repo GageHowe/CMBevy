@@ -1,4 +1,5 @@
 // client executable
+// WARNING: don't put common dependencies here, put them in MasterPlugin
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
@@ -80,12 +81,7 @@ fn main() {
     app.add_plugins(
         DefaultPlugins
             .set(AssetPlugin {
-                file_path: if cfg!(debug_assertions) {
-                    "../assets"
-                } else {
-                    "assets"
-                }
-                .to_string(),
+                file_path: common::config::asset_dir().to_string_lossy().into_owned(),
                 ..default()
             })
             .set(LogPlugin {

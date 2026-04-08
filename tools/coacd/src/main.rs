@@ -121,7 +121,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for scene in scenes {
         for node in scene.nodes() {
-            collect_node(node, IDENTITY, &buffers, &mut all_vertices, &mut all_indices);
+            collect_node(
+                node,
+                IDENTITY,
+                &buffers,
+                &mut all_vertices,
+                &mut all_indices,
+            );
         }
     }
 

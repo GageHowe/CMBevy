@@ -19,11 +19,11 @@ fn parse_args() -> (SocketAddr, String, String) {
         "maps/{}",
         first_asset_name("maps", "ron").expect("no maps found in assets/maps")
     );
-    let mut gametype = format!(
-        "{}/gametypes/{}",
-        game_objects::level::default_asset_dir(),
-        first_asset_name("gametypes", "lua").expect("no gametypes found in assets/gametypes")
-    );
+    let mut gametype = game_objects::level::default_asset_dir()
+        .join("gametypes")
+        .join(first_asset_name("gametypes", "lua").expect("no gametypes found in assets/gametypes"))
+        .to_string_lossy()
+        .into_owned();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -50,7 +50,7 @@ fn parse_args() -> (SocketAddr, String, String) {
 
 fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
     let asset_dir = game_objects::level::default_asset_dir();
-    let mut names: Vec<String> = std::fs::read_dir(format!("{asset_dir}/{dir}"))
+    let mut names: Vec<String> = std::fs::read_dir(asset_dir.join(dir))
         .ok()?
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.path().extension().is_some_and(|x| x == ext))
@@ -94,7 +94,9 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy::asset::AssetPlugin {
-            file_path: game_objects::level::default_asset_dir().to_string(),
+            file_path: game_objects::level::default_asset_dir()
+                .to_string_lossy()
+                .into_owned(),
             ..default()
         })
         .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader

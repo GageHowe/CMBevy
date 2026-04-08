@@ -133,12 +133,12 @@ impl GameObject for BipedPawnComponent {
                         CAPSULE_RADIUS,
                         CAPSULE_HALF_HEIGHT,
                     ));
-            let material = world
-                .resource_mut::<Assets<StandardMaterial>>()
-                .add(Color::srgb(0.9, 0.4, 0.1));
+            // let material = world
+            //     .resource_mut::<Assets<StandardMaterial>>()
+            //     .add(Color::srgb(0.9, 0.4, 0.1));
             world.entity_mut(entity).insert((
                 Mesh3d(mesh),
-                MeshMaterial3d(material),
+                // MeshMaterial3d(material),
                 Visibility::default(),
             ));
             let light = world

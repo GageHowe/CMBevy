@@ -3,8 +3,6 @@
 
 # .PHONY: dev test-network build s c emulator build-release
 
-FMOD_CORE_LIB := $(CURDIR)/assets/lib/fmodstudioapi20312linux/api/core/lib/x86_64
-FMOD_STUDIO_LIB := $(CURDIR)/assets/lib/fmodstudioapi20312linux/api/studio/lib/x86_64
 PERF_BUILDID_DIR := $(CURDIR)/target/perf-buildid
 PROFILING_RUSTFLAGS := -C force-frame-pointers=yes
 
@@ -55,10 +53,8 @@ build-profiling:
 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p client --profile profiling
 
 perf-client: build-profiling
-	mkdir -p target/profiling
-	ln -sfn ../../assets target/profiling/assets
 	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$(FMOD_CORE_LIB):$(FMOD_STUDIO_LIB):$$LD_LIBRARY_PATH" perf record -F 99 --call-graph fp -- target/profiling/client --server 127.0.0.1:42070
+	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf record -F 99 --call-graph fp -- target/profiling/client --server 127.0.0.1:42070
 
 perf-server: build-profiling
 	mkdir -p $(PERF_BUILDID_DIR)
@@ -69,7 +65,5 @@ perf-report:
 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf report
 
 perf-top-client:
-	mkdir -p target/profiling
-	ln -sfn ../../assets target/profiling/assets
 	mkdir -p $(PERF_BUILDID_DIR)
-	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$(FMOD_CORE_LIB):$(FMOD_STUDIO_LIB):$$LD_LIBRARY_PATH" perf top -- target/profiling/client --server 127.0.0.1:42070
+	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf top -- target/profiling/client --server 127.0.0.1:42070

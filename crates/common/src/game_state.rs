@@ -4,4 +4,5 @@ pub enum GameState {
     MainMenu,
     SinglePlayer,
     Multiplayer,
+    Editor,
 }

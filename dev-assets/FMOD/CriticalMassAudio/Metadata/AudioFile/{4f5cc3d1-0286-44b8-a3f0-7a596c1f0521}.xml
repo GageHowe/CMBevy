@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="AudioFile" id="{4f5cc3d1-0286-44b8-a3f0-7a596c1f0521}">
+		<property name="assetPath">
+			<value>Ship/Raw/WAV/GGA_Ship_Fire v3 (2).wav</value>
+		</property>
+		<property name="frequencyInKHz">
+			<value>48</value>
+		</property>
+		<property name="channelCount">
+			<value>2</value>
+		</property>
+		<property name="length">
+			<value>0.4375</value>
+		</property>
+		<relationship name="masterAssetFolder">
+			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
+		</relationship>
+	</object>
+</objects>

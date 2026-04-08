@@ -302,11 +302,15 @@ pub struct PredictionReticle;
 fn spawn_prediction_reticle(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         PredictionReticle,
-        ImageNode::new(asset_server.load("textures/ui/impact_indicator.png")),
+        ImageNode {
+            image: asset_server.load("textures/crosshairs/crosshair030.png"),
+            color: Color::srgba(1.0, 1.0, 1.0, 0.2),
+            ..default()
+        },
         Node {
             position_type: PositionType::Absolute,
-            width: Val::Px(24.0),
-            height: Val::Px(24.0),
+            width: Val::Px(18.0),
+            height: Val::Px(18.0),
             ..default()
         },
         ZIndex(10),

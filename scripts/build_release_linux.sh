@@ -20,14 +20,14 @@ cp target/release/client     "$DIST_DIR/client"
 cp target/release/gameserver "$DIST_DIR/gameserver"
 chmod +x "$DIST_DIR/client" "$DIST_DIR/gameserver"
 
-echo "Copying libsteam_api.so from build output..."
-STEAM_SO="$(find target/release/build -name "libsteam_api.so" | head -1)"
-if [ -n "$STEAM_SO" ]; then
-    cp "$STEAM_SO" "$DIST_DIR/libsteam_api.so"
-else
-    echo "ERROR: libsteam_api.so not found in build output — was the client built?" >&2
-    exit 1
-fi
+echo "Copying runtime libraries..."
+for lib in libsteam_api.so libfmod.so.14 libfmodstudio.so.14; do
+    if [ ! -f "target/release/$lib" ]; then
+        echo "ERROR: target/release/$lib not found — was the client built?" >&2
+        exit 1
+    fi
+    cp "target/release/$lib" "$DIST_DIR/$lib"
+done
 
 echo "Copying assets (excluding blender sources)..."
 for dir in assets/*/; do

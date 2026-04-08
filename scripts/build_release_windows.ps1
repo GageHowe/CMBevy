@@ -25,19 +25,11 @@ Write-Host "Copying binaries..."
 Copy-Item "$RepoRoot\target\release\client.exe"     "$DistDir\client.exe"
 Copy-Item "$RepoRoot\target\release\gameserver.exe" "$DistDir\gameserver.exe"
 
-Write-Host "Copying steam_api64.dll from build output..."
-$SteamDll = Get-ChildItem "$RepoRoot\target\release\build\steamworks-sys-*\out\steam_api64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($SteamDll) {
-    Copy-Item $SteamDll.FullName "$DistDir\steam_api64.dll"
-} else {
-    throw "steam_api64.dll not found in build output - was the client built?"
-}
-
-Write-Host "Copying fmod dlls..."
-foreach ($fmodDll in @("fmod.dll", "fmodstudio.dll")) {
-    $src = "$RepoRoot\target\release\$fmodDll"
-    if (-not (Test-Path $src)) { throw "$fmodDll not found in target/release" }
-    Copy-Item $src "$DistDir\$fmodDll"
+Write-Host "Copying runtime libraries..."
+foreach ($runtimeDll in @("steam_api64.dll", "fmod.dll", "fmodstudio.dll")) {
+    $src = "$RepoRoot\target\release\$runtimeDll"
+    if (-not (Test-Path $src)) { throw "$runtimeDll not found in target/release" }
+    Copy-Item $src "$DistDir\$runtimeDll"
 }
 
 Write-Host "Copying assets (excluding blender sources)..."

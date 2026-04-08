@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="AudioFile" id="{99ec0ebf-1f5c-47de-91d7-179809defa6b}">
+		<property name="assetPath">
+			<value>Sci-Fi Sniper Rifle/WAV/GGA_Sci-fi Sniper_Reload (1).wav</value>
+		</property>
+		<property name="frequencyInKHz">
+			<value>48</value>
+		</property>
+		<property name="channelCount">
+			<value>2</value>
+		</property>
+		<property name="length">
+			<value>1.7533333333333334</value>
+		</property>
+		<relationship name="masterAssetFolder">
+			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
+		</relationship>
+	</object>
+</objects>

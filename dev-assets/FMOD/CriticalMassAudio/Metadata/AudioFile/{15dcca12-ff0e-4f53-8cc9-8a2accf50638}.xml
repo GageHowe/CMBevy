@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="AudioFile" id="{15dcca12-ff0e-4f53-8cc9-8a2accf50638}">
+		<property name="assetPath">
+			<value>Misc Ship Elements (Extra)/InsectShip_SFX/MP3/GGA_Insect_MoveClose_2.mp3</value>
+		</property>
+		<property name="frequencyInKHz">
+			<value>48</value>
+		</property>
+		<property name="channelCount">
+			<value>2</value>
+		</property>
+		<property name="length">
+			<value>1.296</value>
+		</property>
+		<relationship name="masterAssetFolder">
+			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
+		</relationship>
+	</object>
+</objects>
