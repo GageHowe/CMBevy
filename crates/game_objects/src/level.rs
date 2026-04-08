@@ -373,8 +373,7 @@ impl Plugin for LevelPlugin {
         app.add_systems(FixedPreUpdate, assign_scene_network_ids);
         #[cfg(feature = "client")]
         {
-            app.init_resource::<FallbackMaterial>();
-            app.add_systems(Update, (spawn_scene_models, apply_fallback_material));
+            app.add_systems(Update, spawn_scene_models);
         }
 
         // Keep authored scene data as small marker components and route all runtime setup
@@ -625,55 +624,6 @@ pub fn spawn_hull_colliders(
             &mut commands,
             &mut world,
         );
-    }
-}
-
-// Placeholder material applied to any mesh that ships without one (e.g. Blender exports with no
-// material assigned). Loaded once at startup so the handle is stable and cheap to clone.
-#[cfg(feature = "client")]
-#[derive(Resource)]
-struct FallbackMaterial(Handle<StandardMaterial>);
-
-#[cfg(feature = "client")]
-impl FromWorld for FallbackMaterial {
-    fn from_world(world: &mut World) -> Self {
-        let texture = world
-            .resource::<AssetServer>()
-            .load("textures/placeholder_texture.png");
-        let mat = world
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(StandardMaterial {
-                base_color_texture: Some(texture),
-                ..Default::default()
-            });
-        FallbackMaterial(mat)
-    }
-}
-
-#[cfg(feature = "client")]
-fn apply_fallback_material(
-    mut commands: Commands,
-    fallback: Res<FallbackMaterial>,
-    // Bevy's GLTF loader always inserts a white StandardMaterial for no-material primitives, so
-    // we can't use Without<MeshMaterial3d>. Instead, catch both: truly material-less entities
-    // and those whose material has no texture (i.e. the GLTF default white).
-    no_mat: Query<Entity, (Added<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
-    has_mat: Query<(Entity, &MeshMaterial3d<StandardMaterial>), Added<Mesh3d>>,
-    materials: Res<Assets<StandardMaterial>>,
-) {
-    for entity in &no_mat {
-        commands
-            .entity(entity)
-            .insert(MeshMaterial3d(fallback.0.clone()));
-    }
-    for (entity, mat_handle) in &has_mat {
-        if let Some(mat) = materials.get(&mat_handle.0) {
-            if mat.base_color_texture.is_none() {
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(fallback.0.clone()));
-            }
-        }
     }
 }
 
