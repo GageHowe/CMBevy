@@ -1,3 +1,4 @@
+use super::apply_zoom;
 use super::{FireCtx, Weapon, helpers, weapon_bundle};
 use crate::projectile::{helpers as projectile_helpers, rifle};
 use crate::{GameObject, GameObjectKind};
@@ -5,9 +6,8 @@ use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
-pub const COOLDOWN_TICKS: u32 = 6; // 10 rounds/sec at 60 Hz
-const ZOOM_MULTIPLIER: f32 = 2.5;
-const ZOOMED_KICK_SCALE: f32 = 0.45;
+pub const COOLDOWN_TICKS: u32 = 8;
+const ZOOMED_KICK_SCALE: f32 = 0.3;
 
 pub struct RiflePlugin;
 impl Plugin for RiflePlugin {
@@ -24,6 +24,7 @@ impl Weapon for RifleComponent {
     const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair007.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rifle::SPEED);
+    const ZOOM_MULTIPLIER: f32 = 2.5;
 
     fn fixed_update(
         &mut self,
@@ -31,16 +32,7 @@ impl Weapon for RifleComponent {
         commands: &mut Commands,
         ctx: &mut FireCtx,
     ) {
-        let zoom_blend = if let Some(cam) = ctx.camera.as_mut() {
-            cam.zoom_multiplier = if ctx.want_alt_fire {
-                ZOOM_MULTIPLIER
-            } else {
-                1.0
-            };
-            ((cam.current_zoom_factor() - 1.0) / (ZOOM_MULTIPLIER - 1.0)).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
+        let zoom_blend = apply_zoom::<Self>(ctx);
         let kick_scale = 1.0 + (ZOOMED_KICK_SCALE - 1.0) * zoom_blend;
         self.cooldown = self.cooldown.saturating_sub(1);
         if !ctx.want_fire || self.cooldown > 0 {
@@ -66,6 +58,8 @@ pub fn fire_rifle_projectile(
     projectile_helpers::apply_recoil::<rifle::RifleProjectile>(ctx, world, kick_scale);
     helpers::queue_fire_sound(
         ctx.sound.as_deref_mut(),
+        world,
+        ctx.shooter,
         ctx.camera.is_some(),
         "event:/Weapons/RifleShotLocal",
         "event:/Weapons/RifleShot",

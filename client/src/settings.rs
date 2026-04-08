@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::outline::OutlineSettings;
+use crate::sound::AudioOutputDevices;
 use bevy::prelude::*;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
@@ -93,6 +94,8 @@ pub struct Settings {
     pub zoom_sensitivity_blend: f32,
     pub vehicle_pitch_yaw_sensitivity: f32,
     pub preserve_look_across_planet_snap: bool,
+    pub audio_output_device: String,
+    pub fmod_buffer_size: u32,
     pub ui_scale: f32,
     pub anti_aliasing: bool,
     pub auto_exposure: bool,
@@ -121,6 +124,8 @@ impl Default for Settings {
             zoom_sensitivity_blend: 1.0,
             vehicle_pitch_yaw_sensitivity: 0.002,
             preserve_look_across_planet_snap: false,
+            audio_output_device: String::new(),
+            fmod_buffer_size: 256,
             ui_scale: 1.25,
             anti_aliasing: true,
             auto_exposure: true,
@@ -415,7 +420,12 @@ fn save_settings(settings: Res<Settings>) {
     }
 }
 
-pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings, section: &mut SettingsSection) {
+pub fn show_settings_ui(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    section: &mut SettingsSection,
+    audio_outputs: &AudioOutputDevices,
+) {
     ui.horizontal(|ui| {
         ui.selectable_value(section, SettingsSection::Graphics, "Graphics");
         ui.selectable_value(section, SettingsSection::Input, "Input");
@@ -424,7 +434,7 @@ pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings, section: &mu
     ui.separator();
 
     match section {
-        SettingsSection::Graphics => show_graphics_settings(ui, settings),
+        SettingsSection::Graphics => show_graphics_settings(ui, settings, audio_outputs),
         SettingsSection::Input => show_input_settings(ui, settings),
         SettingsSection::Controls => {
             ui.label("Control remapping coming soon.");
@@ -432,7 +442,11 @@ pub fn show_settings_ui(ui: &mut egui::Ui, settings: &mut Settings, section: &mu
     }
 }
 
-fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
+fn show_graphics_settings(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    audio_outputs: &AudioOutputDevices,
+) {
     egui::CollapsingHeader::new("Display")
         .default_open(true)
         .show(ui, |ui| {
@@ -631,6 +645,53 @@ fn show_graphics_settings(ui: &mut egui::Ui, settings: &mut Settings) {
                     "Rotation only",
                 )
                 .on_hover_text("Only smooths rotation; position is not interpolated. Good balance of responsiveness and smoothness.");
+            });
+        });
+
+    egui::CollapsingHeader::new("Audio")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Output device").on_hover_text(
+                    "Selects the FMOD output device. System Default uses the device FMOD picked at startup.",
+                );
+                let selected = if settings.audio_output_device.is_empty() {
+                    "System Default"
+                } else {
+                    settings.audio_output_device.as_str()
+                };
+                egui::ComboBox::from_id_salt("audio_output_device_combo")
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut settings.audio_output_device,
+                            String::new(),
+                            "System Default",
+                        );
+                        for name in &audio_outputs.names {
+                            ui.selectable_value(
+                                &mut settings.audio_output_device,
+                                name.clone(),
+                                name,
+                            );
+                        }
+                    });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("FMOD buffer")
+                    .on_hover_text("FMOD DSP buffer size in samples. Lower is more responsive but more prone to crackle. Takes effect on restart.");
+                egui::ComboBox::from_id_salt("fmod_buffer_size_combo")
+                    .selected_text(settings.fmod_buffer_size.to_string())
+                    .show_ui(ui, |ui| {
+                        for size in [128_u32, 256, 512, 1024] {
+                            ui.selectable_value(
+                                &mut settings.fmod_buffer_size,
+                                size,
+                                size.to_string(),
+                            );
+                        }
+                    });
             });
         });
 

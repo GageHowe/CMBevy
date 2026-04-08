@@ -7,7 +7,7 @@ use crate::generic::attach_hull_collider;
 use crate::pawn::biped::WeaponSlots;
 #[cfg(feature = "client")]
 use crate::pawn::biped::viewmodel_offset;
-use crate::sound::{SoundQueue, SoundRequest};
+use crate::sound::{SoundQueue, entity_velocity};
 #[cfg(feature = "client")]
 use crate::weapon::FireCtx;
 use crate::weapon::{AimReticle, WeaponComponent};
@@ -23,6 +23,8 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
 
 pub fn queue_fire_sound(
     sound: Option<&mut SoundQueue>,
+    world: &PhysicsWorld,
+    shooter: Option<Entity>,
     local: bool,
     local_event: &'static str,
     remote_event: &'static str,
@@ -31,11 +33,11 @@ pub fn queue_fire_sound(
     let Some(sound) = sound else {
         return;
     };
-    sound.0.push(SoundRequest {
-        event: if local { local_event } else { remote_event },
-        position: if local { None } else { Some(origin) },
-        velocity: Vec3::ZERO,
-    });
+    if local {
+        sound.play_2d(local_event);
+    } else {
+        sound.play_3d(remote_event, origin, entity_velocity(world, shooter));
+    }
 }
 
 #[cfg(feature = "client")]

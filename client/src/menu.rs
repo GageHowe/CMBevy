@@ -3,11 +3,13 @@ use crate::session::{
     fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
 };
 use crate::settings::{Settings, SettingsSection, show_settings_ui};
+use crate::sound::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
 use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use http_common::{LobbyInfo, RegisterRequest};
+use game_objects::sound::SoundQueue;
 
 pub struct MenuPlugin;
 
@@ -40,6 +42,22 @@ enum Screen {
     JoinLan,
     Matchmaking,
     Host,
+}
+
+impl Screen {
+    fn back(self) -> Self {
+        match self {
+            Screen::Root => Screen::Root,
+            Screen::Credits => Screen::Root,
+            Screen::Settings => Screen::Root,
+            Screen::SinglePlayer => Screen::Root,
+            Screen::Multiplayer => Screen::Root,
+            Screen::CustomGames => Screen::Multiplayer,
+            Screen::JoinLan => Screen::Multiplayer,
+            Screen::Matchmaking => Screen::Multiplayer,
+            Screen::Host => Screen::Multiplayer,
+        }
+    }
 }
 
 struct HostState {
@@ -111,8 +129,7 @@ fn main_menu(
     mut commands: Commands,
     mut contexts: EguiContexts,
     mut exit: MessageWriter<AppExit>,
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
+    input_time: (Res<ButtonInput<KeyCode>>, Res<Time>),
     mut next_state: ResMut<NextState<GameState>>,
     mut server_addr: ResMut<ServerAddr>,
     mut hosted: ResMut<HostedServer>,
@@ -123,12 +140,13 @@ fn main_menu(
     mut host: Local<HostState>,
     mut credits: Local<CreditsState>,
     mut browser: Local<LobbyBrowser>,
+    mut sound_queue: ResMut<SoundQueue>,
+    audio_outputs: Res<AudioOutputDevices>,
 ) {
+    let (keys, time) = input_time;
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    // Keep credits as a menu-local screen so they stay decoupled from gameplay UI/state.
-    if *screen == Screen::Credits && keys.just_pressed(KeyCode::Escape) {
-        *screen = Screen::Root;
-        credits.offset = 0.0;
+    if keys.just_pressed(KeyCode::Escape) {
+        back_screen(&mut screen, &mut credits, &mut browser, &mut sound_queue);
     }
     let title = match *screen {
         Screen::Root => "Critical Mass",
@@ -146,10 +164,26 @@ fn main_menu(
         ui.heading(title);
         ui.add_space(8.0);
         match *screen {
-            Screen::Root => show_root_screen(ui, &mut host, &mut screen, &mut exit),
-            Screen::Credits => show_credits_screen(ui, &time, &mut credits, &mut screen),
+            Screen::Root => show_root_screen(ui, &mut host, &mut screen, &mut exit, &mut sound_queue),
+            Screen::Credits => show_credits_screen(
+                ui,
+                &time,
+                &mut credits,
+                &mut screen,
+                &mut browser,
+                &mut sound_queue,
+            ),
             Screen::Settings => {
-                show_settings_screen(ui, &mut settings, &mut settings_section, &mut screen)
+                show_settings_screen(
+                    ui,
+                    &mut settings,
+                    &mut settings_section,
+                    &audio_outputs,
+                    &mut screen,
+                    &mut credits,
+                    &mut browser,
+                    &mut sound_queue,
+                )
             }
             Screen::SinglePlayer => show_singleplayer_screen(
                 ui,
@@ -158,9 +192,12 @@ fn main_menu(
                 &mut sp_config,
                 &mut next_state,
                 &mut screen,
+                &mut credits,
+                &mut browser,
+                &mut sound_queue,
             ),
             Screen::Multiplayer => {
-                show_multiplayer_screen(ui, &mut host, &mut browser, &mut screen)
+                show_multiplayer_screen(ui, &mut host, &mut browser, &mut screen, &mut sound_queue)
             }
             Screen::CustomGames => show_browser_screen(
                 ui,
@@ -174,6 +211,8 @@ fn main_menu(
                 "Refresh",
                 Screen::Multiplayer,
                 fetch_remote_lobbies,
+                &mut credits,
+                &mut sound_queue,
                 |ui, lobby| {
                     ui.label(format!(
                         "{} · {} ({}/{})",
@@ -193,11 +232,15 @@ fn main_menu(
                 "Scan again",
                 Screen::Multiplayer,
                 fetch_lan_lobbies,
+                &mut credits,
+                &mut sound_queue,
                 |ui, lobby| {
                     ui.label(format!("{} · {}", lobby.name, lobby.host));
                 },
             ),
-            Screen::Matchmaking => show_matchmaking_screen(ui, &mut screen),
+            Screen::Matchmaking => {
+                show_matchmaking_screen(ui, &mut screen, &mut credits, &mut browser, &mut sound_queue)
+            }
             Screen::Host => show_host_screen(
                 ui,
                 &mut commands,
@@ -206,9 +249,41 @@ fn main_menu(
                 &mut server_addr,
                 &mut next_state,
                 &mut screen,
+                &mut credits,
+                &mut browser,
+                &mut sound_queue,
             ),
         }
     });
+}
+
+fn go_to_screen(screen: &mut Screen, next: Screen, sound_queue: &mut SoundQueue) {
+    if *screen == next {
+        return;
+    }
+    queue_ui_sound(sound_queue, UI_CLICK_EVENT);
+    *screen = next;
+}
+
+fn back_screen(
+    screen: &mut Screen,
+    credits: &mut CreditsState,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
+) {
+    let prev = *screen;
+    let next = prev.back();
+    if prev == next {
+        return;
+    }
+    queue_ui_sound(sound_queue, UI_BACK_EVENT);
+    if prev == Screen::Credits {
+        credits.offset = 0.0;
+    }
+    if matches!(prev, Screen::CustomGames | Screen::JoinLan) {
+        *browser = LobbyBrowser::default();
+    }
+    *screen = next;
 }
 
 fn reset_host_catalog(host: &mut HostState) {
@@ -223,25 +298,27 @@ fn show_root_screen(
     host: &mut HostState,
     screen: &mut Screen,
     exit: &mut MessageWriter<AppExit>,
+    sound_queue: &mut SoundQueue,
 ) {
     if ui.button("Singleplayer").clicked() {
         reset_host_catalog(host);
-        *screen = Screen::SinglePlayer;
+        go_to_screen(screen, Screen::SinglePlayer, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Multiplayer").clicked() {
-        *screen = Screen::Multiplayer;
+        go_to_screen(screen, Screen::Multiplayer, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Settings").clicked() {
-        *screen = Screen::Settings;
+        go_to_screen(screen, Screen::Settings, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Credits").clicked() {
-        *screen = Screen::Credits;
+        go_to_screen(screen, Screen::Credits, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Exit").clicked() {
+        queue_ui_sound(sound_queue, UI_CLICK_EVENT);
         exit.write(AppExit::Success);
     }
 }
@@ -251,6 +328,8 @@ fn show_credits_screen(
     time: &Time,
     credits: &mut CreditsState,
     screen: &mut Screen,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
 ) {
     let lines = credits_lines();
     let line_height = 28.0;
@@ -291,8 +370,7 @@ fn show_credits_screen(
         });
     ui.add_space(8.0);
     if ui.button("Back").clicked() {
-        credits.offset = 0.0;
-        *screen = Screen::Root;
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
@@ -300,12 +378,16 @@ fn show_settings_screen(
     ui: &mut egui::Ui,
     settings: &mut Settings,
     settings_section: &mut SettingsSection,
+    audio_outputs: &AudioOutputDevices,
     screen: &mut Screen,
+    credits: &mut CreditsState,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
 ) {
-    show_settings_ui(ui, settings, settings_section);
+    show_settings_ui(ui, settings, settings_section, audio_outputs);
     ui.add_space(8.0);
     if ui.button("Back").clicked() {
-        *screen = Screen::Root;
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
@@ -316,6 +398,9 @@ fn show_singleplayer_screen(
     sp_config: &mut SinglePlayerConfig,
     next_state: &mut NextState<GameState>,
     screen: &mut Screen,
+    credits: &mut CreditsState,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
 ) {
     show_map_gametype_grid(ui, "sp", host);
     ui.add_space(8.0);
@@ -328,12 +413,13 @@ fn show_singleplayer_screen(
         shutdown_session(None, None, hosted);
         sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
         sp_config.gametype = gametype_path(&host.gametypes[host.gametype_idx]);
+        queue_ui_sound(sound_queue, UI_CLICK_EVENT);
         *screen = Screen::Root;
         next_state.set(GameState::SinglePlayer);
     }
     ui.add_space(4.0);
     if ui.button("Back").clicked() {
-        *screen = Screen::Root;
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
@@ -342,27 +428,29 @@ fn show_multiplayer_screen(
     host: &mut HostState,
     browser: &mut LobbyBrowser,
     screen: &mut Screen,
+    sound_queue: &mut SoundQueue,
 ) {
     if ui.button("Join LAN").clicked() {
         *browser = LobbyBrowser::default();
-        *screen = Screen::JoinLan;
+        go_to_screen(screen, Screen::JoinLan, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Custom Games").clicked() {
         *browser = LobbyBrowser::default();
-        *screen = Screen::CustomGames;
+        go_to_screen(screen, Screen::CustomGames, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Matchmaking").clicked() {
-        *screen = Screen::Matchmaking;
+        go_to_screen(screen, Screen::Matchmaking, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Host").clicked() {
         reset_host_catalog(host);
-        *screen = Screen::Host;
+        go_to_screen(screen, Screen::Host, sound_queue);
     }
     ui.add_space(4.0);
     if ui.button("Back").clicked() {
+        queue_ui_sound(sound_queue, UI_BACK_EVENT);
         *screen = Screen::Root;
     }
 }
@@ -432,8 +520,10 @@ fn show_browser_screen(
     loading_label: &str,
     empty_label: &str,
     refresh_label: &str,
-    back_screen: Screen,
+    back_target: Screen,
     fetch: fn() -> Result<Vec<LobbyInfo>, String>,
+    credits: &mut CreditsState,
+    sound_queue: &mut SoundQueue,
     draw_lobby: impl Fn(&mut egui::Ui, &LobbyInfo),
 ) {
     begin_browser_fetch(browser, fetch);
@@ -461,26 +551,34 @@ fn show_browser_screen(
                 }
             });
         if let Some(addr) = connect_to {
+            queue_ui_sound(sound_queue, UI_CLICK_EVENT);
             connect_to_lobby(&addr, hosted, server_addr, next_state, browser, screen);
         }
     }
 
     ui.add_space(4.0);
     if ui.button(refresh_label).clicked() {
+        queue_ui_sound(sound_queue, UI_CLICK_EVENT);
         *browser = LobbyBrowser::default();
     }
     ui.add_space(4.0);
     if ui.button("Back").clicked() {
-        *browser = LobbyBrowser::default();
-        *screen = back_screen;
+        let _ = back_target;
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
-fn show_matchmaking_screen(ui: &mut egui::Ui, screen: &mut Screen) {
+fn show_matchmaking_screen(
+    ui: &mut egui::Ui,
+    screen: &mut Screen,
+    credits: &mut CreditsState,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
+) {
     ui.label("Matchmaking coming soon.");
     ui.add_space(8.0);
     if ui.button("Back").clicked() {
-        *screen = Screen::Multiplayer;
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
@@ -531,6 +629,9 @@ fn show_host_screen(
     server_addr: &mut ServerAddr,
     next_state: &mut NextState<GameState>,
     screen: &mut Screen,
+    credits: &mut CreditsState,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
 ) {
     show_map_gametype_grid(ui, "host", host);
     egui::Grid::new("host_settings_grid")
@@ -576,6 +677,7 @@ fn show_host_screen(
         });
         match start_hosted_server(hosted, port, &map, &gametype, advertise) {
             Ok(()) => {
+                queue_ui_sound(sound_queue, UI_CLICK_EVENT);
                 server_addr.0 = format!("127.0.0.1:{port}").parse().unwrap();
                 *screen = Screen::Root;
                 next_state.set(GameState::Multiplayer);
@@ -587,7 +689,7 @@ fn show_host_screen(
     }
     ui.add_space(4.0);
     if ui.button("Back").clicked() {
-        *screen = Screen::Multiplayer;
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
@@ -615,21 +717,29 @@ fn credits_lines() -> &'static [&'static str] {
 
 fn pause_menu(
     mut contexts: EguiContexts,
+    keys: Res<ButtonInput<KeyCode>>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_ui: ResMut<NextState<UiState>>,
     mut hosted: ResMut<HostedServer>,
     mut console_input: Local<String>,
+    mut sound_queue: ResMut<SoundQueue>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
+    if keys.just_pressed(KeyCode::Escape) {
+        queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
+        next_ui.set(UiState::Playing);
+    }
     show_fullscreen_menu(ctx, "pause_menu", |ui| {
         ui.set_min_width(200.0);
         ui.heading("Paused");
         ui.add_space(8.0);
         if ui.button("Resume").clicked() {
+            queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_ui.set(UiState::Playing);
         }
         ui.add_space(4.0);
         if ui.button("Settings").clicked() {
+            queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_ui.set(UiState::Settings);
         }
         ui.add_space(4.0);
@@ -637,6 +747,7 @@ fn pause_menu(
             .button("Quit to Menu (this will kick all players)")
             .clicked()
         {
+            queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_game.set(GameState::MainMenu);
             next_ui.set(UiState::Playing);
         }
@@ -656,18 +767,31 @@ fn pause_menu(
 
 fn settings_menu(
     mut contexts: EguiContexts,
+    keys: Res<ButtonInput<KeyCode>>,
     mut next_ui: ResMut<NextState<UiState>>,
     mut settings: ResMut<Settings>,
     mut settings_section: Local<SettingsSection>,
+    mut sound_queue: ResMut<SoundQueue>,
+    audio_outputs: Res<AudioOutputDevices>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
+    if keys.just_pressed(KeyCode::Escape) {
+        queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
+        next_ui.set(UiState::Paused);
+    }
     show_fullscreen_menu(ctx, "settings_menu", |ui| {
         ui.set_min_width(250.0);
         ui.heading("Settings");
         ui.add_space(8.0);
-        show_settings_ui(ui, &mut settings, &mut settings_section);
+        show_settings_ui(
+            ui,
+            &mut settings,
+            &mut settings_section,
+            &audio_outputs,
+        );
         ui.add_space(8.0);
         if ui.button("Back").clicked() {
+            queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
             next_ui.set(UiState::Paused);
         }
     });

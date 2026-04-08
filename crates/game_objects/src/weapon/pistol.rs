@@ -49,6 +49,8 @@ impl Weapon for PistolComponent {
         projectile_helpers::apply_recoil::<rifle::PistolProjectile>(ctx, world, 0.6);
         helpers::queue_fire_sound(
             ctx.sound.as_deref_mut(),
+            world,
+            ctx.shooter,
             ctx.camera.is_some(),
             "event:/Weapons/RifleShotLocal",
             "event:/Weapons/RifleShot",

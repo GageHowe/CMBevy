@@ -80,6 +80,8 @@ fn main() {
 
     app.add_plugins(
         DefaultPlugins
+            .build()
+            .disable::<bevy::asset::io::web::WebAssetPlugin>()
             .set(AssetPlugin {
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
                 ..default()

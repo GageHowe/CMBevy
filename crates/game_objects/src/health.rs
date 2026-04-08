@@ -2,6 +2,7 @@ use crate::dispatch_game_object_on_death;
 use crate::pawn::biped::WeaponSlots;
 use crate::pawn::{HeldWeaponMap, ModeConfig, PendingRespawns, PlayerRegistry};
 use bevy::prelude::*;
+use common::GameObjectKind;
 use common::NetworkID;
 use common::game_state::GameState;
 use net::message::MsgType;
@@ -9,10 +10,20 @@ use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_pos, step_physics};
 use std::collections::HashMap;
 
+const BIPED_REGEN_PER_SEC: f32 = 4.0;
+
 pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, apply_collision_damage.after(step_physics));
+        app.add_systems(
+            FixedUpdate,
+            (
+                apply_collision_damage.after(step_physics),
+                regenerate_biped_health,
+            )
+                .chain()
+                .run_if(death_authority),
+        );
         app.add_systems(
             FixedUpdate,
             handle_deaths.after(step_physics).run_if(death_authority),
@@ -136,6 +147,22 @@ pub fn apply_collision_damage(
         if let Ok(mut health) = health_q.get_mut(entity) {
             health.apply_damage(damage);
         }
+    }
+}
+
+fn regenerate_biped_health(
+    time: Res<Time<Fixed>>,
+    mut health_q: Query<(&mut Health, &GameObjectKind)>,
+) {
+    let heal = BIPED_REGEN_PER_SEC * time.delta_secs();
+    if heal <= 0.0 {
+        return;
+    }
+    for (mut health, kind) in &mut health_q {
+        if *kind != GameObjectKind::Biped || health.current <= 0.0 || health.current >= health.max {
+            continue;
+        }
+        health.current = (health.current + heal).min(health.max);
     }
 }
 

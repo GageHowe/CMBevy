@@ -5,7 +5,7 @@ use rapier3d::prelude::*;
 use crate::projectile::{helpers as projectile_helpers, rpg};
 use crate::{GameObject, GameObjectKind};
 
-use super::{FireCtx, Weapon, helpers, weapon_bundle};
+use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 
 pub const COOLDOWN_TICKS: u32 = 45;
 
@@ -24,6 +24,7 @@ impl Weapon for RpgComponent {
     const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair028.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rpg::SPEED);
+    const ZOOM_MULTIPLIER: f32 = 1.5;
 
     fn fixed_update(
         &mut self,
@@ -31,6 +32,7 @@ impl Weapon for RpgComponent {
         commands: &mut Commands,
         ctx: &mut FireCtx,
     ) {
+        apply_zoom::<Self>(ctx);
         self.cooldown = self.cooldown.saturating_sub(1);
         if !ctx.want_fire || self.cooldown > 0 {
             return;
@@ -47,10 +49,12 @@ impl Weapon for RpgComponent {
         helpers::apply_local_predicted_impulse(
             ctx,
             world,
-            -ctx.aim_dir * rpg::weapon_recoil_impulse(helpers::shooter_mass(world, ctx.shooter)),
+            -ctx.aim_dir * rpg::shooter_knockback(helpers::shooter_mass(world, ctx.shooter)),
         );
         helpers::queue_fire_sound(
             ctx.sound.as_deref_mut(),
+            world,
+            ctx.shooter,
             ctx.camera.is_some(),
             "event:/Weapons/SniperShotLocal",
             "event:/Weapons/SniperShot",

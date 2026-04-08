@@ -1,4 +1,4 @@
-use super::{FireCtx, Weapon, helpers, weapon_bundle};
+use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::projectile::{hail_mary, helpers as projectile_helpers};
 use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
@@ -33,6 +33,7 @@ impl Weapon for HailMaryComponent {
     const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair010.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(hail_mary::SPEED);
+    const ZOOM_MULTIPLIER: f32 = 5.0;
 
     fn fixed_update(
         &mut self,
@@ -40,10 +41,7 @@ impl Weapon for HailMaryComponent {
         commands: &mut Commands,
         ctx: &mut FireCtx,
     ) {
-        // hold right-click to scope in at 5x
-        if let Some(cam) = ctx.camera.as_mut() {
-            cam.zoom_multiplier = if ctx.want_alt_fire { 5.0 } else { 1.0 };
-        }
+        apply_zoom::<Self>(ctx);
         self.cooldown = self.cooldown.saturating_sub(1);
         if ctx.want_fire && self.cooldown == 0 {
             self.fire_requested = true;
@@ -67,6 +65,8 @@ impl Weapon for HailMaryComponent {
         projectile_helpers::apply_recoil::<hail_mary::HailMaryProjectile>(ctx, world, 1.0);
         helpers::queue_fire_sound(
             ctx.sound.as_deref_mut(),
+            world,
+            ctx.shooter,
             ctx.camera.is_some(),
             "event:/Weapons/SniperShotLocal",
             "event:/Weapons/SniperShot",

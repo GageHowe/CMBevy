@@ -22,7 +22,7 @@ pub const EXPLOSION_IMPULSE: f32 = 30.0;
 const EXPLOSION_MASS_BLEND: f32 = 0.25;
 const RADIUS: f32 = 0.16;
 const DIRECT_HIT_BONUS: f32 = 20.0;
-const RECOIL_SPEED: f32 = 12.0;
+const SELF_DAMAGE_SCALE: f32 = 0.5;
 
 #[derive(Component, Reflect)]
 pub struct RpgProjectile {
@@ -38,8 +38,8 @@ impl Default for RpgProjectile {
     }
 }
 
-pub fn weapon_recoil_impulse(mass: f32) -> f32 {
-    mass * RECOIL_SPEED
+pub fn shooter_knockback(mass: f32) -> f32 {
+    mass * <RpgProjectile as Projectile>::SHOOTER_KNOCKBACK
 }
 
 fn explosion_mass_scale(mass: f32) -> f32 {
@@ -49,6 +49,7 @@ fn explosion_mass_scale(mass: f32) -> f32 {
 impl Projectile for RpgProjectile {
     const KIND: GameObjectKind = GameObjectKind::RpgProjectile;
     const SPEED: f32 = SPEED;
+    const SHOOTER_KNOCKBACK: f32 = 3.0;
 
     fn tick(
         &mut self,
@@ -69,7 +70,7 @@ impl Projectile for RpgProjectile {
             return;
         };
         // Match the predicted launcher recoil so server and client stay on the same path.
-        let impulse = -dir * weapon_recoil_impulse(rb.mass());
+        let impulse = -dir * shooter_knockback(rb.mass());
         world.apply_game_impulse(shooter, impulse, None, None);
     }
 
@@ -156,7 +157,7 @@ fn explode(
     direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
 ) {
     let mut affected: HashMap<Entity, f32> = HashMap::new();
-    let excluded: Vec<RigidBodyHandle> = [Some(projectile), shooter]
+    let excluded: Vec<RigidBodyHandle> = [Some(projectile)]
         .into_iter()
         .flatten()
         .filter_map(|e| world.entity_to_handle.get(&e).copied())
@@ -226,6 +227,9 @@ fn explode(
                     let mut damage = DAMAGE * falloff;
                     if direct_hit == Some(entity) {
                         damage += DIRECT_HIT_BONUS;
+                    }
+                    if shooter == Some(entity) {
+                        damage *= SELF_DAMAGE_SCALE;
                     }
                     health.apply_damage(damage);
                 }

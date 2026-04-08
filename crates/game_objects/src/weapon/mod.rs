@@ -86,6 +86,7 @@ pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Defaul
     const COLLIDER_PATH: &'static str;
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair013.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = None;
+    const ZOOM_MULTIPLIER: f32 = 1.0;
     /// Called every FixedPreUpdate tick when this weapon is the active slot.
     /// The weapon reads input from ctx, spawns projectiles/effects, and calls ctx helpers as needed.
     fn fixed_update(
@@ -153,4 +154,21 @@ pub fn fire_weapon<W: Weapon>(
 
 pub fn default_crosshair_path() -> &'static str {
     "textures/crosshairs/crosshair001.png"
+}
+
+pub fn apply_zoom<W: Weapon>(ctx: &mut FireCtx) -> f32 {
+    let Some(cam) = ctx.camera.as_mut() else {
+        return 0.0;
+    };
+    let zoom_multiplier = if ctx.want_alt_fire {
+        W::ZOOM_MULTIPLIER
+    } else {
+        1.0
+    }
+    .max(1.0);
+    cam.zoom_multiplier = zoom_multiplier;
+    if zoom_multiplier <= 1.0 {
+        return 0.0;
+    }
+    ((cam.current_zoom_factor() - 1.0) / (zoom_multiplier - 1.0)).clamp(0.0, 1.0)
 }

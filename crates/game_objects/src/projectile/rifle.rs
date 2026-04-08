@@ -45,7 +45,7 @@ impl Default for PistolProjectile {
 impl Projectile for RifleProjectile {
     const KIND: GameObjectKind = GameObjectKind::RifleProjectile;
     const SPEED: f32 = SPEED;
-    const IMPULSE: f32 = 1.5;
+    const KNOCKBACK: f32 = 0.1;
 
     fn tick(
         &mut self,
@@ -69,7 +69,7 @@ impl Projectile for RifleProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        let impulse = helpers::recoil_impulse::<Self>(dir, 1.0);
+        let impulse = helpers::knockback_impulse::<Self>(dir, 1.0);
         world.apply_game_impulse(shooter, impulse, None, None);
     }
 
@@ -89,7 +89,7 @@ impl Projectile for RifleProjectile {
 impl Projectile for PistolProjectile {
     const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
     const SPEED: f32 = SPEED;
-    const IMPULSE: f32 = 1.5;
+    const KNOCKBACK: f32 = 1.5;
 
     fn tick(
         &mut self,
@@ -113,7 +113,7 @@ impl Projectile for PistolProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        let impulse = helpers::recoil_impulse::<Self>(dir, 1.0);
+        let impulse = helpers::knockback_impulse::<Self>(dir, 1.0);
         world.apply_game_impulse(shooter, impulse, None, None);
     }
 

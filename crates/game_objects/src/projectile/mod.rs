@@ -101,7 +101,8 @@ pub fn fire_authoritative(
 pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
     const KIND: GameObjectKind;
     const SPEED: f32;
-    const IMPULSE: f32 = 0.0;
+    const KNOCKBACK: f32 = 0.0;
+    const SHOOTER_KNOCKBACK: f32 = Self::KNOCKBACK;
     /// Handles lifetime, hit detection, and on-hit effects.
     /// Server-side / singleplayer only — caller registers with appropriate run_if.
     fn tick(

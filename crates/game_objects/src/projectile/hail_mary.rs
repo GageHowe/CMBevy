@@ -29,7 +29,7 @@ impl Default for HailMaryProjectile {
 impl Projectile for HailMaryProjectile {
     const KIND: GameObjectKind = GameObjectKind::HailMaryProjectile;
     const SPEED: f32 = SPEED;
-    const IMPULSE: f32 = 1.5;
+    const KNOCKBACK: f32 = 1.5;
 
     fn tick(
         &mut self,
@@ -53,7 +53,7 @@ impl Projectile for HailMaryProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        let impulse = helpers::recoil_impulse::<Self>(dir, 1.0);
+        let impulse = helpers::knockback_impulse::<Self>(dir, 1.0);
         world.apply_game_impulse(shooter, impulse, None, None);
     }
 

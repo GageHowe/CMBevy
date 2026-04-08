@@ -113,11 +113,7 @@ pub fn insert_remote_projectile(
         .entity_mut(entity)
         .insert(RigidBodyHandleComponent(rb_handle));
     if let Some(mut sq) = world.get_resource_mut::<crate::sound::SoundQueue>() {
-        sq.0.push(crate::sound::SoundRequest {
-            event: fire_sound,
-            position: Some(cmd.position),
-            velocity: Vec3::ZERO,
-        });
+        sq.play_3d(fire_sound, cmd.position, cmd.starting_velocity);
     }
 }
 
@@ -164,8 +160,12 @@ pub fn apply_raycast_hit<P: Projectile>(
     }
 }
 
-pub fn recoil_impulse<P: Projectile>(dir: Vec3, scale: f32) -> Vec3 {
-    -dir.normalize_or_zero() * P::IMPULSE * scale
+pub fn knockback_impulse<P: Projectile>(dir: Vec3, scale: f32) -> Vec3 {
+    -dir.normalize_or_zero() * P::KNOCKBACK * scale
+}
+
+pub fn shooter_knockback_impulse<P: Projectile>(dir: Vec3, scale: f32) -> Vec3 {
+    -dir.normalize_or_zero() * P::SHOOTER_KNOCKBACK * scale
 }
 
 pub fn apply_hit_impulse<P: Projectile>(
@@ -176,7 +176,7 @@ pub fn apply_hit_impulse<P: Projectile>(
 ) {
     world.apply_game_impulse_at(
         entity,
-        dir.normalize_or_zero() * P::IMPULSE,
+        dir.normalize_or_zero() * P::KNOCKBACK,
         hit_point,
         None,
         None,
@@ -194,7 +194,7 @@ pub fn apply_recoil<P: Projectile>(
     };
     world.apply_game_impulse(
         shooter,
-        recoil_impulse::<P>(ctx.aim_dir, scale),
+        shooter_knockback_impulse::<P>(ctx.aim_dir, scale),
         Some(shooter_net_id),
         ctx.predicted.as_deref_mut(),
     );
