@@ -1,7 +1,4 @@
 {
-  "settings": {
-    "includeCoAuthoredBy": false
-  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
@@ -72,8 +69,20 @@
       "WebFetch(domain:bevy.org)",
       "WebFetch(domain:*)",
       "Bash(make client:*)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(mv /home/zenith/github/CMBevy/tools/decomp /home/zenith/github/CMBevy/tools/vhacd)",
+      "Bash(mkdir -p /home/zenith/github/CMBevy/tools/coacd/src)",
+      "Bash(kill %1)",
+      "Bash(objdump -x /home/zenith/github/CMBevy/target/distribution/client)",
+      "Bash(objdump -x /home/zenith/github/CMBevy/assets/lib/fmodstudioapi20312linux/api/studio/lib/x86_64/libfmodstudio.so.14.12)",
+      "Bash(objdump -x target/debug/client)",
+      "Bash(ldd /home/zenith/github/CMBevy/target/distribution/client)",
+      "Bash(ldd /home/zenith/github/CMBevy/target/debug/client)",
+      "Bash(ln:*)"
     ],
     "deny": []
+  },
+  "settings": {
+    "includeCoAuthoredBy": false
   }
 }

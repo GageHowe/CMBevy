@@ -1,6 +1,7 @@
 // physics_world.rs
 // this manages the physics simulation and syncs it with clients
 
+use crate::collider_shape::ColliderShape;
 use bevy::prelude::*;
 use common::{BodyState, NetworkID, PredictedCommands, SimulationState};
 pub use rapier3d::prelude::RigidBodyHandle;
@@ -384,6 +385,46 @@ impl PhysicsWorld {
             let entity = self.handle_to_entity.get(&rb_handle)?;
             Some((*entity, toi))
         })
+    }
+
+    pub fn entities_intersecting_shape(
+        &self,
+        shape: &ColliderShape,
+        scale: f32,
+        position: Vec3,
+        rotation: Quat,
+        exclude: &[Entity],
+    ) -> Vec<Entity> {
+        let Some(collider) = shape.build_primitive_collider(scale) else {
+            return Vec::new();
+        };
+        let excluded: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|entity| self.entity_to_handle.get(entity).copied())
+            .collect();
+        let pred = |_: ColliderHandle, col: &Collider| {
+            col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+        };
+        let filter = QueryFilter::new().predicate(&pred);
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
+        let pose = Pose::from_parts(position, rotation);
+        let mut entities = Vec::new();
+        for (_handle, hit_collider) in qp.intersect_shape(pose, collider.shape()) {
+            let Some(body) = hit_collider.parent() else {
+                continue;
+            };
+            if let Some(entity) = self.handle_to_entity.get(&body).copied() {
+                if !entities.contains(&entity) {
+                    entities.push(entity);
+                }
+            }
+        }
+        entities
     }
 }
 

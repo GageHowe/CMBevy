@@ -82,6 +82,7 @@ pub enum ShadowQuality {
 pub enum SettingsSection {
     #[default]
     Graphics,
+    Audio,
     Input,
     Controls,
 }
@@ -428,6 +429,7 @@ pub fn show_settings_ui(
 ) {
     ui.horizontal(|ui| {
         ui.selectable_value(section, SettingsSection::Graphics, "Graphics");
+        ui.selectable_value(section, SettingsSection::Audio, "Audio");
         ui.selectable_value(section, SettingsSection::Input, "Input");
         ui.selectable_value(section, SettingsSection::Controls, "Controls");
     });
@@ -435,6 +437,7 @@ pub fn show_settings_ui(
 
     match section {
         SettingsSection::Graphics => show_graphics_settings(ui, settings, audio_outputs),
+        SettingsSection::Audio => show_audio_settings(ui, settings, audio_outputs),
         SettingsSection::Input => show_input_settings(ui, settings),
         SettingsSection::Controls => {
             ui.label("Control remapping coming soon.");
@@ -445,7 +448,7 @@ pub fn show_settings_ui(
 fn show_graphics_settings(
     ui: &mut egui::Ui,
     settings: &mut Settings,
-    audio_outputs: &AudioOutputDevices,
+    _audio_outputs: &AudioOutputDevices,
 ) {
     egui::CollapsingHeader::new("Display")
         .default_open(true)
@@ -648,7 +651,26 @@ fn show_graphics_settings(
             });
         });
 
-    egui::CollapsingHeader::new("Audio")
+    egui::CollapsingHeader::new("Debug")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.checkbox(&mut settings.cinematic_mode, "Cinematic mode")
+                .on_hover_text(
+                    "Hides gameplay helper overlays like planet radii during normal play.",
+                );
+            ui.checkbox(&mut settings.debug_render, "Debug rendering")
+                .on_hover_text(
+                    "Draws engineering/debug visuals like collider, seat, and projectile gizmos.",
+                );
+        });
+}
+
+fn show_audio_settings(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    audio_outputs: &AudioOutputDevices,
+) {
+    egui::CollapsingHeader::new("Output")
         .default_open(true)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -677,7 +699,11 @@ fn show_graphics_settings(
                         }
                     });
             });
+        });
 
+    egui::CollapsingHeader::new("Latency")
+        .default_open(true)
+        .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("FMOD buffer")
                     .on_hover_text("FMOD DSP buffer size in samples. Lower is more responsive but more prone to crackle. Takes effect on restart.");
@@ -693,19 +719,6 @@ fn show_graphics_settings(
                         }
                     });
             });
-        });
-
-    egui::CollapsingHeader::new("Debug")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.checkbox(&mut settings.cinematic_mode, "Cinematic mode")
-                .on_hover_text(
-                    "Hides gameplay helper overlays like planet radii during normal play.",
-                );
-            ui.checkbox(&mut settings.debug_render, "Debug rendering")
-                .on_hover_text(
-                    "Draws engineering/debug visuals like collider, seat, and projectile gizmos.",
-                );
         });
 }
 

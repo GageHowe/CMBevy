@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
 use physics::convex_hull_asset::ConvexHullAsset;
+use physics::collider_shape::ColliderShape;
 use physics::physics_world::{
     InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
     rb_rot, rb_vel,
@@ -13,26 +14,6 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 // ── component / resource types ────────────────────────────────────────────────
-
-// TODO: can we make this a generic rapier type instead of declaring our own?
-#[derive(Clone, Reflect)]
-#[reflect(Default)]
-pub enum ColliderShape {
-    Ball(f32),
-    Cuboid(Vec3),
-    Capsule {
-        half_height: f32,
-        radius: f32,
-    },
-    /// Local asset path or `sha256:...` remote ref to an OBJ file containing VHACD convex hulls.
-    ConvexHulls(String),
-}
-
-impl Default for ColliderShape {
-    fn default() -> Self {
-        Self::Ball(1.0)
-    }
-}
 
 /// Static (fixed) collider placed in the scene. Position/rotation come from Transform.
 #[derive(Component, Clone, Reflect, Default)]
@@ -54,6 +35,24 @@ pub struct SceneModel {
 #[reflect(Component, Default)]
 pub struct SpawnPoint {
     pub team: u8,
+}
+
+/// Map-authored string tags visible to scripts. Use these to label important entities
+/// (flag bases, hills, doors, spawn groups) so gametype scripts can look them up.
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct ScriptTags {
+    pub tags: Vec<String>,
+}
+
+/// Map-authored script-visible trigger volume. These are evaluated by querying the physics world
+/// with the authored shape at the entity's current world pose, so they can be parented in scenes
+/// without needing their own rigid body.
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct ScriptZone {
+    pub shape: ColliderShape,
+    pub scale: f32,
 }
 
 /// Level-wide metadata inserted as a Resource by the .scn.ron file.
@@ -358,6 +357,8 @@ impl Plugin for LevelPlugin {
         app.register_type::<StaticCollider>();
         app.register_type::<SceneModel>();
         app.register_type::<SpawnPoint>();
+        app.register_type::<ScriptTags>();
+        app.register_type::<ScriptZone>();
         app.register_type::<SceneSpawn>();
         app.register_type::<MapMeta>();
         app.init_resource::<PendingHullColliders>();
@@ -568,16 +569,8 @@ pub fn spawn_static_colliders(
             pending.0.push((entity, pos, rot, handle));
             continue;
         }
-        let collider = match &sc.shape {
-            ColliderShape::Cuboid(he) => {
-                ColliderBuilder::cuboid(he.x * s, he.y * s, he.z * s).build()
-            }
-            ColliderShape::Ball(r) => ColliderBuilder::ball(r * s).build(),
-            ColliderShape::Capsule {
-                half_height,
-                radius,
-            } => ColliderBuilder::capsule_y(half_height * s, radius * s).build(),
-            ColliderShape::ConvexHulls(_) => unreachable!(),
+        let Some(collider) = sc.shape.build_primitive_collider(s) else {
+            continue;
         };
         attach_collider_to_body(
             entity,

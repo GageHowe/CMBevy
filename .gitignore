@@ -6,3 +6,4 @@ dist/
 *.sqlite
 Cargo.lock
 perf.data*
+assets/fmod-out

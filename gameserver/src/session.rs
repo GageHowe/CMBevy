@@ -1010,10 +1010,32 @@ fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
 }
 
 fn init_mode_config(world: &mut World) {
-    let respawn_delay = get_script_global::<f64>(world, "RESPAWN_DELAY")
-        .map(|d| d as f32)
-        .unwrap_or(common::config::RESPAWN_DELAY_SECS);
-    world.insert_resource(ModeConfig { respawn_delay });
+    let mut config = ModeConfig::default();
+    if let Some(value) = get_script_global::<f64>(world, "RESPAWN_DELAY") {
+        config.respawn_delay = value as f32;
+    }
+    if let Some(value) = get_script_global::<bool>(world, "TEAMS_ENABLED") {
+        config.teams_enabled = value;
+    }
+    if let Some(value) = get_script_global::<bool>(world, "TEAM_SCORE_SHARED") {
+        config.team_score_shared = value;
+    }
+    if let Some(value) = get_script_global::<i64>(world, "SCORE_TO_WIN") {
+        config.score_to_win = value as i32;
+    }
+    if let Some(value) = get_script_global::<f64>(world, "TIME_LIMIT_SECS") {
+        config.time_limit_secs = value as f32;
+    }
+    if let Some(value) = get_script_global::<i64>(world, "TEAM_COUNT") {
+        config.team_count = value.clamp(0, u8::MAX as i64) as u8;
+    }
+    if let Some(value) = get_script_global::<String>(world, "SCORE_LABEL") {
+        config.score_label = value;
+    }
+    if let Some(value) = get_script_global::<String>(world, "PRIMARY_OBJECTIVE_LABEL") {
+        config.primary_objective_label = value;
+    }
+    world.insert_resource(config);
 }
 
 fn tick_respawns(

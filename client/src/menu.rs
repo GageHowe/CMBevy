@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use http_common::{LobbyInfo, RegisterRequest};
 use game_objects::sound::SoundQueue;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub struct MenuPlugin;
 
@@ -678,7 +679,7 @@ fn show_host_screen(
         match start_hosted_server(hosted, port, &map, &gametype, advertise) {
             Ok(()) => {
                 queue_ui_sound(sound_queue, UI_CLICK_EVENT);
-                server_addr.0 = format!("127.0.0.1:{port}").parse().unwrap();
+                server_addr.0 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
                 *screen = Screen::Root;
                 next_state.set(GameState::Multiplayer);
             }

@@ -15,7 +15,7 @@ use game_objects::projectile::rpg::RpgProjectile;
 use game_objects::projectile::*;
 use game_objects::weapon::WeaponPlugin;
 use reconciliation::*;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tick_sync::TickSyncPlugin;
 use ui::ui::UIPlugin;
 use ui::window::WindowSettingsPlugin;
@@ -62,7 +62,16 @@ fn parse_server_addr() -> SocketAddr {
             }
         }
     }
-    common::config::SERVER_BIND_ADDRESS.parse().unwrap()
+    match common::config::SERVER_BIND_ADDRESS.parse() {
+        Ok(addr) => addr,
+        Err(err) => {
+            error!(
+                "invalid SERVER_BIND_ADDRESS '{}': {err}",
+                common::config::SERVER_BIND_ADDRESS
+            );
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 42070)
+        }
+    }
 }
 
 fn main() {
