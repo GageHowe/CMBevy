@@ -1,6 +1,7 @@
 use super::vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat};
 use super::*;
 use crate::generic::attach_hull_collider;
+use crate::health::{LastDamageSource, copy_last_damage_source};
 use crate::weapon::AimReticle;
 use crate::{GameObject, GameObjectKind};
 #[cfg(feature = "client")]
@@ -73,6 +74,7 @@ impl GameObject for SpaceshipPawnComponent {
         let driver_seat = spawn_driver_seat::<SpaceshipPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
+            LastDamageSource::default(),
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(driver_seat),
             AimReticle("textures/crosshairs/crosshair001.png", None),
             GameObjectKind::Spaceship,
@@ -140,6 +142,7 @@ impl GameObject for SpaceshipPawnComponent {
         world
             .entity_mut(biped_entity)
             .remove::<super::SeatedInVehicle>();
+        copy_last_damage_source(world, entity, biped_entity);
         true
     }
 }
@@ -147,10 +150,12 @@ impl GameObject for SpaceshipPawnComponent {
 #[cfg(feature = "client")]
 fn gather_spaceship_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
+    bindings: Res<common::ActiveKeyBindings>,
     mut pawns: Query<&mut Possessed, With<SpaceshipPawnComponent>>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
@@ -164,31 +169,31 @@ fn gather_spaceship_input(
     };
 
     let mut input = common::SpaceshipInput::default();
-    if keyboard.pressed(KeyCode::KeyW) {
+    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons) {
         input.forward += 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyS) {
+    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons) {
         input.forward -= 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyD) {
+    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons) {
         input.right += 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyA) {
+    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons) {
         input.right -= 1.0;
     }
-    if keyboard.pressed(KeyCode::Space) {
+    if bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons) {
         input.up += 1.0;
     }
-    if keyboard.pressed(KeyCode::ControlLeft) {
+    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons) {
         input.up -= 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyQ) {
+    if bindings.pressed(common::InputAction::RollLeft, &keyboard, &mouse_buttons) {
         input.roll -= 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyE) {
+    if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons) {
         input.roll += 1.0;
     }
-    input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
+    input.ability1 = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
     let s = sensitivity.vehicle_pitch_yaw;
     input.yaw = -mouse.delta.x * s;
     input.pitch = -mouse.delta.y * s;

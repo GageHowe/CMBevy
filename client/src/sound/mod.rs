@@ -33,8 +33,8 @@ mod fmod_impl {
     use game_objects::components::atmosphere::AreaReverbComponent;
     use game_objects::pawn::Possessed;
     use game_objects::sound::{SoundEmitter, SoundQueue};
-    use std::ffi::CStr;
     use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
+    use std::ffi::CStr;
 
     const GLOBAL_ATMOSPHERE_REVERB: &str = "GlobalAtmosphereReverb";
     const IN_SPACE_FILTER: &str = "InSpaceFilter";
@@ -58,20 +58,26 @@ mod fmod_impl {
     }
 
     pub fn build(app: &mut App) {
-        app.add_systems(PostStartup, (init_fmod, refresh_output_devices, apply_output_device).chain())
-            .add_systems(
-                PostUpdate,
-                (
-                    spawn_instances,
-                    update_instances,
-                    sync_listener,
-                    update_atmosphere_reverb,
-                )
-                    .chain()
-                    .after(TransformSystems::Propagate),
+        app.add_systems(
+            PostStartup,
+            (init_fmod, refresh_output_devices, apply_output_device).chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                spawn_instances,
+                update_instances,
+                sync_listener,
+                update_atmosphere_reverb,
             )
-            .add_systems(Last, (flush_queue, update_fmod).chain())
-            .add_systems(Update, apply_output_device.run_if(resource_changed::<Settings>));
+                .chain()
+                .after(TransformSystems::Propagate),
+        )
+        .add_systems(Last, (flush_queue, update_fmod).chain())
+        .add_systems(
+            Update,
+            apply_output_device.run_if(resource_changed::<Settings>),
+        );
     }
 
     /// called once at startup before any FMOD use
@@ -80,7 +86,8 @@ mod fmod_impl {
         let buffer_size = settings
             .as_ref()
             .map_or(256, |settings| settings.fmod_buffer_size.clamp(128, 4096));
-        let Ok(system) = fmod::Studio::create().inspect_err(|e| warn!("FMOD: create failed: {e:?}"))
+        let Ok(system) =
+            fmod::Studio::create().inspect_err(|e| warn!("FMOD: create failed: {e:?}"))
         else {
             return;
         };

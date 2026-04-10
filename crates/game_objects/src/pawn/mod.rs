@@ -76,7 +76,6 @@ pub use biped::{PitchPivot, YawPivot};
 pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
-use crate::score::PlayerScores;
 
 /// Tracks both the currently controlled entity and the player's persistent biped.
 #[derive(Resource, Default)]
@@ -136,38 +135,10 @@ pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind)>);
 #[derive(Resource, Default)]
 pub struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
 
-#[derive(Resource, Clone)]
-pub struct ModeConfig {
-    pub respawn_delay: f32,
-    pub teams_enabled: bool,
-    pub team_score_shared: bool,
-    pub score_to_win: i32,
-    pub time_limit_secs: f32,
-    pub team_count: u8,
-    pub score_label: String,
-    pub primary_objective_label: String,
-}
-
-impl Default for ModeConfig {
-    fn default() -> Self {
-        Self {
-            respawn_delay: common::config::RESPAWN_DELAY_SECS,
-            teams_enabled: false,
-            team_score_shared: false,
-            score_to_win: 50,
-            time_limit_secs: 600.0,
-            team_count: 2,
-            score_label: "Score".to_string(),
-            primary_objective_label: "Eliminate enemies".to_string(),
-        }
-    }
-}
-
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
-        app.init_resource::<PlayerScores>();
         #[cfg(feature = "client")]
         app.init_resource::<InteractionGate>()
             .add_systems(Update, queue_interaction_input);
@@ -222,12 +193,17 @@ impl InteractionGate {
 #[cfg(feature = "client")]
 fn queue_interaction_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    bindings: Res<common::ActiveKeyBindings>,
     ticker: Res<common::tick::Ticker>,
     mut interaction: ResMut<InteractionGate>,
 ) {
     let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
-    interaction.queue(!blocked && keyboard.pressed(KeyCode::KeyF), ticker.tick);
+    interaction.queue(
+        !blocked && bindings.pressed(common::InputAction::Interact, &keyboard, &mouse),
+        ticker.tick,
+    );
 }
 
 /// all pawns implement this; defines input and movement

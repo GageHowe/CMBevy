@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 game_objects = { path = "../game_objects" }
 common = { path = "../common" }
+net = { path = "../net" }
 physics = { path = "../physics" }
 bevy = { version = "0.18", features = ["serialize", "jpeg", "std", "multi_threaded"] }
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }

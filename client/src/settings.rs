@@ -3,11 +3,13 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::outline::OutlineSettings;
+use crate::settings_controls::{ControlsCapture, show_controls_settings};
 use crate::sound::AudioOutputDevices;
 use bevy::prelude::*;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext, egui};
+use common::{ActiveKeyBindings, KeyBindings};
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
 use serde::{Deserialize, Serialize};
@@ -19,10 +21,17 @@ pub struct SettingsPlugin;
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Settings>()
+            .register_type::<KeyBindings>()
+            .insert_resource(ControlsCapture::default())
+            .init_resource::<ActiveKeyBindings>()
             .add_systems(Startup, load_settings)
             .add_systems(
                 PostUpdate,
                 apply_settings.run_if(resource_changed::<Settings>),
+            )
+            .add_systems(
+                PostUpdate,
+                sync_active_keybindings.run_if(resource_changed::<Settings>),
             )
             .add_systems(PostUpdate, sync_dynamic_graphics_settings)
             .add_systems(
@@ -91,6 +100,7 @@ pub enum SettingsSection {
 #[serde(default)]
 #[reflect(Resource)]
 pub struct Settings {
+    pub keybindings: KeyBindings,
     pub mouse_sensitivity: f32,
     pub zoom_sensitivity_blend: f32,
     pub vehicle_pitch_yaw_sensitivity: f32,
@@ -121,6 +131,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            keybindings: KeyBindings::default(),
             mouse_sensitivity: 0.002,
             zoom_sensitivity_blend: 1.0,
             vehicle_pitch_yaw_sensitivity: 0.002,
@@ -168,6 +179,7 @@ fn load_settings(mut commands: Commands) {
         default
     };
 
+    commands.insert_resource(ActiveKeyBindings::from_settings(&settings.keybindings));
     commands.insert_resource(settings);
 }
 
@@ -421,11 +433,18 @@ fn save_settings(settings: Res<Settings>) {
     }
 }
 
+fn sync_active_keybindings(settings: Res<Settings>, mut active: ResMut<ActiveKeyBindings>) {
+    active.sync_from(&settings.keybindings);
+}
+
 pub fn show_settings_ui(
     ui: &mut egui::Ui,
     settings: &mut Settings,
     section: &mut SettingsSection,
     audio_outputs: &AudioOutputDevices,
+    keyboard: &ButtonInput<KeyCode>,
+    mouse: &ButtonInput<MouseButton>,
+    capture: &mut ControlsCapture,
 ) {
     ui.horizontal(|ui| {
         ui.selectable_value(section, SettingsSection::Graphics, "Graphics");
@@ -439,9 +458,7 @@ pub fn show_settings_ui(
         SettingsSection::Graphics => show_graphics_settings(ui, settings, audio_outputs),
         SettingsSection::Audio => show_audio_settings(ui, settings, audio_outputs),
         SettingsSection::Input => show_input_settings(ui, settings),
-        SettingsSection::Controls => {
-            ui.label("Control remapping coming soon.");
-        }
+        SettingsSection::Controls => show_controls_settings(ui, settings, keyboard, mouse, capture),
     }
 }
 

@@ -3,13 +3,15 @@ use crate::session::{
     fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
 };
 use crate::settings::{Settings, SettingsSection, show_settings_ui};
+use crate::settings_controls::ControlsCapture;
 use crate::sound::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
 use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use http_common::{LobbyInfo, RegisterRequest};
+use common::InputAction;
 use game_objects::sound::SoundQueue;
+use http_common::{LobbyInfo, RegisterRequest};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub struct MenuPlugin;
@@ -29,6 +31,15 @@ impl Plugin for MenuPlugin {
             settings_menu.run_if(in_state(UiState::Settings)),
         );
     }
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct MenuInputParams<'w> {
+    keys: Res<'w, ButtonInput<KeyCode>>,
+    mouse: Res<'w, ButtonInput<MouseButton>>,
+    time: Res<'w, Time>,
+    active_bindings: Res<'w, common::ActiveKeyBindings>,
+    capture: ResMut<'w, ControlsCapture>,
 }
 
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -130,7 +141,7 @@ fn main_menu(
     mut commands: Commands,
     mut contexts: EguiContexts,
     mut exit: MessageWriter<AppExit>,
-    input_time: (Res<ButtonInput<KeyCode>>, Res<Time>),
+    mut menu_input: MenuInputParams,
     mut next_state: ResMut<NextState<GameState>>,
     mut server_addr: ResMut<ServerAddr>,
     mut hosted: ResMut<HostedServer>,
@@ -144,9 +155,14 @@ fn main_menu(
     mut sound_queue: ResMut<SoundQueue>,
     audio_outputs: Res<AudioOutputDevices>,
 ) {
-    let (keys, time) = input_time;
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    if keys.just_pressed(KeyCode::Escape) {
+    if menu_input.capture.is_active() && menu_input.keys.just_pressed(KeyCode::Escape) {
+        menu_input.capture.cancel();
+    } else if menu_input.active_bindings.just_pressed(
+        InputAction::Pause,
+        &menu_input.keys,
+        &menu_input.mouse,
+    ) {
         back_screen(&mut screen, &mut credits, &mut browser, &mut sound_queue);
     }
     let title = match *screen {
@@ -165,27 +181,30 @@ fn main_menu(
         ui.heading(title);
         ui.add_space(8.0);
         match *screen {
-            Screen::Root => show_root_screen(ui, &mut host, &mut screen, &mut exit, &mut sound_queue),
+            Screen::Root => {
+                show_root_screen(ui, &mut host, &mut screen, &mut exit, &mut sound_queue)
+            }
             Screen::Credits => show_credits_screen(
                 ui,
-                &time,
+                &menu_input.time,
                 &mut credits,
                 &mut screen,
                 &mut browser,
                 &mut sound_queue,
             ),
-            Screen::Settings => {
-                show_settings_screen(
-                    ui,
-                    &mut settings,
-                    &mut settings_section,
-                    &audio_outputs,
-                    &mut screen,
-                    &mut credits,
-                    &mut browser,
-                    &mut sound_queue,
-                )
-            }
+            Screen::Settings => show_settings_screen(
+                ui,
+                &mut settings,
+                &mut settings_section,
+                &audio_outputs,
+                &menu_input.keys,
+                &menu_input.mouse,
+                &mut menu_input.capture,
+                &mut screen,
+                &mut credits,
+                &mut browser,
+                &mut sound_queue,
+            ),
             Screen::SinglePlayer => show_singleplayer_screen(
                 ui,
                 &mut host,
@@ -239,9 +258,13 @@ fn main_menu(
                     ui.label(format!("{} · {}", lobby.name, lobby.host));
                 },
             ),
-            Screen::Matchmaking => {
-                show_matchmaking_screen(ui, &mut screen, &mut credits, &mut browser, &mut sound_queue)
-            }
+            Screen::Matchmaking => show_matchmaking_screen(
+                ui,
+                &mut screen,
+                &mut credits,
+                &mut browser,
+                &mut sound_queue,
+            ),
             Screen::Host => show_host_screen(
                 ui,
                 &mut commands,
@@ -380,12 +403,23 @@ fn show_settings_screen(
     settings: &mut Settings,
     settings_section: &mut SettingsSection,
     audio_outputs: &AudioOutputDevices,
+    keyboard: &ButtonInput<KeyCode>,
+    mouse: &ButtonInput<MouseButton>,
+    capture: &mut ControlsCapture,
     screen: &mut Screen,
     credits: &mut CreditsState,
     browser: &mut LobbyBrowser,
     sound_queue: &mut SoundQueue,
 ) {
-    show_settings_ui(ui, settings, settings_section, audio_outputs);
+    show_settings_ui(
+        ui,
+        settings,
+        settings_section,
+        audio_outputs,
+        keyboard,
+        mouse,
+        capture,
+    );
     ui.add_space(8.0);
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
@@ -719,14 +753,19 @@ fn credits_lines() -> &'static [&'static str] {
 fn pause_menu(
     mut contexts: EguiContexts,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_ui: ResMut<NextState<UiState>>,
     mut hosted: ResMut<HostedServer>,
     mut console_input: Local<String>,
+    active_bindings: Res<common::ActiveKeyBindings>,
+    mut capture: ResMut<ControlsCapture>,
     mut sound_queue: ResMut<SoundQueue>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    if keys.just_pressed(KeyCode::Escape) {
+    if capture.is_active() && keys.just_pressed(KeyCode::Escape) {
+        capture.cancel();
+    } else if active_bindings.just_pressed(InputAction::Pause, &keys, &mouse) {
         queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
         next_ui.set(UiState::Playing);
     }
@@ -769,14 +808,19 @@ fn pause_menu(
 fn settings_menu(
     mut contexts: EguiContexts,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut next_ui: ResMut<NextState<UiState>>,
     mut settings: ResMut<Settings>,
+    active_bindings: Res<common::ActiveKeyBindings>,
+    mut capture: ResMut<ControlsCapture>,
     mut settings_section: Local<SettingsSection>,
     mut sound_queue: ResMut<SoundQueue>,
     audio_outputs: Res<AudioOutputDevices>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    if keys.just_pressed(KeyCode::Escape) {
+    if capture.is_active() && keys.just_pressed(KeyCode::Escape) {
+        capture.cancel();
+    } else if active_bindings.just_pressed(InputAction::Pause, &keys, &mouse) {
         queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
         next_ui.set(UiState::Paused);
     }
@@ -789,6 +833,9 @@ fn settings_menu(
             &mut settings,
             &mut settings_section,
             &audio_outputs,
+            &keys,
+            &mouse,
+            &mut capture,
         );
         ui.add_space(8.0);
         if ui.button("Back").clicked() {

@@ -25,6 +25,7 @@ mod menu;
 mod outline;
 mod reconciliation;
 mod session;
+mod settings_controls;
 mod tick_sync;
 mod ui;
 use menu::MenuPlugin;

@@ -4,15 +4,15 @@ use crate::runtime::ScriptRuntime;
 use crate::tag_index::ScriptTagIndex;
 use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
-use common::{NetworkID, NetworkIDResource};
 use game_objects::health::Health;
 use game_objects::level::{ScriptZone, parented_world_pose};
+use game_objects::messages::push_world;
+use game_objects::mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers};
 use game_objects::pawn::PlayerRegistry;
-use game_objects::score::PlayerScores;
-use game_objects::{GenericShape, spawn_generic};
 use mlua::prelude::*;
+use net::message::MsgType;
+use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
-use rapier3d::prelude::ColliderBuilder;
 
 fn lua_world(lua: &Lua) -> LuaResult<&mut World> {
     let Some(world_ptr) = lua.app_data_ref::<*mut World>() else {
@@ -97,18 +97,145 @@ pub(crate) fn register_script_functions(world: &mut World) {
         })
     });
 
-    register_lua_function(&runtime.lua, "get_player_score", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
+    register_lua_function(&runtime.lua, "get_players", |lua| {
+        lua.create_function(|lua, ()| {
             let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            Ok(player_score(world, entity).unwrap_or_default())
+            let values = world
+                .get_resource::<PlayerRegistry>()
+                .map(|registry| {
+                    registry
+                        .characters
+                        .values()
+                        .map(|(entity, _)| entity.to_bits() as i64)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            lua.create_sequence_from(values)
         })
     });
 
-    register_lua_function(&runtime.lua, "add_player_score", |lua| {
-        lua.create_function(|lua, (entity_id, amount): (i64, i32)| {
+    register_lua_function(&runtime.lua, "get_match_phase", |lua| {
+        lua.create_function(|lua, ()| {
             let world = lua_world(lua)?;
-            add_player_score(world, Entity::from_bits(entity_id as u64), amount);
+            Ok(
+                match world.get_resource::<MatchState>().map(|state| state.phase) {
+                    Some(MatchPhase::PostGame) => "post_game",
+                    _ => "playing",
+                },
+            )
+        })
+    });
+
+    register_lua_function(&runtime.lua, "get_match_phase_time", |lua| {
+        lua.create_function(|lua, ()| {
+            let world = lua_world(lua)?;
+            Ok(world
+                .get_resource::<MatchState>()
+                .map_or(0.0, |state| state.phase_elapsed_secs as f64))
+        })
+    });
+
+    register_lua_function(&runtime.lua, "end_game", |lua| {
+        lua.create_function(|lua, ()| {
+            let world = lua_world(lua)?;
+            end_game(world, None, None);
+            Ok(())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "end_game_with_player_winner", |lua| {
+        lua.create_function(|lua, entity_id: i64| {
+            let world = lua_world(lua)?;
+            let entity = Entity::from_bits(entity_id as u64);
+            let winner = world
+                .get_resource::<PlayerRegistry>()
+                .and_then(|registry| registry.conn_id_for_entity(entity));
+            end_game(world, winner, None);
+            Ok(())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "end_game_with_team_winner", |lua| {
+        lua.create_function(|lua, team: i32| {
+            let world = lua_world(lua)?;
+            end_game(world, None, Some(team.clamp(0, u8::MAX as i32) as u8));
+            Ok(())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "restart_round", |lua| {
+        lua.create_function(|lua, ()| {
+            let world = lua_world(lua)?;
+            if let Some(mut state) = world.get_resource_mut::<MatchState>() {
+                state.restart_requested = true;
+            }
+            Ok(())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "show_message", |lua| {
+        lua.create_function(|lua, text: String| {
+            let world = lua_world(lua)?;
+            let is_server = world
+                .get_resource::<crate::config::ScriptConfig>()
+                .is_some_and(|config| config.is_server);
+            if is_server {
+                if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+                    quic.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &MsgType::OnscreenMessage(text),
+                    );
+                }
+            } else {
+                push_world(world, text);
+            }
+            Ok(())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "get_player_number", |lua| {
+        lua.create_function(|lua, (entity_id, index): (i64, i32)| {
+            let world = lua_world(lua)?;
+            let entity = Entity::from_bits(entity_id as u64);
+            Ok(player_number(world, entity, normalize_index(index)).unwrap_or_default())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "add_player_number", |lua| {
+        lua.create_function(|lua, (entity_id, index, amount): (i64, i32, i32)| {
+            let world = lua_world(lua)?;
+            add_player_number(
+                world,
+                Entity::from_bits(entity_id as u64),
+                normalize_index(index),
+                amount,
+            );
+            Ok(())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "get_team_number", |lua| {
+        lua.create_function(|lua, (team, index): (i32, i32)| {
+            let world = lua_world(lua)?;
+            Ok(team_number(
+                world,
+                team.clamp(0, u8::MAX as i32) as u8,
+                normalize_index(index),
+            )
+            .unwrap_or_default())
+        })
+    });
+
+    register_lua_function(&runtime.lua, "add_team_number", |lua| {
+        lua.create_function(|lua, (team, index, amount): (i32, i32, i32)| {
+            let world = lua_world(lua)?;
+            add_team_number(
+                world,
+                team.clamp(0, u8::MAX as i32) as u8,
+                normalize_index(index),
+                amount,
+            );
             Ok(())
         })
     });
@@ -203,32 +330,76 @@ fn entities_in_zone(world: &mut World, zone_entity: Entity) -> Vec<Entity> {
         &parent_bodies,
         &physics,
     );
-    physics.entities_intersecting_shape(&zone.shape, zone.scale.max(0.001), position, rotation, &[])
+    physics.entities_intersecting_shape(&zone.shape, 1.0, position, rotation, &[])
 }
 
-fn player_score(world: &World, entity: Entity) -> Option<i32> {
+fn normalize_index(index: i32) -> usize {
+    index.max(0) as usize
+}
+
+fn get_number(numbers: &[i32], index: usize) -> i32 {
+    numbers.get(index).copied().unwrap_or_default()
+}
+
+fn add_number(numbers: &mut Vec<i32>, index: usize, amount: i32) {
+    if numbers.len() <= index {
+        numbers.resize(index + 1, 0);
+    }
+    numbers[index] += amount;
+}
+
+fn player_number(world: &World, entity: Entity, index: usize) -> Option<i32> {
     let conn_id = world
         .get_resource::<PlayerRegistry>()?
         .conn_id_for_entity(entity)?;
     Some(
         world
-            .get_resource::<PlayerScores>()?
+            .get_resource::<PlayerNumbers>()?
             .0
             .get(&conn_id)
-            .copied()
-            .unwrap_or_default(),
+            .map_or(0, |numbers| get_number(numbers, index)),
     )
 }
 
-fn add_player_score(world: &mut World, entity: Entity, amount: i32) {
+fn add_player_number(world: &mut World, entity: Entity, index: usize, amount: i32) {
     let Some(conn_id) = world
         .get_resource::<PlayerRegistry>()
         .and_then(|registry| registry.conn_id_for_entity(entity))
     else {
         return;
     };
-    let Some(mut scores) = world.get_resource_mut::<PlayerScores>() else {
+    let Some(mut numbers) = world.get_resource_mut::<PlayerNumbers>() else {
         return;
     };
-    *scores.0.entry(conn_id).or_default() += amount;
+    add_number(numbers.0.entry(conn_id).or_default(), index, amount);
+}
+
+fn team_number(world: &World, team: u8, index: usize) -> Option<i32> {
+    Some(
+        world
+            .get_resource::<TeamNumbers>()?
+            .0
+            .get(&team)
+            .map_or(0, |numbers| get_number(numbers, index)),
+    )
+}
+
+fn add_team_number(world: &mut World, team: u8, index: usize, amount: i32) {
+    let Some(mut numbers) = world.get_resource_mut::<TeamNumbers>() else {
+        return;
+    };
+    add_number(numbers.0.entry(team).or_default(), index, amount);
+}
+
+fn end_game(world: &mut World, winner_player: Option<u64>, winner_team: Option<u8>) {
+    let Some(mut state) = world.get_resource_mut::<MatchState>() else {
+        return;
+    };
+    if state.phase == MatchPhase::PostGame {
+        return;
+    }
+    state.phase = MatchPhase::PostGame;
+    state.phase_elapsed_secs = 0.0;
+    state.winner_player = winner_player;
+    state.winner_team = winner_team;
 }

@@ -1,6 +1,6 @@
 use super::{Projectile, helpers, tick_projectiles};
 use crate::GameObject;
-use crate::health::Health;
+use crate::health::{Health, LastDamageSource};
 use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
@@ -54,6 +54,7 @@ impl Projectile for RifleProjectile {
         world: &mut PhysicsWorld,
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
+        last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(
             &mut self.lifetime,
@@ -65,7 +66,14 @@ impl Projectile for RifleProjectile {
         ) else {
             return;
         };
-        helpers::apply_raycast_hit::<Self>(hit, world, health_q, DAMAGE);
+        helpers::apply_raycast_hit::<Self>(
+            hit,
+            self.shooter,
+            world,
+            health_q,
+            last_damage_q,
+            DAMAGE,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
@@ -98,6 +106,7 @@ impl Projectile for PistolProjectile {
         world: &mut PhysicsWorld,
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
+        last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(
             &mut self.lifetime,
@@ -109,7 +118,14 @@ impl Projectile for PistolProjectile {
         ) else {
             return;
         };
-        helpers::apply_raycast_hit::<Self>(hit, world, health_q, PISTOL_DAMAGE);
+        helpers::apply_raycast_hit::<Self>(
+            hit,
+            self.shooter,
+            world,
+            health_q,
+            last_damage_q,
+            PISTOL_DAMAGE,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {

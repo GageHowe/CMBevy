@@ -6,12 +6,13 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_steamworks::Client;
 use common::tick::NetworkStats;
+use common::{ActiveKeyBindings, InputAction, LeaderboardScope, ScoringOption};
 use game_objects::health::Health;
 use game_objects::messages::{GameMessages, MESSAGE_TTL_SECS};
 use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot, WeaponSlots};
 use game_objects::pawn::{Possessed, VehicleComponent};
-use game_objects::weapon::{AimReticle, default_crosshair_path};
-use net::message::MsgType;
+use game_objects::weapon::{AimReticle, WeaponConfig, WeaponState, default_crosshair_path};
+use net::message::{MsgType, NetworkID, ScoreboardEntry, ScoreboardSnapshot};
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_vel};
 
@@ -21,6 +22,7 @@ pub struct GuiState {
     // pub text_input: String,
     pub command_input: String,
     pub log: Vec<String>,
+    pub scoreboard: Option<ScoreboardSnapshot>,
 }
 impl GuiState {
     pub fn push_log(&mut self, msg: impl Into<String>) {
@@ -46,7 +48,9 @@ impl Plugin for UIPlugin {
                 EguiPrimaryContextPass,
                 gui_chat.run_if(in_state(GameState::Multiplayer)),
             )
+            .add_systems(EguiPrimaryContextPass, gui_scoreboard)
             .add_systems(EguiPrimaryContextPass, gui_health)
+            .add_systems(EguiPrimaryContextPass, gui_ammo)
             .add_systems(Update, (update_reticle, update_prediction_reticle));
     }
 }
@@ -148,6 +152,8 @@ fn gui_chat(
     mut quic: ResMut<QuicManager>,
     steam: Option<Res<Client>>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    bindings: Res<ActiveKeyBindings>,
 ) {
     let ctx = contexts.ctx_mut().unwrap();
     egui::Window::new("chat")
@@ -175,7 +181,9 @@ fn gui_chat(
                     .desired_width(f32::INFINITY),
             );
 
-            if keys.just_pressed(KeyCode::KeyT) && !ctx.wants_keyboard_input() {
+            if bindings.just_pressed(InputAction::Chat, &keys, &mouse)
+                && !ctx.wants_keyboard_input()
+            {
                 resp.request_focus();
             }
 
@@ -230,6 +238,85 @@ fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Possesse
             );
             ui.label(format!("{:.0} / {:.0}", health.current, health.max));
         });
+}
+
+fn gui_ammo(
+    mut contexts: EguiContexts,
+    slots_q: Query<&WeaponSlots, With<Possessed>>,
+    weapon_q: Query<(&WeaponState, &WeaponConfig)>,
+) {
+    let Some(weapon_entity) = slots_q.single().ok().and_then(|slots| slots.active().1) else {
+        return;
+    };
+    let Ok((state, config)) = weapon_q.get(weapon_entity) else {
+        return;
+    };
+    egui::Window::new("ammo")
+        .title_bar(false)
+        .movable(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
+        .show(contexts.ctx_mut().unwrap(), |ui| {
+            ui.heading(format!("{}/{}", state.ammo_in_mag, state.reserve_ammo));
+            if state.reload_ticks > 0 && config.reload_ticks > 0 {
+                let progress = 1.0 - state.reload_ticks as f32 / config.reload_ticks.max(1) as f32;
+                ui.label(format!(
+                    "Reloading {:.0}%",
+                    progress.clamp(0.0, 1.0) * 100.0
+                ));
+            }
+        });
+}
+
+fn gui_scoreboard(
+    mut contexts: EguiContexts,
+    gui: Res<GuiState>,
+    possessed: Query<&NetworkID, With<Possessed>>,
+) {
+    let Some(snapshot) = gui.scoreboard.as_ref() else {
+        return;
+    };
+    let local_net_id = possessed.single().ok().cloned();
+    egui::Window::new("scoreboard")
+        .title_bar(false)
+        .movable(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
+        .show(contexts.ctx_mut().unwrap(), |ui| {
+            ui.label(&snapshot.primary_objective_label);
+            match snapshot.scoring {
+                ScoringOption::Unscored => ui.label(&snapshot.leaderboard_label),
+                ScoringOption::ScoreToWin(target) => {
+                    ui.label(format!("{} to {}", snapshot.leaderboard_label, target))
+                }
+            };
+            ui.separator();
+            let rows = match snapshot.leaderboard_scope {
+                LeaderboardScope::None => return,
+                LeaderboardScope::Player => &snapshot.players,
+                LeaderboardScope::Team => &snapshot.teams,
+            };
+            for entry in sorted_rows(rows) {
+                let is_local = local_net_id.as_ref().is_some_and(|net_id| {
+                    snapshot.leaderboard_scope == LeaderboardScope::Player
+                        && entry.net_id == *net_id
+                });
+                let text = format!("{}  {}", entry.label, entry.value);
+                if is_local {
+                    ui.colored_label(egui::Color32::from_rgb(255, 220, 120), text);
+                } else {
+                    ui.label(text);
+                }
+            }
+        });
+}
+
+fn sorted_rows(rows: &[ScoreboardEntry]) -> Vec<&ScoreboardEntry> {
+    let mut sorted = rows.iter().collect::<Vec<_>>();
+    sorted.sort_by(|a, b| b.value.cmp(&a.value).then_with(|| a.label.cmp(&b.label)));
+    sorted
 }
 
 fn gui_notifications(

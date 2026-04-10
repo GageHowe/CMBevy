@@ -6,6 +6,9 @@ use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
 pub const COOLDOWN_TICKS: u32 = 10;
+pub const MAGAZINE_SIZE: u16 = 12;
+pub const RESERVE_AMMO: u16 = 48;
+pub const RELOAD_TICKS: u16 = 50;
 
 pub struct PistolPlugin;
 impl Plugin for PistolPlugin {
@@ -14,7 +17,6 @@ impl Plugin for PistolPlugin {
 
 #[derive(Component, Default, Reflect)]
 pub struct PistolComponent {
-    pub cooldown: u32,
     pub trigger_down: bool,
 }
 
@@ -23,6 +25,12 @@ impl Weapon for PistolComponent {
     const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair007.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rifle::SPEED);
+    const MAGAZINE_SIZE: u16 = MAGAZINE_SIZE;
+    const RESERVE_AMMO: u16 = RESERVE_AMMO;
+    const RELOAD_TICKS: u16 = RELOAD_TICKS;
+    const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
+    const PROJECTILE_KIND: net::message::GameObjectKind =
+        net::message::GameObjectKind::PistolProjectile;
 
     fn fixed_update(
         &mut self,
@@ -30,16 +38,17 @@ impl Weapon for PistolComponent {
         commands: &mut Commands,
         ctx: &mut FireCtx,
     ) {
-        self.cooldown = self.cooldown.saturating_sub(1);
+        if ctx.reload_pressed {
+            super::start_reload(ctx.weapon_state, &ctx.weapon_config);
+        }
         if !ctx.want_fire {
             self.trigger_down = false;
             return;
         }
-        if self.trigger_down || self.cooldown > 0 {
+        if self.trigger_down || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
             return;
         }
         self.trigger_down = true;
-        self.cooldown = COOLDOWN_TICKS;
 
         let velocity =
             projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);

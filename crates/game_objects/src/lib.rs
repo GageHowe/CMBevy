@@ -11,15 +11,16 @@ pub mod interaction;
 pub mod level;
 pub mod lifecycle;
 pub mod messages;
+pub mod mode;
+mod network_index;
 pub mod pawn;
 pub mod projectile;
-mod network_index;
-pub mod score;
 pub mod sound;
 mod spawn;
 pub mod weapon;
 pub use components::{atmosphere, planet};
 pub use generic::{GenericShape, spawn_generic};
+pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers};
 pub use network_index::NetworkEntityMap;
 pub use spawn::{GameObject, SpawnGameObjectCommand, dispatch_game_object_on_death};
 

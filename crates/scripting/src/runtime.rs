@@ -71,7 +71,7 @@ pub fn call_script_fn<T: FromLuaMulti>(world: &mut World, fn_name: &str) -> Opti
     result
 }
 
-pub(crate) fn call_script(world: &mut World, fn_name: &str) {
+pub(crate) fn call_script_args<A: IntoLuaMulti>(world: &mut World, fn_name: &str, args: A) {
     let Some(is_server) = world.get_resource::<ScriptConfig>().map(|c| c.is_server) else {
         return;
     };
@@ -84,11 +84,15 @@ pub(crate) fn call_script(world: &mut World, fn_name: &str) {
     }
     let _ = runtime.lua.globals().set("IS_SERVER", is_server);
     runtime.lua.set_app_data(world as *mut World);
-    if let Ok(func) = runtime.lua.globals().get::<LuaFunction>(fn_name) {
-        if let Err(err) = func.call::<()>(()) {
-            error!("Lua {fn_name} error: {err}");
-        }
+    if let Ok(func) = runtime.lua.globals().get::<LuaFunction>(fn_name)
+        && let Err(err) = func.call::<()>(args)
+    {
+        error!("Lua {fn_name} error: {err}");
     }
     runtime.lua.remove_app_data::<*mut World>();
     world.insert_non_send_resource(runtime);
+}
+
+pub(crate) fn call_script(world: &mut World, fn_name: &str) {
+    call_script_args(world, fn_name, ());
 }

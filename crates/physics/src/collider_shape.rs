@@ -23,12 +23,9 @@ impl Default for ColliderShape {
 impl ColliderShape {
     pub fn build_primitive_collider(&self, scale: f32) -> Option<Collider> {
         match self {
-            Self::Cuboid(he) => Some(ColliderBuilder::cuboid(
-                he.x * scale,
-                he.y * scale,
-                he.z * scale,
-            )
-            .build()),
+            Self::Cuboid(he) => {
+                Some(ColliderBuilder::cuboid(he.x * scale, he.y * scale, he.z * scale).build())
+            }
             Self::Ball(radius) => Some(ColliderBuilder::ball(radius * scale).build()),
             Self::Capsule {
                 half_height,

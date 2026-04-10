@@ -7,7 +7,7 @@ use physics::physics_world::*;
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, Pose, QueryFilter};
 
 use crate::GameObject;
-use crate::health::Health;
+use crate::health::{Health, LastDamageSource, attribute_damage};
 
 #[cfg(feature = "client")]
 use super::ProjectileState;
@@ -58,8 +58,19 @@ impl Projectile for RpgProjectile {
         world: &mut PhysicsWorld,
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
+        last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
-        tick_inner(self, entity, body, world, commands, health_q, None, None);
+        tick_inner(
+            self,
+            entity,
+            body,
+            world,
+            commands,
+            health_q,
+            last_damage_q,
+            None,
+            None,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
@@ -94,6 +105,7 @@ fn tick_inner(
     world: &mut PhysicsWorld,
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
+    last_damage_q: &mut Query<&mut LastDamageSource>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
 ) {
@@ -114,6 +126,7 @@ fn tick_inner(
             world,
             commands,
             health_q,
+            last_damage_q,
             net_ids,
             predicted,
             None,
@@ -137,6 +150,7 @@ fn tick_inner(
             world,
             commands,
             health_q,
+            last_damage_q,
             net_ids,
             predicted,
             Some((hit, impulse_dir, hit_point)),
@@ -152,6 +166,7 @@ fn explode(
     world: &mut PhysicsWorld,
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
+    last_damage_q: &mut Query<&mut LastDamageSource>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
     direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
@@ -231,6 +246,7 @@ fn explode(
                     if shooter == Some(entity) {
                         damage *= SELF_DAMAGE_SCALE;
                     }
+                    attribute_damage(last_damage_q, entity, shooter);
                     health.apply_damage(damage);
                 }
             }
@@ -314,6 +330,7 @@ fn tick_predicted_projectiles(
         &ProjectileState,
     )>,
     mut health_q: Query<&mut Health>,
+    mut last_damage_q: Query<&mut LastDamageSource>,
     net_ids: Query<&NetworkID>,
     mut predicted: ResMut<PredictedCommands>,
 ) {
@@ -328,6 +345,7 @@ fn tick_predicted_projectiles(
             &mut world,
             &mut commands,
             &mut health_q,
+            &mut last_damage_q,
             Some(&net_ids),
             Some(&mut predicted),
         );

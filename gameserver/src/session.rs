@@ -1,18 +1,23 @@
+use bevy::ecs::system::{Command, SystemState};
 use bevy::prelude::*;
 use common::tick::Ticker;
+use common::{LeaderboardScope, ScoringOption};
 use game_objects::health::{Health, handle_deaths};
 use game_objects::level::{
     LevelBytes, PendingMapScene, SpawnPoint, default_asset_dir, load_level_source,
 };
 use game_objects::lifecycle::{pick_spawn_point_with_velocity, spawn_game_object};
+use game_objects::mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers};
 use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
 use game_objects::pawn::vehicle::*;
 use game_objects::pawn::{
-    HeldWeaponMap, ModeConfig, PawnInputKind, PendingRespawns, PlayerRegistry, SeatedInVehicle,
+    HeldWeaponMap, PawnInputKind, PendingRespawns, PlayerRegistry, SeatedInVehicle,
 };
+use game_objects::weapon::{WeaponConfig, WeaponState};
 use game_objects::*;
 use net::message::{
-    GameObjectKind, MsgType, NetworkID, NetworkIDResource, SimulationState, SpawnCommand,
+    GameObjectKind, MsgType, NetworkID, NetworkIDResource, ScoreboardEntry, ScoreboardSnapshot,
+    SimulationState, SpawnCommand,
 };
 use net::quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget};
 use physics::physics_world::*;
@@ -49,6 +54,9 @@ pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
 #[derive(Resource, Default)]
 pub struct PendingConnections(pub HashSet<ConnectionId>);
 
+#[derive(Resource, Default)]
+pub struct ActiveConnections(pub HashSet<ConnectionId>);
+
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct ServerMessageParams<'w, 's> {
     commands: Commands<'w, 's>,
@@ -72,6 +80,7 @@ pub(crate) struct ServerMessageParams<'w, 's> {
         'w,
         's,
         (
+            Entity,
             &'static NetworkID,
             &'static GameObjectKind,
             &'static RigidBodyHandleComponent,
@@ -84,6 +93,8 @@ pub(crate) struct ServerMessageParams<'w, 's> {
     net_ids: Query<'w, 's, &'static NetworkID>,
     seated_bipeds: Query<'w, 's, (&'static NetworkID, &'static SeatedInVehicle)>,
     driver_seats: Query<'w, 's, (&'static mut DriverSeat, &'static Transform)>,
+    weapon_runtime: Query<'w, 's, (&'static mut WeaponState, &'static WeaponConfig)>,
+    weapon_states: Query<'w, 's, &'static WeaponState>,
 }
 
 impl Plugin for ServerSessionPlugin {
@@ -106,24 +117,31 @@ impl Plugin for ServerSessionPlugin {
                 source: None,
             })
             .insert_resource(ConsoleCommands(Mutex::new(cmd_rx)))
+            .init_resource::<MatchState>()
+            .init_resource::<PlayerNumbers>()
+            .init_resource::<TeamNumbers>()
             .init_resource::<PlayerRegistry>()
             .init_resource::<PendingRespawns>()
             .init_resource::<PendingConnections>()
+            .init_resource::<ActiveConnections>()
             .init_resource::<PendingInputs>()
             .init_resource::<LastProcessedInputSeq>()
             .init_resource::<BodyHistory>()
             .add_systems(Update, (tick_respawns, process_console_commands))
+            .add_systems(Update, restart_round)
             .add_systems(
                 Startup,
                 (load_server_level, start_server, init_mode_config).chain(),
             )
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
+            .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,
                 broadcast_health_updates
                     .after(step_physics)
                     .before(broadcast_tick),
             )
+            .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
             .add_systems(FixedUpdate, broadcast_tick.after(handle_deaths));
     }
 }
@@ -233,7 +251,13 @@ fn handle_connected(
     parent_transforms: &Query<&Transform>,
     parent_parents: &Query<&ChildOf>,
     parent_bodies: &Query<&RigidBodyHandleComponent>,
-    spawnables: &Query<(&NetworkID, &GameObjectKind, &RigidBodyHandleComponent)>,
+    spawnables: &Query<(
+        Entity,
+        &NetworkID,
+        &GameObjectKind,
+        &RigidBodyHandleComponent,
+    )>,
+    weapon_states: &Query<&WeaponState>,
     pawn_slots: &Query<&mut WeaponSlots>,
     entity_net_ids: &Query<&NetworkID>,
     seated_bipeds: &Query<(&NetworkID, &SeatedInVehicle)>,
@@ -264,7 +288,7 @@ fn handle_connected(
         .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
         .flatten()
         .collect();
-    for (net_id, kind, rb) in spawnables.iter() {
+    for (entity, net_id, kind, rb) in spawnables.iter() {
         if held_ids.contains(net_id) {
             continue;
         }
@@ -283,6 +307,15 @@ fn handle_connected(
                 kind: kind.clone(),
             }),
         );
+        if weapon::is_weapon_kind(kind)
+            && let Ok(state) = weapon_states.get(entity)
+        {
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::WeaponState(net_id.clone(), state.snapshot()),
+            );
+        }
     }
     for (biped_net_id, seated_in) in seated_bipeds.iter() {
         let Ok(vehicle_net_id) = entity_net_ids.get(seated_in.0) else {
@@ -746,6 +779,7 @@ fn handle_fire_request(
     registry: &PlayerRegistry,
     all_networked: &NetworkEntityMap,
     pawn_slots: &Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut NetworkIDResource,
@@ -768,6 +802,24 @@ fn handle_fire_request(
     let Some(weapon_entity) = find_networked_entity(all_networked, &weapon_net_id) else {
         return;
     };
+    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
+        return;
+    };
+    if weapon_config.projectile_kind != kind
+        || !weapon::consume_round(&mut weapon_state, weapon_config)
+    {
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::WeaponState(weapon_net_id, weapon_state.snapshot()),
+        );
+        return;
+    }
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::WeaponState(weapon_net_id.clone(), weapon_state.snapshot()),
+    );
     let Some(fired) = projectile::fire_authoritative(
         kind,
         origin,
@@ -797,9 +849,50 @@ fn handle_fire_request(
     );
 }
 
+fn handle_reload_weapon(
+    conn_id: ConnectionId,
+    weapon_net_id: NetworkID,
+    registry: &PlayerRegistry,
+    all_networked: &NetworkEntityMap,
+    pawn_slots: &Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    quic: &mut QuicManager,
+) {
+    let Some((shooter_entity, _)) = registry.get_by_conn(conn_id) else {
+        return;
+    };
+    let shooter_holds = pawn_slots
+        .get(shooter_entity)
+        .map(|s| {
+            s.primary.0.as_ref() == Some(&weapon_net_id)
+                || s.pocket.0.as_ref() == Some(&weapon_net_id)
+        })
+        .unwrap_or(false);
+    if !shooter_holds {
+        return;
+    }
+    let Some(weapon_entity) = find_networked_entity(all_networked, &weapon_net_id) else {
+        return;
+    };
+    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
+        return;
+    };
+    let started = weapon::start_reload(&mut weapon_state, weapon_config);
+    quic.send(
+        if started {
+            SendTarget::All
+        } else {
+            SendTarget::One(conn_id)
+        },
+        Channel::Ordered,
+        &MsgType::WeaponState(weapon_net_id, weapon_state.snapshot()),
+    );
+}
+
 pub(crate) fn on_message(
     mut quic: ResMut<QuicManager>,
     script_config: Option<Res<ScriptConfig>>,
+    mut active_connections: ResMut<ActiveConnections>,
     mut registry: ResMut<PlayerRegistry>,
     mut pending_connections: ResMut<PendingConnections>,
     mut pending_inputs: ResMut<PendingInputs>,
@@ -816,6 +909,7 @@ pub(crate) fn on_message(
             level_bytes.as_deref(),
             script_config.as_deref(),
             &mut quic,
+            &mut active_connections,
             &mut registry,
             &mut pending_connections,
             &mut pending_inputs,
@@ -867,6 +961,7 @@ fn flush_pending_connections(
             &sp.parent_parents,
             &sp.parent_bodies,
             &sp.spawnables,
+            &sp.weapon_states,
             &sp.pawn_slots,
             &sp.net_ids,
             &sp.seated_bipeds,
@@ -882,6 +977,7 @@ fn process_server_message(
     level_bytes: Option<&LevelBytes>,
     script_config: Option<&ScriptConfig>,
     quic: &mut QuicManager,
+    active_connections: &mut ActiveConnections,
     registry: &mut PlayerRegistry,
     pending_connections: &mut PendingConnections,
     pending_inputs: &mut PendingInputs,
@@ -892,6 +988,7 @@ fn process_server_message(
 ) {
     match msg {
         MsgType::Connected => {
+            active_connections.0.insert(conn_id);
             info!("GameServer: conn {conn_id} connected; sending map metadata");
             send_connection_files(conn_id, level_bytes, script_config, quic);
         }
@@ -901,6 +998,7 @@ fn process_server_message(
             pending_connections.0.insert(conn_id);
         }
         MsgType::Disconnected => {
+            active_connections.0.remove(&conn_id);
             handle_disconnected(
                 conn_id,
                 pending_respawns,
@@ -943,6 +1041,15 @@ fn process_server_message(
             quic,
             drop_dir,
         ),
+        MsgType::ReloadWeapon(weapon_net_id) => handle_reload_weapon(
+            conn_id,
+            weapon_net_id,
+            registry,
+            &sp.all_networked,
+            &sp.pawn_slots,
+            &mut sp.weapon_runtime,
+            quic,
+        ),
         MsgType::FireRequest {
             weapon: weapon_net_id,
             kind,
@@ -959,6 +1066,7 @@ fn process_server_message(
             registry,
             &sp.all_networked,
             &sp.pawn_slots,
+            &mut sp.weapon_runtime,
             &mut sp.commands,
             &mut sp.world,
             net_ids,
@@ -996,6 +1104,10 @@ fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
     quic.start_server(addr.0);
 }
 
+fn advance_match_state_time(mut match_state: ResMut<MatchState>, time: Res<Time<Fixed>>) {
+    match_state.phase_elapsed_secs += time.delta_secs();
+}
+
 fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
     let asset_path = &level_path.0;
     match load_level_source(asset_path, &default_asset_dir()) {
@@ -1017,20 +1129,41 @@ fn init_mode_config(world: &mut World) {
     if let Some(value) = get_script_global::<bool>(world, "TEAMS_ENABLED") {
         config.teams_enabled = value;
     }
-    if let Some(value) = get_script_global::<bool>(world, "TEAM_SCORE_SHARED") {
-        config.team_score_shared = value;
+    if let Some(value) = get_script_global::<String>(world, "SCORING") {
+        config.scoring = match value.as_str() {
+            "unscored" => ScoringOption::Unscored,
+            "score_to_win" => config.scoring,
+            other => {
+                warn!("unknown SCORING mode '{other}', keeping default");
+                config.scoring
+            }
+        };
     }
     if let Some(value) = get_script_global::<i64>(world, "SCORE_TO_WIN") {
-        config.score_to_win = value as i32;
+        config.scoring = ScoringOption::ScoreToWin(value as i32);
     }
     if let Some(value) = get_script_global::<f64>(world, "TIME_LIMIT_SECS") {
         config.time_limit_secs = value as f32;
     }
+    if let Some(value) = get_script_global::<String>(world, "LEADERBOARD_SCOPE") {
+        config.leaderboard_scope = match value.as_str() {
+            "none" => LeaderboardScope::None,
+            "team" => LeaderboardScope::Team,
+            "player" => LeaderboardScope::Player,
+            other => {
+                warn!("unknown LEADERBOARD_SCOPE '{other}', keeping default");
+                config.leaderboard_scope
+            }
+        };
+    }
+    if let Some(value) = get_script_global::<i64>(world, "LEADERBOARD_NUMBER_INDEX") {
+        config.leaderboard_number_index = value.max(0) as usize;
+    }
     if let Some(value) = get_script_global::<i64>(world, "TEAM_COUNT") {
         config.team_count = value.clamp(0, u8::MAX as i64) as u8;
     }
-    if let Some(value) = get_script_global::<String>(world, "SCORE_LABEL") {
-        config.score_label = value;
+    if let Some(value) = get_script_global::<String>(world, "LEADERBOARD_LABEL") {
+        config.leaderboard_label = value;
     }
     if let Some(value) = get_script_global::<String>(world, "PRIMARY_OBJECTIVE_LABEL") {
         config.primary_objective_label = value;
@@ -1173,6 +1306,279 @@ fn broadcast_tick(
             Channel::Unreliable,
             &MsgType::State(state_for_client),
         );
+    }
+}
+
+fn broadcast_scoreboard(
+    mut quic: ResMut<QuicManager>,
+    tick: Res<Ticker>,
+    registry: Res<PlayerRegistry>,
+    player_numbers: Res<PlayerNumbers>,
+    team_numbers: Res<TeamNumbers>,
+    mode: Option<Res<ModeConfig>>,
+) {
+    if tick.tick % 15 != 0 {
+        return;
+    }
+    let mode = mode.map_or_else(ModeConfig::default, |value| value.clone());
+    let mut players = registry
+        .by_conn
+        .iter()
+        .map(|(conn_id, (_, net_id))| ScoreboardEntry {
+            net_id: net_id.clone(),
+            label: format!("Player {conn_id}"),
+            team: 0,
+            value: player_numbers
+                .0
+                .get(conn_id)
+                .and_then(|numbers| numbers.get(mode.leaderboard_number_index))
+                .copied()
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    players.sort_by(|a, b| b.value.cmp(&a.value).then_with(|| a.label.cmp(&b.label)));
+
+    let mut teams = (0..mode.team_count.max(1))
+        .map(|team| ScoreboardEntry {
+            net_id: NetworkID(0),
+            label: format!("Team {}", team + 1),
+            team,
+            value: team_numbers
+                .0
+                .get(&team)
+                .and_then(|numbers| numbers.get(mode.leaderboard_number_index))
+                .copied()
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    teams.sort_by(|a, b| b.value.cmp(&a.value).then_with(|| a.label.cmp(&b.label)));
+
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::Scoreboard(ScoreboardSnapshot {
+            teams_enabled: mode.teams_enabled,
+            scoring: mode.scoring,
+            leaderboard_scope: mode.leaderboard_scope,
+            time_limit_secs: mode.time_limit_secs,
+            leaderboard_label: mode.leaderboard_label,
+            primary_objective_label: mode.primary_objective_label,
+            players,
+            teams,
+        }),
+    );
+}
+
+fn restart_round(world: &mut World) {
+    let restart_requested = world
+        .get_resource::<MatchState>()
+        .is_some_and(|state| state.restart_requested);
+    if !restart_requested {
+        return;
+    }
+    {
+        let Some(mut match_state) = world.get_resource_mut::<MatchState>() else {
+            return;
+        };
+        match_state.restart_requested = false;
+        match_state.phase = MatchPhase::Playing;
+        match_state.phase_elapsed_secs = 0.0;
+        match_state.winner_player = None;
+        match_state.winner_team = None;
+    }
+    if let Some(mut pending_respawns) = world.get_resource_mut::<PendingRespawns>() {
+        pending_respawns.0.clear();
+    }
+    if let Some(mut player_numbers) = world.get_resource_mut::<PlayerNumbers>() {
+        player_numbers.0.clear();
+    }
+    if let Some(mut team_numbers) = world.get_resource_mut::<TeamNumbers>() {
+        team_numbers.0.clear();
+    }
+
+    for (conn_id, spawn_pos, spawn_rot, spawn_vel) in collect_restart_spawns(world) {
+        let existing = world.get_resource::<PlayerRegistry>().and_then(|registry| {
+            registry
+                .get_character_by_conn(conn_id)
+                .map(|(entity, net_id)| (entity, net_id.clone()))
+        });
+
+        if let Some((character_entity, character_net_id)) = existing {
+            reset_existing_player(
+                world,
+                conn_id,
+                character_entity,
+                character_net_id,
+                spawn_pos,
+                spawn_rot,
+                spawn_vel,
+            );
+            continue;
+        }
+
+        spawn_restarted_player(world, conn_id, spawn_pos, spawn_rot, spawn_vel);
+    }
+}
+
+/// Reuses the same team-aware spawn selection as normal respawns, but resolves it once so the
+/// exclusive restart system can stay small and let the script control the actual round flow.
+fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Vec3, Quat, Vec3)> {
+    let mut state: SystemState<(
+        Res<ActiveConnections>,
+        Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+        Query<&Transform>,
+        Query<&ChildOf>,
+        Query<&RigidBodyHandleComponent>,
+        Res<PhysicsWorld>,
+    )> = SystemState::new(world);
+    let (
+        active_connections,
+        spawn_points,
+        parent_transforms,
+        parent_parents,
+        parent_bodies,
+        physics,
+    ) = state.get(world);
+
+    let num_teams = spawn_points
+        .iter()
+        .map(|(_, spawn, _, _)| spawn.team)
+        .collect::<HashSet<_>>()
+        .len()
+        .max(1);
+
+    active_connections
+        .0
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(index, conn_id)| {
+            let team = (index % num_teams) as u8;
+            pick_spawn_point_with_velocity(
+                &spawn_points,
+                &parent_transforms,
+                &parent_parents,
+                &parent_bodies,
+                &physics,
+                team,
+                index,
+            )
+            .map(|(spawn_pos, spawn_rot, spawn_vel)| (conn_id, spawn_pos, spawn_rot, spawn_vel))
+        })
+        .collect()
+}
+
+/// Restores an existing character to an active playing state without rebuilding it from scratch.
+fn reset_existing_player(
+    world: &mut World,
+    conn_id: ConnectionId,
+    character_entity: Entity,
+    character_net_id: NetworkID,
+    spawn_pos: Vec3,
+    spawn_rot: Quat,
+    spawn_vel: Vec3,
+) {
+    if let Some(seated_in) = world.get::<SeatedInVehicle>(character_entity).copied() {
+        let driver_seat = world
+            .get::<VehicleComponent>(seated_in.0)
+            .map(|vehicle| vehicle.driver_seat);
+        if let Some(driver_seat) = driver_seat {
+            world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
+                if let Some(seat_transform) = world.get::<Transform>(driver_seat).cloned() {
+                    if let Some(mut seat) = world.get_mut::<DriverSeat>(driver_seat) {
+                        let _ = exit_vehicle(&mut physics, seated_in.0, &mut seat, &seat_transform);
+                    }
+                }
+            });
+        }
+        world
+            .entity_mut(character_entity)
+            .remove::<SeatedInVehicle>();
+        world.resource_mut::<QuicManager>().send(
+            SendTarget::All,
+            Channel::Ordered,
+            &MsgType::SeatState(character_net_id.clone(), None),
+        );
+    }
+
+    if let Some(mut health) = world.get_mut::<Health>(character_entity) {
+        health.current = health.max;
+    }
+    if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
+        registry.set_controlled(conn_id, character_entity, character_net_id.clone());
+    }
+    world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
+        physics.set_body_enabled(character_entity, true);
+        physics.set_body_pose(
+            character_entity,
+            spawn_pos,
+            spawn_rot,
+            spawn_vel,
+            Vec3::ZERO,
+        );
+    });
+    world.resource_mut::<QuicManager>().send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &MsgType::Possess(character_net_id),
+    );
+}
+
+/// Spawns a fresh biped during a round restart for players that no longer have a live character.
+fn spawn_restarted_player(
+    world: &mut World,
+    conn_id: ConnectionId,
+    spawn_pos: Vec3,
+    spawn_rot: Quat,
+    spawn_vel: Vec3,
+) {
+    let tick = world.resource::<Ticker>().tick;
+    let net_id = {
+        let Some(mut net_ids) = world.get_resource_mut::<NetworkIDResource>() else {
+            return;
+        };
+        NetworkID(net_ids.next())
+    };
+    let spawn_cmd = SpawnCommand {
+        net_id: net_id.clone(),
+        position: spawn_pos,
+        starting_velocity: spawn_vel,
+        rotation: spawn_rot,
+        server_tick: tick,
+        kind: GameObjectKind::Biped,
+    };
+    let entity = world.spawn_empty().id();
+    SpawnGameObjectCommand {
+        entity,
+        cmd: spawn_cmd.clone(),
+    }
+    .apply(world);
+
+    let existing_conn_ids = world
+        .get_resource::<PlayerRegistry>()
+        .map(|registry| registry.by_conn.keys().copied().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+        for other_conn_id in existing_conn_ids {
+            quic.send(
+                SendTarget::One(other_conn_id),
+                Channel::Ordered,
+                &MsgType::SpawnCommand(spawn_cmd.clone()),
+            );
+        }
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(spawn_cmd),
+        );
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::Possess(net_id.clone()),
+        );
+    }
+    if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
+        registry.insert(conn_id, entity, net_id);
     }
 }
 

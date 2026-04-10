@@ -2,8 +2,8 @@ use crate::lifecycle::spawn_game_object;
 use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
-use physics::convex_hull_asset::ConvexHullAsset;
 use physics::collider_shape::ColliderShape;
+use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::{
     InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
     rb_rot, rb_vel,
@@ -52,7 +52,6 @@ pub struct ScriptTags {
 #[reflect(Component, Default)]
 pub struct ScriptZone {
     pub shape: ColliderShape,
-    pub scale: f32,
 }
 
 /// Level-wide metadata inserted as a Resource by the .scn.ron file.
@@ -374,7 +373,7 @@ impl Plugin for LevelPlugin {
         app.add_systems(FixedPreUpdate, assign_scene_network_ids);
         #[cfg(feature = "client")]
         {
-            app.add_systems(Update, spawn_scene_models);
+            app.add_systems(Update, (spawn_scene_models, draw_script_zone_debug));
         }
 
         // Keep authored scene data as small marker components and route all runtime setup
@@ -631,6 +630,43 @@ pub fn spawn_scene_models(
             SceneRoot(asset_server.load(crate::asset_path::resolve_asset_path(&model.path))),
             Visibility::default(),
         ));
+    }
+}
+
+#[cfg(feature = "client")]
+/// Draws a lightweight debug marker for script zones so proof-of-concept objectives such as
+/// KOTH hills are visible without dedicated art.
+pub fn draw_script_zone_debug(
+    zones: Query<(&ScriptZone, &Transform, Option<&ChildOf>)>,
+    parent_transforms: Query<&Transform>,
+    parent_parents: Query<&ChildOf>,
+    parent_bodies: Query<&RigidBodyHandleComponent>,
+    physics: Res<PhysicsWorld>,
+    mut gizmos: Gizmos,
+) {
+    for (zone, transform, child_of) in &zones {
+        let (center, _rotation) = parented_world_pose(
+            transform,
+            child_of,
+            &parent_transforms,
+            &parent_parents,
+            &parent_bodies,
+            &physics,
+        );
+        let radius = match &zone.shape {
+            ColliderShape::Ball(radius) => *radius,
+            ColliderShape::Cuboid(half_extents) => half_extents.max_element(),
+            ColliderShape::Capsule {
+                half_height,
+                radius,
+            } => half_height + radius,
+            ColliderShape::ConvexHulls(_) => continue,
+        };
+        gizmos.sphere(
+            Isometry3d::from_translation(center),
+            radius,
+            Color::srgba(0.15, 0.85, 0.95, 0.95),
+        );
     }
 }
 

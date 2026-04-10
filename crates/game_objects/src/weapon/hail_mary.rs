@@ -10,6 +10,9 @@ use rapier3d::prelude::ColliderBuilder;
 
 const MUZZLE_FLASH_TICKS: u8 = 3;
 pub const COOLDOWN_TICKS: u32 = 120; // fixed ticks between shots
+pub const MAGAZINE_SIZE: u16 = 1;
+pub const RESERVE_AMMO: u16 = 9;
+pub const RELOAD_TICKS: u16 = 100;
 
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
@@ -20,7 +23,6 @@ impl Plugin for HailMaryPlugin {
 
 #[derive(Component, Default, Reflect)]
 pub struct HailMaryComponent {
-    pub cooldown: u32,
     /// Latched when fire is requested; cleared after the shot fires.
     pub fire_requested: bool,
     /// Ticks remaining for muzzle flash visibility. Set to MUZZLE_FLASH_TICKS on fire.
@@ -34,6 +36,12 @@ impl Weapon for HailMaryComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair010.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(hail_mary::SPEED);
     const ZOOM_MULTIPLIER: f32 = 5.0;
+    const MAGAZINE_SIZE: u16 = MAGAZINE_SIZE;
+    const RESERVE_AMMO: u16 = RESERVE_AMMO;
+    const RELOAD_TICKS: u16 = RELOAD_TICKS;
+    const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
+    const PROJECTILE_KIND: net::message::GameObjectKind =
+        net::message::GameObjectKind::HailMaryProjectile;
 
     fn fixed_update(
         &mut self,
@@ -42,14 +50,19 @@ impl Weapon for HailMaryComponent {
         ctx: &mut FireCtx,
     ) {
         apply_zoom::<Self>(ctx);
-        self.cooldown = self.cooldown.saturating_sub(1);
-        if ctx.want_fire && self.cooldown == 0 {
+        if ctx.reload_pressed {
+            super::start_reload(ctx.weapon_state, &ctx.weapon_config);
+        }
+        if ctx.want_fire && super::can_fire(ctx.weapon_state) {
             self.fire_requested = true;
         }
         if !self.fire_requested {
             return;
         }
-        self.cooldown = COOLDOWN_TICKS;
+        if !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
+            self.fire_requested = false;
+            return;
+        }
         self.fire_requested = false;
         self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
 

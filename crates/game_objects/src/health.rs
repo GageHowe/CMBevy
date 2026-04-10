@@ -1,6 +1,7 @@
 use crate::dispatch_game_object_on_death;
+use crate::mode::ModeConfig;
 use crate::pawn::biped::WeaponSlots;
-use crate::pawn::{HeldWeaponMap, ModeConfig, PendingRespawns, PlayerRegistry};
+use crate::pawn::{HeldWeaponMap, PendingRespawns, PlayerRegistry};
 use bevy::prelude::*;
 use common::GameObjectKind;
 use common::NetworkID;
@@ -11,6 +12,7 @@ use physics::physics_world::{PhysicsWorld, rb_pos, step_physics};
 use std::collections::HashMap;
 
 const BIPED_REGEN_PER_SEC: f32 = 4.0;
+const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
 
 pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
@@ -20,6 +22,7 @@ impl Plugin for HealthPlugin {
             (
                 apply_collision_damage.after(step_physics),
                 regenerate_biped_health,
+                age_last_damage_sources,
             )
                 .chain()
                 .run_if(death_authority),
@@ -48,6 +51,31 @@ pub struct Health {
     pub current: f32,
     pub max: f32,
 }
+
+/// Tracks the most recent gameplay-owned attacker for a health-bearing entity so match scripts
+/// can resolve kills without re-implementing attribution logic in Lua.
+#[derive(Component, Clone, Copy, Default, Reflect)]
+pub struct LastDamageSource {
+    pub attacker: Option<Entity>,
+    pub age_secs: f32,
+}
+
+impl LastDamageSource {
+    pub fn resolved_attacker(self) -> Option<Entity> {
+        (self.age_secs <= DAMAGE_ATTRIBUTION_WINDOW_SECS)
+            .then_some(self.attacker)
+            .flatten()
+    }
+}
+
+/// Deferred script kill callbacks drained after authoritative death handling has finished.
+#[derive(Resource, Default)]
+pub struct PendingPlayerKills(pub Vec<(Entity, Option<Entity>)>);
+
+/// Dead player entities stay in the registry until kill callbacks run so scripts can still
+/// mutate their player numbers during `on_player_killed`.
+#[derive(Resource, Default)]
+pub struct PendingPlayerRemovals(pub Vec<Entity>);
 
 impl Health {
     pub fn new(max: f32) -> Self {
@@ -146,6 +174,22 @@ pub fn apply_collision_damage(
     for (entity, damage) in damage_map {
         if let Ok(mut health) = health_q.get_mut(entity) {
             health.apply_damage(damage);
+        }
+    }
+}
+
+fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageSource>) {
+    let dt = time.delta_secs();
+    if dt <= 0.0 {
+        return;
+    }
+    for mut last_damage in &mut q {
+        if last_damage.attacker.is_none() {
+            continue;
+        }
+        last_damage.age_secs += dt;
+        if last_damage.age_secs > DAMAGE_ATTRIBUTION_WINDOW_SECS {
+            last_damage.attacker = None;
         }
     }
 }
@@ -255,6 +299,10 @@ fn handle_biped_death(entity: Entity, weapon_drops: &[(NetworkID, Vec3)], world:
         conn_id
     };
     let owner_net_id = world.get::<NetworkID>(entity).cloned();
+    let killer = world
+        .get::<LastDamageSource>(entity)
+        .copied()
+        .and_then(LastDamageSource::resolved_attacker);
 
     if let Some(mut held_map) = world.get_resource_mut::<HeldWeaponMap>() {
         for (weapon_id, _) in weapon_drops.iter() {
@@ -273,8 +321,16 @@ fn handle_biped_death(entity: Entity, weapon_drops: &[(NetworkID, Vec3)], world:
         }
     }
 
-    if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
-        registry.remove_by_entity(entity);
+    if let Some(mut pending_kills) = world.get_resource_mut::<PendingPlayerKills>() {
+        pending_kills.0.push((entity, killer));
+    }
+    let mut deferred_removal = false;
+    if let Some(mut pending_removals) = world.get_resource_mut::<PendingPlayerRemovals>() {
+        pending_removals.0.push(entity);
+        deferred_removal = true;
+    }
+    if !deferred_removal && let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
+        let _ = registry.remove_by_entity(entity);
     }
     let respawn_delay = world
         .get_resource::<ModeConfig>()
@@ -284,6 +340,28 @@ fn handle_biped_death(entity: Entity, weapon_drops: &[(NetworkID, Vec3)], world:
             .0
             .insert(conn_id, (respawn_delay, common::GameObjectKind::Biped));
     }
+}
+
+pub fn attribute_damage(
+    last_damage_q: &mut Query<&mut LastDamageSource>,
+    victim: Entity,
+    attacker: Option<Entity>,
+) {
+    let Ok(mut last_damage) = last_damage_q.get_mut(victim) else {
+        return;
+    };
+    last_damage.attacker = attacker;
+    last_damage.age_secs = 0.0;
+}
+
+pub fn copy_last_damage_source(world: &mut World, from: Entity, to: Entity) {
+    let Some(source) = world.get::<LastDamageSource>(from).copied() else {
+        return;
+    };
+    let Some(mut target) = world.get_mut::<LastDamageSource>(to) else {
+        return;
+    };
+    *target = source;
 }
 
 fn collect_vehicle_eject(entity: Entity, world: &mut World) -> Option<(Entity, NetworkID)> {

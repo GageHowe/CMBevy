@@ -1,7 +1,8 @@
 use bevy::math::{Quat, Vec3};
 use bevy::prelude::*;
 pub use common::{
-    BodyState, GameObjectKind, NetworkID, NetworkIDResource, PawnInputKind, SimulationState,
+    BodyState, GameObjectKind, LeaderboardScope, NetworkID, NetworkIDResource, PawnInputKind,
+    ScoringOption, SimulationState, WeaponStateSnapshot,
 };
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,28 @@ pub struct SpawnCommand {
     pub rotation: Quat,
     pub server_tick: u64,
     pub kind: GameObjectKind,
+}
+
+/// Compact replicated scoreboard data used by the client HUD.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ScoreboardEntry {
+    pub net_id: NetworkID,
+    pub label: String,
+    pub team: u8,
+    pub value: i32,
+}
+
+/// Match-level scoreboard metadata plus either per-player or per-team rows.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ScoreboardSnapshot {
+    pub teams_enabled: bool,
+    pub scoring: ScoringOption,
+    pub leaderboard_scope: LeaderboardScope,
+    pub time_limit_secs: f32,
+    pub leaderboard_label: String,
+    pub primary_objective_label: String,
+    pub players: Vec<ScoreboardEntry>,
+    pub teams: Vec<ScoreboardEntry>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -34,6 +57,7 @@ pub enum MsgType {
     DropWeapon(Vec3),
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
+    ReloadWeapon(NetworkID),
     FireRequest {
         weapon: NetworkID,
         kind: GameObjectKind,
@@ -49,8 +73,11 @@ pub enum MsgType {
     HealthUpdate(NetworkID, f32),
     TimePing(u64),
     TimePong(u64),
+    OnscreenMessage(String),
     FlashlightToggle,
     FlashlightState(NetworkID, bool),
+    WeaponState(NetworkID, WeaponStateSnapshot),
+    Scoreboard(ScoreboardSnapshot),
     MapHash(String),
     FileData(String, Vec<u8>),
 }

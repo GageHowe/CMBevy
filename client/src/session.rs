@@ -27,6 +27,7 @@ use crate::GameState;
 use crate::reconciliation::PendingReconciliation;
 use crate::settings::Settings;
 use crate::ui::ui::GuiState;
+use game_objects::weapon::WeaponState;
 
 #[derive(Resource)]
 pub(crate) struct ServerAddr(pub std::net::SocketAddr);
@@ -148,6 +149,7 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
     object_kinds: Query<'w, 's, &'static GameObjectKind>,
     seated: Query<'w, 's, &'static SeatedInVehicle>,
+    weapon_states: Query<'w, 's, &'static mut WeaponState>,
 }
 
 fn load_sp_level(mut commands: Commands, sp: Res<SinglePlayerConfig>) {
@@ -686,11 +688,17 @@ fn process_client_message(
         MsgType::HealthUpdate(net_id, current) => {
             handle_health_update(&net_id, current, &mp.networked, &mut mp.health_q);
         }
+        MsgType::WeaponState(net_id, state) => {
+            handle_weapon_state(&net_id, state, &mp.networked, &mut mp.weapon_states);
+        }
         MsgType::Pong(text) => {
             info!("Client: Got PONG \"{text}\"");
             gui.push_log(format!("pong: {text}"));
         }
         MsgType::ChatMessage(sender, text) => gui.push_log(format!("[{sender}] {text}")),
+        MsgType::OnscreenMessage(text) => {
+            game_objects::messages::push(&mut mp.spawn.commands, text)
+        }
         MsgType::TimePong(bits) => net_stats.record_pong(bits, time.elapsed_secs_f64()),
         MsgType::State(st) => {
             if st.last_input_seq >= last_acked_input_seq.0 {
@@ -709,6 +717,7 @@ fn process_client_message(
             &mp.spawn.entity_children,
             &mut mp.spawn.lights,
         ),
+        MsgType::Scoreboard(snapshot) => gui.scoreboard = Some(snapshot),
         other => warn!("Client: Got unhandled message: {other:?}"),
     }
 }
@@ -961,6 +970,21 @@ fn handle_health_update(
         return;
     };
     health.current = current;
+}
+
+fn handle_weapon_state(
+    net_id: &NetworkID,
+    state: net::message::WeaponStateSnapshot,
+    networked: &NetworkEntityMap,
+    weapon_states: &mut Query<&mut WeaponState>,
+) {
+    let Some(entity) = find_networked_entity(networked, net_id) else {
+        return;
+    };
+    let Ok(mut weapon_state) = weapon_states.get_mut(entity) else {
+        return;
+    };
+    weapon_state.apply_snapshot(state);
 }
 
 fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {

@@ -8,6 +8,9 @@ use crate::{GameObject, GameObjectKind};
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 
 pub const COOLDOWN_TICKS: u32 = 45;
+pub const MAGAZINE_SIZE: u16 = 1;
+pub const RESERVE_AMMO: u16 = 5;
+pub const RELOAD_TICKS: u16 = 95;
 
 pub struct RpgPlugin;
 impl Plugin for RpgPlugin {
@@ -15,9 +18,7 @@ impl Plugin for RpgPlugin {
 }
 
 #[derive(Component, Default, Reflect)]
-pub struct RpgComponent {
-    pub cooldown: u32,
-}
+pub struct RpgComponent;
 
 impl Weapon for RpgComponent {
     const MODEL_PATH: &'static str = "models/launcher_placeholder_2.glb#Scene0";
@@ -25,6 +26,12 @@ impl Weapon for RpgComponent {
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair028.png";
     const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rpg::SPEED);
     const ZOOM_MULTIPLIER: f32 = 1.5;
+    const MAGAZINE_SIZE: u16 = MAGAZINE_SIZE;
+    const RESERVE_AMMO: u16 = RESERVE_AMMO;
+    const RELOAD_TICKS: u16 = RELOAD_TICKS;
+    const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
+    const PROJECTILE_KIND: net::message::GameObjectKind =
+        net::message::GameObjectKind::RpgProjectile;
 
     fn fixed_update(
         &mut self,
@@ -33,11 +40,12 @@ impl Weapon for RpgComponent {
         ctx: &mut FireCtx,
     ) {
         apply_zoom::<Self>(ctx);
-        self.cooldown = self.cooldown.saturating_sub(1);
-        if !ctx.want_fire || self.cooldown > 0 {
+        if ctx.reload_pressed {
+            super::start_reload(ctx.weapon_state, &ctx.weapon_config);
+        }
+        if !ctx.want_fire || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
             return;
         }
-        self.cooldown = COOLDOWN_TICKS;
 
         let velocity =
             projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rpg::SPEED);

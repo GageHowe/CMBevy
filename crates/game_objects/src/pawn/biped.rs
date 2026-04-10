@@ -3,7 +3,10 @@ use super::vehicle::{DriverSeat, VehicleComponent, enter_vehicle, ray_hits_cockp
 use super::*;
 #[cfg(feature = "client")]
 use crate::weapon::{WeaponDriver, WeaponFireInput};
-use crate::{GameObject, GameObjectKind, health::Health};
+use crate::{
+    GameObject, GameObjectKind,
+    health::{Health, LastDamageSource},
+};
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -82,6 +85,7 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert((
             WeaponSlots::default(),
             Health::new(100.0),
+            LastDamageSource::default(),
             GameObjectKind::Biped,
             Transform::from(transform),
             BipedPawnComponent::default(),
@@ -289,7 +293,9 @@ pub struct PitchPivot {
 #[cfg(feature = "client")]
 fn gather_biped_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
+    bindings: Res<common::ActiveKeyBindings>,
     mut pawns: Query<(&mut Possessed, &BipedPawnComponent)>,
     yaw_pivots: Query<&YawPivot>,
     pitch_pivots: Query<&PitchPivot>,
@@ -302,22 +308,22 @@ fn gather_biped_input(
     };
 
     let mut input = BipedInput::default();
-    if keyboard.pressed(KeyCode::KeyW) {
+    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons) {
         input.forward += 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyS) {
+    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons) {
         input.forward -= 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyD) {
+    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons) {
         input.right += 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyA) {
+    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons) {
         input.right -= 1.0;
     }
-    input.jump = keyboard.pressed(KeyCode::Space);
-    input.slide = keyboard.pressed(KeyCode::ControlLeft);
-    input.ability1 = keyboard.pressed(KeyCode::ShiftLeft);
-    input.ability2 = keyboard.pressed(KeyCode::KeyE);
+    input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons);
+    input.slide = bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons);
+    input.ability1 = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
+    input.ability2 = bindings.pressed(common::InputAction::Ability2, &keyboard, &mouse_buttons);
 
     if let Some(yaw_e) = biped.yaw_pivot {
         if let Ok(yp) = yaw_pivots.get(yaw_e) {
@@ -879,7 +885,9 @@ fn set_weapon_slot_visibility(commands: &mut Commands, slots: &WeaponSlots) {
 #[cfg(feature = "client")]
 fn toggle_flashlight(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Res<EguiWantsInput>,
+    bindings: Res<common::ActiveKeyBindings>,
     possessed_q: Query<&BipedPawnComponent, With<Possessed>>,
     mut lights: Query<&mut Visibility, With<SpotLight>>,
     mut quic: ResMut<net::quic::QuicManager>,
@@ -887,7 +895,10 @@ fn toggle_flashlight(
     mut toggle_pressed: Local<bool>,
 ) {
     if egui_wants.wants_any_input()
-        || !consume_fixed_press(keyboard.pressed(KeyCode::KeyY), &mut toggle_pressed)
+        || !consume_fixed_press(
+            bindings.pressed(common::InputAction::ToggleFlashlight, &keyboard, &mouse),
+            &mut toggle_pressed,
+        )
     {
         return;
     }
@@ -918,11 +929,14 @@ fn toggle_flashlight(
 #[cfg(feature = "client")]
 pub fn biped_fire(
     mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    bindings: Res<common::ActiveKeyBindings>,
     pawn: Query<(Entity, &WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     drivers: Query<&WeaponDriver>,
     mut commands: Commands,
+    mut quic: Option<ResMut<net::quic::QuicManager>>,
     ticker: Res<common::tick::Ticker>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
@@ -942,12 +956,26 @@ pub fn biped_fire(
         return;
     };
     let (_, _, origin) = pivot_gt.to_scale_rotation_translation();
+    let reload_pressed =
+        !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse);
+    if reload_pressed
+        && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())
+        && quic.client_connected
+    {
+        quic.send(
+            net::quic::SendTarget::All,
+            net::quic::Channel::Ordered,
+            &net::message::MsgType::ReloadWeapon(weapon_net_id.clone()),
+        );
+    }
     commands.run_system_with(
         driver.fixed_update,
         WeaponFireInput {
             weapon: weapon_entity,
-            want_fire: !blocked && mouse.pressed(MouseButton::Left),
-            want_alt_fire: !blocked && mouse.pressed(MouseButton::Right),
+            want_fire: !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse),
+            want_alt_fire: !blocked
+                && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse),
+            reload_pressed,
             origin,
             shooter: pawn_entity,
             tick: ticker.tick,
@@ -1135,7 +1163,9 @@ fn interact(
 #[cfg(feature = "client")]
 fn drop_active_weapon(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     egui_wants: Res<EguiWantsInput>,
+    bindings: Res<common::ActiveKeyBindings>,
     state: Res<State<common::game_state::GameState>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
@@ -1147,7 +1177,10 @@ fn drop_active_weapon(
 ) {
     use common::game_state::GameState;
     if egui_wants.wants_any_input()
-        || !consume_fixed_press(keyboard.pressed(KeyCode::KeyP), &mut drop_pressed)
+        || !consume_fixed_press(
+            bindings.pressed(common::InputAction::DropWeapon, &keyboard, &mouse),
+            &mut drop_pressed,
+        )
     {
         return;
     }

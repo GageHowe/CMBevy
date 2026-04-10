@@ -1,6 +1,6 @@
 use super::{Projectile, helpers, tick_projectiles};
 use crate::GameObject;
-use crate::health::Health;
+use crate::health::{Health, LastDamageSource};
 use crate::sound::SoundEmitter;
 use bevy::prelude::*;
 use common::GameObjectKind;
@@ -38,6 +38,7 @@ impl Projectile for HailMaryProjectile {
         world: &mut PhysicsWorld,
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
+        last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(
             &mut self.lifetime,
@@ -49,7 +50,14 @@ impl Projectile for HailMaryProjectile {
         ) else {
             return;
         };
-        helpers::apply_raycast_hit::<Self>(hit, world, health_q, DAMAGE);
+        helpers::apply_raycast_hit::<Self>(
+            hit,
+            self.shooter,
+            world,
+            health_q,
+            last_damage_q,
+            DAMAGE,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {

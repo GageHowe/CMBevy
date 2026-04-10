@@ -46,6 +46,41 @@ pub struct SimulationState {
     pub bodies: HashMap<NetworkID, BodyState>,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect, Default)]
+pub struct WeaponStateSnapshot {
+    pub ammo_in_mag: u16,
+    pub reserve_ammo: u16,
+    pub reload_ticks: u16,
+    pub cooldown_ticks: u16,
+}
+
+/// Match scoring policy shared between authoritative game state and the HUD.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
+pub enum ScoringOption {
+    Unscored,
+    ScoreToWin(i32),
+}
+
+impl Default for ScoringOption {
+    fn default() -> Self {
+        Self::ScoreToWin(50)
+    }
+}
+
+/// Chooses which counter set the HUD leaderboard should render for the active mode.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
+pub enum LeaderboardScope {
+    None,
+    Player,
+    Team,
+}
+
+impl Default for LeaderboardScope {
+    fn default() -> Self {
+        Self::Player
+    }
+}
+
 /// update this as needed; it defines types of game objects that can be spawned
 /// this needs to stay in common since both net and game_objects access it
 #[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]

@@ -1,5 +1,5 @@
 use crate::GameObject;
-use crate::health::Health;
+use crate::health::{Health, LastDamageSource};
 use bevy::prelude::*;
 pub use common::GameObjectKind;
 use net::message::*;
@@ -112,6 +112,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         world: &mut PhysicsWorld,
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
+        last_damage_q: &mut Query<&mut LastDamageSource>,
     );
 
     fn on_authoritative_fire(_dir: Vec3, _shooter: Entity, _world: &mut PhysicsWorld) {}
@@ -269,9 +270,17 @@ pub fn tick_projectiles<P: Projectile>(
     mut commands: Commands,
     mut q: Query<(Entity, &mut P, &RigidBodyHandleComponent)>,
     mut health_q: Query<&mut Health>,
+    mut last_damage_q: Query<&mut LastDamageSource>,
 ) {
     for (entity, mut proj, body) in q.iter_mut() {
-        proj.tick(entity, body, &mut world, &mut commands, &mut health_q);
+        proj.tick(
+            entity,
+            body,
+            &mut world,
+            &mut commands,
+            &mut health_q,
+            &mut last_damage_q,
+        );
     }
 }
 

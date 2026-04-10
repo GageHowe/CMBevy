@@ -1,5 +1,5 @@
 use super::{Projectile, ProjectileState};
-use crate::health::Health;
+use crate::health::{Health, LastDamageSource, attribute_damage};
 use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
@@ -150,12 +150,15 @@ pub fn tick_raycast_projectile(
 
 pub fn apply_raycast_hit<P: Projectile>(
     hit: RayProjectileHit,
+    shooter: Option<Entity>,
     world: &mut PhysicsWorld,
     health_q: &mut Query<&mut Health>,
+    last_damage_q: &mut Query<&mut LastDamageSource>,
     damage: f32,
 ) {
     apply_hit_impulse::<P>(world, hit.entity, hit.dir, Some(hit.point));
     if let Ok(mut health) = health_q.get_mut(hit.entity) {
+        attribute_damage(last_damage_q, hit.entity, shooter);
         health.apply_damage(damage);
     }
 }

@@ -1,9 +1,11 @@
+use crate::settings_controls::ControlsCapture;
 use crate::{GameState, UiState};
 use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, /* WindowMode*/ WindowResolution},
 };
 use bevy_egui::input::EguiWantsInput;
+use common::{ActiveKeyBindings, InputAction};
 
 pub struct WindowSettingsPlugin;
 
@@ -26,6 +28,8 @@ fn toggle_ui_state(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
+    active_bindings: Res<ActiveKeyBindings>,
+    capture: Option<Res<ControlsCapture>>,
     game_state: Res<State<GameState>>,
     ui_state: Res<State<UiState>>,
     mut next_ui: ResMut<NextState<UiState>>,
@@ -37,13 +41,16 @@ fn toggle_ui_state(
     if !in_game {
         return;
     }
+    if capture.as_ref().is_some_and(|capture| capture.is_active()) {
+        return;
+    }
 
     let egui_wants_keyboard = egui_wants_input
         .as_ref()
         .map_or(false, |e| e.wants_keyboard_input());
 
     // Don't open the pause menu if the chat input has keyboard focus.
-    if keys.just_pressed(KeyCode::Escape) && !egui_wants_keyboard {
+    if active_bindings.just_pressed(InputAction::Pause, &keys, &mouse) && !egui_wants_keyboard {
         match ui_state.get() {
             UiState::Playing => next_ui.set(UiState::Paused),
             _ => next_ui.set(UiState::Playing),
@@ -51,7 +58,9 @@ fn toggle_ui_state(
     }
 
     let egui_wants_pointer = egui_wants_input.map_or(false, |e| e.wants_any_input());
-    if mouse.just_pressed(MouseButton::Left) && !egui_wants_pointer {
+    if active_bindings.just_pressed(InputAction::CaptureCursor, &keys, &mouse)
+        && !egui_wants_pointer
+    {
         next_ui.set(UiState::Playing);
     }
 }
