@@ -297,6 +297,10 @@ pub fn attach_camera_on_possess_vehicle(
 #[cfg(feature = "client")]
 fn vehicle_exit_interact(
     state: Res<State<common::game_state::GameState>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    bindings: Res<common::ActiveKeyBindings>,
     vehicle: Query<
         (Entity, &VehicleComponent, Option<&net::message::NetworkID>),
         (With<VehicleComponent>, With<Possessed>),
@@ -310,10 +314,14 @@ fn vehicle_exit_interact(
     object_kinds: Query<&crate::GameObjectKind>,
 ) {
     use common::game_state::GameState;
+    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
     let Ok((vehicle_entity, vehicle, net_id)) = vehicle.single() else {
         return;
     };
-    if !interaction.consume_queued(ticker.tick) {
+    if !interaction.consume_press(
+        !blocked && bindings.pressed(common::InputAction::Interact, &keyboard, &mouse),
+        ticker.tick,
+    ) {
         return;
     }
     match state.get() {

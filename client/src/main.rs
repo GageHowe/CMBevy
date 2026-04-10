@@ -4,6 +4,7 @@
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
+use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
 use camera::spawn_camera;
 pub use common::game_state::GameState;
 use game_objects::GameObjectsPlugin;
@@ -24,13 +25,14 @@ mod camera;
 mod menu;
 mod outline;
 mod reconciliation;
-mod session;
-mod settings_controls;
 mod tick_sync;
 mod ui;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
-use session::{ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig};
+use session::{
+    ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig,
+    draw_server_state,
+};
 
 use game_objects::components::planet::draw_planet_radii;
 use game_objects::level::{
@@ -123,8 +125,13 @@ fn main() {
         .add_plugins(PawnPlugin)
         .add_plugins(LevelPlugin)
         .add_plugins(WeaponPlugin)
+        .add_plugins(HanabiEffectsPlugin)
         .add_plugins(SoundPlugin)
-        .add_plugins(ClientSessionPlugin)
+        .add_plugins(ClientSessionPlugin {
+            main_menu: GameState::MainMenu,
+            single_player: GameState::SinglePlayer,
+            multiplayer: GameState::Multiplayer,
+        })
         .add_plugins(ReconciliationPlugin::<GameState>::new(
             GameState::Multiplayer,
         ))
@@ -159,23 +166,16 @@ fn main() {
             .run_if(in_state(GameState::Multiplayer)),
     );
 
-    // FixedPostUpdate:
-    //   on_message/send_chat
-    app.add_systems(FixedPostUpdate, session::on_message);
-
-    app.add_systems(
-        FixedLast,
-        session::snapshot_server_state.run_if(
-            in_state(GameState::Multiplayer).and(resource_changed::<PendingReconciliation>),
-        ),
-    );
-
-    // (tick increment is FixedLast)
-
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(Update, draw_planet_radii.run_if(gameplay_overlay_on));
     app.add_systems(Update, draw_driver_seat_debug.run_if(debug_render_on));
+    app.add_systems(
+        Update,
+        draw_server_state
+            .run_if(debug_render_on)
+            .run_if(in_state(GameState::Multiplayer)),
+    );
     app.add_systems(
         FixedUpdate,
         (

@@ -140,8 +140,7 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
-        app.init_resource::<InteractionGate>()
-            .add_systems(Update, queue_interaction_input);
+        app.init_resource::<InteractionGate>();
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
@@ -160,7 +159,6 @@ impl Default for LookSnapCompensation {
 #[derive(Resource, Default)]
 pub struct InteractionGate {
     pressed: bool,
-    queued: bool,
     next_tick: u64,
 }
 
@@ -168,42 +166,18 @@ pub struct InteractionGate {
 impl InteractionGate {
     const COOLDOWN_TICKS: u64 = 12;
 
-    pub fn queue(&mut self, is_down: bool, tick: u64) {
+    pub fn consume_press(&mut self, is_down: bool, tick: u64) -> bool {
         if !is_down {
             self.pressed = false;
-            return;
-        }
-        if self.pressed || tick < self.next_tick {
-            return;
-        }
-        self.pressed = true;
-        self.queued = true;
-    }
-
-    pub fn consume_queued(&mut self, tick: u64) -> bool {
-        if !self.queued || tick < self.next_tick {
             return false;
         }
-        self.queued = false;
+        if self.pressed || tick < self.next_tick {
+            return false;
+        }
+        self.pressed = true;
         self.next_tick = tick + Self::COOLDOWN_TICKS;
         true
     }
-}
-
-#[cfg(feature = "client")]
-fn queue_interaction_input(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
-    ticker: Res<common::tick::Ticker>,
-    mut interaction: ResMut<InteractionGate>,
-) {
-    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
-    interaction.queue(
-        !blocked && bindings.pressed(common::InputAction::Interact, &keyboard, &mouse),
-        ticker.tick,
-    );
 }
 
 /// all pawns implement this; defines input and movement

@@ -1,4 +1,3 @@
-use crate::session::PendingExit;
 use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
@@ -12,36 +11,25 @@ use game_objects::messages::{GameMessages, MESSAGE_TTL_SECS};
 use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot, WeaponSlots};
 use game_objects::pawn::{Possessed, VehicleComponent};
 use game_objects::weapon::{AimReticle, WeaponConfig, WeaponState, default_crosshair_path};
-use net::message::{MsgType, NetworkID, ScoreboardEntry, ScoreboardSnapshot};
+use net::message::{MsgType, NetworkID, ScoreboardEntry};
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_vel};
-
-#[derive(Resource, Debug, Default)]
-/// Data that needs to persist inside the GUI (text etc)
-pub struct GuiState {
-    // pub text_input: String,
-    pub command_input: String,
-    pub log: Vec<String>,
-    pub scoreboard: Option<ScoreboardSnapshot>,
-}
-impl GuiState {
-    pub fn push_log(&mut self, msg: impl Into<String>) {
-        self.log.push(msg.into());
-        if self.log.len() > 200 {
-            self.log.remove(0);
-        }
-    }
-}
+use crate::settings::Settings;
+use session::{GuiState, PendingExit};
 
 pub struct UIPlugin;
+
+#[derive(Resource, Default)]
+struct SmoothedFps(Option<f32>);
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_crosshair, spawn_prediction_reticle))
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
-            .insert_resource(GuiState::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
+            .init_resource::<SmoothedFps>()
+            .add_systems(Update, update_smoothed_fps)
             .add_systems(EguiPrimaryContextPass, gui_top_left)
             .add_systems(EguiPrimaryContextPass, gui_notifications)
             .add_systems(
@@ -98,14 +86,18 @@ fn set_style(mut contexts: EguiContexts) {
 fn gui_top_left(
     mut contexts: EguiContexts,
     world: ResMut<PhysicsWorld>,
-    diagnostics: Res<DiagnosticsStore>,
+    smoothed_fps: Res<SmoothedFps>,
     net_stats: Res<NetworkStats>,
+    settings: Res<Settings>,
     game_state: Res<State<GameState>>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_ui: ResMut<NextState<UiState>>,
     mut pending_exit: ResMut<PendingExit>,
     mut exit: MessageWriter<AppExit>,
 ) -> Result {
+    if !settings.debug_panel {
+        return Ok(());
+    }
     egui::Window::new("info")
         .title_bar(false)
         .movable(false)
@@ -113,10 +105,7 @@ fn gui_top_left(
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
         .show(contexts.ctx_mut()?, |ui| {
             ui.label(format!("rigidbodies: {}", &world.rigid_body_set.len()));
-            if let Some(fps) = diagnostics
-                .get(&FrameTimeDiagnosticsPlugin::FPS)
-                .and_then(|d| d.smoothed())
-            {
+            if let Some(fps) = smoothed_fps.0 {
                 ui.label(format!("FPS: {fps:.0}"));
             } else {
                 ui.label("FPS: N/A");
@@ -144,6 +133,27 @@ fn gui_top_left(
             }
         });
     Ok(())
+}
+
+fn update_smoothed_fps(
+    time: Res<Time>,
+    diagnostics: Res<DiagnosticsStore>,
+    mut smoothed_fps: ResMut<SmoothedFps>,
+) {
+    let Some(raw_fps) = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.value())
+        .map(|fps| fps as f32)
+        .filter(|fps| fps.is_finite() && *fps > 0.0)
+    else {
+        return;
+    };
+    const HALF_LIFE_SECS: f32 = 0.35;
+    let alpha = 1.0 - f32::exp2(-time.delta_secs() / HALF_LIFE_SECS);
+    smoothed_fps.0 = Some(match smoothed_fps.0 {
+        Some(prev) => prev + (raw_fps - prev) * alpha,
+        None => raw_fps,
+    });
 }
 
 fn gui_chat(

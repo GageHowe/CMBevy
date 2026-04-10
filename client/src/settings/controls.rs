@@ -1,7 +1,8 @@
-use crate::settings::Settings;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use common::{ActionBinding, BindingButton, BindingSlot, InputAction, KeyBindings};
+
+use super::data::Settings;
 
 #[derive(Resource, Default)]
 pub struct ControlsCapture {
@@ -52,57 +53,21 @@ pub fn show_controls_settings(
     egui::CollapsingHeader::new("Movement")
         .default_open(true)
         .show(ui, |ui| {
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::MoveForward,
-                "Move forward",
-            );
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::MoveBackward,
-                "Move backward",
-            );
+            show_binding_row(ui, settings, capture, InputAction::MoveForward, "Move forward");
+            show_binding_row(ui, settings, capture, InputAction::MoveBackward, "Move backward");
             show_binding_row(ui, settings, capture, InputAction::MoveRight, "Move right");
             show_binding_row(ui, settings, capture, InputAction::MoveLeft, "Move left");
             show_binding_row(ui, settings, capture, InputAction::Jump, "Jump / ascend");
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::Crouch,
-                "Crouch / descend",
-            );
+            show_binding_row(ui, settings, capture, InputAction::Crouch, "Crouch / descend");
             show_binding_row(ui, settings, capture, InputAction::Sprint, "Sprint / boost");
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::RollLeft,
-                "Ship roll left",
-            );
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::RollRight,
-                "Ship roll right",
-            );
+            show_binding_row(ui, settings, capture, InputAction::RollLeft, "Ship roll left");
+            show_binding_row(ui, settings, capture, InputAction::RollRight, "Ship roll right");
         });
 
     egui::CollapsingHeader::new("Actions")
         .default_open(true)
         .show(ui, |ui| {
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::Interact,
-                "Interact / use",
-            );
+            show_binding_row(ui, settings, capture, InputAction::Interact, "Interact / use");
             show_binding_row(
                 ui,
                 settings,
@@ -112,13 +77,7 @@ pub fn show_controls_settings(
             );
             show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");
             show_binding_row(ui, settings, capture, InputAction::Fire, "Fire");
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::AltFire,
-                "Alt fire / zoom",
-            );
+            show_binding_row(ui, settings, capture, InputAction::AltFire, "Alt fire / zoom");
             show_binding_row(
                 ui,
                 settings,
@@ -126,13 +85,7 @@ pub fn show_controls_settings(
                 InputAction::ToggleFlashlight,
                 "Toggle flashlight",
             );
-            show_binding_row(
-                ui,
-                settings,
-                capture,
-                InputAction::DropWeapon,
-                "Drop weapon",
-            );
+            show_binding_row(ui, settings, capture, InputAction::DropWeapon, "Drop weapon");
         });
 
     egui::CollapsingHeader::new("Interface")
@@ -163,13 +116,7 @@ fn show_binding_row(
         ui.set_min_width(180.0);
         ui.label(label);
         binding_slot_button(ui, capture, action, BindingSlot::Primary, binding.primary);
-        binding_slot_button(
-            ui,
-            capture,
-            action,
-            BindingSlot::Secondary,
-            binding.secondary,
-        );
+        binding_slot_button(ui, capture, action, BindingSlot::Secondary, binding.secondary);
 
         if ui.small_button("Clear").clicked() {
             *settings.keybindings.binding_mut(action) = ActionBinding::default();
@@ -260,34 +207,14 @@ fn button_label(button: Option<BindingButton>) -> String {
 
 fn binding_button_name(button: BindingButton) -> String {
     match button {
-        BindingButton::Mouse(MouseButton::Left) => "Mouse Left".to_string(),
-        BindingButton::Mouse(MouseButton::Right) => "Mouse Right".to_string(),
-        BindingButton::Mouse(MouseButton::Middle) => "Mouse Middle".to_string(),
-        BindingButton::Mouse(MouseButton::Back) => "Mouse Back".to_string(),
-        BindingButton::Mouse(MouseButton::Forward) => "Mouse Forward".to_string(),
-        BindingButton::Mouse(MouseButton::Other(value)) => format!("Mouse {value}"),
-        BindingButton::Key(key) => key_name(key),
-    }
-}
-
-fn key_name(key: KeyCode) -> String {
-    match key {
-        KeyCode::Space => "Space".to_string(),
-        KeyCode::Escape => "Esc".to_string(),
-        KeyCode::Enter => "Enter".to_string(),
-        KeyCode::Tab => "Tab".to_string(),
-        KeyCode::ShiftLeft => "Left Shift".to_string(),
-        KeyCode::ShiftRight => "Right Shift".to_string(),
-        KeyCode::ControlLeft => "Left Ctrl".to_string(),
-        KeyCode::ControlRight => "Right Ctrl".to_string(),
-        KeyCode::AltLeft => "Left Alt".to_string(),
-        KeyCode::AltRight => "Right Alt".to_string(),
-        KeyCode::SuperLeft => "Left Super".to_string(),
-        KeyCode::SuperRight => "Right Super".to_string(),
-        KeyCode::ArrowUp => "Up".to_string(),
-        KeyCode::ArrowDown => "Down".to_string(),
-        KeyCode::ArrowLeft => "Left".to_string(),
-        KeyCode::ArrowRight => "Right".to_string(),
-        _ => format!("{key:?}").replace("Key", ""),
+        BindingButton::Key(key) => format!("{key:?}"),
+        BindingButton::Mouse(button) => match button {
+            MouseButton::Left => "Mouse Left".to_string(),
+            MouseButton::Right => "Mouse Right".to_string(),
+            MouseButton::Middle => "Mouse Middle".to_string(),
+            MouseButton::Back => "Mouse Back".to_string(),
+            MouseButton::Forward => "Mouse Forward".to_string(),
+            MouseButton::Other(id) => format!("Mouse {id}"),
+        },
     }
 }

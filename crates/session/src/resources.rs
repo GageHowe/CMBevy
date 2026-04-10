@@ -1,0 +1,206 @@
+use bevy::prelude::*;
+use net::message::{NetworkID, SimulationState};
+use std::collections::HashMap;
+
+#[cfg(feature = "client")]
+use common::GameObjectKind;
+#[cfg(not(feature = "client"))]
+use game_objects::NetworkEntityMap;
+#[cfg(not(feature = "client"))]
+use game_objects::level::SpawnPoint;
+#[cfg(feature = "client")]
+use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
+#[cfg(not(feature = "client"))]
+use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
+#[cfg(not(feature = "client"))]
+use game_objects::pawn::vehicle::{DriverSeat, VehicleComponent};
+#[cfg(not(feature = "client"))]
+use game_objects::pawn::{HeldWeaponMap, PawnInputKind, SeatedInVehicle};
+#[cfg(feature = "client")]
+use game_objects::pawn::{Possessed, SeatedInVehicle};
+#[cfg(feature = "client")]
+use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
+#[cfg(feature = "client")]
+use game_objects::weapon::WeaponState;
+#[cfg(not(feature = "client"))]
+use game_objects::weapon::{WeaponConfig, WeaponState};
+#[cfg(not(feature = "client"))]
+use net::message::GameObjectKind;
+#[cfg(not(feature = "client"))]
+use net::quic::ConnectionId;
+
+#[cfg(feature = "client")]
+#[derive(Resource)]
+pub struct ServerAddr(pub std::net::SocketAddr);
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct PendingExit(pub bool);
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct LastServerState(pub Option<SimulationState>);
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct LastAckedInputSeq(pub u64);
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct PendingWorldReady(pub bool);
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct PendingReconciliation(pub Option<SimulationState>);
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct GuiState {
+    pub command_input: String,
+    pub log: Vec<String>,
+    pub scoreboard: Option<net::message::ScoreboardSnapshot>,
+}
+
+#[cfg(feature = "client")]
+impl GuiState {
+    pub fn push_log(&mut self, msg: impl Into<String>) {
+        self.log.push(msg.into());
+        if self.log.len() > 200 {
+            self.log.remove(0);
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct HostedServer {
+    pub child: Option<std::process::Child>,
+    pub stdin: Option<std::io::BufWriter<std::process::ChildStdin>>,
+    pub beacon_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+#[cfg(feature = "client")]
+impl HostedServer {
+    pub fn send_command(&mut self, cmd: &str) {
+        use std::io::Write;
+        if let Some(w) = &mut self.stdin {
+            let _ = writeln!(w, "{cmd}");
+            let _ = w.flush();
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct SinglePlayerConfig {
+    pub map: String,
+    pub gametype: String,
+    pub(crate) timer: Option<f32>,
+    pub(crate) spawned_once: bool,
+}
+
+#[cfg(feature = "client")]
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct SpawnParams<'w, 's> {
+    pub commands: Commands<'w, 's>,
+    pub entity_children: Query<'w, 's, &'static Children>,
+    pub lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
+}
+
+#[cfg(feature = "client")]
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct ClientMessageParams<'w, 's> {
+    pub spawn: SpawnParams<'w, 's>,
+    pub world: ResMut<'w, physics::physics_world::PhysicsWorld>,
+    pub biped_q: ParamSet<
+        'w,
+        's,
+        (
+            Query<'w, 's, (&'static mut WeaponSlots, &'static BipedPawnComponent), With<Possessed>>,
+            Query<'w, 's, &'static BipedPawnComponent>,
+        ),
+    >,
+    pub networked: Res<'w, game_objects::NetworkEntityMap>,
+    pub health_q: Query<'w, 's, &'static mut game_objects::health::Health>,
+    pub camera: Query<'w, 's, Entity, With<Camera3d>>,
+    pub projectile_q: Query<'w, 's, (Entity, &'static ProjectileState)>,
+    pub predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
+    pub object_kinds: Query<'w, 's, &'static GameObjectKind>,
+    pub seated: Query<'w, 's, &'static SeatedInVehicle>,
+    pub weapon_states: Query<'w, 's, &'static mut WeaponState>,
+}
+
+#[cfg(feature = "client")]
+pub(crate) type JustSpawned = HashMap<NetworkID, (Entity, u64)>;
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource)]
+pub(crate) struct BindAddr(pub std::net::SocketAddr);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource)]
+pub(crate) struct ConsoleCommands(pub std::sync::Mutex<std::sync::mpsc::Receiver<String>>);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource)]
+pub(crate) struct LevelPath(pub String);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
+pub(crate) struct BodyHistory(pub HashMap<u64, SimulationState>);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
+pub struct PendingInputs(pub HashMap<ConnectionId, (u64, PawnInputKind)>);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
+pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
+pub struct PendingConnections(pub std::collections::HashSet<ConnectionId>);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
+pub struct ActiveConnections(pub std::collections::HashSet<ConnectionId>);
+
+#[cfg(not(feature = "client"))]
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct ServerMessageParams<'w, 's> {
+    pub commands: Commands<'w, 's>,
+    pub world: ResMut<'w, physics::physics_world::PhysicsWorld>,
+    pub held_weapons: ResMut<'w, HeldWeaponMap>,
+    pub spawn_points: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static SpawnPoint,
+            &'static Transform,
+            Option<&'static ChildOf>,
+        ),
+    >,
+    pub parent_transforms: Query<'w, 's, &'static Transform>,
+    pub parent_parents: Query<'w, 's, &'static ChildOf>,
+    pub parent_bodies: Query<'w, 's, &'static physics::physics_world::RigidBodyHandleComponent>,
+    pub level_ready: game_objects::level::LevelReadyState<'w, 's>,
+    pub spawnables: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static NetworkID,
+            &'static GameObjectKind,
+            &'static physics::physics_world::RigidBodyHandleComponent,
+        ),
+    >,
+    pub all_networked: Res<'w, NetworkEntityMap>,
+    pub pawn_slots: Query<'w, 's, &'static mut WeaponSlots>,
+    pub bipeds: Query<'w, 's, &'static mut BipedPawnComponent>,
+    pub vehicles: Query<'w, 's, &'static VehicleComponent>,
+    pub net_ids: Query<'w, 's, &'static NetworkID>,
+    pub seated_bipeds: Query<'w, 's, (&'static NetworkID, &'static SeatedInVehicle)>,
+    pub driver_seats: Query<'w, 's, (&'static mut DriverSeat, &'static Transform)>,
+    pub weapon_runtime: Query<'w, 's, (&'static mut WeaponState, &'static WeaponConfig)>,
+}

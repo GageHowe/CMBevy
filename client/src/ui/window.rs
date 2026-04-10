@@ -1,4 +1,4 @@
-use crate::settings_controls::ControlsCapture;
+use crate::settings::ControlsCapture;
 use crate::{GameState, UiState};
 use bevy::{
     prelude::*,

@@ -99,7 +99,9 @@ pub fn fire_authoritative(
 /// The implementing type IS the component (fields: shooter, lifetime, etc.).
 /// Requires GameObject so spawn-from-SpawnCommand is also defined per type.
 pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
+    /// the GameObjectKind enum member this type corresponds to
     const KIND: GameObjectKind;
+    /// relative fire speed of projectile
     const SPEED: f32;
     const KNOCKBACK: f32 = 0.0;
     const SHOOTER_KNOCKBACK: f32 = Self::KNOCKBACK;

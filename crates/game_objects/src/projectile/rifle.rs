@@ -77,8 +77,12 @@ impl Projectile for RifleProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        let impulse = helpers::knockback_impulse::<Self>(dir, 1.0);
-        world.apply_game_impulse(shooter, impulse, None, None);
+        world.apply_game_impulse(
+            shooter,
+            helpers::knockback_impulse::<Self>(dir, 1.0),
+            None,
+            None,
+        );
     }
 
     fn spawn_predicted(
@@ -129,8 +133,12 @@ impl Projectile for PistolProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        let impulse = helpers::knockback_impulse::<Self>(dir, 1.0);
-        world.apply_game_impulse(shooter, impulse, None, None);
+        world.apply_game_impulse(
+            shooter,
+            helpers::knockback_impulse::<Self>(dir, 1.0),
+            None,
+            None,
+        );
     }
 
     fn spawn_predicted(

@@ -34,13 +34,21 @@ const MAX_SPRINT_SPEED: f32 = 15.0;
 /// max speed gained per tick when accelerating on the ground
 const GROUND_ACCEL: f32 = 1.0;
 const JUMP_IMPULSE: f32 = 5.0;
-const AIR_CONTROL: f32 = 0.1;
-const AIR_UP_CONTROL: f32 = 0.35;
-const GROUND_DIST: f32 = 0.01; // must be nearly touching to count as grounded
+const AIR_CONTROL: f32 = 0.2;
+const AIR_UP_CONTROL: f32 = 0.45;
+const GROUND_DIST: f32 = 0.05; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 20; // ticks before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
 const MAIN_FRICTION: f32 = 1.5;
 const SLIDE_FRICTION: f32 = 0.1;
+#[cfg(feature = "client")]
+const FLASHLIGHT_INTENSITY: f32 = 1000000.0;
+#[cfg(feature = "client")]
+const FLASHLIGHT_RANGE: f32 = 20000000.0;
+#[cfg(feature = "client")]
+const FLASHLIGHT_OUTER_ANGLE: f32 = 0.12;
+#[cfg(feature = "client")]
+const FLASHLIGHT_INNER_ANGLE: f32 = 0.05;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -148,10 +156,12 @@ impl GameObject for BipedPawnComponent {
             let light = world
                 .spawn((
                     SpotLight {
-                        intensity: 20000.0,
-                        range: 5.0,
-                        outer_angle: 0.4,
-                        inner_angle: 0.3,
+                        // Push more light into distant targets by raising intensity and
+                        // tightening the cone so the beam stays concentrated.
+                        intensity: FLASHLIGHT_INTENSITY,
+                        range: FLASHLIGHT_RANGE,
+                        outer_angle: FLASHLIGHT_OUTER_ANGLE,
+                        inner_angle: FLASHLIGHT_INNER_ANGLE,
                         shadows_enabled: true,
                         ..default()
                     },
@@ -233,25 +243,29 @@ impl Plugin for BipedPlugin {
         app.init_resource::<MouseSensitivity>();
         app.add_systems(FixedUpdate, update_slide_camera);
         #[cfg(feature = "client")]
-        app.add_systems(
-            FixedPreUpdate,
-            (
-                gather_biped_input
-                    .run_if(resource_exists::<ButtonInput<KeyCode>>)
-                    .in_set(GatherInputSet),
-                move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
-                biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
-                toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
-                drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
-                interact
-                    .run_if(
-                        in_state(common::game_state::GameState::SinglePlayer)
-                            .or(in_state(common::game_state::GameState::Multiplayer)),
+        {
+            app.init_resource::<ReloadGate>()
+                .add_systems(Update, queue_reload_input)
+                .add_systems(
+                    FixedPreUpdate,
+                    (
+                        gather_biped_input
+                            .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                            .in_set(GatherInputSet),
+                        move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
+                        biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
+                        toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                        drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                        interact
+                            .run_if(
+                                in_state(common::game_state::GameState::SinglePlayer)
+                                    .or(in_state(common::game_state::GameState::Multiplayer)),
+                            )
+                            .run_if(resource_exists::<ButtonInput<KeyCode>>),
                     )
-                    .run_if(resource_exists::<ButtonInput<KeyCode>>),
-            )
-                .chain(),
-        );
+                        .chain(),
+                );
+        }
         app.add_systems(
             PostUpdate,
             (
@@ -927,7 +941,38 @@ fn toggle_flashlight(
 /// Forwards input to the possessed biped's active weapon each FixedPreUpdate tick.
 /// All fire logic (projectiles, sound, camera kick, networking) is handled by the weapon.
 #[cfg(feature = "client")]
-pub fn biped_fire(
+#[derive(Resource, Default)]
+struct ReloadGate {
+    queued: bool,
+}
+
+#[cfg(feature = "client")]
+impl ReloadGate {
+    fn queue(&mut self) {
+        self.queued = true;
+    }
+
+    fn consume(&mut self) -> bool {
+        std::mem::take(&mut self.queued)
+    }
+}
+
+#[cfg(feature = "client")]
+fn queue_reload_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    bindings: Res<common::ActiveKeyBindings>,
+    mut reload: ResMut<ReloadGate>,
+) {
+    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
+    if !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse) {
+        reload.queue();
+    }
+}
+
+#[cfg(feature = "client")]
+fn biped_fire(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
@@ -937,6 +982,7 @@ pub fn biped_fire(
     drivers: Query<&WeaponDriver>,
     mut commands: Commands,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
+    mut reload: ResMut<ReloadGate>,
     ticker: Res<common::tick::Ticker>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
@@ -956,8 +1002,7 @@ pub fn biped_fire(
         return;
     };
     let (_, _, origin) = pivot_gt.to_scale_rotation_translation();
-    let reload_pressed =
-        !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse);
+    let reload_pressed = !blocked && reload.consume();
     if reload_pressed
         && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())
         && quic.client_connected
@@ -1002,17 +1047,28 @@ pub(crate) fn consume_fixed_press(is_down: bool, latched: &mut Local<bool>) -> b
 }
 
 #[cfg(feature = "client")]
+#[derive(bevy::ecs::system::SystemParam)]
+struct InteractInputParams<'w> {
+    keyboard: Res<'w, ButtonInput<KeyCode>>,
+    mouse: Res<'w, ButtonInput<MouseButton>>,
+    egui_wants: Option<Res<'w, EguiWantsInput>>,
+    bindings: Res<'w, common::ActiveKeyBindings>,
+    ticker: Res<'w, common::tick::Ticker>,
+    interaction: ResMut<'w, InteractionGate>,
+}
+
+#[cfg(feature = "client")]
 fn interact(
     state: Res<State<common::game_state::GameState>>,
+    mut input: InteractInputParams,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     interactables: Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
+    weapon_states: Query<&crate::weapon::WeaponState>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
-    mut interaction: ResMut<InteractionGate>,
-    ticker: Res<common::tick::Ticker>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
     object_kinds: Query<&GameObjectKind>,
     mut cockpit_q: ParamSet<(
@@ -1021,6 +1077,10 @@ fn interact(
     )>,
 ) {
     use common::game_state::GameState;
+    let blocked = input
+        .egui_wants
+        .as_ref()
+        .is_some_and(|e| e.wants_any_input());
     let Ok((pawn_entity, biped)) = player.single() else {
         return;
     };
@@ -1051,7 +1111,15 @@ fn interact(
     }
 
     if let Some((_, cockpit_entity, vehicle_entity)) = cockpit_target {
-        if !interaction.consume_queued(ticker.tick) {
+        if !input.interaction.consume_press(
+            !blocked
+                && input.bindings.pressed(
+                    common::InputAction::Interact,
+                    &input.keyboard,
+                    &input.mouse,
+                ),
+            input.ticker.tick,
+        ) {
             return;
         }
         match state.get() {
@@ -1105,7 +1173,13 @@ fn interact(
         return;
     };
     let interact_net_id = interact_net_id.clone();
-    if !interaction.consume_queued(ticker.tick) {
+    if !input.interaction.consume_press(
+        !blocked
+            && input
+                .bindings
+                .pressed(common::InputAction::Interact, &input.keyboard, &input.mouse),
+        input.ticker.tick,
+    ) {
         return;
     }
 
@@ -1120,10 +1194,11 @@ fn interact(
             {
                 let drop_velocity = forward * 8.0
                     + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
-                crate::weapon::helpers::detach_viewmodel(&mut commands, &world, drop_entity);
-                crate::weapon::helpers::place_world_weapon(
+                crate::weapon::helpers::drop_or_despawn_weapon(
+                    &mut commands,
                     &mut world,
                     drop_entity,
+                    weapon_states.get(drop_entity).ok(),
                     origin + forward,
                     drop_velocity,
                 );
@@ -1170,6 +1245,7 @@ fn drop_active_weapon(
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut slots_q: Query<&mut WeaponSlots, With<Possessed>>,
+    weapon_states: Query<&crate::weapon::WeaponState>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<net::quic::QuicManager>,
@@ -1224,10 +1300,11 @@ fn drop_active_weapon(
             let forward = rot * Vec3::NEG_Z;
             let drop_velocity = forward * 8.0
                 + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
-            crate::weapon::helpers::detach_viewmodel(&mut commands, &world, weapon_entity);
-            crate::weapon::helpers::place_world_weapon(
+            crate::weapon::helpers::drop_or_despawn_weapon(
+                &mut commands,
                 &mut world,
                 weapon_entity,
+                weapon_states.get(weapon_entity).ok(),
                 origin + forward,
                 drop_velocity,
             );

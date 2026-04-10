@@ -66,6 +66,10 @@ pub struct MapMeta {
     pub skybox_brightness: f32,
     /// EnvironmentMapLight intensity (scene PBR lighting from the skybox). Client-only.
     pub env_light_intensity: f32,
+    /// Ambient fill light color applied to the main camera. Client-only.
+    pub ambient_light_color: Color,
+    /// Ambient fill light brightness applied to the main camera. Client-only.
+    pub ambient_light_brightness: f32,
 }
 
 // ── scene-root marker ─────────────────────────────────────────────────────────
@@ -743,6 +747,7 @@ fn ensure_body(
 /// Spawns the GLB visual scene when MapMeta is available. Client-only.
 pub fn load_level_scene(
     scene_root: Query<Entity, With<LevelSceneRoot>>,
+    mut cameras: Query<&mut AmbientLight, With<Camera3d>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     meta: Res<MapMeta>,
@@ -750,6 +755,10 @@ pub fn load_level_scene(
     let Ok(root) = scene_root.single() else {
         return;
     };
+    if let Ok(mut ambient) = cameras.single_mut() {
+        ambient.color = meta.ambient_light_color;
+        ambient.brightness = meta.ambient_light_brightness;
+    }
     for (scene_path, transform) in &meta.visuals {
         let entity = commands
             .spawn((

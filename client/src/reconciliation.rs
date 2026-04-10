@@ -16,11 +16,11 @@ use game_objects::pawn::SeatedInVehicle;
 use game_objects::pawn::biped::BipedPawnComponent;
 use game_objects::pawn::spaceship::SpaceshipPawnComponent;
 use game_objects::pawn::{GatherInputSet, Possessed};
-use net::message::SimulationState;
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
     restore_snapshot, snapshot_body_handles, step_world,
 };
+use session::PendingReconciliation;
 /// manages client-side rollback/correction, like in Rocket League
 pub struct ReconciliationPlugin<S: States + Copy>(pub S);
 impl<S: States + Copy> ReconciliationPlugin<S> {
@@ -32,8 +32,7 @@ impl<S: States + Copy> ReconciliationPlugin<S> {
 impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
-        app.init_resource::<PendingReconciliation>()
-            .init_resource::<PredictedCommands>()
+        app.init_resource::<PredictedCommands>()
             .init_resource::<BipedStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(
@@ -64,11 +63,6 @@ impl BodyError {
 /// accumulated per-body physics errors, exponentially drained each tick.
 #[derive(Resource, Default)]
 pub struct PhysicsErrors(HashMap<NetworkID, BodyError>);
-
-/// Holds the most recent server snapshot waiting to be consumed by `maybe_reconcile`.
-/// Set by `on_message` when a `MsgType::State` arrives.
-#[derive(Resource, Default)]
-pub struct PendingReconciliation(pub Option<SimulationState>);
 
 #[derive(Clone, Copy)]
 struct BipedReplayState {

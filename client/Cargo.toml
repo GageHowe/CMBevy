@@ -27,3 +27,5 @@ net = { path = "../crates/net", features = ["client"] }
 game_objects = { path = "../crates/game_objects", features = ["client"] }
 scripting = { path = "../crates/scripting" }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
+session = { path = "../crates/session", features = ["client"] }
+bevy_hanabi_plugin = { path = "../crates/bevy_hanabi" }

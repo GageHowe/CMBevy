@@ -278,12 +278,21 @@ pub fn can_fire(state: &WeaponState) -> bool {
     state.reload_ticks == 0 && state.cooldown_ticks == 0 && state.ammo_in_mag > 0
 }
 
+pub fn is_depleted(state: &WeaponState) -> bool {
+    state.ammo_in_mag == 0 && state.reserve_ammo == 0
+}
+
 pub fn consume_round(state: &mut WeaponState, config: &WeaponConfig) -> bool {
     if !can_fire(state) {
         return false;
     }
     state.ammo_in_mag -= 1;
     state.cooldown_ticks = config.fire_cooldown_ticks;
+    // Empty mags should immediately enter reload so client prediction and server authority
+    // stay on the same state path after the last shot.
+    if state.ammo_in_mag == 0 {
+        start_reload(state, config);
+    }
     true
 }
 

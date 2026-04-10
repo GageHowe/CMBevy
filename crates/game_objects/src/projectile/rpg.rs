@@ -12,6 +12,8 @@ use crate::health::{Health, LastDamageSource, attribute_damage};
 #[cfg(feature = "client")]
 use super::ProjectileState;
 use super::{Projectile, helpers, tick_projectiles};
+#[cfg(feature = "client")]
+use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
 use common::GameObjectKind;
 
 pub const SPEED: f32 = 60.0;
@@ -19,7 +21,6 @@ pub const LIFETIME: u32 = 240;
 pub const DAMAGE: f32 = 110.0;
 pub const EXPLOSION_RADIUS: f32 = 5.0;
 pub const EXPLOSION_IMPULSE: f32 = 30.0;
-const EXPLOSION_MASS_BLEND: f32 = 0.25;
 const RADIUS: f32 = 0.16;
 const DIRECT_HIT_BONUS: f32 = 20.0;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
@@ -40,10 +41,6 @@ impl Default for RpgProjectile {
 
 pub fn shooter_knockback(mass: f32) -> f32 {
     mass * <RpgProjectile as Projectile>::SHOOTER_KNOCKBACK
-}
-
-fn explosion_mass_scale(mass: f32) -> f32 {
-    1.0 + (mass - 1.0).max(0.0) * EXPLOSION_MASS_BLEND
 }
 
 impl Projectile for RpgProjectile {
@@ -171,6 +168,17 @@ fn explode(
     predicted: Option<&mut PredictedCommands>,
     direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
 ) {
+    #[cfg(feature = "client")]
+    let inherit_velocity = direct_hit
+        .and_then(|entity| world.entity_to_handle.get(&entity).copied())
+        .and_then(|handle| world.rigid_body_set.get(handle))
+        .map(rb_vel)
+        .unwrap_or(Vec3::ZERO);
+    #[cfg(feature = "client")]
+    commands.queue(move |world: &mut World| {
+        spawn_rpg_explosion_effect(world, center, inherit_velocity);
+    });
+
     let mut affected: HashMap<Entity, f32> = HashMap::new();
     let excluded: Vec<RigidBodyHandle> = [Some(projectile)]
         .into_iter()
@@ -229,7 +237,7 @@ fn explode(
         } else {
             radial_dir
         };
-        let impulse = impulse_dir * EXPLOSION_IMPULSE * falloff * explosion_mass_scale(rb.mass());
+        let impulse = impulse_dir * EXPLOSION_IMPULSE * falloff;
         let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
         let point = direct_hit_impulse.and_then(
             |(hit, _, hit_point)| {

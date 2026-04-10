@@ -15,6 +15,8 @@ cargo run -p network_emulator -- --loss 0.05 --mindelay 40 --maxdelay 80
 cargo run --bin client -- --server 127.0.0.1:42069
 ```
 
+`crates/session` is an internal binary-facing crate. Only the `client` and `gameserver` binaries should depend on it; shared crates should keep depending on `common`, `net`, `game_objects`, and other lower-level crates instead.
+
 ## Packaging
 
 Linux:

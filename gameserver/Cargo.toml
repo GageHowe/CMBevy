@@ -15,3 +15,4 @@ game_objects = { path = "../crates/game_objects" }
 scripting = { path = "../crates/scripting" }
 master_plugin = { path = "../crates/master_plugin", features = ["server"] }
 bevy = { version = "0.18", default-features = false, features = ["bevy_log", "multi_threaded", "std"] }
+session = { path = "../crates/session" }

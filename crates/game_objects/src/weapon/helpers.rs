@@ -10,7 +10,7 @@ use crate::pawn::biped::viewmodel_offset;
 use crate::sound::{SoundQueue, entity_velocity};
 #[cfg(feature = "client")]
 use crate::weapon::FireCtx;
-use crate::weapon::{AimReticle, WeaponComponent};
+use crate::weapon::{AimReticle, WeaponComponent, WeaponState};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
 pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
@@ -181,6 +181,24 @@ pub fn place_world_weapon(
         rb.set_angvel(Vector3::ZERO, true);
     }
     world.set_body_enabled(weapon_entity, true);
+}
+
+pub fn drop_or_despawn_weapon(
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    weapon_entity: Entity,
+    weapon_state: Option<&WeaponState>,
+    drop_pos: Vec3,
+    drop_velocity: Vec3,
+) -> bool {
+    if weapon_state.is_some_and(crate::weapon::is_depleted) {
+        commands.entity(weapon_entity).despawn();
+        return true;
+    }
+    #[cfg(feature = "client")]
+    detach_viewmodel(commands, world, weapon_entity);
+    place_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
+    false
 }
 
 pub fn pickup_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity) {

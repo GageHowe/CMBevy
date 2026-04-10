@@ -1,9 +1,4 @@
-use crate::session::{
-    HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,
-    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
-};
-use crate::settings::{Settings, SettingsSection, show_settings_ui};
-use crate::settings_controls::ControlsCapture;
+use crate::settings::{ControlsCapture, Settings, SettingsSection, show_settings_ui};
 use crate::sound::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
 use crate::{GameState, UiState};
 use bevy::app::AppExit;
@@ -12,6 +7,10 @@ use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use common::InputAction;
 use game_objects::sound::SoundQueue;
 use http_common::{LobbyInfo, RegisterRequest};
+use session::{
+    HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,
+    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
+};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub struct MenuPlugin;

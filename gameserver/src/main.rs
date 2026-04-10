@@ -10,7 +10,6 @@ use master_plugin::MasterPlugin;
 use physics::physics_world::*;
 use std::net::SocketAddr;
 
-mod session;
 use session::ServerSessionPlugin;
 
 fn parse_args() -> (SocketAddr, String, String) {

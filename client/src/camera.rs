@@ -25,6 +25,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..Default::default()
             },
             AmbientLight {
+                // MapMeta overrides this on map load; keep startup neutral so authored maps own it.
                 brightness: 0.0,
                 ..default()
             },
