@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use crate::outline::OutlineSettings;
+use bevy::core_pipeline::prepass::MotionVectorPrepass;
 use bevy::prelude::*;
+use bevy::post_process::motion_blur::MotionBlur;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
@@ -146,6 +148,17 @@ fn apply_camera_graphics(
         });
     } else {
         camera.remove::<bevy::post_process::bloom::Bloom>();
+    }
+
+    if settings.motion_blur {
+        camera.insert(MotionVectorPrepass);
+        camera.insert(MotionBlur {
+            shutter_angle: 0.5,
+            samples: 1,
+        });
+    } else {
+        camera.remove::<MotionBlur>();
+        camera.remove::<MotionVectorPrepass>();
     }
 
     match settings.ssao_quality {

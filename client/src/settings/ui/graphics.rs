@@ -134,6 +134,9 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                 });
             }
 
+            ui.checkbox(&mut settings.motion_blur, "Motion blur")
+                .on_hover_text("Uses per-object motion vectors to blur fast movement. Costs extra GPU time.");
+
             ui.horizontal(|ui| {
                 ui.label("SSAO").on_hover_text(
                     "GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.",

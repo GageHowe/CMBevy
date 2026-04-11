@@ -52,7 +52,6 @@ pub fn make_projectile_physics(
         RigidBodyBuilder::kinematic_velocity_based()
             .translation(origin)
             .linvel(Vector::new(velocity.x, velocity.y, velocity.z))
-            .ccd_enabled(true)
             .build(),
     )
 }
