@@ -274,8 +274,7 @@ fn add_visual<P: Component>(
     for entity in &q {
         let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.04));
         let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.9, 0.2),
-            emissive: LinearRgba::new(6.0, 5.0, 0.5, 1.0),
+            emissive: LinearRgba::new(6.0, 5.0, 0.5, 1.0) * 3.0,
             unlit: true,
             ..default()
         });

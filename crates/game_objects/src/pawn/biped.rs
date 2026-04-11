@@ -110,7 +110,7 @@ impl GameObject for BipedPawnComponent {
                     cmd.starting_velocity.y,
                     cmd.starting_velocity.z,
                 ))
-                .angular_damping(5.0)
+                // .angular_damping(5.0)
                 .lock_rotations()
                 // .ccd_enabled(true) was causing issues with relative velocity
                 .build();
@@ -531,8 +531,11 @@ fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
+    mut weapon_states: Query<&mut crate::weapon::WeaponState>,
     mut visibility: Query<&mut Visibility>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
+    state: Res<State<common::game_state::GameState>>,
+    mut quic: ResMut<net::quic::QuicManager>,
 ) {
     if scroll.delta.y == 0.0 || egui_wants_input.map_or(false, |e| e.wants_any_input()) {
         return;
@@ -540,7 +543,9 @@ fn switch_weapon_slot(
     let Ok(mut slots) = pawn.single_mut() else {
         return;
     };
+    let old_active_primary = slots.active_primary;
     if let Some(e) = slots.active().1 {
+        crate::weapon::helpers::clear_inactive_slot_reload(weapon_states.get_mut(e).ok());
         if let Ok(mut vis) = visibility.get_mut(e) {
             *vis = Visibility::Hidden;
         }
@@ -553,6 +558,15 @@ fn switch_weapon_slot(
     }
     if let Ok(mut cc) = camera.single_mut() {
         cc.zoom_multiplier = 1.0;
+    }
+    if matches!(state.get(), common::game_state::GameState::Multiplayer)
+        && old_active_primary != slots.active_primary
+    {
+        quic.send(
+            net::quic::SendTarget::All,
+            net::quic::Channel::Ordered,
+            &net::message::MsgType::SetActiveWeaponSlot(slots.active_primary),
+        );
     }
 }
 
@@ -1066,7 +1080,7 @@ fn interact(
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
-    weapon_states: Query<&crate::weapon::WeaponState>,
+    mut weapon_states: Query<&mut crate::weapon::WeaponState>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
@@ -1198,7 +1212,7 @@ fn interact(
                     &mut commands,
                     &mut world,
                     drop_entity,
-                    weapon_states.get(drop_entity).ok(),
+                    weapon_states.get_mut(drop_entity).ok(),
                     origin + forward,
                     drop_velocity,
                 );
@@ -1245,7 +1259,7 @@ fn drop_active_weapon(
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut slots_q: Query<&mut WeaponSlots, With<Possessed>>,
-    weapon_states: Query<&crate::weapon::WeaponState>,
+    mut weapon_states: Query<&mut crate::weapon::WeaponState>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<net::quic::QuicManager>,
@@ -1304,7 +1318,7 @@ fn drop_active_weapon(
                 &mut commands,
                 &mut world,
                 weapon_entity,
-                weapon_states.get(weapon_entity).ok(),
+                weapon_states.get_mut(weapon_entity).ok(),
                 origin + forward,
                 drop_velocity,
             );

@@ -22,8 +22,11 @@ pub fn reveal_settings_file() -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
     if !path.exists() {
-        fs::write(&path, toml::to_string_pretty(&Settings::default()).unwrap_or_default())
-            .map_err(|err| err.to_string())?;
+        fs::write(
+            &path,
+            toml::to_string_pretty(&Settings::default()).unwrap_or_default(),
+        )
+        .map_err(|err| err.to_string())?;
     }
 
     #[cfg(target_os = "windows")]

@@ -630,6 +630,14 @@ fn process_server_message(
             quic,
             drop_dir,
         ),
+        MsgType::SetActiveWeaponSlot(active_primary) => handle_set_active_weapon_slot(
+            conn_id,
+            active_primary,
+            registry,
+            &mut sp.pawn_slots,
+            &mut sp.weapon_runtime,
+            quic,
+        ),
         MsgType::ReloadWeapon(weapon_net_id) => handle_reload_weapon(
             conn_id,
             weapon_net_id,

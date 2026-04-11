@@ -53,21 +53,57 @@ pub fn show_controls_settings(
     egui::CollapsingHeader::new("Movement")
         .default_open(true)
         .show(ui, |ui| {
-            show_binding_row(ui, settings, capture, InputAction::MoveForward, "Move forward");
-            show_binding_row(ui, settings, capture, InputAction::MoveBackward, "Move backward");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::MoveForward,
+                "Move forward",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::MoveBackward,
+                "Move backward",
+            );
             show_binding_row(ui, settings, capture, InputAction::MoveRight, "Move right");
             show_binding_row(ui, settings, capture, InputAction::MoveLeft, "Move left");
             show_binding_row(ui, settings, capture, InputAction::Jump, "Jump / ascend");
-            show_binding_row(ui, settings, capture, InputAction::Crouch, "Crouch / descend");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::Crouch,
+                "Crouch / descend",
+            );
             show_binding_row(ui, settings, capture, InputAction::Sprint, "Sprint / boost");
-            show_binding_row(ui, settings, capture, InputAction::RollLeft, "Ship roll left");
-            show_binding_row(ui, settings, capture, InputAction::RollRight, "Ship roll right");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::RollLeft,
+                "Ship roll left",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::RollRight,
+                "Ship roll right",
+            );
         });
 
     egui::CollapsingHeader::new("Actions")
         .default_open(true)
         .show(ui, |ui| {
-            show_binding_row(ui, settings, capture, InputAction::Interact, "Interact / use");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::Interact,
+                "Interact / use",
+            );
             show_binding_row(
                 ui,
                 settings,
@@ -77,7 +113,13 @@ pub fn show_controls_settings(
             );
             show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");
             show_binding_row(ui, settings, capture, InputAction::Fire, "Fire");
-            show_binding_row(ui, settings, capture, InputAction::AltFire, "Alt fire / zoom");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::AltFire,
+                "Alt fire / zoom",
+            );
             show_binding_row(
                 ui,
                 settings,
@@ -85,7 +127,13 @@ pub fn show_controls_settings(
                 InputAction::ToggleFlashlight,
                 "Toggle flashlight",
             );
-            show_binding_row(ui, settings, capture, InputAction::DropWeapon, "Drop weapon");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::DropWeapon,
+                "Drop weapon",
+            );
         });
 
     egui::CollapsingHeader::new("Interface")
@@ -116,7 +164,13 @@ fn show_binding_row(
         ui.set_min_width(180.0);
         ui.label(label);
         binding_slot_button(ui, capture, action, BindingSlot::Primary, binding.primary);
-        binding_slot_button(ui, capture, action, BindingSlot::Secondary, binding.secondary);
+        binding_slot_button(
+            ui,
+            capture,
+            action,
+            BindingSlot::Secondary,
+            binding.secondary,
+        );
 
         if ui.small_button("Clear").clicked() {
             *settings.keybindings.binding_mut(action) = ActionBinding::default();

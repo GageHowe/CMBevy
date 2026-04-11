@@ -739,7 +739,6 @@ fn credits_lines() -> &'static [&'static str] {
         "Griffin Guge",
         "",
         "# Art",
-        "your mother",
         "Various placeholder assets from kenney.nl, poly.pizza",
         "",
         "# Special Thanks",

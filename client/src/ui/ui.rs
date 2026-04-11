@@ -1,3 +1,4 @@
+use crate::settings::Settings;
 use crate::{GameState, UiState};
 use bevy::app::AppExit;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
@@ -14,7 +15,6 @@ use game_objects::weapon::{AimReticle, WeaponConfig, WeaponState, default_crossh
 use net::message::{MsgType, NetworkID, ScoreboardEntry};
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, rb_vel};
-use crate::settings::Settings;
 use session::{GuiState, PendingExit};
 
 pub struct UIPlugin;

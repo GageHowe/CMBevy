@@ -170,12 +170,22 @@ fn drop_weapon(
     quic: &mut QuicManager,
 ) {
     held_weapons.0.remove(&weapon_id);
-    let depleted = weapon_runtime
-        .get_mut(weapon_entity)
-        .ok()
-        .is_some_and(|(state, _)| game_objects::weapon::is_depleted(&state));
-    if depleted {
-        commands.entity(weapon_entity).despawn();
+    let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity, drop_dir);
+    let despawned = {
+        let weapon_state = weapon_runtime
+            .get_mut(weapon_entity)
+            .ok()
+            .map(|(state, _)| state);
+        game_objects::weapon::helpers::drop_or_despawn_weapon(
+            commands,
+            world,
+            weapon_entity,
+            weapon_state,
+            drop_pos,
+            drop_velocity,
+        )
+    };
+    if despawned {
         quic.send(
             SendTarget::All,
             Channel::Ordered,
@@ -183,21 +193,48 @@ fn drop_weapon(
         );
         return;
     }
-    let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity, drop_dir);
-    if game_objects::weapon::helpers::drop_or_despawn_weapon(
-        commands,
-        world,
-        weapon_entity,
-        None,
-        drop_pos,
-        drop_velocity,
-    ) {
-        return;
-    }
     quic.send(
         SendTarget::All,
         Channel::Ordered,
         &MsgType::WeaponDrop(weapon_id, owner_id, drop_pos),
+    );
+}
+
+pub(super) fn handle_set_active_weapon_slot(
+    conn_id: ConnectionId,
+    active_primary: bool,
+    registry: &PlayerRegistry,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    quic: &mut QuicManager,
+) {
+    let Some((player_entity, _)) = registry.get_by_conn(conn_id) else {
+        return;
+    };
+    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+        return;
+    };
+    let old_active = slots.active().0.clone();
+    let old_active_entity = slots.active().1;
+    slots.active_primary = active_primary;
+    let new_active = slots.active().0.clone();
+    if old_active == new_active {
+        return;
+    }
+    let Some(old_weapon_entity) = old_active_entity else {
+        return;
+    };
+    let Some(old_weapon_id) = old_active else {
+        return;
+    };
+    let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(old_weapon_entity) else {
+        return;
+    };
+    game_objects::weapon::cancel_reload(&mut weapon_state);
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::WeaponState(old_weapon_id, weapon_state.snapshot()),
     );
 }
 

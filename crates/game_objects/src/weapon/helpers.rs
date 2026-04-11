@@ -187,18 +187,27 @@ pub fn drop_or_despawn_weapon(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     weapon_entity: Entity,
-    weapon_state: Option<&WeaponState>,
+    weapon_state: Option<Mut<WeaponState>>,
     drop_pos: Vec3,
     drop_velocity: Vec3,
 ) -> bool {
-    if weapon_state.is_some_and(crate::weapon::is_depleted) {
-        commands.entity(weapon_entity).despawn();
-        return true;
+    if let Some(mut weapon_state) = weapon_state {
+        crate::weapon::cancel_reload(&mut weapon_state);
+        if crate::weapon::is_depleted(&weapon_state) {
+            commands.entity(weapon_entity).despawn();
+            return true;
+        }
     }
     #[cfg(feature = "client")]
     detach_viewmodel(commands, world, weapon_entity);
     place_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
     false
+}
+
+pub fn clear_inactive_slot_reload(weapon_state: Option<Mut<WeaponState>>) {
+    if let Some(mut weapon_state) = weapon_state {
+        crate::weapon::cancel_reload(&mut weapon_state);
+    }
 }
 
 pub fn pickup_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity) {

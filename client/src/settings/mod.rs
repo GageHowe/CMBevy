@@ -8,7 +8,9 @@ use bevy::prelude::*;
 use common::{ActiveKeyBindings, KeyBindings};
 
 pub use controls::ControlsCapture;
-pub use data::{DisplayMode, PhysicsInterp, Settings, SettingsSection, ShadowQuality, SsaoQuality, VsyncMode};
+pub use data::{
+    DisplayMode, PhysicsInterp, Settings, SettingsSection, ShadowQuality, SsaoQuality, VsyncMode,
+};
 pub use ui::show_settings_ui;
 
 pub struct SettingsPlugin;

@@ -188,8 +188,8 @@ fn add_visual(
     for entity in &q {
         let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.08));
         let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.5, 0.0),
-            emissive: LinearRgba::new(4.0, 2.0, 0.0, 1.0),
+            // base_color: Color::srgb(1.0, 0.5, 0.0),
+            emissive: LinearRgba::new(4.0, 3.0, 0.0, 1.0) * 3.0,
             unlit: true,
             ..default()
         });

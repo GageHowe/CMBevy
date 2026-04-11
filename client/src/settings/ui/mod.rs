@@ -32,9 +32,7 @@ pub fn show_settings_ui(
         SettingsSection::Graphics => graphics::show(ui, settings),
         SettingsSection::Audio => audio::show(ui, settings, audio_outputs),
         SettingsSection::Input => input::show(ui, settings),
-        SettingsSection::Controls => {
-            show_controls_settings(ui, settings, keyboard, mouse, capture)
-        }
+        SettingsSection::Controls => show_controls_settings(ui, settings, keyboard, mouse, capture),
     }
 
     ui.add_space(12.0);

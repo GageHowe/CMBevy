@@ -55,6 +55,7 @@ pub enum MsgType {
     SeatState(NetworkID, Option<NetworkID>),
     Interact(NetworkID),
     DropWeapon(Vec3),
+    SetActiveWeaponSlot(bool),
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
     ReloadWeapon(NetworkID),

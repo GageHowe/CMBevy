@@ -257,6 +257,9 @@ pub fn tick_weapon_state(
             continue;
         }
         let need = config.magazine_size.saturating_sub(state.ammo_in_mag);
+        if need == 0 || state.reserve_ammo == 0 {
+            continue;
+        }
         let refill = need.min(state.reserve_ammo);
         state.ammo_in_mag += refill;
         state.reserve_ammo -= refill;
@@ -274,6 +277,10 @@ pub fn start_reload(state: &mut WeaponState, config: &WeaponConfig) -> bool {
     true
 }
 
+pub fn cancel_reload(state: &mut WeaponState) {
+    state.reload_ticks = 0;
+}
+
 pub fn can_fire(state: &WeaponState) -> bool {
     state.reload_ticks == 0 && state.cooldown_ticks == 0 && state.ammo_in_mag > 0
 }
@@ -284,6 +291,9 @@ pub fn is_depleted(state: &WeaponState) -> bool {
 
 pub fn consume_round(state: &mut WeaponState, config: &WeaponConfig) -> bool {
     if !can_fire(state) {
+        if state.reload_ticks == 0 && state.cooldown_ticks == 0 && state.ammo_in_mag == 0 {
+            start_reload(state, config);
+        }
         return false;
     }
     state.ammo_in_mag -= 1;

@@ -1,6 +1,8 @@
 use bevy_egui::egui;
 
-use crate::settings::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
+use crate::settings::{
+    DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode,
+};
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
     egui::CollapsingHeader::new("Display")
