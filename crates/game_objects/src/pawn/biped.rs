@@ -7,11 +7,13 @@ use crate::{
     GameObject, GameObjectKind,
     health::{Health, LastDamageSource},
 };
+#[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
+#[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
@@ -21,34 +23,31 @@ use rapier3d::prelude::*;
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
+#[cfg(feature = "client")]
 use super::CameraEffector;
 pub const CAPSULE_RADIUS: f32 = 0.3;
-/// half-height of the standing capsule (total height = 2*(0.5+0.3) = 1.6 m)
 pub const CAPSULE_HALF_HEIGHT: f32 = 0.5;
-/// half-height of the sliding capsule (total height = 2*(0.1+0.3) = 0.8 m)
 const SLIDE_HALF_HEIGHT: f32 = 0.1;
-const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS; // 0.8
-// const SLIDE_BOTTOM:   f32 = SLIDE_HALF_HEIGHT   + CAPSULE_RADIUS; // 0.4
-const MAX_WALK_SPEED: f32 = 10.0;
-const MAX_SPRINT_SPEED: f32 = 15.0;
+const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 /// max speed gained per tick when accelerating on the ground
-const GROUND_ACCEL: f32 = 1.0;
+const GROUND_ACCEL: f32 = 0.7;
+const SPRINT_ACCEL: f32 = 1.0;
 const JUMP_IMPULSE: f32 = 8.0;
 const AIR_CONTROL: f32 = 0.2;
 const AIR_UP_CONTROL: f32 = 0.45;
 const GROUND_DIST: f32 = 0.05; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 20; // ticks before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
-const MAIN_FRICTION: f32 = 1.5;
+const MAIN_FRICTION: f32 = 3.0;
 const SLIDE_FRICTION: f32 = 0.1;
 #[cfg(feature = "client")]
 const FLASHLIGHT_INTENSITY: f32 = 1000000.0;
 #[cfg(feature = "client")]
 const FLASHLIGHT_RANGE: f32 = 20000000.0;
 #[cfg(feature = "client")]
-const FLASHLIGHT_OUTER_ANGLE: f32 = 0.12;
+const FLASHLIGHT_OUTER_ANGLE: f32 = 0.08;
 #[cfg(feature = "client")]
-const FLASHLIGHT_INNER_ANGLE: f32 = 0.05;
+const FLASHLIGHT_INNER_ANGLE: f32 = 0.01;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -159,8 +158,6 @@ impl GameObject for BipedPawnComponent {
             let light = world
                 .spawn((
                     SpotLight {
-                        // Push more light into distant targets by raising intensity and
-                        // tightening the cone so the beam stays concentrated.
                         intensity: FLASHLIGHT_INTENSITY,
                         range: FLASHLIGHT_RANGE,
                         outer_angle: FLASHLIGHT_OUTER_ANGLE,
@@ -271,21 +268,24 @@ impl Plugin for BipedPlugin {
         }
         app.add_systems(
             PostUpdate,
-            (
-                preserve_look_across_body_rotation,
-                mouse_look.run_if(resource_exists::<AccumulatedMouseMotion>),
-                apply_camera_effects,
-            )
-                .chain()
-                .before(TransformSystems::Propagate),
+            preserve_look_across_body_rotation.before(TransformSystems::Propagate),
         );
         #[cfg(feature = "client")]
         {
+            app.add_systems(
+                PostUpdate,
+                (
+                    mouse_look.run_if(resource_exists::<AccumulatedMouseMotion>),
+                    apply_camera_effects,
+                )
+                    .chain()
+                    .before(TransformSystems::Propagate),
+            );
             // re-parent camera under pitch pivot when a biped is possessed
             app.add_systems(
                 Update,
                 (
-                    attach_camera_on_possess,
+                    attach_camera_on_possess, // Added<Possession>
                     hide_weapons_while_seated,
                     switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
                 ),
@@ -439,6 +439,7 @@ fn preserve_look_across_body_rotation(
 }
 
 /// moves the biped's yaw and pitch components on Update
+#[cfg(feature = "client")]
 fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
@@ -483,11 +484,15 @@ fn mouse_look(
     }
 }
 
+#[cfg(feature = "client")]
 const KICK_DAMPING: f32 = 0.88; // velocity multiplier per tick at 60 Hz
+#[cfg(feature = "client")]
 const SHAKE_DECAY: f32 = 6.0; // intensity units per second
+#[cfg(feature = "client")]
 const FOV_LERP_SPEED: f32 = 15.0; // how fast zoom eases in/out
 
 /// Integrates recoil, shake, and FOV zoom. Writes Camera3d local Transform and Projection.
+#[cfg(feature = "client")]
 fn apply_camera_effects(
     time: Res<Time>,
     mut camera_q: Query<(&mut Transform, &mut CameraEffector, &mut Projection), With<Camera3d>>,
@@ -672,7 +677,7 @@ fn ground_state(
     body_handle: RigidBodyHandle,
     capsule_pos: Vec3,
     planet_up: Vec3,
-) -> (bool, Vec3) {
+) -> (bool, Vec3, Option<Entity>) {
     let ray_origin = capsule_pos - planet_up * CAPSULE_BOTTOM;
     let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
         col.parent().map_or(true, |rb| rb != body_handle)
@@ -686,16 +691,16 @@ fn ground_state(
     );
     let ray = Ray::new(ray_origin, -planet_up);
     if let Some((ch, _)) = qp.cast_ray(&ray, GROUND_DIST, true) {
-        let vel = world
-            .collider_set
-            .get(ch)
-            .and_then(|col| col.parent())
+        let support_body = world.collider_set.get(ch).and_then(|col| col.parent());
+        let vel = support_body
             .and_then(|rb_h| world.rigid_body_set.get(rb_h))
             .map(rb_vel)
             .unwrap_or(Vec3::ZERO);
-        (true, vel)
+        let support_entity =
+            support_body.and_then(|rb_h| world.handle_to_entity.get(&rb_h).copied());
+        (true, vel, support_entity)
     } else {
-        (false, Vec3::ZERO)
+        (false, Vec3::ZERO, None)
     }
 }
 
@@ -780,7 +785,8 @@ pub fn apply_biped_movement(
     let is_sprint = input.ability1;
 
     // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
-    let (grounded, ground_linvel) = ground_state(world, body_handle.0, capsule_pos, planet_up);
+    let (grounded, ground_linvel, support_entity) =
+        ground_state(world, body_handle.0, capsule_pos, planet_up);
 
     // Air crouch should not drag the camera down with it. Swap the capsule anchor whenever
     // crouch state changes or when a crouched biped transitions between ground and air.
@@ -806,28 +812,19 @@ pub fn apply_biped_movement(
 
     biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
-    // relative horizontal velocity — used for speed cap so movement is correct on moving planets/platforms
-    let horiz_vel = capsule_linvel - planet_up * planet_up.dot(capsule_linvel);
-    let ground_horiz = ground_linvel - planet_up * planet_up.dot(ground_linvel);
-    let rel_horiz = horiz_vel - ground_horiz;
+    let _ = (capsule_linvel, ground_linvel);
 
     if grounded && !is_slide {
         let desired = (forward * input.forward + right * input.right).normalize_or_zero();
-        let max_speed = if is_sprint && input.forward >= 0.0 {
-            MAX_SPRINT_SPEED
-        } else {
-            MAX_WALK_SPEED
-        };
-
         if desired.length_squared() > 1e-6 {
-            // accelerate toward desired direction up to max_speed relative to surface
-            let cur = rel_horiz.dot(desired);
-            if cur < max_speed {
-                let delta = (max_speed - cur).min(GROUND_ACCEL);
-                let impulse = desired * delta * capsule_mass;
-                if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
-                    rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
-                }
+            let accel = if is_sprint && input.forward >= 0.0 {
+                SPRINT_ACCEL
+            } else {
+                GROUND_ACCEL
+            };
+            let impulse = desired * accel * capsule_mass;
+            if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
+                rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
             }
         }
     }
@@ -837,6 +834,13 @@ pub fn apply_biped_movement(
         let impulse = planet_up * JUMP_IMPULSE * capsule_mass;
         if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
             rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+        }
+        if let Some(support_entity) = support_entity
+            && let Some(&support_handle) = world.entity_to_handle.get(&support_entity)
+            && let Some(rb) = world.rigid_body_set.get_mut(support_handle)
+            && rb.is_dynamic()
+        {
+            rb.apply_impulse(Vector::new(-impulse.x, -impulse.y, -impulse.z), true);
         }
     }
 
