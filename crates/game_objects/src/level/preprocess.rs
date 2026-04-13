@@ -1,8 +1,8 @@
+//! for authoring niceness
+
+#[rustfmt::skip]
 const KEY_EXPANSIONS: &[(&str, &str)] = &[
-    (
-        "Transform",
-        "bevy_transform::components::transform::Transform",
-    ),
+    ( "Transform", "bevy_transform::components::transform::Transform"),
     ("ChildOf", "bevy_ecs::hierarchy::ChildOf"),
     ("MapMeta", "game_objects::level::MapMeta"),
     ("StaticCollider", "game_objects::level::StaticCollider"),
@@ -14,10 +14,11 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("SceneRigidBody", "physics::physics_world::SceneRigidBody"),
     ("InitialVelocity", "physics::physics_world::InitialVelocity"),
     ("CascadeShadowConfig", "bevy_light::cascade::CascadeShadowConfig"),
-    (
-        "DirectionalLight",
-        "bevy_light::directional_light::DirectionalLight",
-    ),
+    ("DirectionalLight", "bevy_light::directional_light::DirectionalLight"),
+    ("AreaReverbComponent", "game_objects::components::atmosphere::AreaReverbComponent"),
+    ("AtmosphericDragComponent", "game_objects::components::atmosphere::AtmosphericDragComponent"),
+    ("GravitySource", "game_objects::components::planet::GravitySource"),
+    ("SnapSource", "game_objects::components::planet::SnapSource"),
 ];
 
 pub fn preprocess_level_text(text: &str) -> String {
