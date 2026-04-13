@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+use common::PredictedCommands;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
-use common::PredictedCommands;
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, Pose, QueryFilter};
@@ -20,7 +20,8 @@ pub const SPEED: f32 = 60.0;
 pub const LIFETIME: u32 = 240;
 pub const DAMAGE: f32 = 110.0;
 pub const EXPLOSION_RADIUS: f32 = 5.0;
-pub const EXPLOSION_IMPULSE: f32 = 30.0;
+pub const EXPLOSION_IMPULSE: f32 = 10.0;
+pub const EXPLOSION_MAX_IMPULSE_MASS: f32 = 1000.0;
 const RADIUS: f32 = 0.16;
 const DIRECT_HIT_BONUS: f32 = 20.0;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
@@ -152,10 +153,12 @@ fn tick_inner(
     #[cfg(feature = "client")]
     {
         let debug_start = *state.raycast_start.get_or_insert(prev);
-        commands.entity(entity).insert(super::ProjectileRaycastDebug {
-            start: debug_start,
-            end: prev + dir * step,
-        });
+        commands
+            .entity(entity)
+            .insert(super::ProjectileRaycastDebug {
+                start: debug_start,
+                end: prev + dir * step,
+            });
     }
     if let Some((hit, toi, normal)) = world.cast_sphere(prev, dir, RADIUS, step, &exclude) {
         let hit_point = prev + dir * toi;
@@ -258,7 +261,10 @@ fn explode(
         } else {
             radial_dir
         };
-        let impulse = impulse_dir * EXPLOSION_IMPULSE * falloff;
+        // Scale explosion push by mass so light props move more naturally, but cap the effective
+        // mass so huge bodies like planets are still affected without being launched.
+        let effective_mass = rb.mass().min(EXPLOSION_MAX_IMPULSE_MASS);
+        let impulse = impulse_dir * EXPLOSION_IMPULSE * effective_mass * falloff;
         let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
         let point = direct_hit_impulse.and_then(
             |(hit, _, hit_point)| {

@@ -7,7 +7,7 @@ use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
 
-pub const SPEED: f32 = 600.0;
+pub const SPEED: f32 = 500.0;
 pub const DAMAGE: f32 = 100.0;
 pub const LIFETIME: u32 = 300; // ticks
 const RADIUS: f32 = 0.05;
