@@ -175,15 +175,11 @@ impl GameObject for HailMaryProjectile {
 pub struct HailMaryProjectilePlugin;
 impl Plugin for HailMaryProjectilePlugin {
     fn build(&self, app: &mut App) {
-        use common::game_state::GameState;
-        // run on the server (no GameState resource) and in singleplayer; skip on multiplayer client
         app.add_systems(
             FixedUpdate,
             tick_projectiles::<HailMaryProjectile>
                 .after(step_physics)
-                .run_if(|state: Option<Res<State<GameState>>>| {
-                    state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
-                }),
+                .in_set(super::ProjectileAuthoritySet),
         );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);

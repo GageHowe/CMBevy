@@ -29,4 +29,6 @@ pub use resources::{
 #[cfg(not(feature = "client"))]
 pub use runtime::ServerSessionPlugin;
 #[cfg(feature = "client")]
-pub use runtime::{ClientSessionPlugin, cleanup_world, snapshot_server_state};
+pub use runtime::{ClientSessionPlugin, cleanup_world, has_authority, snapshot_server_state};
+#[cfg(not(feature = "client"))]
+pub use runtime::has_authority;

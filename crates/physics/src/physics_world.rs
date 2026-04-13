@@ -12,7 +12,8 @@ use std::collections::HashMap;
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
-/// Collision group for projectiles. Excluded from player-group solver contacts.
+/// Collision group for projectile sensor colliders. These exist for overlap-based queries like
+/// gravity, not for collision or solver participation.
 pub const GROUP_PROJECTILE: Group = Group::GROUP_2;
 
 #[inline]
@@ -328,7 +329,7 @@ impl PhysicsWorld {
             .filter_map(|e| self.entity_to_handle.get(e).copied())
             .collect();
         let pred = |_: ColliderHandle, col: &Collider| {
-            col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+            !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
         let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(
@@ -370,7 +371,7 @@ impl PhysicsWorld {
             .filter_map(|e| self.entity_to_handle.get(e).copied())
             .collect();
         let pred = |_: ColliderHandle, col: &Collider| {
-            col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+            !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
         let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(

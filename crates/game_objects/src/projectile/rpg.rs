@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+#[cfg(feature = "client")]
+use common::game_state::GameState;
 use common::PredictedCommands;
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
@@ -327,14 +329,11 @@ impl GameObject for RpgProjectile {
 pub struct RpgProjectilePlugin;
 impl Plugin for RpgProjectilePlugin {
     fn build(&self, app: &mut App) {
-        use common::game_state::GameState;
         app.add_systems(
             FixedUpdate,
             tick_projectiles::<RpgProjectile>
                 .after(step_physics)
-                .run_if(|state: Option<Res<State<GameState>>>| {
-                    state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
-                }),
+                .in_set(super::ProjectileAuthoritySet),
         );
         #[cfg(feature = "client")]
         app.add_systems(

@@ -10,6 +10,9 @@ pub mod helpers;
 pub mod rifle;
 pub mod rpg;
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ProjectileAuthoritySet;
+
 pub struct FiredProjectile {
     pub net_id: NetworkID,
     pub spawn_cmd: SpawnCommand,

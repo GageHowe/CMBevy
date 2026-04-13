@@ -22,7 +22,6 @@ impl Plugin for WeaponPlugin {
             pistol::PistolPlugin,
             hail_mary::HailMaryPlugin,
             rpg::RpgPlugin,
-            crate::projectile::ProjectilePlugin,
         ))
         .add_systems(FixedUpdate, tick_weapon_state);
     }

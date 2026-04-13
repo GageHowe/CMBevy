@@ -1,5 +1,6 @@
 use crate::resources::*;
 use bevy::prelude::*;
+use common::game_state::GameState;
 
 #[cfg(feature = "client")]
 use crate::hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session};
@@ -67,6 +68,22 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
         let single_player = self.single_player;
         let multiplayer = self.multiplayer;
         app.insert_resource(GuiState::default())
+            .configure_sets(
+                FixedUpdate,
+                game_objects::health::HealthAuthoritySet.run_if(has_authority),
+            )
+            .configure_sets(
+                FixedUpdate,
+                game_objects::projectile::ProjectileAuthoritySet.run_if(has_authority),
+            )
+            .configure_sets(
+                FixedUpdate,
+                game_objects::level::LevelAuthoritySet.run_if(has_authority),
+            )
+            .configure_sets(
+                common::slow_update::SlowUpdate,
+                game_objects::level::LevelAuthoritySet.run_if(has_authority),
+            )
             .init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<PendingWorldReady>()
@@ -113,6 +130,18 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct ClientSessionState<S: States + Copy> {
     pub main_menu: S,
+}
+
+pub fn has_authority(state: Option<Res<State<GameState>>>) -> bool {
+    #[cfg(feature = "client")]
+    {
+        state.is_some_and(|s| *s.get() == GameState::SinglePlayer)
+    }
+    #[cfg(not(feature = "client"))]
+    {
+        let _ = state;
+        true
+    }
 }
 
 #[cfg(feature = "client")]
@@ -395,6 +424,22 @@ impl Plugin for ServerSessionPlugin {
         });
 
         app.insert_resource(BindAddr(self.bind_addr))
+            .configure_sets(
+                FixedUpdate,
+                game_objects::health::HealthAuthoritySet.run_if(has_authority),
+            )
+            .configure_sets(
+                FixedUpdate,
+                game_objects::projectile::ProjectileAuthoritySet.run_if(has_authority),
+            )
+            .configure_sets(
+                FixedUpdate,
+                game_objects::level::LevelAuthoritySet.run_if(has_authority),
+            )
+            .configure_sets(
+                common::slow_update::SlowUpdate,
+                game_objects::level::LevelAuthoritySet.run_if(has_authority),
+            )
             .insert_resource(LevelPath(self.map_path.clone()))
             .insert_resource(ScriptConfig {
                 path: self.gametype_path.clone(),

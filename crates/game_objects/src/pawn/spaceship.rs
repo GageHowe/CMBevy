@@ -1,7 +1,7 @@
 use super::vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat};
 use super::*;
 use crate::generic::attach_hull_collider;
-use crate::health::{LastDamageSource, copy_last_damage_source};
+use crate::health::{CollisionDamageConfig, Health, LastDamageSource, copy_last_damage_source};
 use crate::weapon::AimReticle;
 use crate::{GameObject, GameObjectKind};
 #[cfg(feature = "client")]
@@ -11,6 +11,8 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
+use net::message::{MsgType, NetworkID};
+use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
@@ -21,6 +23,7 @@ const THRUST: f32 = 2000.0;
 const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
 const MAX_TORQUE: f32 = 40000.0;
+const SPACESHIP_MAX_HEALTH: f32 = 300.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -74,6 +77,13 @@ impl GameObject for SpaceshipPawnComponent {
         let driver_seat = spawn_driver_seat::<SpaceshipPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
+            Health::new(SPACESHIP_MAX_HEALTH),
+            CollisionDamageConfig {
+                threshold_per_mass: 120.0,
+                min_threshold: 400.0,
+                damage_scale: 0.5,
+                max_damage_per_hit: Some(60.0),
+            },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(driver_seat),
             AimReticle("textures/crosshairs/crosshair001.png", None),
@@ -119,6 +129,11 @@ impl GameObject for SpaceshipPawnComponent {
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
+        let biped_net_id = world
+            .get::<VehicleComponent>(entity)
+            .and_then(|vehicle| world.get::<DriverSeat>(vehicle.driver_seat))
+            .and_then(|cockpit| cockpit.occupant)
+            .and_then(|biped_entity| world.get::<NetworkID>(biped_entity).cloned());
         let Some((driver_seat_entity, seat_transform)) =
             world.get::<VehicleComponent>(entity).and_then(|vehicle| {
                 world
@@ -143,6 +158,28 @@ impl GameObject for SpaceshipPawnComponent {
             .entity_mut(biped_entity)
             .remove::<super::SeatedInVehicle>();
         copy_last_damage_source(world, entity, biped_entity);
+        if let Some(biped_net_id) = biped_net_id {
+            let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() else {
+                return true;
+            };
+            let Some(conn_id) = registry.conn_id_for_entity(biped_entity) else {
+                return true;
+            };
+            registry.set_controlled(conn_id, biped_entity, biped_net_id.clone());
+            drop(registry);
+            if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+                quic.send(
+                    SendTarget::One(conn_id),
+                    Channel::Ordered,
+                    &MsgType::Possess(biped_net_id.clone()),
+                );
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::SeatState(biped_net_id, None),
+                );
+            }
+        }
         true
     }
 }

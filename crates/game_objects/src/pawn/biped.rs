@@ -5,7 +5,7 @@ use super::*;
 use crate::weapon::{WeaponDriver, WeaponFireInput};
 use crate::{
     GameObject, GameObjectKind,
-    health::{Health, LastDamageSource},
+    health::{Health, HealthRegen, LastDamageSource},
 };
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -17,7 +17,8 @@ use bevy::transform::TransformSystems;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
-use net::message::NetworkID;
+use net::message::{MsgType, NetworkID};
+use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
@@ -48,6 +49,7 @@ const FLASHLIGHT_RANGE: f32 = 20000000.0;
 const FLASHLIGHT_OUTER_ANGLE: f32 = 0.08;
 #[cfg(feature = "client")]
 const FLASHLIGHT_INNER_ANGLE: f32 = 0.01;
+const BIPED_REGEN_PER_SEC: f32 = 4.0;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -94,6 +96,9 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert((
             WeaponSlots::default(),
             Health::new(100.0),
+            HealthRegen {
+                per_sec: BIPED_REGEN_PER_SEC,
+            },
             LastDamageSource::default(),
             GameObjectKind::Biped,
             Transform::from(transform),
@@ -224,6 +229,23 @@ impl GameObject for BipedPawnComponent {
                     .collect()
             })
             .unwrap_or_default();
+        let weapon_drops: Vec<(NetworkID, Vec3)> = world
+            .get::<WeaponSlots>(entity)
+            .map(|slots| {
+                [slots.primary.clone(), slots.pocket.clone()]
+                    .into_iter()
+                    .filter_map(|(net_id, _)| Some((net_id?, drop_pos)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let owner_net_id = world.get::<NetworkID>(entity).cloned();
+        let killer = world
+            .get::<LastDamageSource>(entity)
+            .copied()
+            .and_then(LastDamageSource::resolved_attacker);
+        let conn_id = world
+            .get_resource::<super::PlayerRegistry>()
+            .and_then(|registry| registry.conn_id_for_entity(entity));
         let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
             crate::weapon::helpers::place_world_weapon(
@@ -232,6 +254,51 @@ impl GameObject for BipedPawnComponent {
                 drop_pos,
                 Vec3::ZERO,
             );
+        }
+        drop(physics);
+
+        if let Some(mut held_map) = world.get_resource_mut::<super::HeldWeaponMap>() {
+            for (weapon_id, _) in &weapon_drops {
+                held_map.0.remove(weapon_id);
+            }
+        }
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            for (weapon_id, drop_pos) in weapon_drops.iter().cloned() {
+                if let Some(ref net_id) = owner_net_id {
+                    quic.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &MsgType::WeaponDrop(weapon_id, net_id.clone(), drop_pos),
+                    );
+                }
+            }
+        }
+        if let Some(mut pending_kills) =
+            world.get_resource_mut::<crate::health::PendingPlayerKills>()
+        {
+            pending_kills.0.push((entity, killer));
+        }
+        let mut deferred_removal = false;
+        if let Some(mut pending_removals) =
+            world.get_resource_mut::<crate::health::PendingPlayerRemovals>()
+        {
+            pending_removals.0.push(entity);
+            deferred_removal = true;
+        }
+        if !deferred_removal
+            && let Some(mut registry) = world.get_resource_mut::<super::PlayerRegistry>()
+        {
+            let _ = registry.remove_by_entity(entity);
+        }
+        if let Some(conn_id) = conn_id {
+            let respawn_delay = world
+                .get_resource::<crate::mode::ModeConfig>()
+                .map_or(common::config::RESPAWN_DELAY_SECS, |cfg| cfg.respawn_delay);
+            if let Some(mut pending_respawns) = world.get_resource_mut::<super::PendingRespawns>() {
+                pending_respawns
+                    .0
+                    .insert(conn_id, (respawn_delay, common::GameObjectKind::Biped));
+            }
         }
         true
     }
@@ -680,7 +747,8 @@ fn ground_state(
 ) -> (bool, Vec3, Option<Entity>) {
     let ray_origin = capsule_pos - planet_up * CAPSULE_BOTTOM;
     let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
-        col.parent().map_or(true, |rb| rb != body_handle)
+        // Projectile gravity sensors should never count as support geometry.
+        !col.is_sensor() && col.parent().map_or(true, |rb| rb != body_handle)
     };
     let filter = QueryFilter::new().predicate(&exclude);
     let qp = world.broad_phase.as_query_pipeline(

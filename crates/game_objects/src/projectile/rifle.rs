@@ -265,8 +265,6 @@ impl GameObject for PistolProjectile {
 pub struct RifleProjectilePlugin;
 impl Plugin for RifleProjectilePlugin {
     fn build(&self, app: &mut App) {
-        use common::game_state::GameState;
-        // run on the server (no GameState resource) and in singleplayer; skip on multiplayer client
         app.add_systems(
             FixedUpdate,
             (
@@ -274,9 +272,7 @@ impl Plugin for RifleProjectilePlugin {
                 tick_projectiles::<PistolProjectile>,
             )
                 .after(step_physics)
-                .run_if(|state: Option<Res<State<GameState>>>| {
-                    state.map_or(true, |s| *s.get() == GameState::SinglePlayer)
-                }),
+                .in_set(super::ProjectileAuthoritySet),
         );
         #[cfg(feature = "client")]
         app.add_systems(

@@ -120,6 +120,9 @@ struct SpawnerGc {
 const SCENE_SPAWN_GC_RELEVANT_RADIUS_SQ: f32 = 90.0 * 90.0;
 const SLOW_UPDATE_DT_SECS: f32 = 1.0;
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LevelAuthoritySet;
+
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct LevelReadyState<'w, 's> {
     pending_map: Option<Res<'w, PendingMapScene>>,
@@ -408,8 +411,8 @@ impl Plugin for LevelPlugin {
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
         app.add_systems(Update, init_spawners);
-        app.add_systems(FixedUpdate, tick_spawners);
-        app.add_systems(SlowUpdate, cleanup_scene_spawned_entities);
+        app.add_systems(FixedUpdate, tick_spawners.in_set(LevelAuthoritySet));
+        app.add_systems(SlowUpdate, cleanup_scene_spawned_entities.in_set(LevelAuthoritySet));
     }
 }
 
@@ -476,17 +479,8 @@ fn tick_spawners(
     mut net_id_res: ResMut<net::message::NetworkIDResource>,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     time: Res<Time<Fixed>>,
-    state: Option<Res<State<common::game_state::GameState>>>,
 ) {
-    #[cfg(feature = "client")]
-    let should_spawn =
-        state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer);
-    #[cfg(not(feature = "client"))]
-    let should_spawn = {
-        let _ = &state;
-        true
-    };
-    if spawners_exist.is_empty() || !should_spawn {
+    if spawners_exist.is_empty() {
         return;
     }
 
@@ -565,25 +559,12 @@ fn tick_spawners(
 }
 
 fn cleanup_scene_spawned_entities(
-    state: Option<Res<State<common::game_state::GameState>>>,
     physics: Res<PhysicsWorld>,
     players: Query<&RigidBodyHandleComponent, With<Possessed>>,
     mut gc_q: Query<(Entity, &RigidBodyHandleComponent, &mut SpawnerGc)>,
     mut spawners: Query<&mut SpawnerRuntime>,
     mut commands: Commands,
 ) {
-    #[cfg(feature = "client")]
-    let authoritative =
-        state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer);
-    #[cfg(not(feature = "client"))]
-    let authoritative = {
-        let _ = &state;
-        true
-    };
-    if !authoritative {
-        return;
-    }
-
     let player_positions: Vec<Vec3> = players
         .iter()
         .filter_map(|body| physics.rigid_body_set.get(body.0).map(rb_pos))

@@ -4,7 +4,9 @@ use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
-use rapier3d::prelude::{Group, RigidBodyBuilder, Vector};
+use rapier3d::prelude::{
+    ColliderBuilder, Group, InteractionGroups, InteractionTestMode, RigidBodyBuilder, Vector,
+};
 
 #[derive(Clone, Copy)]
 pub struct RayProjectileHit {
@@ -43,17 +45,32 @@ pub fn make_projectile_physics(
     entity: Entity,
     origin: Vec3,
     velocity: Vec3,
-    _radius: f32,
-    _solver_memberships: Group,
+    radius: f32,
     world: &mut PhysicsWorld,
 ) -> RigidBodyHandle {
-    world.insert_body(
+    let handle = world.insert_body(
         entity,
         RigidBodyBuilder::kinematic_velocity_based()
             .translation(origin)
             .linvel(Vector::new(velocity.x, velocity.y, velocity.z))
             .build(),
-    )
+    );
+    // Projectiles use raycasts for hits, but they still need a collider so planet gravity queries
+    // can "see" them. Make it a sensor in a non-interacting group so it never creates contacts.
+    let projectile_groups =
+        InteractionGroups::new(GROUP_PROJECTILE, Group::NONE, InteractionTestMode::And);
+    let collider = ColliderBuilder::ball(radius)
+        .sensor(true)
+        .collision_groups(projectile_groups)
+        .solver_groups(projectile_groups)
+        .build();
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
+    collider_set.insert_with_parent(collider, handle, rigid_body_set);
+    handle
 }
 
 pub fn spawn_projectile(
@@ -80,7 +97,7 @@ pub fn spawn_projectile(
         ))
         .id();
     // Projectile collision is resolved by casts so contacts do not push the shooter.
-    let rb_handle = make_projectile_physics(entity, origin, velocity, radius, Group::NONE, world);
+    let rb_handle = make_projectile_physics(entity, origin, velocity, radius, world);
     commands
         .entity(entity)
         .insert(RigidBodyHandleComponent(rb_handle));
@@ -113,7 +130,6 @@ pub fn insert_remote_projectile(
             cmd.position,
             cmd.starting_velocity,
             radius,
-            Group::ALL & !GROUP_PLAYER,
             &mut physics,
         )
     };

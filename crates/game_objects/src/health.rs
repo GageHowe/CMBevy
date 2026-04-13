@@ -1,18 +1,12 @@
 use crate::dispatch_game_object_on_death;
-use crate::mode::ModeConfig;
-use crate::pawn::biped::WeaponSlots;
-use crate::pawn::{HeldWeaponMap, PendingRespawns, PlayerRegistry};
 use bevy::prelude::*;
-use common::GameObjectKind;
-use common::NetworkID;
-use common::game_state::GameState;
-use net::message::MsgType;
-use net::quic::{Channel, QuicManager, SendTarget};
-use physics::physics_world::{PhysicsWorld, rb_pos, step_physics};
+use physics::physics_world::{PhysicsWorld, step_physics};
 use std::collections::HashMap;
 
-const BIPED_REGEN_PER_SEC: f32 = 4.0;
 const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HealthAuthoritySet;
 
 pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
@@ -21,28 +15,16 @@ impl Plugin for HealthPlugin {
             FixedUpdate,
             (
                 apply_collision_damage.after(step_physics),
-                regenerate_biped_health,
+                regenerate_health,
                 age_last_damage_sources,
             )
                 .chain()
-                .run_if(death_authority),
+                .in_set(HealthAuthoritySet),
         );
         app.add_systems(
             FixedUpdate,
-            handle_deaths.after(step_physics).run_if(death_authority),
+            handle_deaths.after(step_physics).in_set(HealthAuthoritySet),
         );
-    }
-}
-
-fn death_authority(state: Option<Res<State<GameState>>>) -> bool {
-    #[cfg(feature = "client")]
-    {
-        state.is_some_and(|s| *s.get() == GameState::SinglePlayer)
-    }
-    #[cfg(not(feature = "client"))]
-    {
-        let _ = state;
-        true
     }
 }
 
@@ -50,6 +32,11 @@ fn death_authority(state: Option<Res<State<GameState>>>) -> bool {
 pub struct Health {
     pub current: f32,
     pub max: f32,
+}
+
+#[derive(Component, Clone, Copy)]
+pub struct HealthRegen {
+    pub per_sec: f32,
 }
 
 /// Tracks the most recent gameplay-owned attacker for a health-bearing entity so match scripts
@@ -82,9 +69,11 @@ impl Health {
         Self { current: max, max }
     }
 
-    /// Apply damage; returns `true` if this damage killed the entity.
-    pub fn apply_damage(&mut self, amount: f32) -> bool {
+    pub fn apply_damage(&mut self, amount: f32) {
         self.current = (self.current - amount).max(0.0);
+    }
+
+    pub fn is_dead(&self) -> bool {
         self.current <= 0.0
     }
 }
@@ -194,47 +183,34 @@ fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageS
     }
 }
 
-fn regenerate_biped_health(
-    time: Res<Time<Fixed>>,
-    mut health_q: Query<(&mut Health, &GameObjectKind)>,
-) {
-    let heal = BIPED_REGEN_PER_SEC * time.delta_secs();
-    if heal <= 0.0 {
+fn regenerate_health(time: Res<Time<Fixed>>, mut health_q: Query<(&mut Health, &HealthRegen)>) {
+    let dt = time.delta_secs();
+    if dt <= 0.0 {
         return;
     }
-    for (mut health, kind) in &mut health_q {
-        if *kind != GameObjectKind::Biped || health.current <= 0.0 || health.current >= health.max {
+    for (mut health, regen) in &mut health_q {
+        if health.is_dead() || health.current >= health.max || regen.per_sec <= 0.0 {
             continue;
         }
-        health.current = (health.current + heal).min(health.max);
+        health.current = (health.current + regen.per_sec * dt).min(health.max);
     }
 }
 
 pub fn handle_deaths(world: &mut World) {
-    let dead: Vec<(Entity, Option<common::GameObjectKind>, Option<NetworkID>)> = {
-        let mut q = world.query_filtered::<(
-            Entity,
-            &Health,
-            Option<&common::GameObjectKind>,
-            Option<&NetworkID>,
-        ), Changed<Health>>();
+    let dead: Vec<(Entity, Option<common::GameObjectKind>)> = {
+        let mut q = world
+            .query_filtered::<(Entity, &Health, Option<&common::GameObjectKind>), Changed<Health>>(
+            );
         q.iter(world)
-            .filter(|(_, health, _, _)| health.current <= 0.0)
-            .map(|(entity, _, kind, net_id)| (entity, kind.cloned(), net_id.cloned()))
+            .filter(|(_, health, _)| health.is_dead())
+            .map(|(entity, _, kind)| (entity, kind.cloned()))
             .collect()
     };
 
-    for (entity, kind, net_id) in dead {
-        let weapon_drops = if matches!(kind, Some(common::GameObjectKind::Biped)) {
-            collect_weapon_drops(entity, world)
-        } else {
-            Vec::new()
-        };
-        let vehicle_eject = if matches!(kind, Some(common::GameObjectKind::Spaceship)) {
-            collect_vehicle_eject(entity, world)
-        } else {
-            None
-        };
+    for (entity, kind) in dead {
+        if !world.entities().contains(entity) {
+            continue;
+        }
 
         let should_despawn = kind
             .clone()
@@ -242,96 +218,12 @@ pub fn handle_deaths(world: &mut World) {
         if !should_despawn || !world.entities().contains(entity) {
             continue;
         }
-
-        if matches!(kind, Some(common::GameObjectKind::Biped)) {
-            handle_biped_death(entity, &weapon_drops, world);
-        }
-        if let Some((biped_entity, biped_net_id)) = vehicle_eject {
-            handle_spaceship_death(biped_entity, biped_net_id, world);
-        }
-
-        let _ = net_id;
         world.entity_mut(entity).despawn();
     }
 }
 
 fn run_death_callback(kind: common::GameObjectKind, entity: Entity, world: &mut World) -> bool {
     dispatch_game_object_on_death(kind, entity, world)
-}
-
-fn collect_weapon_drops(entity: Entity, world: &World) -> Vec<(NetworkID, Vec3)> {
-    let drop_pos = {
-        let physics = world.resource::<PhysicsWorld>();
-        physics
-            .entity_to_handle
-            .get(&entity)
-            .and_then(|&h| physics.rigid_body_set.get(h))
-            .map(rb_pos)
-            .unwrap_or(Vec3::ZERO)
-    };
-    world
-        .get::<WeaponSlots>(entity)
-        .map(|slots| {
-            [slots.primary.clone(), slots.pocket.clone()]
-                .into_iter()
-                .filter_map(|(net_id, _weapon_entity)| Some((net_id?, drop_pos)))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn handle_biped_death(entity: Entity, weapon_drops: &[(NetworkID, Vec3)], world: &mut World) {
-    let conn_id = {
-        let Some(registry) = world.get_resource::<PlayerRegistry>() else {
-            return;
-        };
-        let Some(conn_id) = registry.conn_id_for_entity(entity) else {
-            return;
-        };
-        conn_id
-    };
-    let owner_net_id = world.get::<NetworkID>(entity).cloned();
-    let killer = world
-        .get::<LastDamageSource>(entity)
-        .copied()
-        .and_then(LastDamageSource::resolved_attacker);
-
-    if let Some(mut held_map) = world.get_resource_mut::<HeldWeaponMap>() {
-        for (weapon_id, _) in weapon_drops.iter() {
-            held_map.0.remove(weapon_id);
-        }
-    }
-    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-        for (weapon_id, drop_pos) in weapon_drops.iter().cloned() {
-            if let Some(ref net_id) = owner_net_id {
-                quic.send(
-                    SendTarget::All,
-                    Channel::Ordered,
-                    &MsgType::WeaponDrop(weapon_id, net_id.clone(), drop_pos),
-                );
-            }
-        }
-    }
-
-    if let Some(mut pending_kills) = world.get_resource_mut::<PendingPlayerKills>() {
-        pending_kills.0.push((entity, killer));
-    }
-    let mut deferred_removal = false;
-    if let Some(mut pending_removals) = world.get_resource_mut::<PendingPlayerRemovals>() {
-        pending_removals.0.push(entity);
-        deferred_removal = true;
-    }
-    if !deferred_removal && let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
-        let _ = registry.remove_by_entity(entity);
-    }
-    let respawn_delay = world
-        .get_resource::<ModeConfig>()
-        .map_or(common::config::RESPAWN_DELAY_SECS, |cfg| cfg.respawn_delay);
-    if let Some(mut pending_respawns) = world.get_resource_mut::<PendingRespawns>() {
-        pending_respawns
-            .0
-            .insert(conn_id, (respawn_delay, common::GameObjectKind::Biped));
-    }
 }
 
 pub fn attribute_damage(
@@ -354,40 +246,4 @@ pub fn copy_last_damage_source(world: &mut World, from: Entity, to: Entity) {
         return;
     };
     *target = source;
-}
-
-fn collect_vehicle_eject(entity: Entity, world: &mut World) -> Option<(Entity, NetworkID)> {
-    world
-        .get::<crate::pawn::vehicle::VehicleComponent>(entity)
-        .and_then(|vehicle| world.get::<crate::pawn::vehicle::DriverSeat>(vehicle.driver_seat))
-        .and_then(|cockpit| cockpit.occupant)
-        .and_then(|biped_entity| {
-            world
-                .get::<NetworkID>(biped_entity)
-                .cloned()
-                .map(|nid| (biped_entity, nid))
-        })
-}
-
-fn handle_spaceship_death(biped_entity: Entity, biped_net_id: NetworkID, world: &mut World) {
-    let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() else {
-        return;
-    };
-    let Some(conn_id) = registry.conn_id_for_entity(biped_entity) else {
-        return;
-    };
-    registry.set_controlled(conn_id, biped_entity, biped_net_id.clone());
-    drop(registry);
-    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::Possess(biped_net_id.clone()),
-        );
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::SeatState(biped_net_id, None),
-        );
-    }
 }

@@ -67,8 +67,7 @@ use common::PredictedCommands;
 use net::message::MsgType;
 use net::message::NetworkID;
 use net::quic::ConnectionId;
-use physics::physics_world::PhysicsWorld;
-use physics::physics_world::*;
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 use std::collections::HashMap;
 
 pub use biped::BipedPawnComponent;

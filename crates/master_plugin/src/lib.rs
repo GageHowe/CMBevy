@@ -10,6 +10,7 @@ use game_objects::components::atmosphere::AtmospherePlugin;
 use game_objects::components::planet::PlanetPlugin;
 use game_objects::generic::swap_hull_colliders;
 use game_objects::health::HealthPlugin;
+use game_objects::projectile::ProjectilePlugin;
 #[cfg(feature = "client")]
 use net::clientonly::NetClientPlugin;
 #[cfg(not(feature = "client"))]
@@ -30,6 +31,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
         app.add_plugins(HealthPlugin);
+        app.add_plugins(ProjectilePlugin);
         app.add_systems(FixedUpdate, swap_hull_colliders);
 
         // tick should increment after everything else in FixedUpdate
