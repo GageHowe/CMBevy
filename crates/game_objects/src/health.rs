@@ -250,15 +250,7 @@ pub fn handle_deaths(world: &mut World) {
             handle_spaceship_death(biped_entity, biped_net_id, world);
         }
 
-        if let Some(net_id) = net_id {
-            if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                quic.send(
-                    SendTarget::All,
-                    Channel::Ordered,
-                    &MsgType::DespawnCommand(net_id),
-                );
-            }
-        }
+        let _ = net_id;
         world.entity_mut(entity).despawn();
     }
 }

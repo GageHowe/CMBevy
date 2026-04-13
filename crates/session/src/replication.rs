@@ -93,11 +93,7 @@ pub(super) fn kill_player(
     }
     registry.remove_by_entity(entity);
     commands.entity(entity).despawn();
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::DespawnCommand(net_id),
-    );
+    let _ = net_id;
 }
 
 pub fn broadcast_health_updates(

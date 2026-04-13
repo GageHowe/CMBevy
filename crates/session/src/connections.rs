@@ -73,6 +73,7 @@ pub(super) fn handle_connected(
                 net_id: net_id.clone(),
                 position: rb_pos(body),
                 starting_velocity: rb_vel(body),
+                shooter_velocity: Vec3::ZERO,
                 rotation: rb_rot(body),
                 server_tick: tick,
                 kind: kind.clone(),

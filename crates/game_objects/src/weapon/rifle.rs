@@ -61,7 +61,16 @@ pub fn fire_rifle_projectile(
     let velocity =
         projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
     let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-    rifle::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
+    let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
+    rifle::spawn(
+        ctx.origin,
+        velocity,
+        shooter_velocity,
+        commands,
+        world,
+        ctx.shooter,
+        temp_id,
+    );
     #[cfg(feature = "client")]
     projectile_helpers::apply_recoil::<rifle::RifleProjectile>(ctx, world, kick_scale);
     helpers::queue_fire_sound(

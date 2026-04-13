@@ -186,11 +186,6 @@ fn drop_weapon(
         )
     };
     if despawned {
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::DespawnCommand(weapon_id),
-        );
         return;
     }
     quic.send(

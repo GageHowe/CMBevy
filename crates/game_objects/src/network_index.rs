@@ -20,6 +20,10 @@ impl NetworkEntityMap {
         self.by_id.get(net_id).copied()
     }
 
+    pub fn get_net_id_for_entity(&self, entity: Entity) -> Option<&net::message::NetworkID> {
+        self.by_entity.get(&entity)
+    }
+
     pub fn get_body(&self, net_id: &net::message::NetworkID) -> Option<RigidBodyHandle> {
         self.bodies_by_id.get(net_id).copied()
     }

@@ -31,6 +31,7 @@ impl Plugin for GameObjectsPlugin {
         app.init_resource::<NetworkEntityMap>()
             .register_type::<net::message::NetworkID>()
             .init_resource::<messages::GameMessages>()
+            .add_observer(on_remove_networked_entity)
             .add_systems(
                 PreUpdate,
                 (
@@ -50,4 +51,32 @@ impl Plugin for GameObjectsPlugin {
                 ),
             );
     }
+}
+
+#[cfg(feature = "client")]
+fn on_remove_networked_entity(
+    event: On<Remove, net::message::NetworkID>,
+    map: Res<NetworkEntityMap>,
+    quic: Option<ResMut<net::quic::QuicManager>>,
+) {
+    let _ = (event, map, quic);
+}
+
+#[cfg(not(feature = "client"))]
+fn on_remove_networked_entity(
+    event: On<Remove, net::message::NetworkID>,
+    map: Res<NetworkEntityMap>,
+    mut quic: Option<ResMut<net::quic::QuicManager>>,
+) {
+    let Some(net_id) = map.get_net_id_for_entity(event.entity).cloned() else {
+        return;
+    };
+    let Some(quic) = quic.as_mut() else {
+        return;
+    };
+    quic.send(
+        net::quic::SendTarget::All,
+        net::quic::Channel::Ordered,
+        &net::message::MsgType::DespawnCommand(net_id),
+    );
 }

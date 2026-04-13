@@ -3,7 +3,6 @@ use crate::health::{Health, LastDamageSource};
 use bevy::prelude::*;
 pub use common::GameObjectKind;
 use net::message::*;
-use net::quic::*;
 use physics::physics_world::*;
 
 pub mod hail_mary;
@@ -67,7 +66,6 @@ impl Plugin for ProjectilePlugin {
                 )
                     .in_set(TrackPredictedProjectilesSet),
             );
-        app.add_observer(on_remove_projectile);
         app.add_plugins((
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
@@ -110,6 +108,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
     fn tick(
         &mut self,
         entity: Entity,
+        state: &mut ProjectileState,
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
@@ -133,9 +132,11 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         Self::on_authoritative_fire(dir, shooter, world);
         let starting_velocity =
             helpers::projectile_velocity(world, Some(shooter), dir, Self::SPEED);
+        let shooter_velocity = helpers::shooter_velocity(world, Some(shooter));
         let entity = Self::spawn_predicted(
             origin,
             starting_velocity,
+            shooter_velocity,
             commands,
             world,
             Some(shooter),
@@ -150,6 +151,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
                 net_id,
                 position: origin,
                 starting_velocity,
+                shooter_velocity,
                 rotation: Quat::IDENTITY,
                 server_tick: tick,
                 kind: Self::KIND,
@@ -160,6 +162,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
     fn spawn_predicted(
         origin: Vec3,
         velocity: Vec3,
+        shooter_velocity: Vec3,
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
@@ -172,6 +175,14 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
 #[derive(Component, Default, Reflect)]
 pub struct ProjectileState {
     pub temp_id: u32,
+    pub shooter_velocity: Vec3,
+    pub raycast_start: Option<Vec3>,
+}
+
+#[derive(Component)]
+pub struct ProjectileRaycastDebug {
+    pub start: Vec3,
+    pub end: Vec3,
 }
 
 /// Client resource: monotonically increasing counter for temp projectile ids.
@@ -270,13 +281,14 @@ pub fn draw_projectile_debug<P: Component>(
 pub fn tick_projectiles<P: Projectile>(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut P, &RigidBodyHandleComponent)>,
+    mut q: Query<(Entity, &mut P, &mut ProjectileState, &RigidBodyHandleComponent)>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
 ) {
-    for (entity, mut proj, body) in q.iter_mut() {
+    for (entity, mut proj, mut state, body) in q.iter_mut() {
         proj.tick(
             entity,
+            &mut state,
             body,
             &mut world,
             &mut commands,
@@ -287,26 +299,15 @@ pub fn tick_projectiles<P: Projectile>(
 }
 
 #[cfg(feature = "client")]
-fn on_remove_projectile(
-    event: On<Remove, ProjectileState>,
-    net_ids: Query<&NetworkID>,
-    quic: Option<ResMut<QuicManager>>,
+pub fn draw_projectile_raycast_debug(
+    segments: Query<(Entity, &ProjectileRaycastDebug)>,
+    mut gizmos: Gizmos,
 ) {
-    let _ = (event, net_ids, quic);
-}
-
-#[cfg(not(feature = "client"))]
-fn on_remove_projectile(
-    event: On<Remove, ProjectileState>,
-    net_ids: Query<&NetworkID>,
-    mut quic: Option<ResMut<QuicManager>>,
-) {
-    let (Some(quic), Ok(net_id)) = (quic.as_mut(), net_ids.get(event.entity)) else {
-        return;
-    };
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::DespawnCommand(net_id.clone()),
-    );
+    for (_entity, segment) in &segments {
+        gizmos.line(
+            segment.start,
+            segment.end,
+            Color::srgba(0.2, 1.0, 1.0, 0.9),
+        );
+    }
 }

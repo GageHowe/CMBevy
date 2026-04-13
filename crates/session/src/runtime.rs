@@ -793,6 +793,7 @@ fn spawn_restarted_player(
         net_id: net_id.clone(),
         position: spawn_pos,
         starting_velocity: spawn_vel,
+        shooter_velocity: Vec3::ZERO,
         rotation: spawn_rot,
         server_tick: tick,
         kind: GameObjectKind::Biped,

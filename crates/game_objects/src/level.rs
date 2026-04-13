@@ -1,7 +1,9 @@
 use crate::lifecycle::spawn_game_object;
+use crate::pawn::Possessed;
 use bevy::prelude::*;
 use bevy::scene::DynamicSceneRoot;
 use bevy::scene::serde::SceneDeserializer;
+use common::slow_update::SlowUpdate;
 use physics::collider_shape::ColliderShape;
 use physics::convex_hull_asset::ConvexHullAsset;
 use physics::physics_world::{
@@ -84,13 +86,14 @@ pub struct LevelSceneRoot;
 pub struct SceneSpawn {
     pub kind: common::GameObjectKind,
     pub respawn_delay_secs: f32,
+    pub gc_after_secs: Option<f32>,
 }
-
 impl Default for SceneSpawn {
     fn default() -> Self {
         Self {
             kind: common::GameObjectKind::Biped,
             respawn_delay_secs: 10.0,
+            gc_after_secs: None,
         }
     }
 }
@@ -100,9 +103,20 @@ struct SceneSpawner {
     kind: common::GameObjectKind,
     starting_velocity: Vec3,
     respawn_delay_secs: f32,
+    gc_after_secs: Option<f32>,
     respawn_timer_secs: f32,
     active_entity: Option<Entity>,
 }
+
+#[derive(Component)]
+struct SceneSpawnGc {
+    spawner: Entity,
+    remaining_secs: f32,
+    reset_secs: f32,
+}
+
+const SCENE_SPAWN_GC_RELEVANT_RADIUS_SQ: f32 = 90.0 * 90.0;
+const SLOW_UPDATE_DT_SECS: f32 = 1.0;
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct LevelReadyState<'w, 's> {
@@ -384,6 +398,7 @@ impl Plugin for LevelPlugin {
         // through the existing imperative GameObject spawn path.
         app.add_systems(Update, init_scene_spawners);
         app.add_systems(FixedUpdate, tick_scene_spawners);
+        app.add_systems(SlowUpdate, cleanup_scene_spawned_entities);
     }
 }
 
@@ -401,6 +416,7 @@ fn init_scene_spawners(
             kind: scene_spawn.kind.clone(),
             starting_velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
             respawn_delay_secs: scene_spawn.respawn_delay_secs,
+            gc_after_secs: scene_spawn.gc_after_secs,
             respawn_timer_secs: 0.0,
             active_entity: None,
         });
@@ -513,6 +529,13 @@ fn tick_scene_spawners(
             &mut commands,
             &mut net_id_res,
         );
+        if let Some(gc_after_secs) = spawner.gc_after_secs {
+            commands.entity(spawn_entity).insert(SceneSpawnGc {
+                spawner: _spawner_entity,
+                remaining_secs: gc_after_secs,
+                reset_secs: gc_after_secs,
+            });
+        }
         spawner.active_entity = Some(spawn_entity);
 
         #[cfg(feature = "client")]
@@ -527,6 +550,68 @@ fn tick_scene_spawners(
                 );
             }
         }
+    }
+}
+
+fn cleanup_scene_spawned_entities(
+    state: Option<Res<State<common::game_state::GameState>>>,
+    physics: Res<PhysicsWorld>,
+    players: Query<&RigidBodyHandleComponent, With<Possessed>>,
+    mut gc_q: Query<(Entity, &RigidBodyHandleComponent, &mut SceneSpawnGc)>,
+    mut spawners: Query<&mut SceneSpawner>,
+    mut commands: Commands,
+) {
+    #[cfg(feature = "client")]
+    let authoritative =
+        state.is_some_and(|s| *s.get() == common::game_state::GameState::SinglePlayer);
+    #[cfg(not(feature = "client"))]
+    let authoritative = {
+        let _ = &state;
+        true
+    };
+    if !authoritative {
+        return;
+    }
+
+    let player_positions: Vec<Vec3> = players
+        .iter()
+        .filter_map(|body| physics.rigid_body_set.get(body.0).map(rb_pos))
+        .collect();
+
+    for (entity, body, mut gc) in &mut gc_q {
+        let Some(rb) = physics.rigid_body_set.get(body.0) else {
+            continue;
+        };
+
+        // Disabled bodies are not world-relevant right now (held weapon, etc.). Reset so
+        // dropping them later always starts from a full grace period.
+        if !rb.is_enabled() {
+            gc.remaining_secs = gc.reset_secs;
+            continue;
+        }
+
+        let pos = rb_pos(rb);
+        let near_player = player_positions
+            .iter()
+            .any(|player| player.distance_squared(pos) <= SCENE_SPAWN_GC_RELEVANT_RADIUS_SQ);
+        if near_player {
+            gc.remaining_secs = gc.reset_secs;
+            continue;
+        }
+
+        gc.remaining_secs = (gc.remaining_secs - SLOW_UPDATE_DT_SECS).max(0.0);
+        if gc.remaining_secs > 0.0 {
+            continue;
+        }
+
+        if let Ok(mut spawner) = spawners.get_mut(gc.spawner)
+            && spawner.active_entity == Some(entity)
+        {
+            spawner.active_entity = None;
+            spawner.respawn_timer_secs = spawner.respawn_delay_secs;
+        }
+        info!("gc despawned scene-spawned entity {entity}");
+        commands.entity(entity).despawn();
     }
 }
 

@@ -11,6 +11,7 @@ pub struct SpawnCommand {
     pub net_id: NetworkID,
     pub position: Vec3,
     pub starting_velocity: Vec3,
+    pub shooter_velocity: Vec3,
     pub rotation: Quat,
     pub server_tick: u64,
     pub kind: GameObjectKind,

@@ -21,6 +21,7 @@ pub fn spawn_game_object(
         net_id: net_id.clone(),
         position,
         starting_velocity,
+        shooter_velocity: Vec3::ZERO,
         rotation,
         server_tick,
         kind,

@@ -61,6 +61,7 @@ pub fn spawn_projectile(
     projectile: impl Bundle,
     origin: Vec3,
     velocity: Vec3,
+    shooter_velocity: Vec3,
     radius: f32,
     temp_id: u32,
     commands: &mut Commands,
@@ -70,7 +71,11 @@ pub fn spawn_projectile(
         .spawn((
             kind,
             projectile,
-            ProjectileState { temp_id },
+            ProjectileState {
+                temp_id,
+                shooter_velocity,
+                raycast_start: None,
+            },
             Transform::from_translation(origin),
         ))
         .id();
@@ -93,7 +98,11 @@ pub fn insert_remote_projectile(
     world.entity_mut(entity).insert((
         cmd.kind.clone(),
         projectile,
-        ProjectileState { temp_id: 0 },
+        ProjectileState {
+            temp_id: 0,
+            shooter_velocity: cmd.shooter_velocity,
+            raycast_start: None,
+        },
         Transform::from_translation(cmd.position),
         cmd.net_id.clone(),
     ));
@@ -120,6 +129,7 @@ pub fn tick_raycast_projectile(
     lifetime: &mut u32,
     shooter: Option<Entity>,
     entity: Entity,
+    state: &mut ProjectileState,
     body: &RigidBodyHandleComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
@@ -131,12 +141,22 @@ pub fn tick_raycast_projectile(
     }
     let rb = world.rigid_body_set.get(body.0)?;
     let vel = rb_vel(rb);
-    let step = vel.length() * world.integration_parameters.dt;
+    let dt = world.integration_parameters.dt;
+    let cast_vel = vel - state.shooter_velocity;
+    let step = cast_vel.length() * dt;
     if step < 0.001 {
         return None;
     }
-    let dir = vel.normalize();
-    let prev = rb_pos(rb) - vel * world.integration_parameters.dt;
+    let dir = cast_vel.normalize();
+    let prev = rb_pos(rb) - cast_vel * dt;
+    #[cfg(feature = "client")]
+    {
+        let debug_start = *state.raycast_start.get_or_insert(prev);
+        commands.entity(entity).insert(super::ProjectileRaycastDebug {
+            start: debug_start,
+            end: prev + dir * step,
+        });
+    }
     let exclude = [entity, shooter.unwrap_or(entity)];
     let (hit, toi) = world.cast_ray(prev, dir, step, &exclude)?;
     commands.entity(entity).despawn();

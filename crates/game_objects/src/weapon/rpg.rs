@@ -50,7 +50,16 @@ impl Weapon for RpgComponent {
         let velocity =
             projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rpg::SPEED);
         let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-        rpg::spawn(ctx.origin, velocity, commands, world, ctx.shooter, temp_id);
+        let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
+        rpg::spawn(
+            ctx.origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            ctx.shooter,
+            temp_id,
+        );
 
         // Keep the local launcher recoil on the same path the server uses for authoritative fire.
         #[cfg(feature = "client")]

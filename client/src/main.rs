@@ -182,6 +182,7 @@ fn main() {
             draw_projectile_debug::<HailMaryProjectile>(Color::srgba(1.0, 0.3, 0.1, 0.9)),
             draw_projectile_debug::<RpgProjectile>(Color::srgba(1.0, 0.5, 0.2, 0.9)),
             draw_projectile_debug::<RifleProjectile>(Color::srgba(1.0, 0.9, 0.2, 0.9)),
+            draw_projectile_raycast_debug,
         )
             .after(step_physics)
             .run_if(debug_render_on)

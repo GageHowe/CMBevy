@@ -50,6 +50,7 @@ impl Projectile for RifleProjectile {
     fn tick(
         &mut self,
         entity: Entity,
+        state: &mut super::ProjectileState,
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
@@ -60,6 +61,7 @@ impl Projectile for RifleProjectile {
             &mut self.lifetime,
             self.shooter,
             entity,
+            state,
             body,
             world,
             commands,
@@ -88,13 +90,22 @@ impl Projectile for RifleProjectile {
     fn spawn_predicted(
         origin: Vec3,
         velocity: Vec3,
+        shooter_velocity: Vec3,
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -106,6 +117,7 @@ impl Projectile for PistolProjectile {
     fn tick(
         &mut self,
         entity: Entity,
+        state: &mut super::ProjectileState,
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
@@ -116,6 +128,7 @@ impl Projectile for PistolProjectile {
             &mut self.lifetime,
             self.shooter,
             entity,
+            state,
             body,
             world,
             commands,
@@ -144,13 +157,22 @@ impl Projectile for PistolProjectile {
     fn spawn_predicted(
         origin: Vec3,
         velocity: Vec3,
+        shooter_velocity: Vec3,
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn_pistol(origin, velocity, commands, world, shooter, temp_id)
+        spawn_pistol(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -159,6 +181,7 @@ impl Projectile for PistolProjectile {
 pub fn spawn(
     origin: Vec3,
     velocity: Vec3,
+    shooter_velocity: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     shooter: Option<Entity>,
@@ -172,6 +195,7 @@ pub fn spawn(
         },
         origin,
         velocity,
+        shooter_velocity,
         RADIUS,
         temp_id,
         commands,
@@ -182,6 +206,7 @@ pub fn spawn(
 pub fn spawn_pistol(
     origin: Vec3,
     velocity: Vec3,
+    shooter_velocity: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     shooter: Option<Entity>,
@@ -195,6 +220,7 @@ pub fn spawn_pistol(
         },
         origin,
         velocity,
+        shooter_velocity,
         RADIUS,
         temp_id,
         commands,

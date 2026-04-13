@@ -34,6 +34,7 @@ impl Projectile for HailMaryProjectile {
     fn tick(
         &mut self,
         entity: Entity,
+        state: &mut super::ProjectileState,
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
@@ -44,6 +45,7 @@ impl Projectile for HailMaryProjectile {
             &mut self.lifetime,
             self.shooter,
             entity,
+            state,
             body,
             world,
             commands,
@@ -68,13 +70,22 @@ impl Projectile for HailMaryProjectile {
     fn spawn_predicted(
         origin: Vec3,
         velocity: Vec3,
+        shooter_velocity: Vec3,
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -83,6 +94,7 @@ impl Projectile for HailMaryProjectile {
 pub fn spawn(
     origin: Vec3,
     velocity: Vec3,
+    shooter_velocity: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     shooter: Option<Entity>,
@@ -101,6 +113,7 @@ pub fn spawn(
         ),
         origin,
         velocity,
+        shooter_velocity,
         RADIUS,
         temp_id,
         commands,

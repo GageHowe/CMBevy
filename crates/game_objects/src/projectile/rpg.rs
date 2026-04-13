@@ -9,9 +9,7 @@ use rapier3d::prelude::{Ball, Collider, ColliderHandle, Pose, QueryFilter};
 use crate::GameObject;
 use crate::health::{Health, LastDamageSource, attribute_damage};
 
-#[cfg(feature = "client")]
-use super::ProjectileState;
-use super::{Projectile, helpers, tick_projectiles};
+use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 #[cfg(feature = "client")]
 use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
 use common::GameObjectKind;
@@ -51,6 +49,7 @@ impl Projectile for RpgProjectile {
     fn tick(
         &mut self,
         entity: Entity,
+        state: &mut ProjectileState,
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
@@ -60,6 +59,7 @@ impl Projectile for RpgProjectile {
         tick_inner(
             self,
             entity,
+            state,
             body,
             world,
             commands,
@@ -85,19 +85,29 @@ impl Projectile for RpgProjectile {
     fn spawn_predicted(
         origin: Vec3,
         velocity: Vec3,
+        shooter_velocity: Vec3,
         commands: &mut Commands,
         world: &mut PhysicsWorld,
         shooter: Option<Entity>,
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
 fn tick_inner(
     projectile: &mut RpgProjectile,
     entity: Entity,
+    state: &mut ProjectileState,
     body: &RigidBodyHandleComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
@@ -113,7 +123,8 @@ fn tick_inner(
     let vel = rb_vel(rb);
     let curr = rb_pos(rb);
     let dt = world.integration_parameters.dt;
-    let step = vel.length() * dt;
+    let cast_vel = vel - state.shooter_velocity;
+    let step = cast_vel.length() * dt;
     if projectile.lifetime == 0 {
         explode(
             curr,
@@ -133,9 +144,17 @@ fn tick_inner(
     if step < 0.001 {
         return;
     }
-    let prev = curr - vel * dt;
+    let prev = curr - cast_vel * dt;
     let exclude = [entity, projectile.shooter.unwrap_or(entity)];
-    let dir = vel.normalize();
+    let dir = cast_vel.normalize();
+    #[cfg(feature = "client")]
+    {
+        let debug_start = *state.raycast_start.get_or_insert(prev);
+        commands.entity(entity).insert(super::ProjectileRaycastDebug {
+            start: debug_start,
+            end: prev + dir * step,
+        });
+    }
     if let Some((hit, toi, normal)) = world.cast_sphere(prev, dir, RADIUS, step, &exclude) {
         let hit_point = prev + dir * toi;
         let impulse_dir = normal.normalize_or_zero();
@@ -267,6 +286,7 @@ fn explode(
 pub fn spawn(
     origin: Vec3,
     velocity: Vec3,
+    shooter_velocity: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     shooter: Option<Entity>,
@@ -280,6 +300,7 @@ pub fn spawn(
         },
         origin,
         velocity,
+        shooter_velocity,
         RADIUS,
         temp_id,
         commands,
@@ -335,20 +356,21 @@ fn tick_predicted_projectiles(
         Entity,
         &mut RpgProjectile,
         &RigidBodyHandleComponent,
-        &ProjectileState,
+        &mut ProjectileState,
     )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     net_ids: Query<&NetworkID>,
     mut predicted: ResMut<PredictedCommands>,
 ) {
-    for (entity, mut projectile, body, state) in q.iter_mut() {
+    for (entity, mut projectile, body, mut state) in q.iter_mut() {
         if state.temp_id == 0 {
             continue;
         }
         tick_inner(
             &mut projectile,
             entity,
+            &mut state,
             body,
             &mut world,
             &mut commands,
