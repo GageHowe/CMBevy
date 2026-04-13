@@ -1,0 +1,36 @@
+const KEY_EXPANSIONS: &[(&str, &str)] = &[
+    (
+        "Transform",
+        "bevy_transform::components::transform::Transform",
+    ),
+    ("ChildOf", "bevy_ecs::hierarchy::ChildOf"),
+    ("MapMeta", "game_objects::level::MapMeta"),
+    ("StaticCollider", "game_objects::level::StaticCollider"),
+    ("SceneModel", "game_objects::level::SceneModel"),
+    ("SpawnPoint", "game_objects::level::SpawnPoint"),
+    ("ScriptTags", "game_objects::level::ScriptTags"),
+    ("ScriptZone", "game_objects::level::ScriptZone"),
+    ("Spawner", "game_objects::level::Spawner"),
+    ("SceneRigidBody", "physics::physics_world::SceneRigidBody"),
+    ("InitialVelocity", "physics::physics_world::InitialVelocity"),
+    ("CascadeShadowConfig", "bevy_light::cascade::CascadeShadowConfig"),
+    (
+        "DirectionalLight",
+        "bevy_light::directional_light::DirectionalLight",
+    ),
+];
+
+pub fn preprocess_level_text(text: &str) -> String {
+    let mut out = text.to_owned();
+    for (key, value) in KEY_EXPANSIONS {
+        let from = format!("\"{key}\"");
+        let to = format!("\"{value}\"");
+        out = out.replace(&from, &to);
+    }
+    out
+}
+
+pub fn preprocess_level_bytes(raw: &[u8]) -> Result<Vec<u8>, String> {
+    let text = std::str::from_utf8(raw).map_err(|e| format!("level utf8: {e}"))?;
+    Ok(preprocess_level_text(text).into_bytes())
+}

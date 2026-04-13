@@ -15,6 +15,8 @@ use serde::de::DeserializeSeed;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
+mod preprocess;
+
 // ── component / resource types ────────────────────────────────────────────────
 
 /// Static (fixed) collider placed in the scene. Position/rotation come from Transform.
@@ -83,12 +85,12 @@ pub struct LevelSceneRoot;
 
 #[derive(Component, Clone, Reflect)]
 #[reflect(Component, Default)]
-pub struct SceneSpawn {
+pub struct Spawner {
     pub kind: common::GameObjectKind,
     pub respawn_delay_secs: f32,
     pub gc_after_secs: Option<f32>,
 }
-impl Default for SceneSpawn {
+impl Default for Spawner {
     fn default() -> Self {
         Self {
             kind: common::GameObjectKind::Biped,
@@ -99,7 +101,7 @@ impl Default for SceneSpawn {
 }
 
 #[derive(Component)]
-struct SceneSpawner {
+struct SpawnerRuntime {
     kind: common::GameObjectKind,
     starting_velocity: Vec3,
     respawn_delay_secs: f32,
@@ -109,7 +111,7 @@ struct SceneSpawner {
 }
 
 #[derive(Component)]
-struct SceneSpawnGc {
+struct SpawnerGc {
     spawner: Entity,
     remaining_secs: f32,
     reset_secs: f32,
@@ -123,7 +125,7 @@ pub struct LevelReadyState<'w, 's> {
     pending_map: Option<Res<'w, PendingMapScene>>,
     roots: Query<'w, 's, (), With<LevelSceneRoot>>,
     pending_hulls: Res<'w, PendingHullColliders>,
-    pending_markers: Query<'w, 's, (), (With<SceneSpawn>, Without<SceneSpawner>)>,
+    pending_markers: Query<'w, 's, (), (With<Spawner>, Without<SpawnerRuntime>)>,
     scene_bodies: Query<
         'w,
         's,
@@ -245,7 +247,8 @@ pub fn read_and_compress_level(path: impl AsRef<std::path::Path>) -> Result<Leve
     let path = path.as_ref();
     let raw = std::fs::read(path)
         .map_err(|e| format!("Failed to read level \"{}\": {e}", path.display()))?;
-    Ok(compress_level_bytes(&raw))
+    let preprocessed = preprocess::preprocess_level_bytes(&raw)?;
+    Ok(compress_level_bytes(&preprocessed))
 }
 
 /// Compressed .scn.ron bytes received from the server, pending scene spawn.
@@ -262,6 +265,14 @@ pub fn apply_pending_map_scene(world: &mut World) {
         Ok(b) => b,
         Err(e) => {
             error!("map decompress: {e}");
+            crate::messages::push_world(world, format!("Map load failed: {e}"));
+            return;
+        }
+    };
+    let bytes = match preprocess::preprocess_level_bytes(&bytes) {
+        Ok(b) => b,
+        Err(e) => {
+            error!("map preprocess: {e}");
             crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
@@ -376,7 +387,7 @@ impl Plugin for LevelPlugin {
         app.register_type::<SpawnPoint>();
         app.register_type::<ScriptTags>();
         app.register_type::<ScriptZone>();
-        app.register_type::<SceneSpawn>();
+        app.register_type::<Spawner>();
         app.register_type::<MapMeta>();
         app.init_resource::<PendingHullColliders>();
         // react to scene-spawned components — works on both client and server
@@ -396,27 +407,27 @@ impl Plugin for LevelPlugin {
 
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
-        app.add_systems(Update, init_scene_spawners);
-        app.add_systems(FixedUpdate, tick_scene_spawners);
+        app.add_systems(Update, init_spawners);
+        app.add_systems(FixedUpdate, tick_spawners);
         app.add_systems(SlowUpdate, cleanup_scene_spawned_entities);
     }
 }
 
 // ── systems ───────────────────────────────────────────────────────────────────
 
-fn init_scene_spawners(
+fn init_spawners(
     query: Query<
-        (Entity, &SceneSpawn, Option<&InitialVelocity>),
-        (Added<SceneSpawn>, Without<SceneSpawner>),
+        (Entity, &Spawner, Option<&InitialVelocity>),
+        (Added<Spawner>, Without<SpawnerRuntime>),
     >,
     mut commands: Commands,
 ) {
-    for (entity, scene_spawn, initial_velocity) in query.iter() {
-        commands.entity(entity).insert(SceneSpawner {
-            kind: scene_spawn.kind.clone(),
+    for (entity, spawner, initial_velocity) in query.iter() {
+        commands.entity(entity).insert(SpawnerRuntime {
+            kind: spawner.kind.clone(),
             starting_velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            respawn_delay_secs: scene_spawn.respawn_delay_secs,
-            gc_after_secs: scene_spawn.gc_after_secs,
+            respawn_delay_secs: spawner.respawn_delay_secs,
+            gc_after_secs: spawner.gc_after_secs,
             respawn_timer_secs: 0.0,
             active_entity: None,
         });
@@ -453,10 +464,10 @@ fn assign_scene_network_ids(
     }
 }
 
-fn tick_scene_spawners(
-    spawners_exist: Query<(), With<SceneSpawner>>,
+fn tick_spawners(
+    spawners_exist: Query<(), With<SpawnerRuntime>>,
     existing: Query<(), ()>,
-    mut spawners: Query<(Entity, &Transform, Option<&ChildOf>, &mut SceneSpawner)>,
+    mut spawners: Query<(Entity, &Transform, Option<&ChildOf>, &mut SpawnerRuntime)>,
     parent_transforms: Query<&Transform>,
     parent_parents: Query<&ChildOf>,
     parent_bodies: Query<&RigidBodyHandleComponent>,
@@ -530,7 +541,7 @@ fn tick_scene_spawners(
             &mut net_id_res,
         );
         if let Some(gc_after_secs) = spawner.gc_after_secs {
-            commands.entity(spawn_entity).insert(SceneSpawnGc {
+            commands.entity(spawn_entity).insert(SpawnerGc {
                 spawner: _spawner_entity,
                 remaining_secs: gc_after_secs,
                 reset_secs: gc_after_secs,
@@ -557,8 +568,8 @@ fn cleanup_scene_spawned_entities(
     state: Option<Res<State<common::game_state::GameState>>>,
     physics: Res<PhysicsWorld>,
     players: Query<&RigidBodyHandleComponent, With<Possessed>>,
-    mut gc_q: Query<(Entity, &RigidBodyHandleComponent, &mut SceneSpawnGc)>,
-    mut spawners: Query<&mut SceneSpawner>,
+    mut gc_q: Query<(Entity, &RigidBodyHandleComponent, &mut SpawnerGc)>,
+    mut spawners: Query<&mut SpawnerRuntime>,
     mut commands: Commands,
 ) {
     #[cfg(feature = "client")]
