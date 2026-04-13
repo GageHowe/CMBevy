@@ -33,7 +33,7 @@ const MAX_WALK_SPEED: f32 = 10.0;
 const MAX_SPRINT_SPEED: f32 = 15.0;
 /// max speed gained per tick when accelerating on the ground
 const GROUND_ACCEL: f32 = 1.0;
-const JUMP_IMPULSE: f32 = 5.0;
+const JUMP_IMPULSE: f32 = 8.0;
 const AIR_CONTROL: f32 = 0.2;
 const AIR_UP_CONTROL: f32 = 0.45;
 const GROUND_DIST: f32 = 0.05; // must be nearly touching to count as grounded
@@ -66,6 +66,8 @@ pub struct BipedPawnComponent {
     #[reflect(ignore)]
     pub collider: Option<ColliderHandle>,
     pub is_sliding: bool,
+    /// When crouched in the air, keep the camera/head fixed and lift the feet instead.
+    pub slide_feet_planted: bool,
     pub snap_target: Option<Entity>,
     /// Client-only cached body rotation used to preserve world look across body rotation.
     pub last_look_frame_body_rot: Option<Quat>,
@@ -118,7 +120,8 @@ impl GameObject for BipedPawnComponent {
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
             }
-            let capsule_collider = make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION);
+            let capsule_collider =
+                make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true);
             let PhysicsWorld {
                 collider_set,
                 rigid_body_set,
@@ -696,7 +699,7 @@ fn ground_state(
     }
 }
 
-fn make_biped_capsule_collider(half_height: f32, friction: f32) -> Collider {
+fn make_biped_capsule_collider(half_height: f32, friction: f32, feet_planted: bool) -> Collider {
     let player_collision =
         InteractionGroups::new(GROUP_PLAYER, Group::ALL, InteractionTestMode::And);
     let player_solver = InteractionGroups::new(
@@ -704,8 +707,12 @@ fn make_biped_capsule_collider(half_height: f32, friction: f32) -> Collider {
         Group::ALL & !GROUP_PROJECTILE,
         InteractionTestMode::And,
     );
-    // offset the collider so its bottom stays at foot level (body center is always CAPSULE_BOTTOM above ground)
-    let y_offset = (half_height + CAPSULE_RADIUS) - CAPSULE_BOTTOM;
+    // Grounded crouch keeps feet planted. Airborne crouch keeps the head/camera fixed instead.
+    let y_offset = if feet_planted {
+        (half_height + CAPSULE_RADIUS) - CAPSULE_BOTTOM
+    } else {
+        CAPSULE_HALF_HEIGHT - half_height
+    };
     ColliderBuilder::capsule_y(half_height, CAPSULE_RADIUS)
         .translation(Vector3::new(0.0, y_offset, 0.0))
         .friction(friction)
@@ -724,6 +731,7 @@ fn replace_capsule_collider(
     old_ch: Option<ColliderHandle>,
     half_height: f32,
     friction: f32,
+    feet_planted: bool,
 ) -> ColliderHandle {
     if let Some(old_ch) = old_ch {
         let PhysicsWorld {
@@ -740,7 +748,7 @@ fn replace_capsule_collider(
         ..
     } = &mut *world;
     collider_set.insert_with_parent(
-        make_biped_capsule_collider(half_height, friction),
+        make_biped_capsule_collider(half_height, friction, feet_planted),
         rb_handle,
         rigid_body_set,
     )
@@ -771,13 +779,20 @@ pub fn apply_biped_movement(
     let is_slide = input.slide;
     let is_sprint = input.ability1;
 
-    // swap collider shape when slide state changes (not every tick)
-    if is_slide != biped.is_sliding {
+    // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
+    let (grounded, ground_linvel) = ground_state(world, body_handle.0, capsule_pos, planet_up);
+
+    // Air crouch should not drag the camera down with it. Swap the capsule anchor whenever
+    // crouch state changes or when a crouched biped transitions between ground and air.
+    let slide_feet_planted = grounded;
+    if is_slide != biped.is_sliding || (is_slide && slide_feet_planted != biped.slide_feet_planted)
+    {
         biped.is_sliding = is_slide;
-        let (half_height, friction) = if is_slide {
-            (SLIDE_HALF_HEIGHT, SLIDE_FRICTION)
+        biped.slide_feet_planted = slide_feet_planted;
+        let (half_height, friction, feet_planted) = if is_slide {
+            (SLIDE_HALF_HEIGHT, SLIDE_FRICTION, slide_feet_planted)
         } else {
-            (CAPSULE_HALF_HEIGHT, MAIN_FRICTION)
+            (CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true)
         };
         biped.collider = Some(replace_capsule_collider(
             world,
@@ -785,11 +800,9 @@ pub fn apply_biped_movement(
             biped.collider,
             half_height,
             friction,
+            feet_planted,
         ));
     }
-
-    // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
-    let (grounded, ground_linvel) = ground_state(world, body_handle.0, capsule_pos, planet_up);
 
     biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
