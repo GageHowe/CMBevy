@@ -1,7 +1,7 @@
 use bevy::{input::mouse::MouseButton, prelude::*};
 use serde::{Deserialize, Serialize};
 
-pub const INPUT_ACTION_COUNT: usize = 19;
+pub const INPUT_ACTION_COUNT: usize = 20;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug)]
@@ -20,6 +20,7 @@ pub enum InputAction {
     AltFire,
     ToggleFlashlight,
     DropWeapon,
+    DropAbility,
     RollLeft,
     RollRight,
     Pause,
@@ -42,6 +43,7 @@ pub const INPUT_ACTIONS: [InputAction; INPUT_ACTION_COUNT] = [
     InputAction::AltFire,
     InputAction::ToggleFlashlight,
     InputAction::DropWeapon,
+    InputAction::DropAbility,
     InputAction::RollLeft,
     InputAction::RollRight,
     InputAction::Pause,
@@ -198,6 +200,7 @@ pub struct KeyBindings {
     pub alt_fire: ActionBinding,
     pub toggle_flashlight: ActionBinding,
     pub drop_weapon: ActionBinding,
+    pub drop_ability: ActionBinding,
     pub roll_left: ActionBinding,
     pub roll_right: ActionBinding,
     pub pause: ActionBinding,
@@ -222,6 +225,7 @@ impl Default for KeyBindings {
             alt_fire: ActionBinding::new(BindingButton::Mouse(MouseButton::Right), None),
             toggle_flashlight: ActionBinding::new(BindingButton::Key(KeyCode::KeyY), None),
             drop_weapon: ActionBinding::new(BindingButton::Key(KeyCode::KeyP), None),
+            drop_ability: ActionBinding::new(BindingButton::Key(KeyCode::KeyG), None),
             roll_left: ActionBinding::new(BindingButton::Key(KeyCode::KeyQ), None),
             roll_right: ActionBinding::new(BindingButton::Key(KeyCode::KeyE), None),
             pause: ActionBinding::new(BindingButton::Key(KeyCode::Escape), None),
@@ -248,6 +252,7 @@ impl KeyBindings {
             InputAction::AltFire => self.alt_fire,
             InputAction::ToggleFlashlight => self.toggle_flashlight,
             InputAction::DropWeapon => self.drop_weapon,
+            InputAction::DropAbility => self.drop_ability,
             InputAction::RollLeft => self.roll_left,
             InputAction::RollRight => self.roll_right,
             InputAction::Pause => self.pause,
@@ -272,6 +277,7 @@ impl KeyBindings {
             InputAction::AltFire => &mut self.alt_fire,
             InputAction::ToggleFlashlight => &mut self.toggle_flashlight,
             InputAction::DropWeapon => &mut self.drop_weapon,
+            InputAction::DropAbility => &mut self.drop_ability,
             InputAction::RollLeft => &mut self.roll_left,
             InputAction::RollRight => &mut self.roll_right,
             InputAction::Pause => &mut self.pause,

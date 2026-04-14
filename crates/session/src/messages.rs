@@ -115,7 +115,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
         MsgType::Connected => {}
         MsgType::MapHash(hash) => handle_map_hash(hash, quic, &mut mp.spawn.commands),
         MsgType::SpawnCommand(cmd) => {
-            handle_spawn_command(&mut mp.spawn.commands, &mp.networked, just_spawned, cmd)
+            handle_spawn_command(&mut mp.spawn.commands, &mp.networked, just_spawned, cmd, net_stats.rtt_secs)
         }
         MsgType::Possess(net_id) => handle_possess(
             net_id,
@@ -182,7 +182,18 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             handle_health_update(&net_id, current, &mp.networked, &mut mp.health_q)
         }
         MsgType::WeaponState(net_id, state) => {
-            handle_weapon_state(&net_id, state, &mp.networked, &mut mp.weapon_states);
+            // Skip server weapon state for locally held weapons: cooldown/reload/ammo are
+            // predicted client-side, and stale server state (delayed by RTT) causes stutter.
+            let is_local_weapon = {
+                mp.biped_q
+                    .p0()
+                    .single()
+                    .ok()
+                    .map_or(false, |(slots, _)| slots.contains_net_id(&net_id))
+            };
+            if !is_local_weapon {
+                handle_weapon_state(&net_id, state, &mp.networked, &mut mp.weapon_states);
+            }
         }
         MsgType::Pong(text) => {
             info!("Client: Got PONG \"{text}\"");
@@ -220,8 +231,10 @@ fn handle_spawn_command(
     commands: &mut Commands,
     networked: &NetworkEntityMap,
     just_spawned: &mut JustSpawned,
-    cmd: SpawnCommand,
+    mut cmd: SpawnCommand,
+    rtt_secs: f32,
 ) {
+    cmd.position += cmd.starting_velocity * (rtt_secs / 2.0);
     let net_id = cmd.net_id.clone();
     let server_tick = cmd.server_tick;
     let entity = if let Some(entity) = networked.get(&net_id) {

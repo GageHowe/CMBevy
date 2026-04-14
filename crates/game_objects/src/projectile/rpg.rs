@@ -25,7 +25,6 @@ pub const EXPLOSION_RADIUS: f32 = 10.0;
 pub const EXPLOSION_IMPULSE: f32 = 30.0;
 pub const EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS: f32 = 1000.0;
 const RADIUS: f32 = 0.16;
-const DIRECT_HIT_BONUS: f32 = 20.0;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
 #[cfg(feature = "client")]
 pub const EXPLOSION_SHAKE_RADIUS: f32 = 30.0;
@@ -289,14 +288,12 @@ fn explode(
             if predicted.is_none() {
                 if let Ok(mut health) = health_q.get_mut(entity) {
                     let mut damage = DAMAGE * falloff;
-                    if direct_hit == Some(entity) {
-                        damage += DIRECT_HIT_BONUS;
-                    }
                     if shooter == Some(entity) {
                         damage *= SELF_DAMAGE_SCALE;
                     }
                     attribute_damage(last_damage_q, entity, shooter);
                     health.apply_damage(damage);
+                    health.apply_percent_damage(0.2 * falloff);
                 }
             }
         }

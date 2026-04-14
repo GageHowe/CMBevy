@@ -77,6 +77,9 @@ pub struct PhysicsWorld {
 
     pub handle_to_entity: HashMap<RigidBodyHandle, Entity>,
     pub entity_to_handle: HashMap<Entity, RigidBodyHandle>,
+
+    /// Number of physics substeps per game tick. 1 = no substepping. Set by client settings.
+    pub substeps: u32,
 }
 
 impl PhysicsWorld {
@@ -115,6 +118,7 @@ impl PhysicsWorld {
 
             handle_to_entity: HashMap::new(),
             entity_to_handle: HashMap::new(),
+            substeps: 1,
         }
     }
 
@@ -440,12 +444,21 @@ fn on_remove_physics_body(
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
-    step_world(&mut world);
+    let substeps = world.substeps.max(1);
+    if substeps == 1 {
+        world.step();
+        return;
+    }
+    let original_dt = world.integration_parameters.dt;
+    world.integration_parameters.dt = original_dt / substeps as f32;
+    for _ in 0..substeps {
+        world.step();
+    }
+    world.integration_parameters.dt = original_dt;
 }
 
-/// call this when stepping and reconciling
+/// Steps physics exactly once. Use this during reconciliation — never substeps.
 pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
-    // do anything that needs to be done physics-wise
     world.step();
 }
 

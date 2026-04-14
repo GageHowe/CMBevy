@@ -32,6 +32,14 @@ pub struct AbilityOwner(pub Entity);
 #[derive(Component)]
 pub struct BipedAbilityComponent;
 
+/// Stored on every ability entity so `AttachAbility` can drop it without knowing the concrete type.
+#[derive(Component, Clone, Copy)]
+pub struct AbilityDropFn(pub fn(Vec3, Vec3, &mut World));
+
+/// Stored on pickup entities. Called by the interact system when a biped picks it up.
+#[derive(Component, Clone, Copy)]
+pub struct OnPickup(pub fn(Entity, Entity, &mut Commands));
+
 #[derive(Component, Clone, Reflect)]
 pub struct BipedAbilityConfig {
     pub cooldown_ticks: u16,
@@ -95,10 +103,7 @@ pub struct BipedAbilityCtx<'a> {
     pub origin: Vec3,
     pub aim_dir: Vec3,
     pub owner: Entity,
-    pub owner_biped: Option<&'a BipedPawnComponent>,
     pub tick: u64,
-    pub net_id: Option<&'a NetworkID>,
-    pub owner_net_id: Option<&'a NetworkID>,
     pub sound: Option<&'a mut SoundQueue>,
     pub camera: Option<&'a mut CameraEffector>,
     pub quic: Option<&'a mut net::quic::QuicManager>,
@@ -108,10 +113,11 @@ pub struct BipedAbilityCtx<'a> {
 }
 
 /// Spawns a standard ability pickup: dynamic physics body, sphere collider, interactable marker,
-/// and (client-only) a placeholder mesh.  Call from `GameObject::spawn` on your pickup type.
+/// and (client-only) a placeholder mesh.
 pub fn spawn_ability_pickup(
     entity: Entity,
-    cmd: &net::message::SpawnCommand,
+    pos: Vec3,
+    vel: Vec3,
     kind: crate::GameObjectKind,
     radius: f32,
     color: Color,
@@ -120,12 +126,8 @@ pub fn spawn_ability_pickup(
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
         let rb = RigidBodyBuilder::dynamic()
-            .translation(cmd.position)
-            .linvel(Vector3::new(
-                cmd.starting_velocity.x,
-                cmd.starting_velocity.y,
-                cmd.starting_velocity.z,
-            ))
+            .translation(pos)
+            .linvel(Vector3::new(vel.x, vel.y, vel.z))
             .angular_damping(0.5)
             .build();
         let rb_handle = physics.insert_body(entity, rb);
@@ -136,7 +138,7 @@ pub fn spawn_ability_pickup(
     };
     world.entity_mut(entity).insert((
         kind,
-        Transform::from_translation(cmd.position),
+        Transform::from_translation(pos),
         RigidBodyHandleComponent(rb_handle),
         crate::interaction::Interactable { range: 3.0 },
     ));
@@ -149,6 +151,54 @@ pub fn spawn_ability_pickup(
             MeshMaterial3d(material),
             Visibility::default(),
         ));
+    }
+}
+
+/// The `OnPickup` callback stored on all ability pickup entities.
+fn on_pickup_ability<A: BipedAbility + 'static>(biped: Entity, pickup: Entity, commands: &mut Commands) {
+    commands.queue(AttachAbility::<A>::new(biped));
+    commands.entity(pickup).despawn();
+}
+
+/// Spawns an ability pickup at `pos` for ability type `A`. Used by `AbilityDropFn`.
+fn drop_ability_pickup<A: BipedAbility + 'static>(pos: Vec3, vel: Vec3, world: &mut World) {
+    let net_id = world
+        .get_resource_mut::<common::NetworkIDResource>()
+        .map(|mut r| NetworkID(r.next()));
+    let entity = world.spawn_empty().id();
+    if let Some(net_id) = net_id {
+        world.entity_mut(entity).insert(net_id);
+    }
+    let (r, g, b) = A::PICKUP_COLOR;
+    spawn_ability_pickup(entity, pos, vel, A::KIND, A::PICKUP_RADIUS, Color::srgb(r, g, b), world);
+    world.entity_mut(entity).insert(OnPickup(on_pickup_ability::<A>));
+}
+
+/// Drops all abilities owned by `owner`. `throw_vel` is added on top of the owner's physics velocity.
+fn drop_owned_abilities(owner: Entity, throw_vel: Vec3, world: &mut World) {
+    let vel = {
+        let physics = world.resource::<PhysicsWorld>();
+        physics
+            .entity_to_handle
+            .get(&owner)
+            .and_then(|h| physics.rigid_body_set.get(*h))
+            .map(|rb| {
+                let v = rb.linvel();
+                Vec3::new(v.x, v.y, v.z)
+            })
+            .unwrap_or(Vec3::ZERO)
+    } + throw_vel;
+    let pos = world.get::<Transform>(owner).map(|t| t.translation).unwrap_or(Vec3::ZERO);
+    let mut q =
+        world.query_filtered::<(Entity, &AbilityOwner, &AbilityDropFn), With<BipedAbilityComponent>>();
+    let to_drop: Vec<(Entity, AbilityDropFn)> = q
+        .iter(world)
+        .filter(|(_, o, _)| o.0 == owner)
+        .map(|(e, _, f)| (e, *f))
+        .collect();
+    for (e, drop_fn) in to_drop {
+        (drop_fn.0)(pos, vel, world);
+        world.despawn(e);
     }
 }
 
@@ -198,7 +248,16 @@ impl<A: BipedAbility + Reflect + bevy::reflect::TypePath + 'static> crate::GameO
 {
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let (r, g, b) = A::PICKUP_COLOR;
-        spawn_ability_pickup(entity, cmd, A::KIND, A::PICKUP_RADIUS, Color::srgb(r, g, b), world);
+        spawn_ability_pickup(
+            entity,
+            cmd.position,
+            cmd.starting_velocity,
+            A::KIND,
+            A::PICKUP_RADIUS,
+            Color::srgb(r, g, b),
+            world,
+        );
+        world.entity_mut(entity).insert(OnPickup(on_pickup_ability::<A>));
     }
 }
 
@@ -216,8 +275,21 @@ impl<A: BipedAbility> AttachAbility<A> {
 
 impl<A: BipedAbility + 'static> bevy::ecs::system::Command for AttachAbility<A> {
     fn apply(self, world: &mut World) {
+        drop_owned_abilities(self.owner, Vec3::ZERO, world);
         let bundle = biped_ability_bundle(A::default(), world);
         world.spawn((bundle, AbilityOwner(self.owner)));
+    }
+}
+
+/// Drops the active ability of `owner` back into the world as a pickup.
+pub struct DropActiveAbility {
+    pub owner: Entity,
+    pub aim_dir: Vec3,
+}
+
+impl bevy::ecs::system::Command for DropActiveAbility {
+    fn apply(self, world: &mut World) {
+        drop_owned_abilities(self.owner, self.aim_dir * 5.0, world);
     }
 }
 
@@ -231,21 +303,26 @@ pub fn biped_ability_bundle<A: BipedAbility + 'static>(
         ability,
         BipedAbilityConfig::new::<A>(),
         BipedAbilityState::new::<A>(),
+        AbilityDropFn(drop_ability_pickup::<A>),
         BipedAbilityDriver { fixed_update: world.register_system_cached(use_biped_ability::<A>) },
     )
 }
 
 #[cfg(not(feature = "client"))]
 pub fn biped_ability_bundle<A: BipedAbility>(ability: A, _world: &mut World) -> impl Bundle {
-    (BipedAbilityComponent, ability, BipedAbilityConfig::new::<A>(), BipedAbilityState::new::<A>())
+    (
+        BipedAbilityComponent,
+        ability,
+        BipedAbilityConfig::new::<A>(),
+        BipedAbilityState::new::<A>(),
+        AbilityDropFn(drop_ability_pickup::<A>),
+    )
 }
 
 #[cfg(feature = "client")]
 pub fn use_biped_ability<A: BipedAbility>(
     In(input): In<BipedAbilityInput>,
     mut abilities: Query<(&mut A, &mut BipedAbilityState, &BipedAbilityConfig)>,
-    bipeds: Query<&BipedPawnComponent>,
-    net_ids: Query<&NetworkID>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
@@ -257,53 +334,34 @@ pub fn use_biped_ability<A: BipedAbility>(
     else {
         return;
     };
-    let owner_biped = bipeds.get(input.owner).ok();
-    if let Ok((mut camera_fx, camera_gt)) = camera_fx.single_mut() {
-        let (_, rot, _) = camera_gt.to_scale_rotation_translation();
-        let mut ctx = BipedAbilityCtx {
-            ability: input.ability,
-            pressed: input.pressed,
-            held: input.held,
-            alt_pressed: input.alt_pressed,
-            alt_held: input.alt_held,
-            origin: input.origin,
-            aim_dir: rot * Vec3::NEG_Z,
-            owner: input.owner,
-            owner_biped,
-            tick: input.tick,
-            net_id: net_ids.get(input.ability).ok(),
-            owner_net_id: net_ids.get(input.owner).ok(),
-            sound: sound_queue.as_deref_mut(),
-            camera: Some(&mut *camera_fx),
-            quic: quic.as_deref_mut(),
-            predicted: predicted.as_deref_mut(),
-            state: &mut ability_state,
-            config: ability_config.clone(),
-        };
-        ability.fixed_update(&mut world, &mut commands, &mut ctx);
+    let mut camera_slot;
+    let aim_dir;
+    if let Ok((fx, gt)) = camera_fx.single_mut() {
+        let (_, rot, _) = gt.to_scale_rotation_translation();
+        aim_dir = rot * Vec3::NEG_Z;
+        camera_slot = Some(fx);
     } else {
-        let mut ctx = BipedAbilityCtx {
-            ability: input.ability,
-            pressed: input.pressed,
-            held: input.held,
-            alt_pressed: input.alt_pressed,
-            alt_held: input.alt_held,
-            origin: input.origin,
-            aim_dir: Vec3::NEG_Z,
-            owner: input.owner,
-            owner_biped,
-            tick: input.tick,
-            net_id: net_ids.get(input.ability).ok(),
-            owner_net_id: net_ids.get(input.owner).ok(),
-            sound: sound_queue.as_deref_mut(),
-            camera: None,
-            quic: quic.as_deref_mut(),
-            predicted: predicted.as_deref_mut(),
-            state: &mut ability_state,
-            config: ability_config.clone(),
-        };
-        ability.fixed_update(&mut world, &mut commands, &mut ctx);
+        aim_dir = Vec3::NEG_Z;
+        camera_slot = None;
     }
+    let mut ctx = BipedAbilityCtx {
+        ability: input.ability,
+        pressed: input.pressed,
+        held: input.held,
+        alt_pressed: input.alt_pressed,
+        alt_held: input.alt_held,
+        origin: input.origin,
+        aim_dir,
+        owner: input.owner,
+        tick: input.tick,
+        sound: sound_queue.as_deref_mut(),
+        camera: camera_slot.as_deref_mut(),
+        quic: quic.as_deref_mut(),
+        predicted: predicted.as_deref_mut(),
+        state: &mut ability_state,
+        config: ability_config.clone(),
+    };
+    ability.fixed_update(&mut world, &mut commands, &mut ctx);
 }
 
 pub fn tick_biped_ability_state(
@@ -376,11 +434,19 @@ fn drive_biped_abilities(
     let Ok(gt) = pitch_pivots.get(pitch_e) else {
         return;
     };
-    let (_, _, origin) = gt.to_scale_rotation_translation();
+    let (_, rot, origin) = gt.to_scale_rotation_translation();
+    let aim_dir = rot * Vec3::NEG_Z;
 
     let held = !blocked && bindings.pressed(common::InputAction::Ability, &keyboard, &mouse);
     let pressed =
         !blocked && bindings.just_pressed(common::InputAction::Ability, &keyboard, &mouse);
+    let drop_pressed =
+        !blocked && bindings.just_pressed(common::InputAction::DropAbility, &keyboard, &mouse);
+
+    if drop_pressed {
+        commands.queue(DropActiveAbility { owner: pawn_entity, aim_dir });
+        return;
+    }
 
     for (ability_entity, driver, owner) in abilities.iter() {
         if owner.0 != pawn_entity {

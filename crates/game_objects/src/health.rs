@@ -70,6 +70,11 @@ impl Health {
         self.current = (self.current - amount).max(0.0);
     }
 
+    /// Deals damage equal to `fraction` of current max health (e.g. 0.2 = 20%).
+    pub fn apply_percent_damage(&mut self, fraction: f32) {
+        self.apply_damage(self.max * fraction);
+    }
+
     pub fn is_dead(&self) -> bool {
         self.current <= 0.0
     }

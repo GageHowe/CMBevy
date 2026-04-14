@@ -30,7 +30,7 @@ const THRUST: f32 = 2000.0;
 const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
 const MAX_TORQUE: f32 = 40000.0;
-const SPACESHIP_MAX_HEALTH: f32 = 300.0;
+const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -70,7 +70,6 @@ impl Pawn for SpaceshipPawnComponent {
 impl VehiclePawn for SpaceshipPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
     const DRIVER_SEAT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
-    const DRIVER_EXIT_OFFSET: Vec3 = Vec3::new(2.0, 0.0, 0.0);
     const DRIVER_INTERACT_RADIUS: f32 = 0.8;
 }
 

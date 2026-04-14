@@ -5,7 +5,7 @@ use rapier3d::prelude::Vector3;
 use super::super::{BipedAbility, BipedAbilityCtx, drain_meter};
 use crate::GameObjectKind;
 
-const THRUST: f32 = 0.1;
+const THRUST: f32 = 0.5;
 const DRAIN: f32 = 1.5;
 
 #[derive(Component, Default, Reflect)]

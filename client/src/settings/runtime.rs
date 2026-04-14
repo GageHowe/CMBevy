@@ -10,9 +10,11 @@ use bevy::{
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
 use common::ActiveKeyBindings;
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
-use physics::physics_world::PhysicsInterpMode;
+use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
 
-use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
+use super::data::{
+    DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, ShadowQuality, SsaoQuality, VsyncMode,
+};
 use crate::outline::OutlineSettings;
 
 pub fn apply_settings(
@@ -21,6 +23,7 @@ pub fn apply_settings(
     mut sensitivity: ResMut<MouseSensitivity>,
     mut snap_comp: ResMut<LookSnapCompensation>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
+    mut physics_world: ResMut<PhysicsWorld>,
     mut cam_effects: Query<(Entity, &mut CameraEffector), With<Camera3d>>,
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
     mut directional_lights: Query<&mut DirectionalLight>,
@@ -65,6 +68,7 @@ pub fn apply_settings(
         PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
         PhysicsInterp::RotationOnly => PhysicsInterpMode::RotationOnly,
     };
+    physics_world.substeps = settings.physics_substeps.count();
 
     if let Ok(mut egui_settings) = egui_context_settings.single_mut() {
         egui_settings.scale_factor = settings.ui_scale;
@@ -98,12 +102,6 @@ pub fn sync_dynamic_graphics_settings(
         apply_camera_graphics(&mut camera, &settings, window_size);
     }
 
-    if window_changed {
-        for camera_entity in &camera_entities {
-            let mut camera = commands.entity(camera_entity);
-            apply_render_scale(&mut camera, &settings, window_size);
-        }
-    }
 
     if !added_directional_lights.is_empty() {
         directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
@@ -199,27 +197,6 @@ fn apply_camera_graphics(
         },
     ));
 
-    apply_render_scale(camera, settings, window_size);
-}
-
-fn apply_render_scale(
-    camera: &mut EntityCommands,
-    settings: &Settings,
-    window_size: Option<UVec2>,
-) {
-    let render_scale = settings.render_scale.clamp(0.25, 1.0);
-    if render_scale >= 0.99 {
-        camera.remove::<bevy::camera::MainPassResolutionOverride>();
-        return;
-    }
-
-    let Some(window_size) = window_size else {
-        return;
-    };
-
-    let scaled = window_size.as_vec2() * render_scale;
-    let scaled = scaled.max(Vec2::splat(1.0)).round().as_uvec2();
-    camera.insert(bevy::camera::MainPassResolutionOverride(scaled));
 }
 
 fn shadow_map_size(shadow_quality: &ShadowQuality) -> usize {

@@ -31,7 +31,6 @@ pub struct SeatedInVehicle(pub Entity);
 pub trait VehiclePawn: Pawn {
     const CAMERA_OFFSET: Vec3;
     const DRIVER_SEAT_OFFSET: Vec3;
-    const DRIVER_EXIT_OFFSET: Vec3 = Vec3::new(4.0, 0.0, 0.0);
     const DRIVER_INTERACT_RADIUS: f32 = 1.0;
 }
 
@@ -45,7 +44,7 @@ pub struct DriverSeat {
 
 impl Default for DriverSeat {
     fn default() -> Self {
-        Self { occupant: None, interact_radius: 1.0, exit_offset: Vec3::X * 4.0 }
+        Self { occupant: None, interact_radius: 1.0, exit_offset: Vec3::ZERO }
     }
 }
 
@@ -88,11 +87,7 @@ pub fn ray_hits_cockpit(
 pub fn spawn_driver_seat<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
     let seat = world
         .spawn((
-            DriverSeat {
-                interact_radius: T::DRIVER_INTERACT_RADIUS,
-                exit_offset: T::DRIVER_EXIT_OFFSET,
-                ..default()
-            },
+            DriverSeat { interact_radius: T::DRIVER_INTERACT_RADIUS, ..default() },
             Transform::from_translation(T::DRIVER_SEAT_OFFSET),
             Visibility::default(),
         ))

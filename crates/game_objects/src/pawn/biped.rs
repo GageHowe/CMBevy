@@ -1002,6 +1002,7 @@ fn interact(
     mut quic: ResMut<net::quic::QuicManager>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
     object_kinds: Query<&GameObjectKind>,
+    pickup_fns: Query<&crate::pawn::biped_ability::OnPickup>,
     mut cockpit_q: ParamSet<(
         Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
         Query<(&mut DriverSeat, &Transform, &ChildOf)>,
@@ -1107,14 +1108,9 @@ fn interact(
         return;
     }
 
-    // Ability pickups (jetpack, etc.) are handled before weapon logic.
-    if let Ok(GameObjectKind::Jetpack) = object_kinds.get(hit_entity) {
+    if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = pickup_fns.get(hit_entity) {
         if matches!(state.get(), GameState::SinglePlayer) {
-            commands.queue(crate::pawn::biped_ability::AttachAbility::<
-                crate::pawn::biped_ability::implementors::JetpackAbility,
-            >::new(pawn_entity));
-            commands.entity(hit_entity).despawn();
-            crate::messages::push(&mut commands, "Picked up Jetpack".to_string());
+            f(pawn_entity, hit_entity, &mut commands);
         }
         return;
     }

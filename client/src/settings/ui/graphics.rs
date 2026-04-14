@@ -1,7 +1,7 @@
 use bevy_egui::egui;
 
 use crate::settings::{
-    DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode,
+    DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, ShadowQuality, SsaoQuality, VsyncMode,
 };
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
@@ -78,16 +78,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                             );
                         }
                     });
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Render scale")
-                    .on_hover_text("Renders the 3D main pass below native resolution, then upscales. UI stays sharp.");
-                ui.add(
-                    egui::Slider::new(&mut settings.render_scale, 0.25..=1.0)
-                        .step_by(0.05)
-                        .fixed_decimals(2),
-                );
             });
 
             ui.horizontal(|ui| {
@@ -204,6 +194,17 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                     "Rotation only",
                 )
                 .on_hover_text("Only smooths rotation; position is not interpolated. Good balance of responsiveness and smoothness.");
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Physics substeps")
+                    .on_hover_text("Run multiple physics steps per tick. Improves accuracy at the cost of CPU time. Ignored during reconciliation.");
+                ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::One, "Off")
+                    .on_hover_text("One physics step per tick.");
+                ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::Two, "2x")
+                    .on_hover_text("Two physics steps per tick.");
+                ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::Four, "4x")
+                    .on_hover_text("Four physics steps per tick.");
             });
         });
 
