@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 #[derive(Resource, Default)]
 pub struct NetworkEntityMap {
-    by_id: HashMap<net::message::NetworkID, Entity>,
-    by_entity: HashMap<Entity, net::message::NetworkID>,
-    bodies_by_id: HashMap<net::message::NetworkID, RigidBodyHandle>,
+    netid_to_entity: HashMap<net::message::NetworkID, Entity>,
+    entity_to_netid: HashMap<Entity, net::message::NetworkID>,
+    netid_to_rigidbody: HashMap<net::message::NetworkID, RigidBodyHandle>,
 }
 
 impl NetworkEntityMap {
@@ -17,15 +17,15 @@ impl NetworkEntityMap {
     }
 
     pub fn get_entity(&self, net_id: &net::message::NetworkID) -> Option<Entity> {
-        self.by_id.get(net_id).copied()
+        self.netid_to_entity.get(net_id).copied()
     }
 
     pub fn get_net_id_for_entity(&self, entity: Entity) -> Option<&net::message::NetworkID> {
-        self.by_entity.get(&entity)
+        self.entity_to_netid.get(&entity)
     }
 
     pub fn get_body(&self, net_id: &net::message::NetworkID) -> Option<RigidBodyHandle> {
-        self.bodies_by_id.get(net_id).copied()
+        self.netid_to_rigidbody.get(net_id).copied()
     }
 
     pub fn get_entity_and_body(
@@ -36,43 +36,43 @@ impl NetworkEntityMap {
     }
 
     pub fn body_pairs(&self) -> impl Iterator<Item = (&net::message::NetworkID, &RigidBodyHandle)> {
-        self.bodies_by_id.iter()
+        self.netid_to_rigidbody.iter()
     }
 
     pub fn body_pairs_vec(&self) -> Vec<(net::message::NetworkID, RigidBodyHandle)> {
-        self.bodies_by_id
+        self.netid_to_rigidbody
             .iter()
             .map(|(net_id, handle)| (net_id.clone(), *handle))
             .collect()
     }
 
     pub fn insert(&mut self, net_id: net::message::NetworkID, entity: Entity) {
-        if let Some(prev_id) = self.by_entity.insert(entity, net_id.clone()) {
-            self.by_id.remove(&prev_id);
-            self.bodies_by_id.remove(&prev_id);
+        if let Some(prev_id) = self.entity_to_netid.insert(entity, net_id.clone()) {
+            self.netid_to_entity.remove(&prev_id);
+            self.netid_to_rigidbody.remove(&prev_id);
         }
-        if let Some(prev_entity) = self.by_id.insert(net_id.clone(), entity) {
-            self.by_entity.remove(&prev_entity);
+        if let Some(prev_entity) = self.netid_to_entity.insert(net_id.clone(), entity) {
+            self.entity_to_netid.remove(&prev_entity);
         }
     }
 
     pub fn insert_body(&mut self, net_id: net::message::NetworkID, handle: RigidBodyHandle) {
-        self.bodies_by_id.insert(net_id, handle);
+        self.netid_to_rigidbody.insert(net_id, handle);
     }
 
     pub fn remove_entity(&mut self, entity: Entity) {
-        let Some(net_id) = self.by_entity.remove(&entity) else {
+        let Some(net_id) = self.entity_to_netid.remove(&entity) else {
             return;
         };
-        self.by_id.remove(&net_id);
-        self.bodies_by_id.remove(&net_id);
+        self.netid_to_entity.remove(&net_id);
+        self.netid_to_rigidbody.remove(&net_id);
     }
 
     pub fn remove_body_for_entity(&mut self, entity: Entity) {
-        let Some(net_id) = self.by_entity.get(&entity) else {
+        let Some(net_id) = self.entity_to_netid.get(&entity) else {
             return;
         };
-        self.bodies_by_id.remove(net_id);
+        self.netid_to_rigidbody.remove(net_id);
     }
 }
 
@@ -106,7 +106,7 @@ pub(crate) fn index_added_or_changed_rigid_bodies(
     >,
 ) {
     for (entity, body) in bodies.iter() {
-        let Some(net_id) = map.by_entity.get(&entity).cloned() else {
+        let Some(net_id) = map.entity_to_netid.get(&entity).cloned() else {
             continue;
         };
         map.insert_body(net_id, body.0);

@@ -53,7 +53,7 @@ impl Weapon for HailMaryComponent {
         if ctx.reload_pressed {
             super::start_reload(ctx.weapon_state, &ctx.weapon_config);
         }
-        if ctx.want_fire && super::can_fire(ctx.weapon_state) {
+        if ctx.want_fire {
             self.fire_requested = true;
         }
         if !self.fire_requested {

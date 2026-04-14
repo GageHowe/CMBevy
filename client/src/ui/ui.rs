@@ -354,7 +354,6 @@ fn gui_notifications(
         )
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 70.0))
         .show(contexts.ctx_mut().unwrap(), |ui| {
-            ui.style_mut().override_text_style = Some(egui::TextStyle::Small);
             for entry in &messages.0 {
                 let age = (now - entry.created_at).max(0.0);
                 let alpha = (1.0 - age / MESSAGE_TTL_SECS).clamp(0.0, 1.0);

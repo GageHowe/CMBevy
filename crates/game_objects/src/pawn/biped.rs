@@ -92,7 +92,7 @@ impl GameObject for BipedPawnComponent {
             ..default()
         };
         world.entity_mut(entity).insert((
-            WeaponSlots::new(2),
+            WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
             Health::new(100.0),
             HealthRegen {
                 per_sec: BIPED_REGEN_PER_SEC,
@@ -955,9 +955,16 @@ fn biped_fire(
     ticker: Res<common::tick::Ticker>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
+    let want_fire = !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse);
     let Ok((pawn_entity, mut slots, biped)) = pawn.single_mut() else {
         return;
     };
+    if !want_fire {
+        slots.block_fire_until_release = false;
+    }
+    if slots.block_fire_until_release {
+        return;
+    }
     let Some(weapon_entity) = slots.active().1 else {
         return;
     };
@@ -986,7 +993,7 @@ fn biped_fire(
         driver.fixed_update,
         WeaponFireInput {
             weapon: weapon_entity,
-            want_fire: !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse),
+            want_fire,
             want_alt_fire: !blocked
                 && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse),
             reload_pressed,
@@ -998,12 +1005,13 @@ fn biped_fire(
     let Ok(weapon_state) = weapon_states.get(weapon_entity) else {
         return;
     };
-    if !crate::weapon::is_depleted(weapon_state) {
+    if !slots.delete_on_out_of_ammo || !crate::weapon::is_depleted(weapon_state) {
         return;
     }
     let Some((_weapon_id, depleted_weapon_entity)) = slots.remove_active() else {
         return;
     };
+    slots.block_fire_until_release = want_fire;
     commands.entity(depleted_weapon_entity).despawn();
     crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
     crate::messages::push(&mut commands, "Out of ammo");

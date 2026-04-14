@@ -77,6 +77,7 @@ impl CameraEffector {
     }
     pub fn reset_zoom(&mut self) {
         self.zoom_multiplier = 1.0;
+        self.current_fov = self.base_fov;
     }
 
     #[cfg(feature = "client")]
