@@ -1,5 +1,4 @@
-use bevy::input::mouse::MouseButton;
-use bevy::prelude::*;
+use bevy::{input::mouse::MouseButton, prelude::*};
 use serde::{Deserialize, Serialize};
 
 pub const INPUT_ACTION_COUNT: usize = 19;
@@ -15,7 +14,7 @@ pub enum InputAction {
     Crouch,
     Sprint,
     Interact,
-    Ability2,
+    Ability,
     Reload,
     Fire,
     AltFire,
@@ -37,7 +36,7 @@ pub const INPUT_ACTIONS: [InputAction; INPUT_ACTION_COUNT] = [
     InputAction::Crouch,
     InputAction::Sprint,
     InputAction::Interact,
-    InputAction::Ability2,
+    InputAction::Ability,
     InputAction::Reload,
     InputAction::Fire,
     InputAction::AltFire,
@@ -88,10 +87,7 @@ pub struct ActionBinding {
 
 impl ActionBinding {
     pub const fn new(primary: BindingButton, secondary: Option<BindingButton>) -> Self {
-        Self {
-            primary: Some(primary),
-            secondary,
-        }
+        Self { primary: Some(primary), secondary }
     }
 
     pub fn pressed(
@@ -99,11 +95,8 @@ impl ActionBinding {
         keyboard: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.primary
-            .is_some_and(|button| button.pressed(keyboard, mouse))
-            || self
-                .secondary
-                .is_some_and(|button| button.pressed(keyboard, mouse))
+        self.primary.is_some_and(|button| button.pressed(keyboard, mouse))
+            || self.secondary.is_some_and(|button| button.pressed(keyboard, mouse))
     }
 
     pub fn just_pressed(
@@ -111,11 +104,8 @@ impl ActionBinding {
         keyboard: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.primary
-            .is_some_and(|button| button.just_pressed(keyboard, mouse))
-            || self
-                .secondary
-                .is_some_and(|button| button.just_pressed(keyboard, mouse))
+        self.primary.is_some_and(|button| button.just_pressed(keyboard, mouse))
+            || self.secondary.is_some_and(|button| button.just_pressed(keyboard, mouse))
     }
 
     pub fn button(self, slot: BindingSlot) -> Option<BindingButton> {
@@ -202,7 +192,7 @@ pub struct KeyBindings {
     pub crouch: ActionBinding,
     pub sprint: ActionBinding,
     pub interact: ActionBinding,
-    pub ability2: ActionBinding,
+    pub ability: ActionBinding,
     pub reload: ActionBinding,
     pub fire: ActionBinding,
     pub alt_fire: ActionBinding,
@@ -226,7 +216,7 @@ impl Default for KeyBindings {
             crouch: ActionBinding::new(BindingButton::Key(KeyCode::ControlLeft), None),
             sprint: ActionBinding::new(BindingButton::Key(KeyCode::ShiftLeft), None),
             interact: ActionBinding::new(BindingButton::Key(KeyCode::KeyF), None),
-            ability2: ActionBinding::new(BindingButton::Key(KeyCode::KeyE), None),
+            ability: ActionBinding::new(BindingButton::Key(KeyCode::KeyE), None),
             reload: ActionBinding::new(BindingButton::Key(KeyCode::KeyR), None),
             fire: ActionBinding::new(BindingButton::Mouse(MouseButton::Left), None),
             alt_fire: ActionBinding::new(BindingButton::Mouse(MouseButton::Right), None),
@@ -252,7 +242,7 @@ impl KeyBindings {
             InputAction::Crouch => self.crouch,
             InputAction::Sprint => self.sprint,
             InputAction::Interact => self.interact,
-            InputAction::Ability2 => self.ability2,
+            InputAction::Ability => self.ability,
             InputAction::Reload => self.reload,
             InputAction::Fire => self.fire,
             InputAction::AltFire => self.alt_fire,
@@ -276,7 +266,7 @@ impl KeyBindings {
             InputAction::Crouch => &mut self.crouch,
             InputAction::Sprint => &mut self.sprint,
             InputAction::Interact => &mut self.interact,
-            InputAction::Ability2 => &mut self.ability2,
+            InputAction::Ability => &mut self.ability,
             InputAction::Reload => &mut self.reload,
             InputAction::Fire => &mut self.fire,
             InputAction::AltFire => &mut self.alt_fire,

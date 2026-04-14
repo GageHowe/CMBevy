@@ -1,14 +1,15 @@
 // physics_world.rs
 // this manages the physics simulation and syncs it with clients
 
-use crate::collider_shape::ColliderShape;
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use common::{BodyState, NetworkID, PredictedCommands, SimulationState};
-pub use rapier3d::prelude::RigidBodyHandle;
-pub use rapier3d::prelude::Vector3;
 use rapier3d::prelude::*;
+pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::collider_shape::ColliderShape;
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
@@ -213,11 +214,8 @@ impl PhysicsWorld {
         let linvel = rb_vel(rb);
         let angvel = rb_angvel(rb);
         let predicted = rb.predict_position_using_velocity(self.integration_parameters.dt);
-        let predicted_pos = Vec3::new(
-            predicted.translation.x,
-            predicted.translation.y,
-            predicted.translation.z,
-        );
+        let predicted_pos =
+            Vec3::new(predicted.translation.x, predicted.translation.y, predicted.translation.z);
         let predicted_rot = Quat::from_xyzw(
             predicted.rotation.x,
             predicted.rotation.y,
@@ -225,12 +223,7 @@ impl PhysicsWorld {
             predicted.rotation.w,
         );
         let offset = predicted_rot * local_point;
-        Some((
-            predicted_pos + offset,
-            predicted_rot,
-            linvel + angvel.cross(offset),
-            angvel,
-        ))
+        Some((predicted_pos + offset, predicted_rot, linvel + angvel.cross(offset), angvel))
     }
 
     /// Shared gameplay impulse path so callers don't have to manually keep prediction in sync.
@@ -324,10 +317,8 @@ impl PhysicsWorld {
         exclude: &[Entity],
     ) -> Option<(Entity, f32, Vec3)> {
         use rapier3d::parry::query::ShapeCastOptions;
-        let excluded: Vec<RigidBodyHandle> = exclude
-            .iter()
-            .filter_map(|e| self.entity_to_handle.get(e).copied())
-            .collect();
+        let excluded: Vec<RigidBodyHandle> =
+            exclude.iter().filter_map(|e| self.entity_to_handle.get(e).copied()).collect();
         let pred = |_: ColliderHandle, col: &Collider| {
             !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
@@ -341,20 +332,11 @@ impl PhysicsWorld {
         let shape = Ball::new(radius);
         let iso = Pose::translation(origin.x, origin.y, origin.z);
         let vel = Vector::new(direction.x, direction.y, direction.z);
-        qp.cast_shape(
-            &iso,
-            vel,
-            &shape,
-            ShapeCastOptions::with_max_time_of_impact(max_distance),
-        )
-        .and_then(|(ch, hit)| {
-            let rb_handle = self.collider_set.get(ch)?.parent()?;
-            Some((
-                *self.handle_to_entity.get(&rb_handle)?,
-                hit.time_of_impact,
-                hit.normal2,
-            ))
-        })
+        qp.cast_shape(&iso, vel, &shape, ShapeCastOptions::with_max_time_of_impact(max_distance))
+            .and_then(|(ch, hit)| {
+                let rb_handle = self.collider_set.get(ch)?.parent()?;
+                Some((*self.handle_to_entity.get(&rb_handle)?, hit.time_of_impact, hit.normal2))
+            })
     }
 
     /// Cast a ray and return the first entity hit and the distance to impact.
@@ -366,10 +348,8 @@ impl PhysicsWorld {
         max_distance: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, f32)> {
-        let excluded: Vec<RigidBodyHandle> = exclude
-            .iter()
-            .filter_map(|e| self.entity_to_handle.get(e).copied())
-            .collect();
+        let excluded: Vec<RigidBodyHandle> =
+            exclude.iter().filter_map(|e| self.entity_to_handle.get(e).copied()).collect();
         let pred = |_: ColliderHandle, col: &Collider| {
             !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
@@ -490,11 +470,7 @@ pub fn snapshot_bodies<'a>(
             );
         }
     }
-    SimulationState {
-        tick,
-        last_input_seq: 0,
-        bodies,
-    }
+    SimulationState { tick, last_input_seq: 0, bodies }
 }
 
 pub fn snapshot_body_handles<'a>(
@@ -516,11 +492,7 @@ pub fn snapshot_body_handles<'a>(
             );
         }
     }
-    SimulationState {
-        tick,
-        last_input_seq: 0,
-        bodies,
-    }
+    SimulationState { tick, last_input_seq: 0, bodies }
 }
 
 /// Apply a server snapshot to the physics world.
@@ -542,22 +514,11 @@ pub fn restore_snapshot(
             true,
         );
         rb.set_rotation(
-            Quat::from_xyzw(
-                state.rotation.x,
-                state.rotation.y,
-                state.rotation.z,
-                state.rotation.w,
-            ),
+            Quat::from_xyzw(state.rotation.x, state.rotation.y, state.rotation.z, state.rotation.w),
             true,
         );
-        rb.set_linvel(
-            Vector3::new(state.linvel.x, state.linvel.y, state.linvel.z),
-            true,
-        );
-        rb.set_angvel(
-            Vector3::new(state.angvel.x, state.angvel.y, state.angvel.z),
-            true,
-        );
+        rb.set_linvel(Vector3::new(state.linvel.x, state.linvel.y, state.linvel.z), true);
+        rb.set_angvel(Vector3::new(state.angvel.x, state.angvel.y, state.angvel.z), true);
         rb.wake_up(true);
     }
 }

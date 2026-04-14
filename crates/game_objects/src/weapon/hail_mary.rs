@@ -1,9 +1,12 @@
-use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
-use crate::projectile::{hail_mary, helpers as projectile_helpers};
-use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+
+use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
+use crate::{
+    GameObject, GameObjectKind,
+    projectile::{hail_mary, helpers as projectile_helpers},
+};
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
@@ -125,10 +128,7 @@ impl GameObject for HailMaryComponent {
             ))
             .id();
         let weapon = weapon_bundle(
-            HailMaryComponent {
-                muzzle_flash_light: Some(light),
-                ..default()
-            },
+            HailMaryComponent { muzzle_flash_light: Some(light), ..default() },
             world,
         );
         helpers::insert_generic_weapon(

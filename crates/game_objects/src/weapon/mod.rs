@@ -1,10 +1,10 @@
-use crate::pawn::CameraEffector;
-use crate::sound::SoundQueue;
 #[cfg(feature = "client")]
 use bevy::ecs::system::{In, SystemId};
 use bevy::prelude::*;
 use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
+
+use crate::{pawn::CameraEffector, sound::SoundQueue};
 
 pub mod hail_mary;
 pub mod helpers;
@@ -146,9 +146,7 @@ pub fn weapon_bundle<W: Weapon + 'static>(weapon: W, world: &mut World) -> impl 
         weapon,
         WeaponConfig::new::<W>(),
         WeaponState::new::<W>(),
-        WeaponDriver {
-            fixed_update: world.register_system_cached(fire_weapon::<W>),
-        },
+        WeaponDriver { fixed_update: world.register_system_cached(fire_weapon::<W>) },
     )
 }
 
@@ -208,12 +206,7 @@ pub fn apply_zoom<W: Weapon>(ctx: &mut FireCtx) -> f32 {
     let Some(cam) = ctx.camera.as_mut() else {
         return 0.0;
     };
-    let zoom_multiplier = if ctx.want_alt_fire {
-        W::ZOOM_MULTIPLIER
-    } else {
-        1.0
-    }
-    .max(1.0);
+    let zoom_multiplier = if ctx.want_alt_fire { W::ZOOM_MULTIPLIER } else { 1.0 }.max(1.0);
     cam.zoom_multiplier = zoom_multiplier;
     if zoom_multiplier <= 1.0 {
         return 0.0;

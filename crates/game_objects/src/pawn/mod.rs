@@ -1,5 +1,6 @@
 // pub mod kinds;
 pub mod biped;
+pub mod biped_ability;
 pub mod spaceship;
 pub mod vehicle;
 pub mod weapon_slots;
@@ -60,20 +61,12 @@ impl CameraEffector {
         {
             return;
         }
-        self.active_shakes.push(ActiveCameraShake {
-            shake,
-            age: 0.0,
-            seed: fastrand::i32(..),
-        });
+        self.active_shakes.push(ActiveCameraShake { shake, age: 0.0, seed: fastrand::i32(..) });
     }
     pub fn current_zoom_factor(&self) -> f32 {
         let base = (self.base_fov.to_radians() * 0.5).tan();
         let current = (self.current_fov.to_radians() * 0.5).tan();
-        if current > 0.0 {
-            (base / current).max(1.0)
-        } else {
-            1.0
-        }
+        if current > 0.0 { (base / current).max(1.0) } else { 1.0 }
     }
     pub fn reset_zoom(&mut self) {
         self.zoom_multiplier = 1.0;
@@ -93,11 +86,16 @@ impl CameraEffector {
                 return false;
             }
             let sample_t = active.age * active.shake.frequency;
-            translation.x += active.shake.translation.x * envelope * perlin_1d(sample_t, active.seed, 11.0);
-            translation.y += active.shake.translation.y * envelope * perlin_1d(sample_t, active.seed, 23.0);
-            translation.z += active.shake.translation.z * envelope * perlin_1d(sample_t, active.seed, 37.0);
-            rotation.x += active.shake.rotation.x * envelope * perlin_1d(sample_t, active.seed, 41.0);
-            rotation.y += active.shake.rotation.y * envelope * perlin_1d(sample_t, active.seed, 53.0);
+            translation.x +=
+                active.shake.translation.x * envelope * perlin_1d(sample_t, active.seed, 11.0);
+            translation.y +=
+                active.shake.translation.y * envelope * perlin_1d(sample_t, active.seed, 23.0);
+            translation.z +=
+                active.shake.translation.z * envelope * perlin_1d(sample_t, active.seed, 37.0);
+            rotation.x +=
+                active.shake.rotation.x * envelope * perlin_1d(sample_t, active.seed, 41.0);
+            rotation.y +=
+                active.shake.rotation.y * envelope * perlin_1d(sample_t, active.seed, 53.0);
             roll += active.shake.roll * envelope * perlin_1d(sample_t, active.seed, 67.0);
             true
         });
@@ -133,24 +131,23 @@ struct ActiveCameraShake {
 }
 // pub mod dep;
 
-use crate::GameObject;
+use std::collections::HashMap;
+
 use bevy::prelude::*;
+pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::PredictedCommands;
+pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 #[cfg(feature = "client")]
 use net::message::MsgType;
-use net::message::NetworkID;
-use net::quic::ConnectionId;
+use net::{message::NetworkID, quic::ConnectionId};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
-use std::collections::HashMap;
-
-pub use biped::BipedPawnComponent;
-pub use biped::{PitchPivot, YawPivot};
-pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
 pub use weapon_slots::WeaponSlots;
+
+use crate::GameObject;
 
 /// Tracks both the currently controlled entity and the player's persistent biped.
 #[derive(Resource, Default)]
@@ -173,15 +170,11 @@ impl PlayerRegistry {
     }
 
     pub fn get_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.by_conn
-            .get(&conn_id)
-            .map(|(entity, net_id)| (*entity, net_id))
+        self.by_conn.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
     }
 
     pub fn get_character_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.characters
-            .get(&conn_id)
-            .map(|(entity, net_id)| (*entity, net_id))
+        self.characters.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
     }
 
     pub fn remove_by_conn(&mut self, conn_id: ConnectionId) -> Option<(Entity, NetworkID)> {
@@ -215,11 +208,11 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
-        app.init_resource::<InteractionGate>()
-            .add_systems(
-                PostUpdate,
-                apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
-            );
+        app.init_resource::<InteractionGate>().add_systems(
+            PostUpdate,
+            apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
+        );
+        app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
@@ -352,10 +345,8 @@ fn apply_camera_effects(
         shake_roll,
     );
 
-    let target_fov = ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier)
-        .atan()
-        .to_degrees()
-        * 2.0;
+    let target_fov =
+        ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier).atan().to_degrees() * 2.0;
     fx.current_fov += (target_fov - fx.current_fov) * (1.0 - (-FOV_LERP_SPEED * dt).exp());
     if let Projection::Perspective(ref mut p) = *proj {
         p.fov = fx.current_fov.to_radians();
@@ -368,11 +359,7 @@ fn perlin_1d(x: f32, seed: i32, channel: f32) -> f32 {
 }
 impl Default for MouseSensitivity {
     fn default() -> Self {
-        Self {
-            base: 0.002,
-            zoom_blend: 1.0,
-            vehicle_pitch_yaw: 0.002,
-        }
+        Self { base: 0.002, zoom_blend: 1.0, vehicle_pitch_yaw: 0.002 }
     }
 }
 
@@ -387,9 +374,7 @@ pub struct Possessed {
 }
 impl Possessed {
     pub fn new(_capacity: usize) -> Self {
-        Self {
-            pending_input: None,
-        }
+        Self { pending_input: None }
     }
     pub fn push(&mut self, input: PawnInputKind) {
         self.pending_input = Some(input);

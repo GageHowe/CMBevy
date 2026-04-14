@@ -18,23 +18,25 @@ pub fn queue_ui_sound(queue: &mut SoundQueue, event: &'static str) {
 pub struct SoundPlugin;
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SoundQueue>()
-            .init_resource::<AudioOutputDevices>();
+        app.init_resource::<SoundQueue>().init_resource::<AudioOutputDevices>();
         fmod_impl::build(app);
     }
 }
 
 mod fmod_impl {
+    use std::ffi::CStr;
+
+    use bevy::{prelude::*, transform::TransformSystems};
+    use common::config;
+    use game_objects::{
+        components::atmosphere::AreaReverbComponent,
+        pawn::Possessed,
+        sound::{SoundEmitter, SoundQueue},
+    };
+    use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
+
     use super::AudioOutputDevices;
     use crate::settings::Settings;
-    use bevy::prelude::*;
-    use bevy::transform::TransformSystems;
-    use common::config;
-    use game_objects::components::atmosphere::AreaReverbComponent;
-    use game_objects::pawn::Possessed;
-    use game_objects::sound::{SoundEmitter, SoundQueue};
-    use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
-    use std::ffi::CStr;
 
     const GLOBAL_ATMOSPHERE_REVERB: &str = "GlobalAtmosphereReverb";
     const IN_SPACE_FILTER: &str = "InSpaceFilter";
@@ -64,28 +66,19 @@ mod fmod_impl {
         )
         .add_systems(
             PostUpdate,
-            (
-                spawn_instances,
-                update_instances,
-                sync_listener,
-                update_atmosphere_reverb,
-            )
+            (spawn_instances, update_instances, sync_listener, update_atmosphere_reverb)
                 .chain()
                 .after(TransformSystems::Propagate),
         )
         .add_systems(Last, (flush_queue, update_fmod).chain())
-        .add_systems(
-            Update,
-            apply_output_device.run_if(resource_changed::<Settings>),
-        );
+        .add_systems(Update, apply_output_device.run_if(resource_changed::<Settings>));
     }
 
     /// called once at startup before any FMOD use
     /// stable, do not touch.
     fn init_fmod(mut commands: Commands, settings: Option<Res<Settings>>) {
-        let buffer_size = settings
-            .as_ref()
-            .map_or(256, |settings| settings.fmod_buffer_size.clamp(128, 4096));
+        let buffer_size =
+            settings.as_ref().map_or(256, |settings| settings.fmod_buffer_size.clamp(128, 4096));
         let Ok(system) =
             fmod::Studio::create().inspect_err(|e| warn!("FMOD: create failed: {e:?}"))
         else {
@@ -121,10 +114,7 @@ mod fmod_impl {
                 Err(e) => warn!("FMOD: could not load '{}': {e:?}", path.display()),
             }
         }
-        commands.insert_resource(FmodStudio {
-            system,
-            _banks: banks,
-        });
+        commands.insert_resource(FmodStudio { system, _banks: banks });
     }
 
     fn refresh_output_devices(
@@ -207,18 +197,12 @@ mod fmod_impl {
     /// Syncs 3D position and velocity for all persistent instances each frame.
     fn update_instances(
         world: Res<PhysicsWorld>,
-        instances: Query<(
-            &FmodInstance,
-            &GlobalTransform,
-            Option<&RigidBodyHandleComponent>,
-        )>,
+        instances: Query<(&FmodInstance, &GlobalTransform, Option<&RigidBodyHandleComponent>)>,
     ) {
         for (inst, gt, rb) in &instances {
             let (_, rot, pos) = gt.to_scale_rotation_translation();
-            let vel = rb
-                .and_then(|h| world.rigid_body_set.get(h.0))
-                .map(rb_vel)
-                .unwrap_or(Vec3::ZERO);
+            let vel =
+                rb.and_then(|h| world.rigid_body_set.get(h.0)).map(rb_vel).unwrap_or(Vec3::ZERO);
             let _ = inst.0.set_3d_attributes(attrs(pos, vel, rot));
         }
     }
@@ -264,9 +248,7 @@ mod fmod_impl {
                 Vec3::new(v.x, v.y, v.z)
             })
             .unwrap_or(Vec3::ZERO);
-        let _ = fmod
-            .system
-            .set_listener_attributes(0, attrs(pos, vel, rot), None);
+        let _ = fmod.system.set_listener_attributes(0, attrs(pos, vel, rot), None);
     }
 
     fn update_fmod(fmod: Option<Res<FmodStudio>>) {
@@ -319,9 +301,7 @@ mod fmod_impl {
     }
 
     fn disable_volume_ramp(instance: &fmod::EventInstance) {
-        let _ = instance
-            .get_channel_group()
-            .and_then(|group| group.set_volume_ramp(false));
+        let _ = instance.get_channel_group().and_then(|group| group.set_volume_ramp(false));
     }
 
     fn driver_name(core: &fmod::System, id: i32) -> Result<String, fmod::Error> {
@@ -349,9 +329,7 @@ mod fmod_impl {
                 message: fmod::errors::map_fmod_error(result).to_string(),
             });
         }
-        let name = unsafe { CStr::from_ptr(name.as_ptr()) }
-            .to_string_lossy()
-            .into_owned();
+        let name = unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned();
         Ok(name)
     }
 
@@ -367,10 +345,6 @@ mod fmod_impl {
 
     #[inline]
     fn v(vec: Vec3) -> fmod::Vector {
-        fmod::Vector {
-            x: vec.x,
-            y: vec.y,
-            z: vec.z,
-        }
+        fmod::Vector { x: vec.x, y: vec.y, z: vec.z }
     }
 }

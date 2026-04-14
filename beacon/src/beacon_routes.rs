@@ -1,4 +1,5 @@
-use crate::AppState;
+use std::net::SocketAddr;
+
 use axum::{
     Json,
     extract::{ConnectInfo, Path, State},
@@ -6,7 +7,8 @@ use axum::{
     response::Html,
 };
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
-use std::net::SocketAddr;
+
+use crate::AppState;
 
 pub(crate) async fn serve_ui() -> Html<&'static str> {
     Html(include_str!("static/beacon.html"))

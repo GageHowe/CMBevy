@@ -1,4 +1,20 @@
 #[cfg(feature = "client")]
+use bevy::input::mouse::AccumulatedMouseMotion;
+#[cfg(feature = "client")]
+use bevy::input::mouse::AccumulatedMouseScroll;
+#[cfg(feature = "client")]
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::{prelude::*, transform::TransformSystems};
+#[cfg(feature = "client")]
+use bevy_egui::input::EguiWantsInput;
+use net::{
+    message::{MsgType, NetworkID},
+    quic::{Channel, QuicManager, SendTarget},
+};
+use physics::physics_world::*;
+use rapier3d::prelude::*;
+
+#[cfg(feature = "client")]
 use super::vehicle::{DriverSeat, VehicleComponent, enter_vehicle, ray_hits_cockpit};
 use super::*;
 #[cfg(feature = "client")]
@@ -7,20 +23,6 @@ use crate::{
     GameObject, GameObjectKind,
     health::{Health, HealthRegen, LastDamageSource},
 };
-#[cfg(feature = "client")]
-use bevy::input::mouse::AccumulatedMouseMotion;
-#[cfg(feature = "client")]
-use bevy::input::mouse::AccumulatedMouseScroll;
-use bevy::prelude::*;
-use bevy::transform::TransformSystems;
-#[cfg(feature = "client")]
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-#[cfg(feature = "client")]
-use bevy_egui::input::EguiWantsInput;
-use net::message::{MsgType, NetworkID};
-use net::quic::{Channel, QuicManager, SendTarget};
-use physics::physics_world::*;
-use rapier3d::prelude::*;
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
@@ -30,10 +32,9 @@ const SLIDE_HALF_HEIGHT: f32 = 0.1;
 const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 /// max speed gained per tick when accelerating on the ground
 const GROUND_ACCEL: f32 = 0.7;
-const SPRINT_ACCEL: f32 = 1.0;
+const SPRINT_ACCEL: f32 = 0.8;
 const JUMP_IMPULSE: f32 = 8.0;
-const AIR_CONTROL: f32 = 0.2;
-const AIR_UP_CONTROL: f32 = 0.45;
+const AIR_CONTROL: f32 = 0.15;
 const GROUND_DIST: f32 = 0.05; // must be nearly touching to count as grounded
 const JUMP_COOLDOWN: u8 = 20; // ticks before another jump
 const MAIN_RESTITUTION: f32 = 0.0;
@@ -94,9 +95,7 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert((
             WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
             Health::new(100.0),
-            HealthRegen {
-                per_sec: BIPED_REGEN_PER_SEC,
-            },
+            HealthRegen { per_sec: BIPED_REGEN_PER_SEC },
             LastDamageSource::default(),
             GameObjectKind::Biped,
             Transform::from(transform),
@@ -124,11 +123,7 @@ impl GameObject for BipedPawnComponent {
             }
             let capsule_collider =
                 make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true);
-            let PhysicsWorld {
-                collider_set,
-                rigid_body_set,
-                ..
-            } = &mut *physics;
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
             let collider_handle =
                 collider_set.insert_with_parent(capsule_collider, rb_handle, rigid_body_set);
             (rb_handle, collider_handle)
@@ -143,16 +138,11 @@ impl GameObject for BipedPawnComponent {
         #[cfg(feature = "client")]
         {
             // placeholder — matches physics capsule dimensions exactly; swap for a real model later
-            let mesh =
-                world
-                    .resource_mut::<Assets<Mesh>>()
-                    .add(bevy::math::primitives::Capsule3d::new(
-                        CAPSULE_RADIUS,
-                        CAPSULE_HALF_HEIGHT,
-                    ));
-            let material = world
-                .resource_mut::<Assets<StandardMaterial>>()
-                .add(Color::srgb(0.9, 0.4, 0.1));
+            let mesh = world
+                .resource_mut::<Assets<Mesh>>()
+                .add(bevy::math::primitives::Capsule3d::new(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT));
+            let material =
+                world.resource_mut::<Assets<StandardMaterial>>().add(Color::srgb(0.9, 0.4, 0.1));
             world.entity_mut(entity).insert((
                 Mesh3d(mesh),
                 MeshMaterial3d(material),
@@ -173,11 +163,7 @@ impl GameObject for BipedPawnComponent {
                 ))
                 .id();
             let pitch_pivot = world
-                .spawn((
-                    PitchPivot { pitch: 0.0 },
-                    Transform::default(),
-                    Visibility::default(),
-                ))
+                .spawn((PitchPivot { pitch: 0.0 }, Transform::default(), Visibility::default()))
                 .id();
             world.entity_mut(pitch_pivot).add_child(light);
             let yaw_pivot = world
@@ -283,9 +269,7 @@ impl GameObject for BipedPawnComponent {
                 .get_resource::<crate::mode::ModeConfig>()
                 .map_or(common::config::RESPAWN_DELAY_SECS, |cfg| cfg.respawn_delay);
             if let Some(mut pending_respawns) = world.get_resource_mut::<super::PendingRespawns>() {
-                pending_respawns
-                    .0
-                    .insert(conn_id, (respawn_delay, common::GameObjectKind::Biped));
+                pending_respawns.0.insert(conn_id, (respawn_delay, common::GameObjectKind::Biped));
             }
         }
         true
@@ -299,27 +283,25 @@ impl Plugin for BipedPlugin {
         app.add_systems(FixedUpdate, update_slide_camera);
         #[cfg(feature = "client")]
         {
-            app.init_resource::<ReloadGate>()
-                .add_systems(Update, queue_reload_input)
-                .add_systems(
-                    FixedPreUpdate,
-                    (
-                        gather_biped_input
-                            .run_if(resource_exists::<ButtonInput<KeyCode>>)
-                            .in_set(GatherInputSet),
-                        move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
-                        biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
-                        toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
-                        drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
-                        interact
-                            .run_if(
-                                in_state(common::game_state::GameState::SinglePlayer)
-                                    .or(in_state(common::game_state::GameState::Multiplayer)),
-                            )
-                            .run_if(resource_exists::<ButtonInput<KeyCode>>),
-                    )
-                        .chain(),
-                );
+            app.init_resource::<ReloadGate>().add_systems(Update, queue_reload_input).add_systems(
+                FixedPreUpdate,
+                (
+                    gather_biped_input
+                        .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                        .in_set(GatherInputSet),
+                    move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
+                    biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
+                    toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                    drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                    interact
+                        .run_if(
+                            in_state(common::game_state::GameState::SinglePlayer)
+                                .or(in_state(common::game_state::GameState::Multiplayer)),
+                        )
+                        .run_if(resource_exists::<ButtonInput<KeyCode>>),
+                )
+                    .chain(),
+            );
         }
         app.add_systems(
             PostUpdate,
@@ -391,8 +373,8 @@ fn gather_biped_input(
     }
     input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons);
     input.slide = bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons);
-    input.ability1 = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
-    input.ability2 = bindings.pressed(common::InputAction::Ability2, &keyboard, &mouse_buttons);
+    input.sprint = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
+    input.ability = bindings.pressed(common::InputAction::Ability, &keyboard, &mouse_buttons);
 
     if let Some(yaw_e) = biped.yaw_pivot {
         if let Ok(yp) = yaw_pivots.get(yaw_e) {
@@ -467,11 +449,7 @@ fn preserve_look_across_body_rotation(
     let local_forward = (body_rot.inverse() * world_forward).normalize_or_zero();
     if local_forward != Vec3::ZERO {
         let yaw = f32::atan2(-local_forward.x, -local_forward.z);
-        let pitch = local_forward
-            .y
-            .clamp(-1.0, 1.0)
-            .asin()
-            .clamp(-PITCH_MAX, PITCH_MAX);
+        let pitch = local_forward.y.clamp(-1.0, 1.0).asin().clamp(-PITCH_MAX, PITCH_MAX);
         {
             let mut yaw_query = pivots.p1();
             if let Ok((mut yaw_t, mut yaw_pivot)) = yaw_query.get_mut(yaw_e) {
@@ -515,10 +493,7 @@ fn mouse_look(
     };
     // Scale look sensitivity with zoom so scoped weapons stay usable without
     // needing per-weapon sensitivity code.
-    let zoom = camera_fx
-        .single()
-        .map(|fx| fx.zoom_multiplier.max(1.0))
-        .unwrap_or(1.0);
+    let zoom = camera_fx.single().map(|fx| fx.zoom_multiplier.max(1.0)).unwrap_or(1.0);
     let zoom_scale = 1.0 + (1.0 / zoom - 1.0) * sensitivity.zoom_blend;
     let s = sensitivity.base * zoom_scale;
 
@@ -557,11 +532,7 @@ fn switch_weapon_slot(
     if let Some(e) = slots.active().1 {
         crate::weapon::helpers::clear_inactive_slot_reload(weapon_states.get_mut(e).ok());
     }
-    let switched = if scroll.delta.y > 0.0 {
-        slots.next_weapon()
-    } else {
-        slots.prev_weapon()
-    };
+    let switched = if scroll.delta.y > 0.0 { slots.next_weapon() } else { slots.prev_weapon() };
     if !switched {
         return;
     }
@@ -616,11 +587,7 @@ fn update_slide_camera(
         };
         let planet_up = rb_rot(rb) * Vec3::Y;
         let grounded = ground_state(&world, body.0, rb_pos(rb), planet_up).0;
-        t.translation.y = if biped.is_sliding && grounded {
-            -0.1
-        } else {
-            0.4
-        };
+        t.translation.y = if biped.is_sliding && grounded { -0.1 } else { 0.4 };
     }
 }
 
@@ -692,19 +659,10 @@ fn replace_capsule_collider(
     feet_planted: bool,
 ) -> ColliderHandle {
     if let Some(old_ch) = old_ch {
-        let PhysicsWorld {
-            collider_set,
-            island_manager,
-            rigid_body_set,
-            ..
-        } = &mut *world;
+        let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
         collider_set.remove(old_ch, island_manager, rigid_body_set, false);
     }
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(
         make_biped_capsule_collider(half_height, friction, feet_planted),
         rb_handle,
@@ -735,7 +693,7 @@ pub fn apply_biped_movement(
 
     let is_jump = input.jump;
     let is_slide = input.slide;
-    let is_sprint = input.ability1;
+    let is_sprint = input.sprint;
 
     // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
     let (grounded, ground_linvel, support_entity) =
@@ -770,11 +728,7 @@ pub fn apply_biped_movement(
     if grounded && !is_slide {
         let desired = (forward * input.forward + right * input.right).normalize_or_zero();
         if desired.length_squared() > 1e-6 {
-            let accel = if is_sprint && input.forward >= 0.0 {
-                SPRINT_ACCEL
-            } else {
-                GROUND_ACCEL
-            };
+            let accel = if is_sprint && input.forward >= 0.0 { SPRINT_ACCEL } else { GROUND_ACCEL };
             let impulse = desired * accel * capsule_mass;
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
@@ -798,14 +752,9 @@ pub fn apply_biped_movement(
     }
 
     if !grounded {
-        let up = input.jump as i8 as f32 - input.slide as i8 as f32;
         let lateral = (forward * input.forward + right * input.right).normalize_or_zero();
-        let vertical_control = if up > 0.0 {
-            AIR_UP_CONTROL
-        } else {
-            AIR_CONTROL
-        };
-        let impulse = (lateral * AIR_CONTROL + planet_up * up * vertical_control) * capsule_mass;
+        let down = input.slide as i8 as f32;
+        let impulse = (lateral * AIR_CONTROL - planet_up * down * AIR_CONTROL) * capsule_mass;
         if impulse.length_squared() > 1e-6 {
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
@@ -832,11 +781,7 @@ fn attach_camera_on_possess(
         return;
     };
     // read current projection FOV so CameraEffects starts in sync with settings
-    let base_fov = if let Projection::Perspective(p) = proj {
-        p.fov.to_degrees()
-    } else {
-        90.0
-    };
+    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
     commands.entity(cam).insert((
         Transform::default(),
         CameraEffector {
@@ -887,11 +832,7 @@ fn toggle_flashlight(
     if let Ok(biped) = possessed_q.single() {
         if let Some(light) = biped.flashlight {
             if let Ok(mut vis) = lights.get_mut(light) {
-                *vis = if *on {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
+                *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
             }
         }
     }
@@ -1067,10 +1008,7 @@ fn interact(
     )>,
 ) {
     use common::game_state::GameState;
-    let blocked = input
-        .egui_wants
-        .as_ref()
-        .is_some_and(|e| e.wants_any_input());
+    let blocked = input.egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
     let Ok((pawn_entity, biped)) = player.single() else {
         return;
     };
@@ -1131,9 +1069,7 @@ fn interact(
                 ) {
                     return;
                 }
-                commands
-                    .entity(pawn_entity)
-                    .insert(super::SeatedInVehicle(vehicle_entity));
+                commands.entity(pawn_entity).insert(super::SeatedInVehicle(vehicle_entity));
                 commands.entity(pawn_entity).remove::<Possessed>();
                 commands.entity(vehicle_entity).insert(Possessed::new(128));
                 if let Ok(kind) = object_kinds.get(vehicle_entity) {
@@ -1165,11 +1101,21 @@ fn interact(
     let interact_net_id = interact_net_id.clone();
     if !input.interaction.consume_press(
         !blocked
-            && input
-                .bindings
-                .pressed(common::InputAction::Interact, &input.keyboard, &input.mouse),
+            && input.bindings.pressed(common::InputAction::Interact, &input.keyboard, &input.mouse),
         input.ticker.tick,
     ) {
+        return;
+    }
+
+    // Ability pickups (jetpack, etc.) are handled before weapon logic.
+    if let Ok(GameObjectKind::Jetpack) = object_kinds.get(hit_entity) {
+        if matches!(state.get(), GameState::SinglePlayer) {
+            commands.queue(crate::pawn::biped_ability::AttachAbility::<
+                crate::pawn::biped_ability::implementors::JetpackAbility,
+            >::new(pawn_entity));
+            commands.entity(hit_entity).despawn();
+            crate::messages::push(&mut commands, "Picked up Jetpack".to_string());
+        }
         return;
     }
 
@@ -1178,7 +1124,9 @@ fn interact(
             let Ok(mut slots) = possessed_q.single_mut() else {
                 return;
             };
-            if slots.is_full() && let Some((_drop_id, drop_entity)) = slots.remove_active() {
+            if slots.is_full()
+                && let Some((_drop_id, drop_entity)) = slots.remove_active()
+            {
                 let drop_velocity = forward * 8.0
                     + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
                 crate::weapon::helpers::drop_or_despawn_weapon(
@@ -1190,7 +1138,9 @@ fn interact(
                     drop_velocity,
                 );
             }
-            let Some((is_primary, _prev_to_hide)) = slots.assign_pickup(interact_net_id.clone(), hit_entity) else {
+            let Some((is_primary, _prev_to_hide)) =
+                slots.assign_pickup(interact_net_id.clone(), hit_entity)
+            else {
                 return;
             };
             crate::weapon::helpers::pickup_world_weapon(&mut world, hit_entity);
@@ -1200,11 +1150,7 @@ fn interact(
                 pitch_e,
                 is_primary,
             );
-            crate::weapon::helpers::sync_local_active_weapon(
-                &mut commands,
-                &slots,
-                &mut camera_fx,
-            );
+            crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
             if let Ok(kind) = object_kinds.get(hit_entity) {
                 crate::messages::push(&mut commands, format!("Picked up {kind:?}"));
             }

@@ -1,9 +1,12 @@
-use crate::GameObject;
-use crate::health::{Health, LastDamageSource};
 use bevy::prelude::*;
 pub use common::GameObjectKind;
 use net::message::*;
 use physics::physics_world::*;
+
+use crate::{
+    GameObject,
+    health::{Health, LastDamageSource},
+};
 
 pub mod hail_mary;
 pub mod helpers;
@@ -63,10 +66,7 @@ impl Plugin for ProjectilePlugin {
             .init_resource::<PredictedProjectileMap>()
             .add_systems(
                 FixedPostUpdate,
-                (
-                    index_added_predicted_projectiles,
-                    index_removed_predicted_projectiles,
-                )
+                (index_added_predicted_projectiles, index_removed_predicted_projectiles)
                     .in_set(TrackPredictedProjectilesSet),
             );
         app.add_plugins((
@@ -307,11 +307,7 @@ pub fn draw_projectile_raycast_debug(
     mut commands: Commands,
 ) {
     for (entity, segment) in &segments {
-        gizmos.line(
-            segment.start,
-            segment.end,
-            Color::srgba(0.2, 1.0, 1.0, 0.9),
-        );
+        gizmos.line(segment.start, segment.end, Color::srgba(0.2, 1.0, 1.0, 0.9));
         commands.entity(entity).remove::<ProjectileRaycastDebug>();
     }
 }

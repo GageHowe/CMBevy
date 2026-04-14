@@ -62,10 +62,7 @@ fn stage_fmod_runtime(target_dir: &std::path::Path) {
         "windows" => {
             let lib_root = repo_root().join("dev-assets/lib");
             stage_file(&lib_root.join("fmod.dll"), &target_dir.join("fmod.dll"));
-            stage_file(
-                &lib_root.join("fmodstudio.dll"),
-                &target_dir.join("fmodstudio.dll"),
-            );
+            stage_file(&lib_root.join("fmodstudio.dll"), &target_dir.join("fmodstudio.dll"));
         }
         _ => {}
     }

@@ -1,12 +1,12 @@
+use std::{collections::VecDeque, sync::Once};
+
 use bevy::prelude::*;
 use bytes::Bytes;
-use std::collections::VecDeque;
-use std::sync::Once;
+use common::config::MAX_UDP_SIZE;
 use tokio::sync::mpsc;
 use zstd::stream::{decode_all, encode_all};
 
 use crate::message::MsgType;
-use common::config::MAX_UDP_SIZE;
 
 const ZSTD_LEVEL: i32 = 3;
 const ZSTD_FILE_LEVEL: i32 = 9;
@@ -119,11 +119,8 @@ pub(crate) fn forward_decoded_message(
 ) {
     match decode_message(&bytes) {
         Ok(msg) => {
-            let _ = event_tx.send(TransportEvent::Message(InboundMessage {
-                conn_id,
-                channel,
-                msg,
-            }));
+            let _ =
+                event_tx.send(TransportEvent::Message(InboundMessage { conn_id, channel, msg }));
         }
         Err(e) => eprintln!("[conn {conn_id}] decode error: {e}"),
     }
@@ -140,21 +137,9 @@ where
 {
     let (ordered_tx, ordered_rx) = mpsc::unbounded_channel();
     tokio::spawn(ordered_sender_task(connection.clone(), ordered_rx));
-    tokio::spawn(bidi_receiver_task(
-        conn_id,
-        connection.clone(),
-        event_tx.clone(),
-    ));
-    tokio::spawn(uni_receiver_task(
-        conn_id,
-        connection.clone(),
-        event_tx.clone(),
-    ));
-    tokio::spawn(datagram_receiver_task(
-        conn_id,
-        connection.clone(),
-        event_tx.clone(),
-    ));
+    tokio::spawn(bidi_receiver_task(conn_id, connection.clone(), event_tx.clone()));
+    tokio::spawn(uni_receiver_task(conn_id, connection.clone(), event_tx.clone()));
+    tokio::spawn(datagram_receiver_task(conn_id, connection.clone(), event_tx.clone()));
     tokio::spawn(async move {
         let _ = connection.closed().await;
         on_close(conn_id);

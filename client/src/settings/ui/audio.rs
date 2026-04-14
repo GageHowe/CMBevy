@@ -1,7 +1,6 @@
 use bevy_egui::egui;
 
-use crate::settings::Settings;
-use crate::sound::AudioOutputDevices;
+use crate::{settings::Settings, sound::AudioOutputDevices};
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings, audio_outputs: &AudioOutputDevices) {
     egui::CollapsingHeader::new("Output")

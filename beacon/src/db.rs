@@ -1,6 +1,9 @@
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
+
 use rusqlite::{Connection, params};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 pub(crate) type Db = Arc<Mutex<Connection>>;
 

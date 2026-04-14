@@ -27,10 +27,9 @@ impl ColliderShape {
                 Some(ColliderBuilder::cuboid(he.x * scale, he.y * scale, he.z * scale).build())
             }
             Self::Ball(radius) => Some(ColliderBuilder::ball(radius * scale).build()),
-            Self::Capsule {
-                half_height,
-                radius,
-            } => Some(ColliderBuilder::capsule_y(half_height * scale, radius * scale).build()),
+            Self::Capsule { half_height, radius } => {
+                Some(ColliderBuilder::capsule_y(half_height * scale, radius * scale).build())
+            }
             Self::ConvexHulls(_) => None,
         }
     }

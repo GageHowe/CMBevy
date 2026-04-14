@@ -1,22 +1,22 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use common::PredictedCommands;
+#[cfg(feature = "client")]
+use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
+use common::{GameObjectKind, PredictedCommands};
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, Pose, QueryFilter};
 
-use crate::GameObject;
-use crate::health::{Health, LastDamageSource, attribute_damage};
-#[cfg(feature = "client")]
-use crate::pawn::{CameraEffector, CameraShake};
-
 use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 #[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
-use common::GameObjectKind;
+use crate::pawn::{CameraEffector, CameraShake};
+use crate::{
+    GameObject,
+    health::{Health, LastDamageSource, attribute_damage},
+};
 
 pub const SPEED: f32 = 60.0;
 pub const LIFETIME: u32 = 240;
@@ -39,10 +39,7 @@ pub struct RpgProjectile {
 }
 impl Default for RpgProjectile {
     fn default() -> Self {
-        Self {
-            shooter: None,
-            lifetime: LIFETIME,
-        }
+        Self { shooter: None, lifetime: LIFETIME }
     }
 }
 
@@ -98,18 +95,7 @@ impl Projectile for RpgProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
-        tick_inner(
-            self,
-            entity,
-            state,
-            body,
-            world,
-            commands,
-            health_q,
-            last_damage_q,
-            None,
-            None,
-        );
+        tick_inner(self, entity, state, body, world, commands, health_q, last_damage_q, None, None);
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
@@ -134,15 +120,7 @@ impl Projectile for RpgProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(
-            origin,
-            velocity,
-            shooter_velocity,
-            commands,
-            world,
-            shooter,
-            temp_id,
-        )
+        spawn(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
     }
 }
 
@@ -193,10 +171,7 @@ fn tick_inner(
     {
         commands
             .entity(entity)
-            .insert(super::ProjectileRaycastDebug {
-                start: prev,
-                end: prev + dir * step,
-            });
+            .insert(super::ProjectileRaycastDebug { start: prev, end: prev + dir * step });
     }
     if let Some((hit, toi, normal)) = world.cast_sphere(prev, dir, RADIUS, step, &exclude) {
         let hit_point = prev + dir * toi;
@@ -341,10 +316,7 @@ pub fn spawn(
 ) -> Entity {
     helpers::spawn_projectile(
         GameObjectKind::RpgProjectile,
-        RpgProjectile {
-            shooter,
-            lifetime: LIFETIME,
-        },
+        RpgProjectile { shooter, lifetime: LIFETIME },
         origin,
         velocity,
         shooter_velocity,
@@ -361,10 +333,7 @@ impl GameObject for RpgProjectile {
             entity,
             cmd,
             world,
-            RpgProjectile {
-                shooter: None,
-                lifetime: LIFETIME,
-            },
+            RpgProjectile { shooter: None, lifetime: LIFETIME },
             RADIUS,
             "event:/Weapons/SniperShot",
         );
@@ -383,9 +352,7 @@ impl Plugin for RpgProjectilePlugin {
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
-            tick_predicted_projectiles
-                .after(step_physics)
-                .run_if(in_state(GameState::Multiplayer)),
+            tick_predicted_projectiles.after(step_physics).run_if(in_state(GameState::Multiplayer)),
         );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
@@ -396,12 +363,7 @@ impl Plugin for RpgProjectilePlugin {
 fn tick_predicted_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<(
-        Entity,
-        &mut RpgProjectile,
-        &RigidBodyHandleComponent,
-        &mut ProjectileState,
-    )>,
+    mut q: Query<(Entity, &mut RpgProjectile, &RigidBodyHandleComponent, &mut ProjectileState)>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     net_ids: Query<&NetworkID>,
@@ -441,8 +403,6 @@ fn add_visual(
             unlit: true,
             ..default()
         });
-        commands
-            .entity(entity)
-            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

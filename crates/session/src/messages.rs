@@ -1,12 +1,3 @@
-use crate::helpers::drain_inbound;
-#[cfg(feature = "client")]
-use crate::helpers::find_networked_entity;
-use crate::resources::*;
-
-#[cfg(feature = "client")]
-use crate::runtime::{ClientSessionState, handle_file_data, handle_map_hash};
-#[cfg(not(feature = "client"))]
-use crate::{actions::*, connections::*};
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::state::state::FreelyMutableState;
@@ -46,6 +37,14 @@ use net::quic::*;
 use physics::physics_world::PhysicsWorld;
 #[cfg(not(feature = "client"))]
 use scripting::ScriptConfig;
+
+#[cfg(feature = "client")]
+use crate::helpers::find_networked_entity;
+#[cfg(feature = "client")]
+use crate::runtime::{ClientSessionState, handle_file_data, handle_map_hash};
+#[cfg(not(feature = "client"))]
+use crate::{actions::*, connections::*};
+use crate::{helpers::drain_inbound, resources::*};
 
 #[cfg(feature = "client")]
 pub fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
@@ -284,9 +283,7 @@ fn handle_seat_state(
     match vehicle_net_id.and_then(|id| find_networked_entity(networked, id)) {
         Some(vehicle_entity) => {
             world.set_body_enabled(biped_entity, false);
-            commands
-                .entity(biped_entity)
-                .insert(SeatedInVehicle(vehicle_entity));
+            commands.entity(biped_entity).insert(SeatedInVehicle(vehicle_entity));
             if local_net_id == Some(biped_net_id)
                 && let Ok(kind) = object_kinds.get(vehicle_entity)
             {
@@ -368,10 +365,7 @@ fn handle_weapon_pickup(
     weapon_helpers::pickup_world_weapon(world, weapon_entity);
     if local_net_id == Some(carrier_net_id) {
         let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
-            (
-                slots.assign_pickup(weapon_id.clone(), weapon_entity),
-                biped.pitch_pivot,
-            )
+            (slots.assign_pickup(weapon_id.clone(), weapon_entity), biped.pitch_pivot)
         } else {
             (None, None)
         };
@@ -502,11 +496,7 @@ fn handle_flashlight_state(
     };
     for child in children.iter() {
         if let Ok(mut vis) = lights.get_mut(child) {
-            *vis = if on {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
+            *vis = if on { Visibility::Inherited } else { Visibility::Hidden };
         }
     }
 }
@@ -644,52 +634,36 @@ fn process_server_message(
             &mut sp.weapon_runtime,
             quic,
         ),
-        MsgType::FireRequest {
-            weapon: weapon_net_id,
-            kind,
-            temp_id,
-            origin,
-            dir,
-        } => handle_fire_request(
-            conn_id,
-            weapon_net_id,
-            kind,
-            temp_id,
-            origin,
-            dir,
-            registry,
-            &sp.all_networked,
-            &mut sp.pawn_slots,
-            &mut sp.weapon_runtime,
-            &mut sp.held_weapons,
-            &mut sp.commands,
-            &mut sp.world,
-            net_ids,
-            quic,
-            tick,
-        ),
+        MsgType::FireRequest { weapon: weapon_net_id, kind, temp_id, origin, dir } => {
+            handle_fire_request(
+                conn_id,
+                weapon_net_id,
+                kind,
+                temp_id,
+                origin,
+                dir,
+                registry,
+                &sp.all_networked,
+                &mut sp.pawn_slots,
+                &mut sp.weapon_runtime,
+                &mut sp.held_weapons,
+                &mut sp.commands,
+                &mut sp.world,
+                net_ids,
+                quic,
+                tick,
+            )
+        }
         MsgType::TimePing(bits) => {
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Unreliable,
-                &MsgType::TimePong(bits),
-            );
+            quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::TimePong(bits));
         }
         MsgType::Ping(text) => {
             info!("Got a ping from conn_id {:?} with text {}", conn_id, text);
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &MsgType::Pong(text),
-            );
+            quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Pong(text));
         }
         MsgType::ChatMessage(sender, text) => {
             info!("GameServer: Got ChatMessage: [{sender}] {text}");
-            quic.send(
-                SendTarget::All,
-                Channel::Ordered,
-                &MsgType::ChatMessage(sender, text),
-            );
+            quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(sender, text));
         }
         other => warn!("Unhandled: {other:?}"),
     }

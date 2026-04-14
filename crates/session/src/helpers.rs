@@ -1,6 +1,8 @@
 use game_objects::NetworkEntityMap;
-use net::message::NetworkID;
-use net::quic::{InboundMessage, QuicManager};
+use net::{
+    message::NetworkID,
+    quic::{InboundMessage, QuicManager},
+};
 
 pub(crate) fn find_networked_entity(
     all_networked: &NetworkEntityMap,

@@ -1,18 +1,21 @@
 //! Registers the small, bounded gameplay API that Lua gametypes can call.
 
-use crate::runtime::ScriptRuntime;
-use crate::tag_index::ScriptTagIndex;
-use bevy::ecs::system::SystemState;
-use bevy::prelude::*;
-use game_objects::health::Health;
-use game_objects::level::{ScriptZone, parented_world_pose};
-use game_objects::messages::push_world;
-use game_objects::mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers};
-use game_objects::pawn::PlayerRegistry;
+use bevy::{ecs::system::SystemState, prelude::*};
+use game_objects::{
+    health::Health,
+    level::{ScriptZone, parented_world_pose},
+    messages::push_world,
+    mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
+    pawn::PlayerRegistry,
+};
 use mlua::prelude::*;
-use net::message::MsgType;
-use net::quic::{Channel, QuicManager, SendTarget};
+use net::{
+    message::MsgType,
+    quic::{Channel, QuicManager, SendTarget},
+};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+
+use crate::{runtime::ScriptRuntime, tag_index::ScriptTagIndex};
 
 fn lua_world(lua: &Lua) -> LuaResult<&mut World> {
     let Some(world_ptr) = lua.app_data_ref::<*mut World>() else {
@@ -45,11 +48,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let values = world
                 .get_resource::<ScriptTagIndex>()
                 .map(|index| {
-                    index
-                        .get(&tag)
-                        .iter()
-                        .map(|entity| entity.to_bits() as i64)
-                        .collect::<Vec<_>>()
+                    index.get(&tag).iter().map(|entity| entity.to_bits() as i64).collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
             lua.create_sequence_from(values)
@@ -70,9 +69,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, (entity_id, tag): (i64, String)| {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
-            Ok(world
-                .get_resource::<ScriptTagIndex>()
-                .is_some_and(|index| index.has(entity, &tag)))
+            Ok(world.get_resource::<ScriptTagIndex>().is_some_and(|index| index.has(entity, &tag)))
         })
     });
 
@@ -117,12 +114,10 @@ pub(crate) fn register_script_functions(world: &mut World) {
     register_lua_function(&runtime.lua, "get_match_phase", |lua| {
         lua.create_function(|lua, ()| {
             let world = lua_world(lua)?;
-            Ok(
-                match world.get_resource::<MatchState>().map(|state| state.phase) {
-                    Some(MatchPhase::PostGame) => "post_game",
-                    _ => "playing",
-                },
-            )
+            Ok(match world.get_resource::<MatchState>().map(|state| state.phase) {
+                Some(MatchPhase::PostGame) => "post_game",
+                _ => "playing",
+            })
         })
     });
 
@@ -181,11 +176,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 .is_some_and(|config| config.is_server);
             if is_server {
                 if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                    quic.send(
-                        SendTarget::All,
-                        Channel::Ordered,
-                        &MsgType::OnscreenMessage(text),
-                    );
+                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::OnscreenMessage(text));
                 }
             } else {
                 push_world(world, text);
@@ -218,12 +209,8 @@ pub(crate) fn register_script_functions(world: &mut World) {
     register_lua_function(&runtime.lua, "get_team_number", |lua| {
         lua.create_function(|lua, (team, index): (i32, i32)| {
             let world = lua_world(lua)?;
-            Ok(team_number(
-                world,
-                team.clamp(0, u8::MAX as i32) as u8,
-                normalize_index(index),
-            )
-            .unwrap_or_default())
+            Ok(team_number(world, team.clamp(0, u8::MAX as i32) as u8, normalize_index(index))
+                .unwrap_or_default())
         })
     });
 
@@ -244,10 +231,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, entity_id: i64| {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
-            Ok(world
-                .get::<Health>(entity)
-                .map(|h| h.current as i32)
-                .unwrap_or(0))
+            Ok(world.get::<Health>(entity).map(|h| h.current as i32).unwrap_or(0))
         })
     });
 
@@ -349,9 +333,7 @@ fn add_number(numbers: &mut Vec<i32>, index: usize, amount: i32) {
 }
 
 fn player_number(world: &World, entity: Entity, index: usize) -> Option<i32> {
-    let conn_id = world
-        .get_resource::<PlayerRegistry>()?
-        .conn_id_for_entity(entity)?;
+    let conn_id = world.get_resource::<PlayerRegistry>()?.conn_id_for_entity(entity)?;
     Some(
         world
             .get_resource::<PlayerNumbers>()?

@@ -7,8 +7,8 @@ pub struct BipedInput {
     pub right: f32,
     pub jump: bool,
     pub slide: bool,
-    pub ability1: bool,
-    pub ability2: bool,
+    pub sprint: bool,
+    pub ability: bool,
     /// pawn-local yaw from the YawPivot at input time (radians, absolute)
     pub look_yaw: f32,
     /// camera pitch from the PitchPivot at input time (radians, absolute)
@@ -21,8 +21,8 @@ pub struct SpaceshipInput {
     pub forward: f32,
     pub right: f32,
     pub up: f32,
-    pub ability1: bool,
-    pub ability2: bool,
+    pub sprint: bool,
+    pub ability: bool,
     /// mouse-driven yaw delta this tick (radians)
     pub yaw: f32,
     /// mouse-driven pitch delta this tick (radians)

@@ -1,0 +1,10 @@
+edition = "2021"
+max_width = 100
+
+# reorder_imports = false
+imports_granularity = "Crate" # group crate imports
+group_imports = "StdExternalCrate" # separate std and custom crates
+wrap_comments = false
+use_small_heuristics = "Max" # aggressively keep things one line
+
+# cargo fmt --all

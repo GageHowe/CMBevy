@@ -1,7 +1,6 @@
-use bevy::prelude::*;
-use net::message::{NetworkID, SimulationState};
 use std::collections::HashMap;
 
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use common::GameObjectKind;
 #[cfg(not(feature = "client"))]
@@ -9,13 +8,13 @@ use game_objects::NetworkEntityMap;
 #[cfg(not(feature = "client"))]
 use game_objects::level::SpawnPoint;
 #[cfg(feature = "client")]
-use game_objects::pawn::biped::BipedPawnComponent;
-#[cfg(feature = "client")]
 use game_objects::pawn::WeaponSlots;
-#[cfg(not(feature = "client"))]
-use game_objects::pawn::{BipedPawnComponent, WeaponSlots};
+#[cfg(feature = "client")]
+use game_objects::pawn::biped::BipedPawnComponent;
 #[cfg(not(feature = "client"))]
 use game_objects::pawn::vehicle::{DriverSeat, VehicleComponent};
+#[cfg(not(feature = "client"))]
+use game_objects::pawn::{BipedPawnComponent, WeaponSlots};
 #[cfg(not(feature = "client"))]
 use game_objects::pawn::{HeldWeaponMap, PawnInputKind, SeatedInVehicle};
 #[cfg(feature = "client")]
@@ -28,6 +27,7 @@ use game_objects::weapon::WeaponState;
 use game_objects::weapon::{WeaponConfig, WeaponState};
 #[cfg(not(feature = "client"))]
 use net::message::GameObjectKind;
+use net::message::{NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
 use net::quic::ConnectionId;
 
@@ -173,16 +173,8 @@ pub struct ServerMessageParams<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub world: ResMut<'w, physics::physics_world::PhysicsWorld>,
     pub held_weapons: ResMut<'w, HeldWeaponMap>,
-    pub spawn_points: Query<
-        'w,
-        's,
-        (
-            Entity,
-            &'static SpawnPoint,
-            &'static Transform,
-            Option<&'static ChildOf>,
-        ),
-    >,
+    pub spawn_points:
+        Query<'w, 's, (Entity, &'static SpawnPoint, &'static Transform, Option<&'static ChildOf>)>,
     pub parent_transforms: Query<'w, 's, &'static Transform>,
     pub parent_parents: Query<'w, 's, &'static ChildOf>,
     pub parent_bodies: Query<'w, 's, &'static physics::physics_world::RigidBodyHandleComponent>,

@@ -1,17 +1,19 @@
 use std::time::{Duration, Instant};
 
-use crate::outline::OutlineSettings;
-use bevy::core_pipeline::prepass::MotionVectorPrepass;
-use bevy::prelude::*;
-use bevy::post_process::motion_blur::MotionBlur;
-use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
-use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
+use bevy::{
+    core_pipeline::prepass::MotionVectorPrepass,
+    post_process::motion_blur::MotionBlur,
+    prelude::*,
+    render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
+    window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
+};
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
 use common::ActiveKeyBindings;
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
 
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
+use crate::outline::OutlineSettings;
 
 pub fn apply_settings(
     mut commands: Commands,
@@ -152,10 +154,7 @@ fn apply_camera_graphics(
 
     if settings.motion_blur {
         camera.insert(MotionVectorPrepass);
-        camera.insert(MotionBlur {
-            shutter_angle: 0.5,
-            samples: 1,
-        });
+        camera.insert(MotionBlur { shutter_angle: 0.5, samples: 1 });
     } else {
         camera.remove::<MotionBlur>();
         camera.remove::<MotionVectorPrepass>();
@@ -188,17 +187,11 @@ fn apply_camera_graphics(
     if settings.cinematic_mode {
         camera.remove::<OutlineSettings>();
     } else {
-        camera.insert(OutlineSettings {
-            threshold: 0.10,
-            color: Vec4::new(0.5, 0.5, 0.5, 0.03),
-        });
+        camera.insert(OutlineSettings { threshold: 0.10, color: Vec4::new(0.5, 0.5, 0.5, 0.03) });
     }
 
     camera.insert(ColorGrading::with_identical_sections(
-        ColorGradingGlobal {
-            post_saturation: settings.saturation.clamp(0.0, 2.0),
-            ..default()
-        },
+        ColorGradingGlobal { post_saturation: settings.saturation.clamp(0.0, 2.0), ..default() },
         ColorGradingSection {
             contrast: settings.contrast.clamp(0.5, 1.5),
             gamma: settings.gamma.clamp(0.5, 2.0),

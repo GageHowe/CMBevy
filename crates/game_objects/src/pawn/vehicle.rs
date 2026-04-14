@@ -1,6 +1,3 @@
-use super::Pawn;
-#[cfg(feature = "client")]
-use super::*;
 /// VehicleComponent is a shared marker inserted by every vehicle-type pawn (spaceship, car, etc.).
 /// It does NOT implement Pawn — each vehicle type has its own component for that.
 /// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
@@ -9,6 +6,10 @@ use bevy::prelude::*;
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
 use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
+
+use super::Pawn;
+#[cfg(feature = "client")]
+use super::*;
 
 /// Marks an entity as a driveable vehicle.
 #[derive(Component, Reflect)]
@@ -20,10 +21,7 @@ pub struct VehicleComponent {
 
 impl VehicleComponent {
     pub fn for_vehicle<T: VehiclePawn>(driver_seat: Entity) -> Self {
-        Self {
-            camera_offset: T::CAMERA_OFFSET,
-            driver_seat,
-        }
+        Self { camera_offset: T::CAMERA_OFFSET, driver_seat }
     }
 }
 
@@ -47,11 +45,7 @@ pub struct DriverSeat {
 
 impl Default for DriverSeat {
     fn default() -> Self {
-        Self {
-            occupant: None,
-            interact_radius: 1.0,
-            exit_offset: Vec3::X * 4.0,
-        }
+        Self { occupant: None, interact_radius: 1.0, exit_offset: Vec3::X * 4.0 }
     }
 }
 
@@ -88,11 +82,7 @@ pub fn ray_hits_cockpit(
     }
     let closest = origin + dir * along;
     let dist_sq = seat_center.distance_squared(closest);
-    if dist_sq <= cockpit_radius * cockpit_radius {
-        Some(along)
-    } else {
-        None
-    }
+    if dist_sq <= cockpit_radius * cockpit_radius { Some(along) } else { None }
 }
 
 pub fn spawn_driver_seat<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
@@ -134,13 +124,7 @@ pub fn enter_vehicle(
     let vehicle_angvel = rb_angvel(vehicle_body);
     let seat_pos = seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation);
     let seat_rot = vehicle_rot * seat_transform.rotation;
-    world.set_body_pose(
-        biped_entity,
-        seat_pos,
-        seat_rot,
-        vehicle_vel,
-        vehicle_angvel,
-    );
+    world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
     world.set_body_enabled(biped_entity, false);
 
     seat.occupant = Some(biped_entity);
@@ -158,10 +142,8 @@ pub fn exit_vehicle(
     let exit_offset = seat_transform.rotation * seat.exit_offset + seat_transform.translation;
     // let (exit_pos, vehicle_rot, exit_vel, vehicle_angvel) =
     //     world.predicted_body_point(vehicle_entity, exit_offset)?;
-    let vehicle_body = world
-        .entity_to_handle
-        .get(&vehicle_entity)
-        .and_then(|&h| world.rigid_body_set.get(h))?;
+    let vehicle_body =
+        world.entity_to_handle.get(&vehicle_entity).and_then(|&h| world.rigid_body_set.get(h))?;
     let vehicle_pos = rb_pos(vehicle_body);
     let vehicle_rot = rb_rot(vehicle_body);
     let exit_vel = rb_vel(vehicle_body);
@@ -198,13 +180,7 @@ fn sync_seated_bipeds(
         let seat_rot = vehicle_rot * seat_transform.rotation;
         let vehicle_vel = rb_vel(vehicle_body);
         let vehicle_angvel = rb_angvel(vehicle_body);
-        world.set_body_pose(
-            biped_entity,
-            seat_pos,
-            seat_rot,
-            vehicle_vel,
-            vehicle_angvel,
-        );
+        world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
     }
 }
 
@@ -223,11 +199,7 @@ fn sync_seated_biped_visuals(
             let Ok((vehicle_transform, vehicle)) = vehicles.get(seated_in.0) else {
                 continue;
             };
-            (
-                vehicle_transform.translation,
-                vehicle_transform.rotation,
-                vehicle.driver_seat,
-            )
+            (vehicle_transform.translation, vehicle_transform.rotation, vehicle.driver_seat)
         };
         let (seat_translation, seat_rotation) = {
             let seats = transforms.p1();
@@ -276,11 +248,7 @@ pub fn attach_camera_on_possess_vehicle(
     let Ok((cam, proj)) = camera.single() else {
         return;
     };
-    let base_fov = if let Projection::Perspective(p) = proj {
-        p.fov.to_degrees()
-    } else {
-        90.0
-    };
+    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
     commands.entity(cam).insert((
         Transform::from_translation(vehicle.camera_offset),
         CameraEffector {
@@ -344,10 +312,7 @@ fn vehicle_exit_interact(
                 return;
             };
             commands.entity(vehicle_entity).remove::<Possessed>();
-            commands
-                .entity(biped_entity)
-                .remove::<SeatedInVehicle>()
-                .insert(Possessed::new(128));
+            commands.entity(biped_entity).remove::<SeatedInVehicle>().insert(Possessed::new(128));
             if let Ok(kind) = object_kinds.get(vehicle_entity) {
                 crate::messages::push(&mut commands, format!("Exited {kind:?}"));
             }

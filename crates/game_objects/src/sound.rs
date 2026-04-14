@@ -16,19 +16,11 @@ pub struct SoundQueue(pub Vec<SoundRequest>);
 
 impl SoundQueue {
     pub fn play_2d(&mut self, event: &'static str) {
-        self.0.push(SoundRequest {
-            event,
-            position: None,
-            velocity: Vec3::ZERO,
-        });
+        self.0.push(SoundRequest { event, position: None, velocity: Vec3::ZERO });
     }
 
     pub fn play_3d(&mut self, event: &'static str, position: Vec3, velocity: Vec3) {
-        self.0.push(SoundRequest {
-            event,
-            position: Some(position),
-            velocity,
-        });
+        self.0.push(SoundRequest { event, position: Some(position), velocity });
     }
 }
 

@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::{NetworkID, NetworkIDResource, SpawnCommand};
-
-use crate::SpawnGameObjectCommand;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_vel};
 
-use crate::level::{SpawnPoint, parent_body_handle, parented_world_pose};
+use crate::{
+    SpawnGameObjectCommand,
+    level::{SpawnPoint, parent_body_handle, parented_world_pose},
+};
 
 pub fn spawn_game_object(
     kind: GameObjectKind,

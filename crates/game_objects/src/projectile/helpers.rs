@@ -1,5 +1,3 @@
-use super::{Projectile, ProjectileState};
-use crate::health::{Health, LastDamageSource, attribute_damage};
 use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
@@ -7,6 +5,9 @@ use physics::physics_world::*;
 use rapier3d::prelude::{
     ColliderBuilder, Group, InteractionGroups, InteractionTestMode, RigidBodyBuilder, Vector,
 };
+
+use super::{Projectile, ProjectileState};
+use crate::health::{Health, LastDamageSource, attribute_damage};
 
 #[derive(Clone, Copy)]
 pub struct RayProjectileHit {
@@ -64,11 +65,7 @@ pub fn make_projectile_physics(
         .collision_groups(projectile_groups)
         .solver_groups(projectile_groups)
         .build();
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
     handle
 }
@@ -88,18 +85,13 @@ pub fn spawn_projectile(
         .spawn((
             kind,
             projectile,
-            ProjectileState {
-                temp_id,
-                shooter_velocity,
-            },
+            ProjectileState { temp_id, shooter_velocity },
             Transform::from_translation(origin),
         ))
         .id();
     // Projectile collision is resolved by casts so contacts do not push the shooter.
     let rb_handle = make_projectile_physics(entity, origin, velocity, radius, world);
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
     entity
 }
 
@@ -114,26 +106,15 @@ pub fn insert_remote_projectile(
     world.entity_mut(entity).insert((
         cmd.kind.clone(),
         projectile,
-        ProjectileState {
-            temp_id: 0,
-            shooter_velocity: cmd.shooter_velocity,
-        },
+        ProjectileState { temp_id: 0, shooter_velocity: cmd.shooter_velocity },
         Transform::from_translation(cmd.position),
         cmd.net_id.clone(),
     ));
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
-        make_projectile_physics(
-            entity,
-            cmd.position,
-            cmd.starting_velocity,
-            radius,
-            &mut physics,
-        )
+        make_projectile_physics(entity, cmd.position, cmd.starting_velocity, radius, &mut physics)
     };
-    world
-        .entity_mut(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
+    world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
     if let Some(mut sq) = world.get_resource_mut::<crate::sound::SoundQueue>() {
         sq.play_3d(fire_sound, cmd.position, cmd.starting_velocity);
     }
@@ -165,19 +146,14 @@ pub fn tick_raycast_projectile(
     let prev = rb_pos(rb) - cast_vel * dt;
     #[cfg(feature = "client")]
     {
-        commands.entity(entity).insert(super::ProjectileRaycastDebug {
-            start: prev,
-            end: prev + dir * step,
-        });
+        commands
+            .entity(entity)
+            .insert(super::ProjectileRaycastDebug { start: prev, end: prev + dir * step });
     }
     let exclude = [entity, shooter.unwrap_or(entity)];
     let (hit, toi) = world.cast_ray(prev, dir, step, &exclude)?;
     commands.entity(entity).despawn();
-    Some(RayProjectileHit {
-        entity: hit,
-        dir,
-        point: prev + dir * toi,
-    })
+    Some(RayProjectileHit { entity: hit, dir, point: prev + dir * toi })
 }
 
 pub fn apply_raycast_hit<P: Projectile>(

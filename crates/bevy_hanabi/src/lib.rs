@@ -4,9 +4,9 @@ pub mod effects;
 pub mod helpers;
 
 pub mod prelude {
-    pub use crate::HanabiEffectsPlugin;
-    pub use crate::effects::*;
     pub use hanabi::prelude::*;
+
+    pub use crate::{HanabiEffectsPlugin, effects::*};
 }
 
 pub struct HanabiEffectsPlugin;

@@ -5,11 +5,12 @@ mod input;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
+use super::{
+    controls::{ControlsCapture, show_controls_settings},
+    data::{Settings, SettingsSection},
+    persistence,
+};
 use crate::sound::AudioOutputDevices;
-
-use super::controls::{ControlsCapture, show_controls_settings};
-use super::data::{Settings, SettingsSection};
-use super::persistence;
 
 pub fn show_settings_ui(
     ui: &mut egui::Ui,

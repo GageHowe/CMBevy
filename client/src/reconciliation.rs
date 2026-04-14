@@ -1,25 +1,28 @@
-use bevy::prelude::*;
-use rapier3d::prelude::{RigidBodyHandle, Vector};
 use std::collections::{HashMap, HashSet};
 
-use common::tick::{NetworkStats, Ticker};
-use common::{NetworkID, PredictedCommand, PredictedCommands};
-use game_objects::NetworkEntityMap;
-use game_objects::components::atmosphere::{
-    AtmosphericDragComponent, apply_wind_resistance_impulses,
+use bevy::prelude::*;
+use common::{
+    NetworkID, PredictedCommands, PredictedImpulse, PredictedTick,
+    tick::{NetworkStats, Ticker},
 };
-use game_objects::components::planet::{
-    GravitySource, SnapSource, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
+use game_objects::{
+    NetworkEntityMap,
+    components::{
+        atmosphere::{AtmosphericDragComponent, apply_wind_resistance_impulses},
+        planet::{
+            GravitySource, SnapSource, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
+        },
+    },
+    pawn::{
+        GatherInputSet, Pawn, Possessed, SeatedInVehicle, biped::BipedPawnComponent,
+        spaceship::SpaceshipPawnComponent,
+    },
 };
-use game_objects::pawn::Pawn;
-use game_objects::pawn::SeatedInVehicle;
-use game_objects::pawn::biped::BipedPawnComponent;
-use game_objects::pawn::spaceship::SpaceshipPawnComponent;
-use game_objects::pawn::{GatherInputSet, Possessed};
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
     restore_snapshot, snapshot_body_handles, step_world,
 };
+use rapier3d::prelude::{RigidBodyHandle, Vector};
 use session::PendingReconciliation;
 /// manages client-side rollback/correction, like in Rocket League
 pub struct ReconciliationPlugin<S: States + Copy>(pub S);
@@ -87,10 +90,7 @@ fn record_biped_state(
     }
     history.0.insert(
         seq,
-        BipedReplayState {
-            jump_cooldown: biped.jump_cooldown,
-            is_sliding: biped.is_sliding,
-        },
+        BipedReplayState { jump_cooldown: biped.jump_cooldown, is_sliding: biped.is_sliding },
     );
     history.0.retain(|&old_seq, _| old_seq + 128 >= seq);
 }
@@ -171,11 +171,7 @@ pub fn maybe_reconcile(
     seated: Query<&SeatedInVehicle>,
     gravity_sources: Query<(&GravitySource, &RigidBodyHandleComponent)>,
     snap_sources: Query<(&SnapSource, &RigidBodyHandleComponent)>,
-    atmospheres: Query<(
-        &AtmosphericDragComponent,
-        &Transform,
-        Option<&RigidBodyHandleComponent>,
-    )>,
+    atmospheres: Query<(&AtmosphericDragComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
     gravity_scales: Query<&GravityScale>,
     predicted: Res<PredictedCommands>,
     history: Res<BipedStateHistory>,
@@ -206,10 +202,9 @@ pub fn maybe_reconcile(
     });
 
     restore_snapshot(&mut world, &snapshot, &pairs);
-    if let (Some(saved), Ok(mut biped)) = (
-        history.0.get(&snapshot.last_input_seq),
-        pawn_q.p0().single_mut(),
-    ) {
+    if let (Some(saved), Ok(mut biped)) =
+        (history.0.get(&snapshot.last_input_seq), pawn_q.p0().single_mut())
+    {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
     }
@@ -228,9 +223,18 @@ pub fn maybe_reconcile(
     }
 
     let our_rb = our_handle;
+    let replay_handles: HashMap<NetworkID, RigidBodyHandle> =
+        pairs.iter().map(|(net_id, handle)| (net_id.clone(), *handle)).collect();
     for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
-        if let Some(command) = predicted.get(replay_seq).cloned() {
-            apply_predicted_command(&mut world, &pairs, our_net_id, our_rb, command, &mut pawn_q);
+        if let Some(tick) = predicted.get(replay_seq).cloned() {
+            apply_predicted_tick(
+                &mut world,
+                &replay_handles,
+                our_net_id,
+                our_rb,
+                tick,
+                &mut pawn_q,
+            );
         }
         apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);
         apply_gravity_impulses(&mut world, &gravity_sources, &gravity_scales, &seated);
@@ -268,54 +272,53 @@ pub fn maybe_reconcile(
     }
 }
 
-fn apply_predicted_command(
+fn apply_predicted_tick(
     world: &mut PhysicsWorld,
-    pairs: &[(NetworkID, RigidBodyHandle)],
+    replay_handles: &HashMap<NetworkID, RigidBodyHandle>,
     our_net_id: &NetworkID,
     our_rb: RigidBodyHandle,
-    command: PredictedCommand,
+    tick: PredictedTick,
     pawn_q: &mut ParamSet<(
         Query<&mut BipedPawnComponent, With<Possessed>>,
         Query<&mut SpaceshipPawnComponent, With<Possessed>>,
     )>,
 ) {
-    match command {
-        PredictedCommand::Input(input) => {
-            let handle = RigidBodyHandleComponent(our_rb);
-            let handled = if let Ok(mut b) = pawn_q.p0().single_mut() {
-                b.apply_input(world, &handle, input.clone());
-                true
-            } else {
-                false
-            };
-            if !handled && let Ok(mut s) = pawn_q.p1().single_mut() {
-                s.apply_input(world, &handle, input);
-            }
-        }
-        PredictedCommand::Impulse {
-            target,
-            impulse,
-            point,
-        } => {
-            let handle = if &target == our_net_id {
-                Some(our_rb)
-            } else {
-                pairs
-                    .iter()
-                    .find(|(net_id, _)| *net_id == target)
-                    .map(|(_, handle)| *handle)
-            };
-            let Some(handle) = handle else {
-                return;
-            };
-            if let Some(rb) = world.rigid_body_set.get_mut(handle) {
-                let impulse = Vector::new(impulse.x, impulse.y, impulse.z);
-                if let Some(point) = point {
-                    rb.apply_impulse_at_point(impulse, point, true);
-                } else {
-                    rb.apply_impulse(impulse, true);
-                }
-            }
+    let handle = RigidBodyHandleComponent(our_rb);
+    let handled = if let Ok(mut b) = pawn_q.p0().single_mut() {
+        b.apply_input(world, &handle, tick.input.clone());
+        true
+    } else {
+        false
+    };
+    if !handled && let Ok(mut s) = pawn_q.p1().single_mut() {
+        s.apply_input(world, &handle, tick.input);
+    }
+    for impulse in tick.impulses {
+        apply_predicted_impulse(world, replay_handles, our_net_id, our_rb, impulse);
+    }
+}
+
+fn apply_predicted_impulse(
+    world: &mut PhysicsWorld,
+    replay_handles: &HashMap<NetworkID, RigidBodyHandle>,
+    our_net_id: &NetworkID,
+    our_rb: RigidBodyHandle,
+    impulse: PredictedImpulse,
+) {
+    let handle = if &impulse.target == our_net_id {
+        Some(our_rb)
+    } else {
+        replay_handles.get(&impulse.target).copied()
+    };
+    let Some(handle) = handle else {
+        return;
+    };
+    if let Some(rb) = world.rigid_body_set.get_mut(handle) {
+        let vec = Vector::new(impulse.impulse.x, impulse.impulse.y, impulse.impulse.z);
+        if let Some(point) = impulse.point {
+            rb.apply_impulse_at_point(vec, point, true);
+        } else {
+            rb.apply_impulse(vec, true);
         }
     }
 }

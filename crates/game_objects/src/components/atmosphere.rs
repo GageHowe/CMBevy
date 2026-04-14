@@ -5,11 +5,12 @@ atmosphere-adjacent zones:
 * either zone may or may not be attached to a rigidbody (e.g. a moving planet)
 */
 
-use crate::pawn::SeatedInVehicle;
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
+
+use crate::pawn::SeatedInVehicle;
 
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
@@ -41,11 +42,7 @@ pub struct AreaReverbComponent {
 /// Inner function callable during reconciliation replay (mirrors apply_gravity_impulses).
 pub fn apply_wind_resistance_impulses(
     world: &mut PhysicsWorld,
-    atmospheres: &Query<(
-        &AtmosphericDragComponent,
-        &Transform,
-        Option<&RigidBodyHandleComponent>,
-    )>,
+    atmospheres: &Query<(&AtmosphericDragComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
     seated: &Query<&SeatedInVehicle>,
 ) {
     let dt = world.integration_parameters.dt;
@@ -88,12 +85,7 @@ pub fn apply_wind_resistance_impulses(
         }
 
         for rb_handle in affected {
-            if world
-                .handle_to_entity
-                .get(&rb_handle)
-                .and_then(|e| seated.get(*e).ok())
-                .is_some()
-            {
+            if world.handle_to_entity.get(&rb_handle).and_then(|e| seated.get(*e).ok()).is_some() {
                 continue;
             }
             let Some(rb) = world.rigid_body_set.get(rb_handle) else {
@@ -119,11 +111,7 @@ pub fn apply_wind_resistance_impulses(
 
 pub fn apply_wind_resistance(
     mut world: ResMut<PhysicsWorld>,
-    atmospheres: Query<(
-        &AtmosphericDragComponent,
-        &Transform,
-        Option<&RigidBodyHandleComponent>,
-    )>,
+    atmospheres: Query<(&AtmosphericDragComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
     seated: Query<&SeatedInVehicle>,
 ) {
     apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);

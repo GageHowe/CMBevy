@@ -1,19 +1,23 @@
-use crate::lifecycle::spawn_game_object;
-use crate::pawn::Possessed;
-use bevy::prelude::*;
-use bevy::scene::DynamicSceneRoot;
-use bevy::scene::serde::SceneDeserializer;
+use std::path::PathBuf;
+
+use bevy::{
+    prelude::*,
+    scene::{DynamicSceneRoot, serde::SceneDeserializer},
+};
 use common::slow_update::SlowUpdate;
-use physics::collider_shape::ColliderShape;
-use physics::convex_hull_asset::ConvexHullAsset;
-use physics::physics_world::{
-    InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
-    rb_rot, rb_vel,
+use physics::{
+    collider_shape::ColliderShape,
+    convex_hull_asset::ConvexHullAsset,
+    physics_world::{
+        InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
+        rb_rot, rb_vel,
+    },
 };
 use rapier3d::prelude::*;
 use serde::de::DeserializeSeed;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+
+use crate::{lifecycle::spawn_game_object, pawn::Possessed};
 
 mod preprocess;
 
@@ -92,11 +96,7 @@ pub struct Spawner {
 }
 impl Default for Spawner {
     fn default() -> Self {
-        Self {
-            kind: common::GameObjectKind::Biped,
-            respawn_delay_secs: 10.0,
-            gc_after_secs: None,
-        }
+        Self { kind: common::GameObjectKind::Biped, respawn_delay_secs: 10.0, gc_after_secs: None }
     }
 }
 
@@ -133,10 +133,7 @@ pub struct LevelReadyState<'w, 's> {
         'w,
         's,
         &'static SceneRigidBody,
-        (
-            With<RigidBodyHandleComponent>,
-            Without<net::message::NetworkID>,
-        ),
+        (With<RigidBodyHandleComponent>, Without<net::message::NetworkID>),
     >,
 }
 
@@ -166,9 +163,7 @@ impl LevelReadyState<'_, '_> {
     }
 
     fn pending_scene_network_ids(&self) -> bool {
-        self.scene_bodies
-            .iter()
-            .any(|scene_body| matches!(scene_body, SceneRigidBody::Dynamic))
+        self.scene_bodies.iter().any(|scene_body| matches!(scene_body, SceneRigidBody::Dynamic))
     }
 }
 
@@ -282,9 +277,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
     };
     let registry = world.resource::<AppTypeRegistry>().clone();
     let registry_guard = registry.read();
-    let scene_de = SceneDeserializer {
-        type_registry: &registry_guard,
-    };
+    let scene_de = SceneDeserializer { type_registry: &registry_guard };
     let mut ron_de = match ron::Deserializer::from_bytes(&bytes) {
         Ok(d) => d,
         Err(e) => {
@@ -335,15 +328,11 @@ pub fn compressed_level_hash(compressed: &[u8]) -> Option<String> {
 
 fn load_remote_level(hash: &str) -> Result<LevelBytes, String> {
     if let Some(compressed) = read_cached_map(hash) {
-        return Ok(LevelBytes {
-            hash: hash.to_string(),
-            compressed,
-        });
+        return Ok(LevelBytes { hash: hash.to_string(), compressed });
     }
     let url = format!("{}/assets/{}", common::config::BEACON_URL, hash);
-    let response = ureq::get(&url)
-        .call()
-        .map_err(|err| format!("failed to fetch level {hash}: {err}"))?;
+    let response =
+        ureq::get(&url).call().map_err(|err| format!("failed to fetch level {hash}: {err}"))?;
     let mut reader = response.into_reader();
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut reader, &mut bytes)
@@ -396,11 +385,7 @@ impl Plugin for LevelPlugin {
         // react to scene-spawned components — works on both client and server
         app.add_systems(
             Update,
-            (
-                spawn_static_colliders,
-                spawn_hull_colliders,
-                assign_scene_network_ids,
-            ),
+            (spawn_static_colliders, spawn_hull_colliders, assign_scene_network_ids),
         );
         app.add_systems(FixedPreUpdate, assign_scene_network_ids);
         #[cfg(feature = "client")]
@@ -439,12 +424,7 @@ fn init_spawners(
 
 fn assign_scene_network_ids(
     query: Query<
-        (
-            Entity,
-            &SceneRigidBody,
-            &Transform,
-            Option<&net::message::NetworkID>,
-        ),
+        (Entity, &SceneRigidBody, &Transform, Option<&net::message::NetworkID>),
         With<RigidBodyHandleComponent>,
     >,
     mut commands: Commands,
@@ -565,10 +545,8 @@ fn cleanup_scene_spawned_entities(
     mut spawners: Query<&mut SpawnerRuntime>,
     mut commands: Commands,
 ) {
-    let player_positions: Vec<Vec3> = players
-        .iter()
-        .filter_map(|body| physics.rigid_body_set.get(body.0).map(rb_pos))
-        .collect();
+    let player_positions: Vec<Vec3> =
+        players.iter().filter_map(|body| physics.rigid_body_set.get(body.0).map(rb_pos)).collect();
 
     for (entity, body, mut gc) in &mut gc_q {
         let Some(rb) = physics.rigid_body_set.get(body.0) else {
@@ -676,14 +654,10 @@ pub fn spawn_hull_colliders(
         .0
         .iter()
         .filter_map(|(entity, pos, rot, h)| {
-            hull_assets
-                .get(h)
-                .map(|a| (*entity, *pos, *rot, a.0.clone()))
+            hull_assets.get(h).map(|a| (*entity, *pos, *rot, a.0.clone()))
         })
         .collect();
-    pending
-        .0
-        .retain(|(_, _, _, h)| hull_assets.get(h).is_none());
+    pending.0.retain(|(_, _, _, h)| hull_assets.get(h).is_none());
     for (entity, pos, rot, collider) in ready {
         let existing = world.entity_to_handle.get(&entity).copied();
         attach_collider_to_body(
@@ -737,10 +711,7 @@ pub fn draw_script_zone_debug(
         let radius = match &zone.shape {
             ColliderShape::Ball(radius) => *radius,
             ColliderShape::Cuboid(half_extents) => half_extents.max_element(),
-            ColliderShape::Capsule {
-                half_height,
-                radius,
-            } => half_height + radius,
+            ColliderShape::Capsule { half_height, radius } => half_height + radius,
             ColliderShape::ConvexHulls(_) => continue,
         };
         gizmos.sphere(
@@ -763,28 +734,14 @@ fn attach_collider_to_body(
     world: &mut PhysicsWorld,
 ) {
     let handle = existing_handle.unwrap_or_else(|| {
-        ensure_body(
-            entity,
-            position,
-            rotation,
-            scene_body,
-            initial_velocity,
-            commands,
-            world,
-        )
+        ensure_body(entity, position, rotation, scene_body, initial_velocity, commands, world)
     });
     if let Some(rb) = world.rigid_body_set.get_mut(handle) {
         rb.set_rotation(rotation, true);
     }
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *world;
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(handle));
 }
 
 fn ensure_body(
@@ -805,19 +762,13 @@ fn ensure_body(
     };
     let rb = builder
         .translation(Vector3::new(position.x, position.y, position.z))
-        .linvel(Vector3::new(
-            initial_velocity.x,
-            initial_velocity.y,
-            initial_velocity.z,
-        ))
+        .linvel(Vector3::new(initial_velocity.x, initial_velocity.y, initial_velocity.z))
         .build();
     let handle = world.insert_body(entity, rb);
     if let Some(rb) = world.rigid_body_set.get_mut(handle) {
         rb.set_rotation(rotation, true);
     }
-    commands
-        .entity(entity)
-        .insert(RigidBodyHandleComponent(handle));
+    commands.entity(entity).insert(RigidBodyHandleComponent(handle));
     handle
 }
 

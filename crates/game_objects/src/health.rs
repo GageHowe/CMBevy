@@ -1,7 +1,9 @@
-use crate::dispatch_game_object_on_death;
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use physics::physics_world::{PhysicsWorld, step_physics};
-use std::collections::HashMap;
+
+use crate::dispatch_game_object_on_death;
 
 const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
 
@@ -21,10 +23,7 @@ impl Plugin for HealthPlugin {
                 .chain()
                 .in_set(HealthAuthoritySet),
         );
-        app.add_systems(
-            FixedUpdate,
-            handle_deaths.after(step_physics).in_set(HealthAuthoritySet),
-        );
+        app.add_systems(FixedUpdate, handle_deaths.after(step_physics).in_set(HealthAuthoritySet));
     }
 }
 
@@ -49,9 +48,7 @@ pub struct LastDamageSource {
 
 impl LastDamageSource {
     pub fn resolved_attacker(self) -> Option<Entity> {
-        (self.age_secs <= DAMAGE_ATTRIBUTION_WINDOW_SECS)
-            .then_some(self.attacker)
-            .flatten()
+        (self.age_secs <= DAMAGE_ATTRIBUTION_WINDOW_SECS).then_some(self.attacker).flatten()
     }
 }
 
@@ -124,12 +121,8 @@ pub fn apply_collision_damage(
         if !pair.has_any_active_contact() {
             continue;
         }
-        let impulse: f32 = pair
-            .manifolds
-            .iter()
-            .flat_map(|m| m.points.iter())
-            .map(|p| p.data.impulse)
-            .sum();
+        let impulse: f32 =
+            pair.manifolds.iter().flat_map(|m| m.points.iter()).map(|p| p.data.impulse).sum();
         if impulse <= 0.0 {
             continue;
         }
@@ -147,10 +140,8 @@ pub fn apply_collision_damage(
                 let Ok(config) = has_health_q.get(entity) else {
                     continue;
                 };
-                let damage = config
-                    .copied()
-                    .unwrap_or_default()
-                    .damage_from_impulse(impulse, rb.mass());
+                let damage =
+                    config.copied().unwrap_or_default().damage_from_impulse(impulse, rb.mass());
                 if damage <= 0.0 {
                     continue;
                 }
@@ -212,9 +203,8 @@ pub fn handle_deaths(world: &mut World) {
             continue;
         }
 
-        let should_despawn = kind
-            .clone()
-            .is_none_or(|kind| run_death_callback(kind, entity, world));
+        let should_despawn =
+            kind.clone().is_none_or(|kind| run_death_callback(kind, entity, world));
         if !should_despawn || !world.entities().contains(entity) {
             continue;
         }

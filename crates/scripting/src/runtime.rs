@@ -1,8 +1,9 @@
 //! Owns the Lua VM lifecycle and the small helpers used to call into it safely.
 
-use crate::config::ScriptConfig;
 use bevy::prelude::*;
 use mlua::prelude::*;
+
+use crate::config::ScriptConfig;
 
 pub(crate) struct ScriptRuntime {
     pub lua: Lua,
@@ -23,14 +24,8 @@ pub(crate) fn compile_script(config: &ScriptConfig, runtime: &mut ScriptRuntime)
         }
     };
     let _ = runtime.lua.globals().set("IS_SERVER", config.is_server);
-    let _ = runtime
-        .lua
-        .globals()
-        .set("FIXED_TICK_RATE", common::config::FIXED_TICK_RATE);
-    let _ = runtime
-        .lua
-        .globals()
-        .set("FIXED_DELTA_SECONDS", 1.0 / common::config::FIXED_TICK_RATE);
+    let _ = runtime.lua.globals().set("FIXED_TICK_RATE", common::config::FIXED_TICK_RATE);
+    let _ = runtime.lua.globals().set("FIXED_DELTA_SECONDS", 1.0 / common::config::FIXED_TICK_RATE);
     match runtime.lua.load(&src).exec() {
         Ok(_) => {
             runtime.loaded = true;
@@ -60,12 +55,8 @@ pub fn call_script_fn<T: FromLuaMulti>(world: &mut World, fn_name: &str) -> Opti
         return None;
     }
     runtime.lua.set_app_data(world as *mut World);
-    let result = runtime
-        .lua
-        .globals()
-        .get::<LuaFunction>(fn_name)
-        .and_then(|f| f.call::<T>(()))
-        .ok();
+    let result =
+        runtime.lua.globals().get::<LuaFunction>(fn_name).and_then(|f| f.call::<T>(())).ok();
     runtime.lua.remove_app_data::<*mut World>();
     world.insert_non_send_resource(runtime);
     result

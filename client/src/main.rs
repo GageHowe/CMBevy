@@ -1,25 +1,25 @@
 // client executable
 // WARNING: don't put common dependencies here, put them in MasterPlugin
 
-use bevy::log::{Level, LogPlugin};
-use bevy::prelude::*;
-use bevy::window::PresentMode;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use bevy::{
+    log::{Level, LogPlugin},
+    prelude::*,
+    window::PresentMode,
+};
 use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
 use camera::spawn_camera;
 pub use common::game_state::GameState;
-use game_objects::GameObjectsPlugin;
-use game_objects::pawn::vehicle::draw_driver_seat_debug;
-use game_objects::pawn::{self, *};
-use game_objects::projectile::hail_mary::HailMaryProjectile;
-use game_objects::projectile::rifle::*;
-use game_objects::projectile::rpg::RpgProjectile;
-use game_objects::projectile::*;
-use game_objects::weapon::WeaponPlugin;
+use game_objects::{
+    GameObjectsPlugin,
+    pawn::{self, vehicle::draw_driver_seat_debug, *},
+    projectile::{hail_mary::HailMaryProjectile, rifle::*, rpg::RpgProjectile, *},
+    weapon::WeaponPlugin,
+};
 use reconciliation::*;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tick_sync::TickSyncPlugin;
-use ui::ui::UIPlugin;
-use ui::window::WindowSettingsPlugin;
+use ui::{ui::UIPlugin, window::WindowSettingsPlugin};
 
 mod camera;
 mod menu;
@@ -27,19 +27,18 @@ mod outline;
 mod reconciliation;
 mod tick_sync;
 mod ui;
+use game_objects::{
+    components::planet::draw_planet_radii,
+    level::{LevelPlugin, MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene},
+};
+use master_plugin::MasterPlugin;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
+use physics::physics_world::{step_physics, sync_physics_visual};
 use session::{
     ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig,
     draw_server_state,
 };
-
-use game_objects::components::planet::draw_planet_radii;
-use game_objects::level::{
-    LevelPlugin, MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene,
-};
-use master_plugin::MasterPlugin;
-use physics::physics_world::{step_physics, sync_physics_visual};
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 // use game_objects::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
@@ -68,10 +67,7 @@ fn parse_server_addr() -> SocketAddr {
     match common::config::SERVER_BIND_ADDRESS.parse() {
         Ok(addr) => addr,
         Err(err) => {
-            error!(
-                "invalid SERVER_BIND_ADDRESS '{}': {err}",
-                common::config::SERVER_BIND_ADDRESS
-            );
+            error!("invalid SERVER_BIND_ADDRESS '{}': {err}", common::config::SERVER_BIND_ADDRESS);
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 42070)
         }
     }
@@ -98,10 +94,7 @@ fn main() {
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
                 ..default()
             })
-            .set(LogPlugin {
-                level: Level::WARN,
-                ..default()
-            })
+            .set(LogPlugin { level: Level::WARN, ..default() })
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Critical Mass".into(),
@@ -132,9 +125,7 @@ fn main() {
             single_player: GameState::SinglePlayer,
             multiplayer: GameState::Multiplayer,
         })
-        .add_plugins(ReconciliationPlugin::<GameState>::new(
-            GameState::Multiplayer,
-        ))
+        .add_plugins(ReconciliationPlugin::<GameState>::new(GameState::Multiplayer))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<PendingExit>()
@@ -172,9 +163,7 @@ fn main() {
     app.add_systems(Update, draw_driver_seat_debug.run_if(debug_render_on));
     app.add_systems(
         Update,
-        draw_server_state
-            .run_if(debug_render_on)
-            .run_if(in_state(GameState::Multiplayer)),
+        draw_server_state.run_if(debug_render_on).run_if(in_state(GameState::Multiplayer)),
     );
     app.add_systems(
         FixedUpdate,

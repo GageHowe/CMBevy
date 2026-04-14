@@ -2,12 +2,13 @@ use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
+use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
-use crate::projectile::{helpers as projectile_helpers, rpg};
-use crate::{GameObject, GameObjectKind};
-
-use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
+use crate::{
+    GameObject, GameObjectKind,
+    projectile::{helpers as projectile_helpers, rpg},
+};
 
 pub const COOLDOWN_TICKS: u32 = 45;
 pub const MAGAZINE_SIZE: u16 = 1;
@@ -53,15 +54,7 @@ impl Weapon for RpgComponent {
             projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rpg::SPEED);
         let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
         let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
-        rpg::spawn(
-            ctx.origin,
-            velocity,
-            shooter_velocity,
-            commands,
-            world,
-            ctx.shooter,
-            temp_id,
-        );
+        rpg::spawn(ctx.origin, velocity, shooter_velocity, commands, world, ctx.shooter, temp_id);
 
         // Keep the local launcher recoil on the same path the server uses for authoritative fire.
         #[cfg(feature = "client")]

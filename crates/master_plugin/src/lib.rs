@@ -3,20 +3,18 @@
 // this will get compiled twice due the disaled feature unification in game_objects
 
 use bevy::prelude::*;
-use common::NetworkIDResource;
-use common::slow_update::SlowSchedulePlugin;
-use common::tick::*;
-use game_objects::components::atmosphere::AtmospherePlugin;
-use game_objects::components::planet::PlanetPlugin;
-use game_objects::generic::swap_hull_colliders;
-use game_objects::health::HealthPlugin;
-use game_objects::projectile::ProjectilePlugin;
+use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
+use game_objects::{
+    components::{atmosphere::AtmospherePlugin, planet::PlanetPlugin},
+    generic::swap_hull_colliders,
+    health::HealthPlugin,
+    projectile::ProjectilePlugin,
+};
 #[cfg(feature = "client")]
 use net::clientonly::NetClientPlugin;
 #[cfg(not(feature = "client"))]
 use net::serveronly::NetServerPlugin;
-use physics::convex_hull_asset::ConvexHullPlugin;
-use physics::physics_world::*;
+use physics::{convex_hull_asset::ConvexHullPlugin, physics_world::*};
 use scripting::ScriptingPlugin;
 
 pub struct MasterPlugin;

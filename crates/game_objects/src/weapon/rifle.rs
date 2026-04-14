@@ -1,10 +1,12 @@
-use super::apply_zoom;
-use super::{FireCtx, Weapon, helpers, weapon_bundle};
-use crate::projectile::{helpers as projectile_helpers, rifle};
-use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+
+use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
+use crate::{
+    GameObject, GameObjectKind,
+    projectile::{helpers as projectile_helpers, rifle},
+};
 
 pub const COOLDOWN_TICKS: u32 = 8;
 pub const MAGAZINE_SIZE: u16 = 30;
@@ -62,15 +64,7 @@ pub fn fire_rifle_projectile(
         projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
     let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
     let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
-    rifle::spawn(
-        ctx.origin,
-        velocity,
-        shooter_velocity,
-        commands,
-        world,
-        ctx.shooter,
-        temp_id,
-    );
+    rifle::spawn(ctx.origin, velocity, shooter_velocity, commands, world, ctx.shooter, temp_id);
     #[cfg(feature = "client")]
     projectile_helpers::apply_recoil::<rifle::RifleProjectile>(ctx, world, kick_scale);
     helpers::queue_fire_sound(
@@ -83,11 +77,7 @@ pub fn fire_rifle_projectile(
         ctx.origin,
     );
     if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick(
-            (2.0 * kick_scale, 0.5 * kick_scale),
-            (-kick_scale, kick_scale),
-            20.0,
-        );
+        cam.add_kick((2.0 * kick_scale, 0.5 * kick_scale), (-kick_scale, kick_scale), 20.0);
     }
     #[cfg(feature = "client")]
     helpers::send_fire_request(

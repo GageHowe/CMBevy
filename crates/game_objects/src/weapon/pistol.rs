@@ -1,9 +1,12 @@
-use super::{FireCtx, Weapon, helpers, weapon_bundle};
-use crate::projectile::{helpers as projectile_helpers, rifle};
-use crate::{GameObject, GameObjectKind};
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+
+use super::{FireCtx, Weapon, helpers, weapon_bundle};
+use crate::{
+    GameObject, GameObjectKind,
+    projectile::{helpers as projectile_helpers, rifle},
+};
 
 pub const COOLDOWN_TICKS: u32 = 10;
 pub const MAGAZINE_SIZE: u16 = 12;

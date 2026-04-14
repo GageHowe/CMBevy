@@ -1,11 +1,16 @@
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
-use std::io;
-use std::net::{SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap},
+    io,
+    net::{SocketAddr, UdpSocket},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
+        mpsc,
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Debug)]
 pub struct DirectionConfig {
@@ -74,10 +79,7 @@ struct LinkState {
 
 impl LinkState {
     fn new(seed: u64, config: DirectionConfig) -> Self {
-        Self {
-            rng: Rng64::new(seed),
-            config,
-        }
+        Self { rng: Rng64::new(seed), config }
     }
 
     fn schedule(
@@ -198,10 +200,7 @@ impl PartialOrd for ScheduledPacket {
 
 impl Ord for ScheduledPacket {
     fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .due
-            .cmp(&self.due)
-            .then_with(|| other.sequence.cmp(&self.sequence))
+        other.due.cmp(&self.due).then_with(|| other.sequence.cmp(&self.sequence))
     }
 }
 
@@ -251,9 +250,7 @@ pub fn run(config: Config) -> io::Result<()> {
     loop {
         let (count, client_addr) = listener.recv_from(&mut buf)?;
         stats.client_packets.fetch_add(1, AtomicOrdering::Relaxed);
-        stats
-            .client_bytes
-            .fetch_add(count as u64, AtomicOrdering::Relaxed);
+        stats.client_bytes.fetch_add(count as u64, AtomicOrdering::Relaxed);
 
         let client = get_or_create_client(
             client_addr,
@@ -287,11 +284,8 @@ fn get_or_create_client(
     config: &Config,
     client_seed: &AtomicU64,
 ) -> io::Result<Arc<ClientLink>> {
-    if let Some(existing) = clients
-        .lock()
-        .expect("clients mutex poisoned")
-        .get(&client_addr)
-        .cloned()
+    if let Some(existing) =
+        clients.lock().expect("clients mutex poisoned").get(&client_addr).cloned()
     {
         return Ok(existing);
     }
@@ -351,9 +345,7 @@ fn spawn_downlink_thread(
                 }
             };
             stats.server_packets.fetch_add(1, AtomicOrdering::Relaxed);
-            stats
-                .server_bytes
-                .fetch_add(count as u64, AtomicOrdering::Relaxed);
+            stats.server_bytes.fetch_add(count as u64, AtomicOrdering::Relaxed);
             downlink.schedule(
                 &buf[..count],
                 Instant::now(),

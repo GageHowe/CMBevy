@@ -38,10 +38,7 @@ pub struct OutlineSettings {
 
 impl Default for OutlineSettings {
     fn default() -> Self {
-        Self {
-            threshold: 0.05,
-            color: Vec4::new(1.0, 1.0, 1.0, 0.8),
-        }
+        Self { threshold: 0.05, color: Vec4::new(1.0, 1.0, 1.0, 0.8) }
     }
 }
 
@@ -60,11 +57,7 @@ impl Plugin for OutlinePlugin {
             .add_render_graph_node::<ViewNodeRunner<OutlineNode>>(Core3d, OutlineLabel)
             .add_render_graph_edges(
                 Core3d,
-                (
-                    Node3d::Smaa,
-                    OutlineLabel,
-                    Node3d::EndMainPassPostProcessing,
-                ),
+                (Node3d::Smaa, OutlineLabel, Node3d::EndMainPassPostProcessing),
             );
     }
 
@@ -104,33 +97,27 @@ impl FromWorld for OutlinePipeline {
         let shader = world.load_asset("shaders/outline.wgsl");
         let fullscreen = world.resource::<FullscreenShader>().clone();
         let pipeline_id =
-            world
-                .resource::<PipelineCache>()
-                .queue_render_pipeline(RenderPipelineDescriptor {
-                    label: Some("outline_pipeline".into()),
-                    layout: vec![layout.clone()],
-                    vertex: fullscreen.to_vertex_state(),
-                    fragment: Some(FragmentState {
-                        shader,
-                        shader_defs: vec![],
-                        targets: vec![Some(ColorTargetState {
-                            format: ViewTarget::TEXTURE_FORMAT_HDR,
-                            blend: None,
-                            write_mask: ColorWrites::ALL,
-                        })],
-                        ..default()
-                    }),
-                    primitive: PrimitiveState::default(),
-                    depth_stencil: None,
-                    multisample: MultisampleState::default(),
-                    push_constant_ranges: vec![],
-                    zero_initialize_workgroup_memory: false,
-                });
-        Self {
-            layout,
-            sampler,
-            pipeline_id,
-        }
+            world.resource::<PipelineCache>().queue_render_pipeline(RenderPipelineDescriptor {
+                label: Some("outline_pipeline".into()),
+                layout: vec![layout.clone()],
+                vertex: fullscreen.to_vertex_state(),
+                fragment: Some(FragmentState {
+                    shader,
+                    shader_defs: vec![],
+                    targets: vec![Some(ColorTargetState {
+                        format: ViewTarget::TEXTURE_FORMAT_HDR,
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    ..default()
+                }),
+                primitive: PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: MultisampleState::default(),
+                push_constant_ranges: vec![],
+                zero_initialize_workgroup_memory: false,
+            });
+        Self { layout, sampler, pipeline_id }
     }
 }
 

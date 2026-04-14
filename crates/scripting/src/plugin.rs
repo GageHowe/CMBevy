@@ -1,33 +1,32 @@
 //! Wires the scripting runtime into Bevy schedules and keeps the Lua VM hot-reloaded.
 
-use crate::api::register_script_functions;
-use crate::config::ScriptConfig;
-use crate::runtime::{ScriptRuntime, call_script, call_script_args, compile_script};
-use crate::tag_index::{ScriptTagIndex, sync_script_tags};
 use bevy::prelude::*;
-use game_objects::health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths};
-use game_objects::pawn::PlayerRegistry;
+use game_objects::{
+    health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths},
+    pawn::PlayerRegistry,
+};
 use mlua::prelude::Lua;
+
+use crate::{
+    api::register_script_functions,
+    config::ScriptConfig,
+    runtime::{ScriptRuntime, call_script, call_script_args, compile_script},
+    tag_index::{ScriptTagIndex, sync_script_tags},
+};
 
 pub struct ScriptingPlugin;
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_non_send_resource(ScriptRuntime {
-            lua: Lua::new(),
-            loaded: false,
-        })
-        .init_resource::<ScriptTagIndex>()
-        .init_resource::<PendingPlayerKills>()
-        .init_resource::<PendingPlayerRemovals>()
-        .add_systems(Startup, (load, register_script_functions).chain())
-        .add_systems(PreUpdate, sync_script_tags)
-        .add_systems(Update, eval_script_update)
-        .add_systems(FixedUpdate, (reload_script, eval_script_fixed_update))
-        .add_systems(
-            FixedUpdate,
-            dispatch_player_kill_callbacks.after(handle_deaths),
-        );
+        app.insert_non_send_resource(ScriptRuntime { lua: Lua::new(), loaded: false })
+            .init_resource::<ScriptTagIndex>()
+            .init_resource::<PendingPlayerKills>()
+            .init_resource::<PendingPlayerRemovals>()
+            .add_systems(Startup, (load, register_script_functions).chain())
+            .add_systems(PreUpdate, sync_script_tags)
+            .add_systems(Update, eval_script_update)
+            .add_systems(FixedUpdate, (reload_script, eval_script_fixed_update))
+            .add_systems(FixedUpdate, dispatch_player_kill_callbacks.after(handle_deaths));
     }
 }
 
@@ -65,10 +64,7 @@ fn dispatch_player_kill_callbacks(world: &mut World) {
         call_script_args(
             world,
             "on_player_killed",
-            (
-                victim.to_bits() as i64,
-                killer.map(|entity| entity.to_bits() as i64),
-            ),
+            (victim.to_bits() as i64, killer.map(|entity| entity.to_bits() as i64)),
         );
     }
 

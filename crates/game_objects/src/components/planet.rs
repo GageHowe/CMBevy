@@ -1,8 +1,9 @@
-use crate::pawn::{BipedPawnComponent, SeatedInVehicle};
 use bevy::prelude::*;
 use physics::physics_world::{self, *};
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
+
+use crate::pawn::{BipedPawnComponent, SeatedInVehicle};
 
 #[deprecated]
 pub const BASE_GRAVITY_STRENGTH: f32 = 9.81; // m/s^2
@@ -89,12 +90,7 @@ pub fn apply_gravity_impulses(
         };
 
         for rb_handle in affected_handles {
-            if world
-                .handle_to_entity
-                .get(&rb_handle)
-                .and_then(|e| seated.get(*e).ok())
-                .is_some()
-            {
+            if world.handle_to_entity.get(&rb_handle).and_then(|e| seated.get(*e).ok()).is_some() {
                 continue;
             }
             let Some(rb) = world.rigid_body_set.get(rb_handle) else {
@@ -113,11 +109,7 @@ pub fn apply_gravity_impulses(
             let strength = match source.gravity_profile {
                 GravityProfile::InverseSquare(s) => s / (dist * dist),
                 GravityProfile::Linear(s) => {
-                    s * if radius > 0.0 {
-                        1.0 - (dist / radius).min(1.0)
-                    } else {
-                        1.0
-                    }
+                    s * if radius > 0.0 { 1.0 - (dist / radius).min(1.0) } else { 1.0 }
                 }
                 GravityProfile::Constant(s) => s,
             };
@@ -177,12 +169,7 @@ pub fn orient_bipeds_to_planets(
         .iter()
         .filter_map(|(entity, source, handle)| {
             let rb = world.rigid_body_set.get(handle.0)?;
-            Some((
-                entity,
-                rb_pos(rb),
-                source.inner_radius as f32,
-                source.radius as f32,
-            ))
+            Some((entity, rb_pos(rb), source.inner_radius as f32, source.radius as f32))
         })
         .collect();
 
@@ -281,11 +268,7 @@ fn orient_body_to_up(rb: &mut RigidBody, current_rot: Quat, desired_up: Vec3, dt
         if proj.length_squared() > 1e-6 {
             proj.normalize()
         } else {
-            let alt = if desired_up.abs().x < 0.9 {
-                Vec3::X
-            } else {
-                Vec3::Z
-            };
+            let alt = if desired_up.abs().x < 0.9 { Vec3::X } else { Vec3::Z };
             (alt - alt.dot(desired_up) * desired_up).normalize()
         }
     };
@@ -301,11 +284,7 @@ fn orient_body_to_up(rb: &mut RigidBody, current_rot: Quat, desired_up: Vec3, dt
 #[cfg(feature = "client")]
 pub fn draw_planet_radii(
     sources: Query<
-        (
-            Option<&GravitySource>,
-            Option<&SnapSource>,
-            &GlobalTransform,
-        ),
+        (Option<&GravitySource>, Option<&SnapSource>, &GlobalTransform),
         Or<(With<GravitySource>, With<SnapSource>)>,
     >,
     mut gizmos: Gizmos,

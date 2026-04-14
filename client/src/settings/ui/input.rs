@@ -4,8 +4,7 @@ use crate::settings::Settings;
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.horizontal(|ui| {
-        ui.label("Mouse sensitivity")
-            .on_hover_text("You know what this does.");
+        ui.label("Mouse sensitivity").on_hover_text("You know what this does.");
         ui.add(
             egui::Slider::new(&mut settings.mouse_sensitivity, 0.0001..=0.01)
                 .logarithmic(true)

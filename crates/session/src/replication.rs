@@ -1,14 +1,16 @@
-use crate::resources::*;
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::health::Health;
-use game_objects::lifecycle::spawn_game_object;
-use game_objects::mode::ModeConfig;
-use game_objects::pawn::{HeldWeaponMap, PlayerRegistry, WeaponSlots};
-use game_objects::*;
-use net::message::*;
-use net::quic::*;
+use game_objects::{
+    health::Health,
+    lifecycle::spawn_game_object,
+    mode::ModeConfig,
+    pawn::{HeldWeaponMap, PlayerRegistry, WeaponSlots},
+    *,
+};
+use net::{message::*, quic::*};
 use physics::physics_world::*;
+
+use crate::resources::*;
 
 pub(super) fn spawn_player(
     conn_id: ConnectionId,
@@ -23,9 +25,8 @@ pub(super) fn spawn_player(
     tick: u64,
 ) {
     let kind_debug = format!("{kind:?}");
-    let (entity, net_id, spawn_cmd) = spawn_game_object(
-        kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
-    );
+    let (entity, net_id, spawn_cmd) =
+        spawn_game_object(kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids);
 
     for &other_conn_id in registry.by_conn.keys() {
         quic.send(
@@ -34,16 +35,8 @@ pub(super) fn spawn_player(
             &MsgType::SpawnCommand(spawn_cmd.clone()),
         );
     }
-    quic.send(
-        SendTarget::One(conn_id),
-        Channel::Ordered,
-        &MsgType::SpawnCommand(spawn_cmd),
-    );
-    quic.send(
-        SendTarget::One(conn_id),
-        Channel::Ordered,
-        &MsgType::Possess(net_id.clone()),
-    );
+    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id.clone()));
 
     registry.insert(conn_id, entity, net_id);
     info!("GameServer: spawned {kind_debug} for conn {conn_id}");
@@ -119,11 +112,7 @@ pub fn broadcast_tick(
     for &conn_id in registry.by_conn.keys() {
         let mut state_for_client = state.clone();
         state_for_client.last_input_seq = *last_input_seq.0.get(&conn_id).unwrap_or(&0);
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Unreliable,
-            &MsgType::State(state_for_client),
-        );
+        quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::State(state_for_client));
     }
 }
 

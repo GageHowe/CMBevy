@@ -1,14 +1,16 @@
-use crate::helpers::find_networked_entity;
-use crate::resources::*;
 use bevy::prelude::*;
-use game_objects::pawn::biped::BipedPawnComponent;
-use game_objects::pawn::vehicle::*;
-use game_objects::pawn::{HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots};
-use game_objects::weapon::{WeaponConfig, WeaponState};
-use game_objects::*;
-use net::message::*;
-use net::quic::*;
+use game_objects::{
+    pawn::{
+        HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots,
+        biped::BipedPawnComponent, vehicle::*,
+    },
+    weapon::{WeaponConfig, WeaponState},
+    *,
+};
+use net::{message::*, quic::*};
 use physics::physics_world::*;
+
+use crate::{helpers::find_networked_entity, resources::*};
 
 pub(super) fn handle_input(
     conn_id: ConnectionId,
@@ -16,11 +18,7 @@ pub(super) fn handle_input(
     kind: PawnInputKind,
     pending_inputs: &mut PendingInputs,
 ) {
-    let newest_seen = pending_inputs
-        .0
-        .get(&conn_id)
-        .map(|(seq, _)| *seq)
-        .unwrap_or(0);
+    let newest_seen = pending_inputs.0.get(&conn_id).map(|(seq, _)| *seq).unwrap_or(0);
     if input_seq > newest_seen {
         pending_inputs.0.insert(conn_id, (input_seq, kind));
     }
@@ -106,11 +104,7 @@ pub(super) fn handle_interact(
 }
 
 fn body_position(world: &PhysicsWorld, entity: Entity) -> Option<Vec3> {
-    world
-        .entity_to_handle
-        .get(&entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(rb_pos)
+    world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos)
 }
 
 fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
@@ -145,16 +139,12 @@ fn biped_aim_dir(
     let PawnInputKind::Biped(input) = input? else {
         return None;
     };
-    world
-        .entity_to_handle
-        .get(&entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(|rb| {
-            rb_rot(rb)
-                * Quat::from_rotation_y(input.look_yaw)
-                * Quat::from_rotation_x(input.look_pitch)
-                * Vec3::NEG_Z
-        })
+    world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| {
+        rb_rot(rb)
+            * Quat::from_rotation_y(input.look_yaw)
+            * Quat::from_rotation_x(input.look_pitch)
+            * Vec3::NEG_Z
+    })
 }
 
 fn drop_weapon(
@@ -172,10 +162,7 @@ fn drop_weapon(
     held_weapons.0.remove(&weapon_id);
     let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity, drop_dir);
     let despawned = {
-        let weapon_state = weapon_runtime
-            .get_mut(weapon_entity)
-            .ok()
-            .map(|(state, _)| state);
+        let weapon_state = weapon_runtime.get_mut(weapon_entity).ok().map(|(state, _)| state);
         game_objects::weapon::helpers::drop_or_despawn_weapon(
             commands,
             world,
@@ -278,27 +265,13 @@ fn try_vehicle_interact(
     }
 
     if cockpit.occupant.is_some()
-        || !vehicle_in_range(
-            world,
-            player_entity,
-            target_entity,
-            &cockpit,
-            seat_transform,
-        )
+        || !vehicle_in_range(world, player_entity, target_entity, &cockpit, seat_transform)
     {
         return true;
     }
 
-    if enter_vehicle(
-        world,
-        player_entity,
-        target_entity,
-        &mut cockpit,
-        seat_transform,
-    ) {
-        commands
-            .entity(player_entity)
-            .insert(SeatedInVehicle(target_entity));
+    if enter_vehicle(world, player_entity, target_entity, &mut cockpit, seat_transform) {
+        commands.entity(player_entity).insert(SeatedInVehicle(target_entity));
         registry.set_controlled(conn_id, target_entity, target_net_id.clone());
         quic.send(
             SendTarget::All,
@@ -448,10 +421,8 @@ pub(super) fn handle_fire_request(
     let Some((shooter_entity, _)) = registry.get_by_conn(conn_id) else {
         return;
     };
-    let shooter_holds = pawn_slots
-        .get(shooter_entity)
-        .map(|s| s.contains_net_id(&weapon_net_id))
-        .unwrap_or(false);
+    let shooter_holds =
+        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
     if !shooter_holds {
         return;
     }
@@ -499,10 +470,7 @@ pub(super) fn handle_fire_request(
     quic.send(
         SendTarget::One(conn_id),
         Channel::Ordered,
-        &MsgType::ProjectileConfirm {
-            temp_id,
-            net_id: fired.net_id,
-        },
+        &MsgType::ProjectileConfirm { temp_id, net_id: fired.net_id },
     );
     drop(weapon_state);
     if !depleted {
@@ -527,10 +495,8 @@ pub(super) fn handle_reload_weapon(
     let Some((shooter_entity, _)) = registry.get_by_conn(conn_id) else {
         return;
     };
-    let shooter_holds = pawn_slots
-        .get(shooter_entity)
-        .map(|s| s.contains_net_id(&weapon_net_id))
-        .unwrap_or(false);
+    let shooter_holds =
+        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
     if !shooter_holds {
         return;
     }
@@ -542,11 +508,7 @@ pub(super) fn handle_reload_weapon(
     };
     let started = weapon::start_reload(&mut weapon_state, weapon_config);
     quic.send(
-        if started {
-            SendTarget::All
-        } else {
-            SendTarget::One(conn_id)
-        },
+        if started { SendTarget::All } else { SendTarget::One(conn_id) },
         Channel::Ordered,
         &MsgType::WeaponState(weapon_net_id, weapon_state.snapshot()),
     );

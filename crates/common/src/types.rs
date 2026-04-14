@@ -1,6 +1,7 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// component to mark entities that should be networked.
 /// NetworkID is managed by the server.
@@ -99,4 +100,5 @@ pub enum GameObjectKind {
     RifleProjectile,
     Rpg,
     RpgProjectile,
+    Jetpack,
 }

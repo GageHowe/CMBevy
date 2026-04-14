@@ -1,11 +1,14 @@
-use super::{Projectile, helpers, tick_projectiles};
-use crate::GameObject;
-use crate::health::{Health, LastDamageSource};
-use crate::sound::SoundEmitter;
 use bevy::prelude::*;
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
+
+use super::{Projectile, helpers, tick_projectiles};
+use crate::{
+    GameObject,
+    health::{Health, LastDamageSource},
+    sound::SoundEmitter,
+};
 
 pub const SPEED: f32 = 500.0;
 pub const DAMAGE: f32 = 100.0;
@@ -19,10 +22,7 @@ pub struct HailMaryProjectile {
 }
 impl Default for HailMaryProjectile {
     fn default() -> Self {
-        Self {
-            shooter: None,
-            lifetime: LIFETIME,
-        }
+        Self { shooter: None, lifetime: LIFETIME }
     }
 }
 
@@ -77,15 +77,7 @@ impl Projectile for HailMaryProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(
-            origin,
-            velocity,
-            shooter_velocity,
-            commands,
-            world,
-            shooter,
-            temp_id,
-        )
+        spawn(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
     }
 }
 
@@ -103,13 +95,8 @@ pub fn spawn(
     let entity = helpers::spawn_projectile(
         GameObjectKind::HailMaryProjectile,
         (
-            HailMaryProjectile {
-                shooter,
-                lifetime: LIFETIME,
-            },
-            SoundEmitter {
-                event: "event:/Weapons/SniperProjectileSound",
-            },
+            HailMaryProjectile { shooter, lifetime: LIFETIME },
+            SoundEmitter { event: "event:/Weapons/SniperProjectileSound" },
         ),
         origin,
         velocity,
@@ -145,13 +132,8 @@ impl GameObject for HailMaryProjectile {
             cmd,
             world,
             (
-                HailMaryProjectile {
-                    shooter: None,
-                    lifetime: LIFETIME,
-                },
-                SoundEmitter {
-                    event: "event:/Weapons/SniperProjectileSound",
-                },
+                HailMaryProjectile { shooter: None, lifetime: LIFETIME },
+                SoundEmitter { event: "event:/Weapons/SniperProjectileSound" },
             ),
             RADIUS,
             "event:/Weapons/SniperShot",
@@ -202,8 +184,6 @@ fn add_visual(
             unlit: true,
             ..default()
         });
-        commands
-            .entity(entity)
-            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

@@ -1,5 +1,7 @@
-use bevy::math::{Quat, Vec3};
-use bevy::prelude::*;
+use bevy::{
+    math::{Quat, Vec3},
+    prelude::*,
+};
 pub use common::{
     BodyState, GameObjectKind, LeaderboardScope, NetworkID, NetworkIDResource, PawnInputKind,
     ScoringOption, SimulationState, WeaponStateSnapshot,
@@ -60,17 +62,8 @@ pub enum MsgType {
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
     ReloadWeapon(NetworkID),
-    FireRequest {
-        weapon: NetworkID,
-        kind: GameObjectKind,
-        temp_id: u32,
-        origin: Vec3,
-        dir: Vec3,
-    },
-    ProjectileConfirm {
-        temp_id: u32,
-        net_id: NetworkID,
-    },
+    FireRequest { weapon: NetworkID, kind: GameObjectKind, temp_id: u32, origin: Vec3, dir: Vec3 },
+    ProjectileConfirm { temp_id: u32, net_id: NetworkID },
     HitResult(Vec3, Vec3, Option<NetworkID>),
     HealthUpdate(NetworkID, f32),
     TimePing(u64),

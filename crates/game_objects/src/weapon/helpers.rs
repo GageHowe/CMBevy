@@ -3,19 +3,21 @@ use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::NetworkID;
 use physics::physics_world::*;
+use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
-use crate::generic::attach_hull_collider;
+#[cfg(feature = "client")]
+use crate::pawn::CameraEffector;
 #[cfg(feature = "client")]
 use crate::pawn::WeaponSlots;
 #[cfg(feature = "client")]
 use crate::pawn::biped::viewmodel_offset;
 #[cfg(feature = "client")]
-use crate::pawn::CameraEffector;
-use crate::sound::{SoundQueue, entity_velocity};
-#[cfg(feature = "client")]
 use crate::weapon::FireCtx;
-use crate::weapon::{AimReticle, WeaponComponent, WeaponState};
-use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
+use crate::{
+    generic::attach_hull_collider,
+    sound::{SoundQueue, entity_velocity},
+    weapon::{AimReticle, WeaponComponent, WeaponState},
+};
 
 pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
     shooter
@@ -74,12 +76,7 @@ pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld
     let (Some(shooter), Some(shooter_net_id)) = (ctx.shooter, ctx.shooter_net_id) else {
         return;
     };
-    world.apply_game_impulse(
-        shooter,
-        impulse,
-        Some(shooter_net_id),
-        ctx.predicted.as_deref_mut(),
-    );
+    world.apply_game_impulse(shooter, impulse, Some(shooter_net_id), ctx.predicted.as_deref_mut());
 }
 
 pub fn make_generic_weapon_physics(
@@ -106,9 +103,7 @@ pub fn make_generic_weapon_physics(
         }
         rb_handle
     };
-    world
-        .entity_mut(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
+    world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
     attach_hull_collider(entity, rb_handle, hull_path, 1.0, collider, world);
     rb_handle
 }
@@ -128,20 +123,14 @@ pub fn insert_generic_weapon(
         AimReticle(crosshair_path, prediction_projectile_speed),
         kind,
         crate::interaction::Interactable { range: 2.0 },
-        Transform {
-            translation: cmd.position,
-            rotation: cmd.rotation,
-            scale: Vec3::ONE,
-        },
+        Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE },
         cmd.net_id.clone(),
         weapon,
     ));
     #[cfg(feature = "client")]
     {
         let scene = world.resource::<AssetServer>().load(_model_path);
-        world
-            .entity_mut(entity)
-            .insert((SceneRoot(scene), Visibility::default()));
+        world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
     }
 }
 
@@ -155,10 +144,7 @@ pub fn place_world_weapon(
     if let Some(&handle) = world.entity_to_handle.get(&weapon_entity)
         && let Some(rb) = world.rigid_body_set.get_mut(handle)
     {
-        rb.set_linvel(
-            Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z),
-            true,
-        );
+        rb.set_linvel(Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z), true);
         rb.set_angvel(Vector3::ZERO, true);
     }
     world.set_body_enabled(weapon_entity, true);
@@ -225,14 +211,9 @@ pub fn detach_viewmodel(commands: &mut Commands, world: &PhysicsWorld, weapon_en
     commands
         .entity(weapon_entity)
         .remove_parent_in_place()
-        .insert((
-            crate::interaction::Interactable { range: 2.0 },
-            Visibility::Inherited,
-        ));
+        .insert((crate::interaction::Interactable { range: 2.0 }, Visibility::Inherited));
     if let Some(handle) = handle {
-        commands
-            .entity(weapon_entity)
-            .insert(RigidBodyHandleComponent(handle));
+        commands.entity(weapon_entity).insert(RigidBodyHandleComponent(handle));
     }
 }
 

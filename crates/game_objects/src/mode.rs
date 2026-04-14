@@ -1,9 +1,10 @@
 //! Authoritative match-level state shared by gametypes, scoring, and HUD replication.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use common::{LeaderboardScope, ScoringOption};
 use net::quic::ConnectionId;
-use std::collections::HashMap;
 
 /// Script-defined presentation and rules metadata for the active mode.
 #[derive(Resource, Clone)]

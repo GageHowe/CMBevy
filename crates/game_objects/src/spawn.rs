@@ -1,9 +1,9 @@
 //! Central spawn dispatch for the reflected game object types shared across the game.
 
-use bevy::prelude::Command;
-use bevy::prelude::*;
+use bevy::prelude::{Command, *};
 use common::GameObjectKind;
 use net::message::SpawnCommand;
+use pawn::biped_ability::implementors::JetpackPickup;
 
 use crate::{pawn, projectile, weapon};
 
@@ -20,7 +20,8 @@ macro_rules! for_each_game_object {
             GameObjectKind::PistolProjectile => projectile::rifle::PistolProjectile,
             GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
             GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
-            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile
+            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile,
+            GameObjectKind::Jetpack => JetpackPickup
         )
     };
 }
@@ -89,9 +90,7 @@ impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
         // Insert NetworkID before type-specific spawn so the on_add hook for GameObjectKind
         // can use its presence as a guard to skip already-spawned entities.
-        world
-            .entity_mut(self.entity)
-            .insert(self.cmd.net_id.clone());
+        world.entity_mut(self.entity).insert(self.cmd.net_id.clone());
         for_each_game_object!(dispatch_spawn_match self.cmd.kind, self.entity, &self.cmd, world;);
     }
 }

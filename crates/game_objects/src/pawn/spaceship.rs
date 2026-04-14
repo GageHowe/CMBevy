@@ -1,9 +1,3 @@
-use super::vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat};
-use super::*;
-use crate::generic::attach_hull_collider;
-use crate::health::{CollisionDamageConfig, Health, LastDamageSource, copy_last_damage_source};
-use crate::weapon::AimReticle;
-use crate::{GameObject, GameObjectKind};
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -11,10 +5,23 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
-use net::message::{MsgType, NetworkID};
-use net::quic::{Channel, QuicManager, SendTarget};
+use net::{
+    message::{MsgType, NetworkID},
+    quic::{Channel, QuicManager, SendTarget},
+};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
+
+use super::{
+    vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat},
+    *,
+};
+use crate::{
+    GameObject, GameObjectKind,
+    generic::attach_hull_collider,
+    health::{CollisionDamageConfig, Health, LastDamageSource, copy_last_damage_source},
+    weapon::AimReticle,
+};
 
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
 #[cfg(feature = "client")]
@@ -116,15 +123,11 @@ impl GameObject for SpaceshipPawnComponent {
             ColliderBuilder::cuboid(1.5, 1.0, 3.0),
             world,
         );
-        world
-            .entity_mut(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
+        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world
-                .entity_mut(entity)
-                .insert((SceneRoot(scene), Visibility::default()));
+            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
         }
     }
 
@@ -154,9 +157,7 @@ impl GameObject for SpaceshipPawnComponent {
             return true;
         };
 
-        world
-            .entity_mut(biped_entity)
-            .remove::<super::SeatedInVehicle>();
+        world.entity_mut(biped_entity).remove::<super::SeatedInVehicle>();
         copy_last_damage_source(world, entity, biped_entity);
         if let Some(biped_net_id) = biped_net_id {
             let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() else {
@@ -230,7 +231,7 @@ fn gather_spaceship_input(
     if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons) {
         input.roll += 1.0;
     }
-    input.ability1 = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
+    input.sprint = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
     let s = sensitivity.vehicle_pitch_yaw;
     input.yaw = -mouse.delta.x * s;
     input.pitch = -mouse.delta.y * s;

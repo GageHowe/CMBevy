@@ -1,21 +1,28 @@
-use crate::settings::Settings;
-use crate::{GameState, UiState};
-use bevy::app::AppExit;
-use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy::prelude::*;
+use bevy::{
+    app::AppExit,
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    prelude::*,
+};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_steamworks::Client;
-use common::tick::NetworkStats;
-use common::{ActiveKeyBindings, InputAction, LeaderboardScope, ScoringOption};
-use game_objects::health::Health;
-use game_objects::messages::{GameMessages, MESSAGE_TTL_SECS};
-use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot};
-use game_objects::pawn::{Possessed, VehicleComponent, WeaponSlots};
-use game_objects::weapon::{AimReticle, WeaponConfig, WeaponState, default_crosshair_path};
-use net::message::{MsgType, NetworkID, ScoreboardEntry};
-use net::quic::{Channel, QuicManager, SendTarget};
+use common::{ActiveKeyBindings, InputAction, LeaderboardScope, ScoringOption, tick::NetworkStats};
+use game_objects::{
+    health::Health,
+    messages::{GameMessages, MESSAGE_TTL_SECS},
+    pawn::{
+        Possessed, VehicleComponent, WeaponSlots,
+        biped::{BipedPawnComponent, PitchPivot},
+    },
+    weapon::{AimReticle, WeaponConfig, WeaponState, default_crosshair_path},
+};
+use net::{
+    message::{MsgType, NetworkID, ScoreboardEntry},
+    quic::{Channel, QuicManager, SendTarget},
+};
 use physics::physics_world::{PhysicsWorld, rb_vel};
 use session::{GuiState, PendingExit};
+
+use crate::{GameState, UiState, settings::Settings};
 
 pub struct UIPlugin;
 
@@ -32,10 +39,7 @@ impl Plugin for UIPlugin {
             .add_systems(Update, update_smoothed_fps)
             .add_systems(EguiPrimaryContextPass, gui_top_left)
             .add_systems(EguiPrimaryContextPass, gui_notifications)
-            .add_systems(
-                EguiPrimaryContextPass,
-                gui_chat.run_if(in_state(GameState::Multiplayer)),
-            )
+            .add_systems(EguiPrimaryContextPass, gui_chat.run_if(in_state(GameState::Multiplayer)))
             .add_systems(EguiPrimaryContextPass, gui_scoreboard)
             .add_systems(EguiPrimaryContextPass, gui_health)
             .add_systems(EguiPrimaryContextPass, gui_ammo)
@@ -76,10 +80,7 @@ fn set_style(mut contexts: EguiContexts) {
         egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
     style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
     // style.visuals.window_stroke = egui::Stroke { width: 1.0, color: egui::Color32::BLACK };
-    style.visuals.window_stroke = egui::Stroke {
-        width: 0.0,
-        color: egui::Color32::TRANSPARENT,
-    };
+    style.visuals.window_stroke = egui::Stroke { width: 0.0, color: egui::Color32::TRANSPARENT };
     ctx.set_style(style);
 }
 
@@ -205,11 +206,7 @@ fn gui_chat(
                         .as_ref()
                         .map(|s| s.friends().name())
                         .unwrap_or_else(|| "Player".to_string());
-                    quic.send(
-                        SendTarget::All,
-                        Channel::Ordered,
-                        &MsgType::ChatMessage(name, txt),
-                    );
+                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(name, txt));
                 }
                 state.command_input.clear();
             }
@@ -241,11 +238,7 @@ fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Possesse
         .collapsible(false)
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
         .show(contexts.ctx_mut().unwrap(), |ui| {
-            ui.add(
-                egui::ProgressBar::new(fraction)
-                    .fill(bar_color)
-                    .desired_width(110.0),
-            );
+            ui.add(egui::ProgressBar::new(fraction).fill(bar_color).desired_width(110.0));
             ui.label(format!("{:.0} / {:.0}", health.current, health.max));
         });
 }
@@ -255,7 +248,7 @@ fn gui_ammo(
     slots_q: Query<&WeaponSlots, With<Possessed>>,
     weapon_q: Query<(&WeaponState, &WeaponConfig)>,
 ) {
-        let Some(weapon_entity) = slots_q.single().ok().and_then(|slots| slots.active().1) else {
+    let Some(weapon_entity) = slots_q.single().ok().and_then(|slots| slots.active().1) else {
         return;
     };
     let Ok((state, config)) = weapon_q.get(weapon_entity) else {
@@ -271,10 +264,7 @@ fn gui_ammo(
             ui.heading(format!("{}/{}", state.ammo_in_mag, state.reserve_ammo));
             if state.reload_ticks > 0 && config.reload_ticks > 0 {
                 let progress = 1.0 - state.reload_ticks as f32 / config.reload_ticks.max(1) as f32;
-                ui.label(format!(
-                    "Reloading {:.0}%",
-                    progress.clamp(0.0, 1.0) * 100.0
-                ));
+                ui.label(format!("Reloading {:.0}%", progress.clamp(0.0, 1.0) * 100.0));
             }
         });
 }
@@ -335,9 +325,7 @@ fn gui_notifications(
     mut messages: ResMut<GameMessages>,
 ) {
     let now = time.elapsed_secs_f64();
-    messages
-        .0
-        .retain(|entry| now - entry.created_at < MESSAGE_TTL_SECS);
+    messages.0.retain(|entry| now - entry.created_at < MESSAGE_TTL_SECS);
     if messages.0.is_empty() {
         return;
     }
@@ -525,10 +513,7 @@ fn solve_intercept_time(
     let root = discriminant.sqrt();
     let t0 = (-b - root) / (2.0 * a);
     let t1 = (-b + root) / (2.0 * a);
-    [t0, t1]
-        .into_iter()
-        .filter(|t| *t > 0.0 && t.is_finite())
-        .min_by(f32::total_cmp)
+    [t0, t1].into_iter().filter(|t| *t > 0.0 && t.is_finite()).min_by(f32::total_cmp)
 }
 
 #[derive(Component)] // query for this component when removing it
@@ -543,11 +528,7 @@ pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
             top: Val::Percent(50.0),
-            margin: UiRect {
-                left: Val::Px(-16.0),
-                top: Val::Px(-16.0),
-                ..default()
-            },
+            margin: UiRect { left: Val::Px(-16.0), top: Val::Px(-16.0), ..default() },
             ..default()
         },
         // BackgroundColor(Color::NONE),

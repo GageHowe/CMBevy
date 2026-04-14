@@ -1,23 +1,25 @@
 // server executable
 
-use bevy::log::{Level, LogPlugin};
-use bevy::prelude::*;
-use game_objects::level::{LevelPlugin, apply_pending_map_scene};
-use game_objects::pawn::HeldWeaponMap;
-use game_objects::weapon::WeaponPlugin;
-use game_objects::*;
-use master_plugin::MasterPlugin;
-use physics::physics_world::*;
 use std::net::SocketAddr;
 
+use bevy::{
+    log::{Level, LogPlugin},
+    prelude::*,
+};
+use game_objects::{
+    level::{LevelPlugin, apply_pending_map_scene},
+    pawn::HeldWeaponMap,
+    weapon::WeaponPlugin,
+    *,
+};
+use master_plugin::MasterPlugin;
+use physics::physics_world::*;
 use session::ServerSessionPlugin;
 
 fn parse_args() -> (SocketAddr, String, String) {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
-    let mut map = format!(
-        "maps/{}",
-        first_asset_name("maps", "ron").expect("no maps found in assets/maps")
-    );
+    let mut map =
+        format!("maps/{}", first_asset_name("maps", "ron").expect("no maps found in assets/maps"));
     let mut gametype = game_objects::level::default_asset_dir()
         .join("gametypes")
         .join(first_asset_name("gametypes", "lua").expect("no gametypes found in assets/gametypes"))
@@ -54,10 +56,7 @@ fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.path().extension().is_some_and(|x| x == ext))
         .filter_map(|entry| {
-            entry
-                .path()
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
+            entry.path().file_name().map(|name| name.to_string_lossy().into_owned())
         })
         .collect();
     names.sort();
@@ -93,16 +92,11 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy::asset::AssetPlugin {
-            file_path: game_objects::level::default_asset_dir()
-                .to_string_lossy()
-                .into_owned(),
+            file_path: game_objects::level::default_asset_dir().to_string_lossy().into_owned(),
             ..default()
         })
         .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader
-        .add_plugins(LogPlugin {
-            level: Level::ERROR,
-            ..default()
-        });
+        .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     app.add_plugins(MasterPlugin);
     app.add_plugins(GameObjectsPlugin);
@@ -110,16 +104,9 @@ fn main() {
     app.add_plugins(LevelPlugin);
     app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(FixedPreUpdate, session::on_message);
-    app.add_systems(
-        FixedUpdate,
-        (step_physics, sync_physics_to_transforms).chain(),
-    );
+    app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_plugins(WeaponPlugin);
-    app.add_plugins(ServerSessionPlugin {
-        bind_addr,
-        map_path,
-        gametype_path,
-    });
+    app.add_plugins(ServerSessionPlugin { bind_addr, map_path, gametype_path });
     println!("starting server...\n");
     app.run();
 }

@@ -43,11 +43,7 @@ impl WeaponSlots {
     }
 
     pub fn set_active_primary(&mut self, active_primary: bool) {
-        self.active_index = if active_primary {
-            0
-        } else {
-            1.min(self.slots.len() - 1)
-        };
+        self.active_index = if active_primary { 0 } else { 1.min(self.slots.len() - 1) };
     }
 
     pub fn contains_net_id(&self, id: &NetworkID) -> bool {
@@ -133,11 +129,7 @@ impl WeaponSlots {
             if self.slots[idx].0.is_some() {
                 continue;
             }
-            let prev = if idx == self.active_index {
-                None
-            } else {
-                self.active().1
-            };
+            let prev = if idx == self.active_index { None } else { self.active().1 };
             self.slots[idx] = (Some(weapon_id), Some(weapon_entity));
             self.active_index = idx;
             return Some((idx == 0, prev));

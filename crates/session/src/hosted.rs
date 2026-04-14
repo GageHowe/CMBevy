@@ -1,9 +1,10 @@
-use crate::resources::*;
-use bevy::app::AppExit;
-use bevy::prelude::*;
-use net::quic::QuicManager;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
+
+use bevy::{app::AppExit, prelude::*};
+use net::quic::QuicManager;
+
+use crate::resources::*;
 
 pub fn available_maps() -> Vec<String> {
     scan_dir(common::config::asset_dir().join("maps"), "ron")
@@ -22,20 +23,13 @@ pub fn gametype_path(name: &str) -> String {
 }
 
 pub fn fetch_lan_lobbies() -> Result<Vec<http_common::LobbyInfo>, String> {
-    use std::net::UdpSocket;
-    use std::time::Duration;
+    use std::{net::UdpSocket, time::Duration};
     let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     sock.set_broadcast(true).map_err(|e| e.to_string())?;
-    sock.set_read_timeout(Some(Duration::from_millis(1500)))
-        .map_err(|e| e.to_string())?;
-    let _ = sock.send_to(
-        b"discover",
-        format!("255.255.255.255:{}", common::config::LAN_DISCOVERY_PORT),
-    );
-    let _ = sock.send_to(
-        b"discover",
-        format!("127.0.0.1:{}", common::config::LAN_DISCOVERY_PORT),
-    );
+    sock.set_read_timeout(Some(Duration::from_millis(1500))).map_err(|e| e.to_string())?;
+    let _ = sock
+        .send_to(b"discover", format!("255.255.255.255:{}", common::config::LAN_DISCOVERY_PORT));
+    let _ = sock.send_to(b"discover", format!("127.0.0.1:{}", common::config::LAN_DISCOVERY_PORT));
     let mut lobbies = Vec::new();
     let mut buf = [0u8; 16];
     loop {
@@ -148,11 +142,7 @@ fn scan_dir(dir: impl AsRef<std::path::Path>, ext: &str) -> Vec<String> {
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|x| x == ext))
-        .filter_map(|e| {
-            e.path()
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-        })
+        .filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().into_owned()))
         .collect();
     names.sort();
     names
@@ -161,11 +151,7 @@ fn scan_dir(dir: impl AsRef<std::path::Path>, ext: &str) -> Vec<String> {
 fn gameserver_exe() -> std::path::PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     let dir = exe.parent().unwrap_or(std::path::Path::new("."));
-    dir.join(if cfg!(windows) {
-        "gameserver.exe"
-    } else {
-        "gameserver"
-    })
+    dir.join(if cfg!(windows) { "gameserver.exe" } else { "gameserver" })
 }
 
 fn spawn_gameserver(port: u16, map: &str, gametype: &str) -> std::io::Result<std::process::Child> {

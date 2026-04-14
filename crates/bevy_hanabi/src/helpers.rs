@@ -37,10 +37,7 @@ pub fn burst_effect(
     let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
     let init_lifetime = SetAttributeModifier::new(
         Attribute::LIFETIME,
-        writer
-            .lit(lifetime.0)
-            .uniform(writer.lit(lifetime.1))
-            .expr(),
+        writer.lit(lifetime.0).uniform(writer.lit(lifetime.1)).expr(),
     );
     let init_rotation = SetAttributeModifier::new(
         Attribute::F32_0,

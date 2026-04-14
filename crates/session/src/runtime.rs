@@ -1,23 +1,13 @@
-use crate::resources::*;
-use bevy::prelude::*;
-use common::game_state::GameState;
-
-#[cfg(feature = "client")]
-use crate::hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session};
-#[cfg(feature = "client")]
-use crate::messages;
-#[cfg(not(feature = "client"))]
-use crate::replication::{
-    broadcast_health_updates, broadcast_scoreboard, broadcast_tick, spawn_player,
-};
 #[cfg(feature = "client")]
 use bevy::core_pipeline::Skybox;
 #[cfg(not(feature = "client"))]
 use bevy::ecs::system::{Command, SystemState};
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::state::state::FreelyMutableState;
 #[cfg(feature = "client")]
 use common::GameObjectKind;
+use common::game_state::GameState;
 #[cfg(not(feature = "client"))]
 use common::{LeaderboardScope, ScoringOption};
 #[cfg(not(feature = "client"))]
@@ -53,6 +43,16 @@ use physics::physics_world::*;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 #[cfg(not(feature = "client"))]
 use scripting::{ScriptConfig, get_script_global};
+
+#[cfg(feature = "client")]
+use crate::hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session};
+#[cfg(feature = "client")]
+use crate::messages;
+#[cfg(not(feature = "client"))]
+use crate::replication::{
+    broadcast_health_updates, broadcast_scoreboard, broadcast_tick, spawn_player,
+};
+use crate::resources::*;
 
 #[cfg(feature = "client")]
 pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
@@ -93,30 +93,15 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
                 OnEnter(single_player),
                 (reset_singleplayer_spawn_state, load_sp_level::<S>).chain(),
             )
-            .add_systems(
-                OnExit(single_player),
-                (cleanup_world, remove_script).chain(),
-            )
-            .add_systems(
-                FixedUpdate,
-                respawn_singleplayer.run_if(in_state(single_player)),
-            )
+            .add_systems(OnExit(single_player), (cleanup_world, remove_script).chain())
+            .add_systems(FixedUpdate, respawn_singleplayer.run_if(in_state(single_player)))
             .add_systems(OnEnter(multiplayer), connect)
-            .add_systems(
-                OnExit(multiplayer),
-                (cleanup_world, disconnect, remove_script).chain(),
-            )
+            .add_systems(OnExit(multiplayer), (cleanup_world, disconnect, remove_script).chain())
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
-            .add_systems(
-                Update,
-                mark_world_ready_after_level_load.run_if(in_state(multiplayer)),
-            )
+            .add_systems(Update, mark_world_ready_after_level_load.run_if(in_state(multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
             .add_systems(Last, cleanup_before_app_exit)
-            .add_systems(
-                Update,
-                exit_after_returning_to_menu.run_if(in_state(main_menu)),
-            )
+            .add_systems(Update, exit_after_returning_to_menu.run_if(in_state(main_menu)))
             .add_systems(FixedPostUpdate, messages::on_message::<S>)
             .add_systems(
                 FixedLast,
@@ -190,11 +175,7 @@ fn respawn_singleplayer(
         sp.timer = None;
         return;
     }
-    let respawn_delay = if sp.spawned_once {
-        common::config::RESPAWN_DELAY_SECS
-    } else {
-        0.0
-    };
+    let respawn_delay = if sp.spawned_once { common::config::RESPAWN_DELAY_SECS } else { 0.0 };
     let remaining = sp.timer.get_or_insert(respawn_delay);
     *remaining -= time.delta_secs();
     if *remaining > 0.0 {
@@ -238,11 +219,7 @@ fn load_skybox(
     let image: Handle<Image> =
         asset_server.load(game_objects::asset_path::resolve_asset_path(path));
     commands.entity(cam).insert((
-        Skybox {
-            image: image.clone(),
-            brightness: meta.skybox_brightness,
-            ..default()
-        },
+        Skybox { image: image.clone(), brightness: meta.skybox_brightness, ..default() },
         EnvironmentMapLight {
             diffuse_map: image.clone(),
             specular_map: image,
@@ -459,23 +436,15 @@ impl Plugin for ServerSessionPlugin {
             .init_resource::<BodyHistory>()
             .add_systems(Update, (tick_respawns, process_console_commands))
             .add_systems(Update, restart_round)
-            .add_systems(
-                Startup,
-                (load_server_level, start_server, init_mode_config).chain(),
-            )
+            .add_systems(Startup, (load_server_level, start_server, init_mode_config).chain())
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,
-                broadcast_health_updates
-                    .after(step_physics)
-                    .before(broadcast_tick),
+                broadcast_health_updates.after(step_physics).before(broadcast_tick),
             )
             .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
-            .add_systems(
-                FixedUpdate,
-                broadcast_tick.after(game_objects::health::handle_deaths),
-            );
+            .add_systems(FixedUpdate, broadcast_tick.after(game_objects::health::handle_deaths));
     }
 }
 
@@ -621,11 +590,7 @@ fn process_console_commands(
             }
             "kick" => {
                 if let Some(id) = parts.next().and_then(|s| s.parse::<ConnectionId>().ok()) {
-                    quic.send(
-                        SendTarget::One(id),
-                        Channel::Ordered,
-                        &MsgType::Disconnected,
-                    );
+                    quic.send(SendTarget::One(id), Channel::Ordered, &MsgType::Disconnected);
                     quic.inbound.push_back(InboundMessage {
                         conn_id: id,
                         channel: Channel::Ordered,
@@ -660,9 +625,8 @@ fn process_console_commands(
 
 #[cfg(not(feature = "client"))]
 fn restart_round(world: &mut World) {
-    let restart_requested = world
-        .get_resource::<MatchState>()
-        .is_some_and(|state| state.restart_requested);
+    let restart_requested =
+        world.get_resource::<MatchState>().is_some_and(|state| state.restart_requested);
     if !restart_requested {
         return;
     }
@@ -688,9 +652,7 @@ fn restart_round(world: &mut World) {
 
     for (conn_id, spawn_pos, spawn_rot, spawn_vel) in collect_restart_spawns(world) {
         let existing = world.get_resource::<PlayerRegistry>().and_then(|registry| {
-            registry
-                .get_character_by_conn(conn_id)
-                .map(|(entity, net_id)| (entity, net_id.clone()))
+            registry.get_character_by_conn(conn_id).map(|(entity, net_id)| (entity, net_id.clone()))
         });
 
         if let Some((character_entity, character_net_id)) = existing {
@@ -786,9 +748,7 @@ fn reset_existing_player(
                 }
             });
         }
-        world
-            .entity_mut(character_entity)
-            .remove::<SeatedInVehicle>();
+        world.entity_mut(character_entity).remove::<SeatedInVehicle>();
         world.resource_mut::<QuicManager>().send(
             SendTarget::All,
             Channel::Ordered,
@@ -804,13 +764,7 @@ fn reset_existing_player(
     }
     world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
         physics.set_body_enabled(character_entity, true);
-        physics.set_body_pose(
-            character_entity,
-            spawn_pos,
-            spawn_rot,
-            spawn_vel,
-            Vec3::ZERO,
-        );
+        physics.set_body_pose(character_entity, spawn_pos, spawn_rot, spawn_vel, Vec3::ZERO);
     });
     world.resource_mut::<QuicManager>().send(
         SendTarget::One(conn_id),
@@ -844,11 +798,7 @@ fn spawn_restarted_player(
         kind: GameObjectKind::Biped,
     };
     let entity = world.spawn_empty().id();
-    SpawnGameObjectCommand {
-        entity,
-        cmd: spawn_cmd.clone(),
-    }
-    .apply(world);
+    SpawnGameObjectCommand { entity, cmd: spawn_cmd.clone() }.apply(world);
 
     let existing_conn_ids = world
         .get_resource::<PlayerRegistry>()
@@ -862,16 +812,8 @@ fn spawn_restarted_player(
                 &MsgType::SpawnCommand(spawn_cmd.clone()),
             );
         }
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::SpawnCommand(spawn_cmd),
-        );
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::Possess(net_id.clone()),
-        );
+        quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+        quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id.clone()));
     }
     if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
         registry.insert(conn_id, entity, net_id);

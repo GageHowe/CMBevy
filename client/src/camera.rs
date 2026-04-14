@@ -1,15 +1,21 @@
-use bevy::anti_alias::smaa::Smaa;
-use bevy::asset::AssetServer;
-use bevy::camera::{Camera, Camera3d, ClearColorConfig, PerspectiveProjection, Projection};
-use bevy::color::Color;
-use bevy::core_pipeline::Skybox;
-use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
-use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::math::Vec3;
-use bevy::pbr::ScreenSpaceAmbientOcclusion;
-use bevy::post_process::auto_exposure::AutoExposure;
-use bevy::post_process::bloom::{Bloom, BloomCompositeMode};
-use bevy::prelude::*;
+use bevy::{
+    anti_alias::smaa::Smaa,
+    asset::AssetServer,
+    camera::{Camera, Camera3d, ClearColorConfig, PerspectiveProjection, Projection},
+    color::Color,
+    core_pipeline::{
+        Skybox,
+        prepass::{DepthPrepass, NormalPrepass},
+        tonemapping::Tonemapping,
+    },
+    math::Vec3,
+    pbr::ScreenSpaceAmbientOcclusion,
+    post_process::{
+        auto_exposure::AutoExposure,
+        bloom::{Bloom, BloomCompositeMode},
+    },
+    prelude::*,
+};
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
 // use bevy::post_process::effect_stack::ChromaticAberration;
 

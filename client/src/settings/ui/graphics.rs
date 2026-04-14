@@ -109,71 +109,68 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
         });
 
-    egui::CollapsingHeader::new("Post Processing")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.checkbox(&mut settings.anti_aliasing, "Anti-aliasing")
-                .on_hover_text("Subpixel Morphological Anti-Aliasing (SMAA). Smoothes rough pixels.");
+    egui::CollapsingHeader::new("Post Processing").default_open(true).show(ui, |ui| {
+        ui.checkbox(&mut settings.anti_aliasing, "Anti-aliasing")
+            .on_hover_text("Subpixel Morphological Anti-Aliasing (SMAA). Smoothes rough pixels.");
 
-            ui.checkbox(&mut settings.auto_exposure, "Auto exposure")
-                .on_hover_text("Automatically adapts camera exposure to brightness.");
+        ui.checkbox(&mut settings.auto_exposure, "Auto exposure")
+            .on_hover_text("Automatically adapts camera exposure to brightness.");
 
-            ui.checkbox(&mut settings.bloom, "Bloom")
-                .on_hover_text("Adds glow around bright areas.");
-            if settings.bloom {
-                ui.horizontal(|ui| {
-                    ui.label("Bloom intensity")
-                        .on_hover_text("Overall strength of the bloom effect.");
-                    ui.add(egui::Slider::new(&mut settings.bloom_intensity, 0.0..=2.0));
+        ui.checkbox(&mut settings.bloom, "Bloom").on_hover_text("Adds glow around bright areas.");
+        if settings.bloom {
+            ui.horizontal(|ui| {
+                ui.label("Bloom intensity").on_hover_text("Overall strength of the bloom effect.");
+                ui.add(egui::Slider::new(&mut settings.bloom_intensity, 0.0..=2.0));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Bloom threshold")
+                    .on_hover_text("Only pixels above this brightness contribute to bloom.");
+                ui.add(egui::Slider::new(&mut settings.bloom_threshold, 0.0..=5.0));
+            });
+        }
+
+        ui.checkbox(&mut settings.motion_blur, "Motion blur").on_hover_text(
+            "Uses per-object motion vectors to blur fast movement. Costs extra GPU time.",
+        );
+
+        ui.horizontal(|ui| {
+            ui.label("SSAO").on_hover_text(
+                "GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.",
+            );
+            egui::ComboBox::from_id_salt("ssao_quality_combo")
+                .selected_text(match settings.ssao_quality {
+                    SsaoQuality::Off => "Off",
+                    SsaoQuality::Medium => "Medium",
+                    SsaoQuality::High => "High",
+                    SsaoQuality::Ultra => "Ultra",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Off, "Off");
+                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Medium, "Medium");
+                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
+                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
                 });
-
-                ui.horizontal(|ui| {
-                    ui.label("Bloom threshold")
-                        .on_hover_text("Only pixels above this brightness contribute to bloom.");
-                    ui.add(egui::Slider::new(&mut settings.bloom_threshold, 0.0..=5.0));
-                });
-            }
-
-            ui.checkbox(&mut settings.motion_blur, "Motion blur")
-                .on_hover_text("Uses per-object motion vectors to blur fast movement. Costs extra GPU time.");
-
-            ui.horizontal(|ui| {
-                ui.label("SSAO").on_hover_text(
-                    "GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.",
-                );
-                egui::ComboBox::from_id_salt("ssao_quality_combo")
-                    .selected_text(match settings.ssao_quality {
-                        SsaoQuality::Off => "Off",
-                        SsaoQuality::Medium => "Medium",
-                        SsaoQuality::High => "High",
-                        SsaoQuality::Ultra => "Ultra",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Off, "Off");
-                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Medium, "Medium");
-                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
-                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
-                    });
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Gamma")
-                    .on_hover_text("Nonlinear brightness shaping applied through Bevy color grading.");
-                ui.add(egui::Slider::new(&mut settings.gamma, 0.5..=2.0).fixed_decimals(2));
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Contrast")
-                    .on_hover_text("Moves colors toward or away from neutral gray.");
-                ui.add(egui::Slider::new(&mut settings.contrast, 0.5..=1.5).fixed_decimals(2));
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Saturation")
-                    .on_hover_text("Post-tonemap saturation. Lower values desaturate, higher values intensify color.");
-                ui.add(egui::Slider::new(&mut settings.saturation, 0.0..=2.0).fixed_decimals(2));
-            });
         });
+
+        ui.horizontal(|ui| {
+            ui.label("Gamma")
+                .on_hover_text("Nonlinear brightness shaping applied through Bevy color grading.");
+            ui.add(egui::Slider::new(&mut settings.gamma, 0.5..=2.0).fixed_decimals(2));
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Contrast").on_hover_text("Moves colors toward or away from neutral gray.");
+            ui.add(egui::Slider::new(&mut settings.contrast, 0.5..=1.5).fixed_decimals(2));
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Saturation").on_hover_text(
+                "Post-tonemap saturation. Lower values desaturate, higher values intensify color.",
+            );
+            ui.add(egui::Slider::new(&mut settings.saturation, 0.0..=2.0).fixed_decimals(2));
+        });
+    });
 
     egui::CollapsingHeader::new("Camera")
         .default_open(true)
@@ -234,12 +231,8 @@ fn show_ui_scale_input(ui: &mut egui::Ui, settings: &mut Settings) {
         .data_mut(|data| data.get_persisted::<String>(id))
         .unwrap_or_else(|| format!("{:.0}", settings.ui_scale * 100.0));
 
-    let response = ui.add(
-        egui::TextEdit::singleline(&mut text)
-            .id(id)
-            .desired_width(56.0)
-            .hint_text("150"),
-    );
+    let response =
+        ui.add(egui::TextEdit::singleline(&mut text).id(id).desired_width(56.0).hint_text("150"));
     ui.label("%");
 
     if response.changed() {

@@ -18,10 +18,7 @@ impl<T> Default for RingBuffer<T> {
 impl<T> RingBuffer<T> {
     /// Create a new ring buffer with the specified capacity
     pub fn new(capacity: usize) -> Self {
-        RingBuffer {
-            buffer: VecDeque::with_capacity(capacity),
-            capacity,
-        }
+        RingBuffer { buffer: VecDeque::with_capacity(capacity), capacity }
     }
 
     /// Push an item into the ring buffer
@@ -57,11 +54,7 @@ impl<T> RingBuffer<T> {
         }
 
         // Clamp out-of-range to newest
-        let pos = if position >= self.buffer.len() {
-            0
-        } else {
-            position
-        };
+        let pos = if position >= self.buffer.len() { 0 } else { position };
 
         // VecDeque front is oldest, so newest is at (len - 1 - pos)
         self.buffer.get(self.buffer.len() - 1 - pos)

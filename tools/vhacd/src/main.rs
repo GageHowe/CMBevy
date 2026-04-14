@@ -1,8 +1,10 @@
+use std::{fmt::Write as FmtWrite, path::PathBuf};
+
 use clap::Parser;
-use parry3d::math::Vector;
-use parry3d::transformation::vhacd::{VHACD, VHACDParameters};
-use std::fmt::Write as FmtWrite;
-use std::path::PathBuf;
+use parry3d::{
+    math::Vector,
+    transformation::vhacd::{VHACD, VHACDParameters},
+};
 
 #[derive(Parser)]
 #[command(about = "Convex decompose a GLB mesh using VHACD")]
@@ -26,12 +28,8 @@ struct Args {
     downsampling: u32,
 }
 
-const IDENTITY: [[f32; 4]; 4] = [
-    [1., 0., 0., 0.],
-    [0., 1., 0., 0.],
-    [0., 0., 1., 0.],
-    [0., 0., 0., 1.],
-];
+const IDENTITY: [[f32; 4]; 4] =
+    [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.], [0., 0., 0., 1.]];
 
 // GLTF matrices are column-major: matrix[col][row]
 fn mat4_mul(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
@@ -98,11 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output = args.output.unwrap_or_else(|| {
         let mut p = args.input.clone();
-        let stem = p
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
+        let stem = p.file_stem().unwrap_or_default().to_string_lossy().into_owned();
         p.set_file_name(format!("{stem}.hulls.obj"));
         p
     });
@@ -112,21 +106,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut all_vertices: Vec<Vector> = Vec::new();
     let mut all_indices: Vec<[u32; 3]> = Vec::new();
 
-    let scenes: Vec<_> = if let Some(scene) = gltf.default_scene() {
-        vec![scene]
-    } else {
-        gltf.scenes().collect()
-    };
+    let scenes: Vec<_> =
+        if let Some(scene) = gltf.default_scene() { vec![scene] } else { gltf.scenes().collect() };
 
     for scene in scenes {
         for node in scene.nodes() {
-            collect_node(
-                node,
-                IDENTITY,
-                &buffers,
-                &mut all_vertices,
-                &mut all_indices,
-            );
+            collect_node(node, IDENTITY, &buffers, &mut all_vertices, &mut all_indices);
         }
     }
 
@@ -162,11 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(obj, "v {} {} {}", v.x, v.y, v.z)?;
         }
         for t in tris {
-            let (a, b, c) = (
-                t[0] + vertex_offset,
-                t[1] + vertex_offset,
-                t[2] + vertex_offset,
-            );
+            let (a, b, c) = (t[0] + vertex_offset, t[1] + vertex_offset, t[2] + vertex_offset);
             writeln!(obj, "f {a} {b} {c}")?;
         }
         vertex_offset += verts.len() as u32;

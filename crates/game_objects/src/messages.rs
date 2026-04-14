@@ -29,10 +29,7 @@ pub fn push_world(_world: &mut World, text: impl Into<String>) {
     {
         let now = _world.resource::<Time>().elapsed_secs_f64();
         let mut messages = _world.resource_mut::<GameMessages>();
-        messages.0.push(GameMessage {
-            text,
-            created_at: now,
-        });
+        messages.0.push(GameMessage { text, created_at: now });
         if messages.0.len() > 16 {
             messages.0.remove(0);
         }
