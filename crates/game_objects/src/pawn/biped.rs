@@ -1109,8 +1109,14 @@ fn interact(
     }
 
     if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = pickup_fns.get(hit_entity) {
-        if matches!(state.get(), GameState::SinglePlayer) {
-            f(pawn_entity, hit_entity, &mut commands);
+        // Always run locally for prediction (singleplayer) or immediate feedback (multiplayer).
+        f(pawn_entity, hit_entity, &mut commands);
+        if matches!(state.get(), GameState::Multiplayer) {
+            quic.send(
+                net::quic::SendTarget::All,
+                net::quic::Channel::Ordered,
+                &net::message::MsgType::Interact(interact_net_id),
+            );
         }
         return;
     }

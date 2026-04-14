@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use game_objects::{
     pawn::{
         HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots,
-        biped::BipedPawnComponent, vehicle::*,
+        biped::BipedPawnComponent, biped_ability::OnPickup, vehicle::*,
     },
     weapon::{WeaponConfig, WeaponState},
     *,
@@ -59,6 +59,7 @@ pub(super) fn handle_interact(
     vehicles: &Query<&VehicleComponent>,
     driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
     commands: &mut Commands,
+    on_pickup_q: &Query<&OnPickup>,
 ) {
     let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
         return;
@@ -67,6 +68,19 @@ pub(super) fn handle_interact(
         return;
     };
     let player_net_id = player_net_id.clone();
+
+    // Ability pickup: run server-side attach and broadcast despawn to all clients.
+    if let Ok(&OnPickup(f)) = on_pickup_q.get(target_entity) {
+        let player_pos = body_position(world, player_entity);
+        let pickup_pos = body_position(world, target_entity);
+        if !matches!((player_pos, pickup_pos), (Some(pp), Some(wp)) if pp.distance(wp) < 3.5) {
+            return;
+        }
+        f(player_entity, target_entity, commands);
+        quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(target_net_id));
+        return;
+    }
+
     if try_vehicle_interact(
         conn_id,
         player_entity,

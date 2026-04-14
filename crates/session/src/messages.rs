@@ -617,6 +617,7 @@ fn process_server_message(
                 &sp.vehicles,
                 &mut sp.driver_seats,
                 &mut sp.commands,
+                &sp.on_pickup_q,
             );
         }
         MsgType::DropWeapon(drop_dir) => handle_drop_weapon(

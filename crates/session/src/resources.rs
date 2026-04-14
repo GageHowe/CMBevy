@@ -197,4 +197,5 @@ pub struct ServerMessageParams<'w, 's> {
     pub seated_bipeds: Query<'w, 's, (&'static NetworkID, &'static SeatedInVehicle)>,
     pub driver_seats: Query<'w, 's, (&'static mut DriverSeat, &'static Transform)>,
     pub weapon_runtime: Query<'w, 's, (&'static mut WeaponState, &'static WeaponConfig)>,
+    pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
 }
