@@ -10,6 +10,8 @@ use rapier3d::prelude::{Ball, Collider, ColliderHandle, Pose, QueryFilter};
 
 use crate::GameObject;
 use crate::health::{Health, LastDamageSource, attribute_damage};
+#[cfg(feature = "client")]
+use crate::pawn::{CameraEffector, CameraShake};
 
 use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 #[cfg(feature = "client")]
@@ -19,12 +21,16 @@ use common::GameObjectKind;
 pub const SPEED: f32 = 60.0;
 pub const LIFETIME: u32 = 240;
 pub const DAMAGE: f32 = 110.0;
-pub const EXPLOSION_RADIUS: f32 = 5.0;
-pub const EXPLOSION_IMPULSE: f32 = 10.0;
-pub const EXPLOSION_MAX_IMPULSE_MASS: f32 = 1000.0;
+pub const EXPLOSION_RADIUS: f32 = 10.0;
+pub const EXPLOSION_IMPULSE: f32 = 30.0;
+pub const EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS: f32 = 1000.0;
 const RADIUS: f32 = 0.16;
 const DIRECT_HIT_BONUS: f32 = 20.0;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
+#[cfg(feature = "client")]
+pub const EXPLOSION_SHAKE_RADIUS: f32 = 30.0;
+#[cfg(feature = "client")]
+const SHAKE_SCALE: f32 = 1.0;
 
 #[derive(Component, Reflect)]
 pub struct RpgProjectile {
@@ -36,6 +42,39 @@ impl Default for RpgProjectile {
         Self {
             shooter: None,
             lifetime: LIFETIME,
+        }
+    }
+}
+
+impl RpgProjectile {
+    #[cfg(feature = "client")]
+    fn explosion_camera_shake(distance: f32) -> Option<CameraShake> {
+        let falloff = (1.0 - distance / EXPLOSION_SHAKE_RADIUS).clamp(0.0, 1.0);
+        if falloff <= 0.0 {
+            return None;
+        }
+        Some(
+            CameraShake {
+                translation: Vec3::new(0.2, 0.2, 0.3),
+                rotation: Vec2::new(0.1, 0.1),
+                roll: 0.2,
+                duration: 1.0,
+                frequency: 10.0,
+            }
+            .scaled(falloff * SHAKE_SCALE),
+        )
+    }
+
+    #[cfg(feature = "client")]
+    fn add_explosion_camera_shake(world: &mut World, center: Vec3) {
+        let mut camera_q =
+            world.query_filtered::<(&GlobalTransform, &mut CameraEffector), With<Camera3d>>();
+        let Ok((camera_gt, mut camera_fx)) = camera_q.single_mut(world) else {
+            return;
+        };
+        let distance = camera_gt.translation().distance(center);
+        if let Some(shake) = Self::explosion_camera_shake(distance) {
+            camera_fx.add_shake(shake);
         }
     }
 }
@@ -152,11 +191,10 @@ fn tick_inner(
     let dir = cast_vel.normalize();
     #[cfg(feature = "client")]
     {
-        let debug_start = *state.raycast_start.get_or_insert(prev);
         commands
             .entity(entity)
             .insert(super::ProjectileRaycastDebug {
-                start: debug_start,
+                start: prev,
                 end: prev + dir * step,
             });
     }
@@ -200,6 +238,7 @@ fn explode(
         .unwrap_or(Vec3::ZERO);
     #[cfg(feature = "client")]
     commands.queue(move |world: &mut World| {
+        RpgProjectile::add_explosion_camera_shake(world, center);
         spawn_rpg_explosion_effect(world, center, inherit_velocity);
     });
 
@@ -263,7 +302,7 @@ fn explode(
         };
         // Scale explosion push by mass so light props move more naturally, but cap the effective
         // mass so huge bodies like planets are still affected without being launched.
-        let effective_mass = rb.mass().min(EXPLOSION_MAX_IMPULSE_MASS);
+        let effective_mass = rb.mass().min(EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS);
         let impulse = impulse_dir * EXPLOSION_IMPULSE * effective_mass * falloff;
         let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
         let point = direct_hit_impulse.and_then(

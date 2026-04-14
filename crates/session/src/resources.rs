@@ -9,9 +9,11 @@ use game_objects::NetworkEntityMap;
 #[cfg(not(feature = "client"))]
 use game_objects::level::SpawnPoint;
 #[cfg(feature = "client")]
-use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
+use game_objects::pawn::biped::BipedPawnComponent;
+#[cfg(feature = "client")]
+use game_objects::pawn::WeaponSlots;
 #[cfg(not(feature = "client"))]
-use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
+use game_objects::pawn::{BipedPawnComponent, WeaponSlots};
 #[cfg(not(feature = "client"))]
 use game_objects::pawn::vehicle::{DriverSeat, VehicleComponent};
 #[cfg(not(feature = "client"))]

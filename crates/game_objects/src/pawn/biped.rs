@@ -24,8 +24,6 @@ use rapier3d::prelude::*;
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
-#[cfg(feature = "client")]
-use super::CameraEffector;
 pub const CAPSULE_RADIUS: f32 = 0.3;
 pub const CAPSULE_HALF_HEIGHT: f32 = 0.5;
 const SLIDE_HALF_HEIGHT: f32 = 0.1;
@@ -94,7 +92,7 @@ impl GameObject for BipedPawnComponent {
             ..default()
         };
         world.entity_mut(entity).insert((
-            WeaponSlots::default(),
+            WeaponSlots::new(2),
             Health::new(100.0),
             HealthRegen {
                 per_sec: BIPED_REGEN_PER_SEC,
@@ -222,21 +220,11 @@ impl GameObject for BipedPawnComponent {
         };
         let held: Vec<Entity> = world
             .get::<WeaponSlots>(entity)
-            .map(|slots| {
-                [slots.primary.1, slots.pocket.1]
-                    .into_iter()
-                    .flatten()
-                    .collect()
-            })
+            .map(|slots| slots.held_entities().collect())
             .unwrap_or_default();
         let weapon_drops: Vec<(NetworkID, Vec3)> = world
             .get::<WeaponSlots>(entity)
-            .map(|slots| {
-                [slots.primary.clone(), slots.pocket.clone()]
-                    .into_iter()
-                    .filter_map(|(net_id, _)| Some((net_id?, drop_pos)))
-                    .collect()
-            })
+            .map(|slots| slots.held_weapons().map(|(net_id, _)| (net_id, drop_pos)).collect())
             .unwrap_or_default();
         let owner_net_id = world.get::<NetworkID>(entity).cloned();
         let killer = world
@@ -341,11 +329,8 @@ impl Plugin for BipedPlugin {
         {
             app.add_systems(
                 PostUpdate,
-                (
-                    mouse_look.run_if(resource_exists::<AccumulatedMouseMotion>),
-                    apply_camera_effects,
-                )
-                    .chain()
+                mouse_look
+                    .run_if(resource_exists::<AccumulatedMouseMotion>)
                     .before(TransformSystems::Propagate),
             );
             // re-parent camera under pitch pivot when a biped is possessed
@@ -552,63 +537,13 @@ fn mouse_look(
 }
 
 #[cfg(feature = "client")]
-const KICK_DAMPING: f32 = 0.88; // velocity multiplier per tick at 60 Hz
-#[cfg(feature = "client")]
-const SHAKE_DECAY: f32 = 6.0; // intensity units per second
-#[cfg(feature = "client")]
-const FOV_LERP_SPEED: f32 = 15.0; // how fast zoom eases in/out
-
-/// Integrates recoil, shake, and FOV zoom. Writes Camera3d local Transform and Projection.
-#[cfg(feature = "client")]
-fn apply_camera_effects(
-    time: Res<Time>,
-    mut camera_q: Query<(&mut Transform, &mut CameraEffector, &mut Projection), With<Camera3d>>,
-) {
-    let Ok((mut transform, mut fx, mut proj)) = camera_q.single_mut() else {
-        return;
-    };
-    let dt = time.delta_secs();
-
-    // velocity contributes to offset, then both decay — no spring force so no overshoot
-    let damp = KICK_DAMPING.powf(dt * 60.0);
-    let decay = (-fx.recovery_speed * dt).exp();
-    fx.pitch_vel *= damp;
-    fx.pitch_offset = (fx.pitch_offset + fx.pitch_vel * dt) * decay;
-    fx.yaw_vel *= damp;
-    fx.yaw_offset = (fx.yaw_offset + fx.yaw_vel * dt) * decay;
-
-    // shake decays over time; harmonics approximate random without pulling in rand
-    fx.shake = (fx.shake - SHAKE_DECAY * dt).max(0.0);
-    let t = time.elapsed_secs();
-    let (sp, sy) = if fx.shake > 0.001 {
-        let s = fx.shake * 0.015;
-        (s * (t * 53.1).sin(), s * (t * 37.7).cos())
-    } else {
-        (0.0, 0.0)
-    };
-
-    transform.rotation =
-        Quat::from_euler(EulerRot::XYZ, fx.pitch_offset + sp, fx.yaw_offset + sy, 0.0);
-
-    // FOV zoom: target = 2 * atan(tan(base/2) / multiplier) — correct optics
-    let target_fov = ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier)
-        .atan()
-        .to_degrees()
-        * 2.0;
-    fx.current_fov += (target_fov - fx.current_fov) * (1.0 - (-FOV_LERP_SPEED * dt).exp());
-    if let Projection::Perspective(ref mut p) = *proj {
-        p.fov = fx.current_fov.to_radians();
-    }
-}
-
-#[cfg(feature = "client")]
 fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
     mut weapon_states: Query<&mut crate::weapon::WeaponState>,
-    mut visibility: Query<&mut Visibility>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
+    mut commands: Commands,
     state: Res<State<common::game_state::GameState>>,
     mut quic: ResMut<net::quic::QuicManager>,
 ) {
@@ -618,77 +553,27 @@ fn switch_weapon_slot(
     let Ok(mut slots) = pawn.single_mut() else {
         return;
     };
-    let old_active_primary = slots.active_primary;
+    let old_active_primary = slots.active_primary();
     if let Some(e) = slots.active().1 {
         crate::weapon::helpers::clear_inactive_slot_reload(weapon_states.get_mut(e).ok());
-        if let Ok(mut vis) = visibility.get_mut(e) {
-            *vis = Visibility::Hidden;
-        }
     }
-    slots.active_primary = !slots.active_primary;
-    if let Some(e) = slots.active().1 {
-        if let Ok(mut vis) = visibility.get_mut(e) {
-            *vis = Visibility::Inherited;
-        }
+    let switched = if scroll.delta.y > 0.0 {
+        slots.next_weapon()
+    } else {
+        slots.prev_weapon()
+    };
+    if !switched {
+        return;
     }
-    if let Ok(mut cc) = camera.single_mut() {
-        cc.zoom_multiplier = 1.0;
-    }
+    crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera);
     if matches!(state.get(), common::game_state::GameState::Multiplayer)
-        && old_active_primary != slots.active_primary
+        && old_active_primary != slots.active_primary()
     {
         quic.send(
             net::quic::SendTarget::All,
             net::quic::Channel::Ordered,
-            &net::message::MsgType::SetActiveWeaponSlot(slots.active_primary),
+            &net::message::MsgType::SetActiveWeaponSlot(slots.active_primary()),
         );
-    }
-}
-
-/// Two weapon slots on a biped pawn. Each slot: (NetworkID, client-only viewmodel Entity).
-/// primary = right-hand slot, pocket = left-hand slot.
-#[derive(Component)]
-pub struct WeaponSlots {
-    pub primary: (Option<NetworkID>, Option<Entity>),
-    pub pocket: (Option<NetworkID>, Option<Entity>),
-    /// true = primary active, false = pocket active.
-    pub active_primary: bool,
-}
-impl Default for WeaponSlots {
-    fn default() -> Self {
-        Self {
-            primary: (None, None),
-            pocket: (None, None),
-            active_primary: true,
-        }
-    }
-}
-impl WeaponSlots {
-    pub fn active(&self) -> &(Option<NetworkID>, Option<Entity>) {
-        if self.active_primary {
-            &self.primary
-        } else {
-            &self.pocket
-        }
-    }
-    pub fn active_mut(&mut self) -> &mut (Option<NetworkID>, Option<Entity>) {
-        if self.active_primary {
-            &mut self.primary
-        } else {
-            &mut self.pocket
-        }
-    }
-    pub fn is_full(&self) -> bool {
-        self.primary.0.is_some() && self.pocket.0.is_some()
-    }
-    /// Clears whichever slot holds this id (both NetworkID and Entity).
-    pub fn remove_by_net_id(&mut self, id: &NetworkID) {
-        if self.primary.0.as_ref() == Some(id) {
-            self.primary = (None, None);
-        }
-        if self.pocket.0.as_ref() == Some(id) {
-            self.pocket = (None, None);
-        }
     }
 }
 
@@ -955,13 +840,14 @@ fn attach_camera_on_possess(
     commands.entity(cam).insert((
         Transform::default(),
         CameraEffector {
+            base_translation: Vec3::ZERO,
             base_fov,
             current_fov: base_fov,
             ..default()
         },
     ));
     commands.entity(pitch_e).add_child(cam);
-    set_weapon_slot_visibility(&mut commands, slots);
+    crate::weapon::helpers::set_local_slot_visibility(&mut commands, slots);
 }
 
 #[cfg(feature = "client")]
@@ -970,27 +856,9 @@ fn hide_weapons_while_seated(
     mut commands: Commands,
 ) {
     for slots in seated.iter() {
-        for weapon in [slots.primary.1, slots.pocket.1].into_iter().flatten() {
+        for weapon in slots.held_entities() {
             commands.entity(weapon).insert(Visibility::Hidden);
         }
-    }
-}
-
-#[cfg(feature = "client")]
-fn set_weapon_slot_visibility(commands: &mut Commands, slots: &WeaponSlots) {
-    if let Some(weapon) = slots.primary.1 {
-        commands.entity(weapon).insert(if slots.active_primary {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        });
-    }
-    if let Some(weapon) = slots.pocket.1 {
-        commands.entity(weapon).insert(if slots.active_primary {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        });
     }
 }
 
@@ -1076,16 +944,18 @@ fn biped_fire(
     keyboard: Res<ButtonInput<KeyCode>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     bindings: Res<common::ActiveKeyBindings>,
-    pawn: Query<(Entity, &WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+    mut pawn: Query<(Entity, &mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     drivers: Query<&WeaponDriver>,
+    weapon_states: Query<&crate::weapon::WeaponState>,
+    mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     mut reload: ResMut<ReloadGate>,
     ticker: Res<common::tick::Ticker>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
-    let Ok((pawn_entity, slots, biped)) = pawn.single() else {
+    let Ok((pawn_entity, mut slots, biped)) = pawn.single_mut() else {
         return;
     };
     let Some(weapon_entity) = slots.active().1 else {
@@ -1125,6 +995,18 @@ fn biped_fire(
             tick: ticker.tick,
         },
     );
+    let Ok(weapon_state) = weapon_states.get(weapon_entity) else {
+        return;
+    };
+    if !crate::weapon::is_depleted(weapon_state) {
+        return;
+    }
+    let Some((_weapon_id, depleted_weapon_entity)) = slots.remove_active() else {
+        return;
+    };
+    commands.entity(depleted_weapon_entity).despawn();
+    crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
+    crate::messages::push(&mut commands, "Out of ammo");
 }
 
 /// Viewmodel transform offset relative to the camera/pitch pivot.
@@ -1166,6 +1048,7 @@ fn interact(
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut weapon_states: Query<&mut crate::weapon::WeaponState>,
+    mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
     vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
@@ -1287,10 +1170,7 @@ fn interact(
             let Ok(mut slots) = possessed_q.single_mut() else {
                 return;
             };
-            if slots.is_full()
-                && let Some((_drop_id, drop_entity)) =
-                    crate::weapon::helpers::drop_active_slot(&mut slots)
-            {
+            if slots.is_full() && let Some((_drop_id, drop_entity)) = slots.remove_active() {
                 let drop_velocity = forward * 8.0
                     + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
                 crate::weapon::helpers::drop_or_despawn_weapon(
@@ -1302,22 +1182,20 @@ fn interact(
                     drop_velocity,
                 );
             }
-            let Some((is_primary, prev_to_hide)) = crate::weapon::helpers::assign_pickup_slot(
-                &mut slots,
-                interact_net_id.clone(),
-                hit_entity,
-            ) else {
+            let Some((is_primary, _prev_to_hide)) = slots.assign_pickup(interact_net_id.clone(), hit_entity) else {
                 return;
             };
-            if let Some(prev) = prev_to_hide {
-                commands.entity(prev).insert(Visibility::Hidden);
-            }
             crate::weapon::helpers::pickup_world_weapon(&mut world, hit_entity);
             crate::weapon::helpers::attach_local_viewmodel(
                 &mut commands,
                 hit_entity,
                 pitch_e,
                 is_primary,
+            );
+            crate::weapon::helpers::sync_local_active_weapon(
+                &mut commands,
+                &slots,
+                &mut camera_fx,
             );
             if let Ok(kind) = object_kinds.get(hit_entity) {
                 crate::messages::push(&mut commands, format!("Picked up {kind:?}"));
@@ -1345,6 +1223,7 @@ fn drop_active_weapon(
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut slots_q: Query<&mut WeaponSlots, With<Possessed>>,
     mut weapon_states: Query<&mut crate::weapon::WeaponState>,
+    mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<net::quic::QuicManager>,
@@ -1384,9 +1263,7 @@ fn drop_active_weapon(
             let Ok(mut slots) = slots_q.single_mut() else {
                 return;
             };
-            let Some((_weapon_id, weapon_entity)) =
-                crate::weapon::helpers::drop_active_slot(&mut slots)
-            else {
+            let Some((_weapon_id, weapon_entity)) = slots.remove_active() else {
                 return;
             };
             let Some(pitch_e) = biped.pitch_pivot else {
@@ -1407,6 +1284,7 @@ fn drop_active_weapon(
                 origin + forward,
                 drop_velocity,
             );
+            crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
         }
         _ => {}
     }

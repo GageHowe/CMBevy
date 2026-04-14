@@ -1,9 +1,9 @@
 use crate::helpers::find_networked_entity;
 use crate::resources::*;
 use bevy::prelude::*;
-use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
+use game_objects::pawn::biped::BipedPawnComponent;
 use game_objects::pawn::vehicle::*;
-use game_objects::pawn::{HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle};
+use game_objects::pawn::{HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots};
 use game_objects::weapon::{WeaponConfig, WeaponState};
 use game_objects::*;
 use net::message::*;
@@ -211,7 +211,7 @@ pub(super) fn handle_set_active_weapon_slot(
     };
     let old_active = slots.active().0.clone();
     let old_active_entity = slots.active().1;
-    slots.active_primary = active_primary;
+    slots.set_active_primary(active_primary);
     let new_active = slots.active().0.clone();
     if old_active == new_active {
         return;
@@ -359,9 +359,7 @@ fn try_weapon_interact(
         return;
     };
     if slots.is_full() {
-        let Some((drop_id, drop_entity)) =
-            game_objects::weapon::helpers::drop_active_slot(&mut slots)
-        else {
+        let Some((drop_id, drop_entity)) = slots.remove_active() else {
             return;
         };
         drop(slots);
@@ -380,18 +378,10 @@ fn try_weapon_interact(
         let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
             return;
         };
-        let _ = game_objects::weapon::helpers::assign_pickup_slot(
-            &mut slots,
-            target_net_id.clone(),
-            target_entity,
-        );
+        let _ = slots.assign_pickup(target_net_id.clone(), target_entity);
         held_weapons.0.insert(target_net_id.clone(), player_entity);
     } else {
-        let _ = game_objects::weapon::helpers::assign_pickup_slot(
-            &mut slots,
-            target_net_id.clone(),
-            target_entity,
-        );
+        let _ = slots.assign_pickup(target_net_id.clone(), target_entity);
         held_weapons.0.insert(target_net_id.clone(), player_entity);
     }
     game_objects::weapon::helpers::pickup_world_weapon(world, target_entity);
@@ -419,9 +409,7 @@ pub(super) fn handle_drop_weapon(
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
         return;
     };
-    let Some((weapon_id, weapon_entity)) =
-        game_objects::weapon::helpers::drop_active_slot(&mut slots)
-    else {
+    let Some((weapon_id, weapon_entity)) = slots.remove_active() else {
         return;
     };
     drop(slots);
@@ -448,8 +436,9 @@ pub(super) fn handle_fire_request(
     dir: Vec3,
     registry: &PlayerRegistry,
     all_networked: &NetworkEntityMap,
-    pawn_slots: &Query<&mut WeaponSlots>,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut NetworkIDResource,
@@ -461,10 +450,7 @@ pub(super) fn handle_fire_request(
     };
     let shooter_holds = pawn_slots
         .get(shooter_entity)
-        .map(|s| {
-            s.primary.0.as_ref() == Some(&weapon_net_id)
-                || s.pocket.0.as_ref() == Some(&weapon_net_id)
-        })
+        .map(|s| s.contains_net_id(&weapon_net_id))
         .unwrap_or(false);
     if !shooter_holds {
         return;
@@ -490,6 +476,7 @@ pub(super) fn handle_fire_request(
         Channel::Ordered,
         &MsgType::WeaponState(weapon_net_id.clone(), weapon_state.snapshot()),
     );
+    let depleted = weapon::is_depleted(&weapon_state);
     let Some(fired) = projectile::fire_authoritative(
         kind,
         origin,
@@ -517,6 +504,15 @@ pub(super) fn handle_fire_request(
             net_id: fired.net_id,
         },
     );
+    drop(weapon_state);
+    if !depleted {
+        return;
+    }
+    held_weapons.0.remove(&weapon_net_id);
+    if let Ok(mut slots) = pawn_slots.get_mut(shooter_entity) {
+        slots.remove_by_net_id(&weapon_net_id);
+    }
+    commands.entity(weapon_entity).despawn();
 }
 
 pub(super) fn handle_reload_weapon(
@@ -533,10 +529,7 @@ pub(super) fn handle_reload_weapon(
     };
     let shooter_holds = pawn_slots
         .get(shooter_entity)
-        .map(|s| {
-            s.primary.0.as_ref() == Some(&weapon_net_id)
-                || s.pocket.0.as_ref() == Some(&weapon_net_id)
-        })
+        .map(|s| s.contains_net_id(&weapon_net_id))
         .unwrap_or(false);
     if !shooter_holds {
         return;

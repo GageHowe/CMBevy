@@ -4,8 +4,7 @@ use common::tick::Ticker;
 use game_objects::health::Health;
 use game_objects::lifecycle::spawn_game_object;
 use game_objects::mode::ModeConfig;
-use game_objects::pawn::biped::WeaponSlots;
-use game_objects::pawn::{HeldWeaponMap, PlayerRegistry};
+use game_objects::pawn::{HeldWeaponMap, PlayerRegistry, WeaponSlots};
 use game_objects::*;
 use net::message::*;
 use net::quic::*;
@@ -54,11 +53,7 @@ pub(super) fn slots_to_held(slots: &Option<&WeaponSlots>) -> Vec<(NetworkID, Ent
     let Some(slots) = slots else {
         return vec![];
     };
-    [&slots.primary, &slots.pocket]
-        .iter()
-        .filter_map(|(nid, ent)| nid.as_ref().zip(*ent))
-        .map(|(nid, ent)| (nid.clone(), ent))
-        .collect()
+    slots.held_weapons().collect()
 }
 
 pub(super) fn kill_player(

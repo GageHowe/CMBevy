@@ -179,7 +179,6 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
 pub struct ProjectileState {
     pub temp_id: u32,
     pub shooter_velocity: Vec3,
-    pub raycast_start: Option<Vec3>,
 }
 
 #[derive(Component)]
@@ -305,12 +304,14 @@ pub fn tick_projectiles<P: Projectile>(
 pub fn draw_projectile_raycast_debug(
     segments: Query<(Entity, &ProjectileRaycastDebug)>,
     mut gizmos: Gizmos,
+    mut commands: Commands,
 ) {
-    for (_entity, segment) in &segments {
+    for (entity, segment) in &segments {
         gizmos.line(
             segment.start,
             segment.end,
             Color::srgba(0.2, 1.0, 1.0, 0.9),
         );
+        commands.entity(entity).remove::<ProjectileRaycastDebug>();
     }
 }

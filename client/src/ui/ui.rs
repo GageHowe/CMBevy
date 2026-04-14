@@ -9,8 +9,8 @@ use common::tick::NetworkStats;
 use common::{ActiveKeyBindings, InputAction, LeaderboardScope, ScoringOption};
 use game_objects::health::Health;
 use game_objects::messages::{GameMessages, MESSAGE_TTL_SECS};
-use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot, WeaponSlots};
-use game_objects::pawn::{Possessed, VehicleComponent};
+use game_objects::pawn::biped::{BipedPawnComponent, PitchPivot};
+use game_objects::pawn::{Possessed, VehicleComponent, WeaponSlots};
 use game_objects::weapon::{AimReticle, WeaponConfig, WeaponState, default_crosshair_path};
 use net::message::{MsgType, NetworkID, ScoreboardEntry};
 use net::quic::{Channel, QuicManager, SendTarget};
@@ -255,7 +255,7 @@ fn gui_ammo(
     slots_q: Query<&WeaponSlots, With<Possessed>>,
     weapon_q: Query<(&WeaponState, &WeaponConfig)>,
 ) {
-    let Some(weapon_entity) = slots_q.single().ok().and_then(|slots| slots.active().1) else {
+        let Some(weapon_entity) = slots_q.single().ok().and_then(|slots| slots.active().1) else {
         return;
     };
     let Ok((state, config)) = weapon_q.get(weapon_entity) else {

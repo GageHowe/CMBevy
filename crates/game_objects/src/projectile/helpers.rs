@@ -91,7 +91,6 @@ pub fn spawn_projectile(
             ProjectileState {
                 temp_id,
                 shooter_velocity,
-                raycast_start: None,
             },
             Transform::from_translation(origin),
         ))
@@ -118,7 +117,6 @@ pub fn insert_remote_projectile(
         ProjectileState {
             temp_id: 0,
             shooter_velocity: cmd.shooter_velocity,
-            raycast_start: None,
         },
         Transform::from_translation(cmd.position),
         cmd.net_id.clone(),
@@ -167,9 +165,8 @@ pub fn tick_raycast_projectile(
     let prev = rb_pos(rb) - cast_vel * dt;
     #[cfg(feature = "client")]
     {
-        let debug_start = *state.raycast_start.get_or_insert(prev);
         commands.entity(entity).insert(super::ProjectileRaycastDebug {
-            start: debug_start,
+            start: prev,
             end: prev + dir * step,
         });
     }

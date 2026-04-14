@@ -1,12 +1,16 @@
 use bevy::prelude::*;
 use common::GameObjectKind;
+#[cfg(feature = "client")]
 use common::NetworkID;
 use physics::physics_world::*;
 
 use crate::generic::attach_hull_collider;
-use crate::pawn::biped::WeaponSlots;
+#[cfg(feature = "client")]
+use crate::pawn::WeaponSlots;
 #[cfg(feature = "client")]
 use crate::pawn::biped::viewmodel_offset;
+#[cfg(feature = "client")]
+use crate::pawn::CameraEffector;
 use crate::sound::{SoundQueue, entity_velocity};
 #[cfg(feature = "client")]
 use crate::weapon::FireCtx;
@@ -141,29 +145,6 @@ pub fn insert_generic_weapon(
     }
 }
 
-pub fn assign_pickup_slot(
-    slots: &mut WeaponSlots,
-    weapon_id: NetworkID,
-    weapon_entity: Entity,
-) -> Option<(bool, Option<Entity>)> {
-    if slots.primary.0.is_none() {
-        slots.primary = (Some(weapon_id), Some(weapon_entity));
-        Some((true, None))
-    } else if slots.pocket.0.is_none() {
-        let prev = slots.active().1;
-        slots.pocket = (Some(weapon_id), Some(weapon_entity));
-        slots.active_primary = false;
-        Some((false, prev))
-    } else {
-        None
-    }
-}
-
-pub fn drop_active_slot(slots: &mut WeaponSlots) -> Option<(NetworkID, Entity)> {
-    let active = slots.active_mut();
-    Some((active.0.take()?, active.1.take()?))
-}
-
 pub fn place_world_weapon(
     world: &mut PhysicsWorld,
     weapon_entity: Entity,
@@ -252,5 +233,30 @@ pub fn detach_viewmodel(commands: &mut Commands, world: &PhysicsWorld, weapon_en
         commands
             .entity(weapon_entity)
             .insert(RigidBodyHandleComponent(handle));
+    }
+}
+
+#[cfg(feature = "client")]
+pub fn set_local_slot_visibility(commands: &mut Commands, slots: &WeaponSlots) {
+    for (idx, (_, weapon)) in slots.slots.iter().enumerate() {
+        if let Some(weapon) = weapon {
+            commands.entity(*weapon).insert(if idx == slots.active_index {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            });
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+pub fn sync_local_active_weapon(
+    commands: &mut Commands,
+    slots: &WeaponSlots,
+    camera: &mut Query<&mut CameraEffector, With<Camera3d>>,
+) {
+    set_local_slot_visibility(commands, slots);
+    if let Ok(mut camera) = camera.single_mut() {
+        camera.reset_zoom();
     }
 }

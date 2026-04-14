@@ -2,6 +2,10 @@
 pub mod biped;
 pub mod spaceship;
 pub mod vehicle;
+pub mod weapon_slots;
+
+#[cfg(feature = "client")]
+use noise_functions::{Noise, Perlin};
 
 /// spring-damping recoil + procedural shake + zoom applied on top of gameplay aim.
 /// Placed on the Camera3d entity by biped possession; any pawn system can write to it.
@@ -11,8 +15,7 @@ pub struct CameraEffector {
     pub pitch_vel: f32,
     pub yaw_offset: f32,
     pub yaw_vel: f32,
-    /// Shake intensity; decays toward zero each frame.
-    pub shake: f32,
+    pub base_translation: Vec3,
     /// for recoil recovery
     pub recovery_speed: f32,
     /// User's base FOV in degrees. Set at possession; updated when settings change.
@@ -21,6 +24,8 @@ pub struct CameraEffector {
     pub zoom_multiplier: f32,
     /// Smoothly lerped FOV in degrees, written to Projection each frame.
     pub current_fov: f32,
+    #[cfg(feature = "client")]
+    active_shakes: Vec<ActiveCameraShake>,
 }
 impl Default for CameraEffector {
     fn default() -> Self {
@@ -29,11 +34,13 @@ impl Default for CameraEffector {
             pitch_vel: 0.0,
             yaw_offset: 0.0,
             yaw_vel: 0.0,
-            shake: 0.0,
+            base_translation: Vec3::ZERO,
             recovery_speed: 18.0,
             base_fov: 90.0,
             zoom_multiplier: 1.0,
             current_fov: 90.0,
+            #[cfg(feature = "client")]
+            active_shakes: Vec::new(),
         }
     }
 }
@@ -43,8 +50,21 @@ impl CameraEffector {
         self.yaw_vel += horizontal.0 + fastrand::f32() * (horizontal.1 - horizontal.0);
         self.recovery_speed = recovery_speed;
     }
-    pub fn add_shake(&mut self, amount: f32) {
-        self.shake += amount;
+    #[cfg(feature = "client")]
+    pub fn add_shake(&mut self, shake: CameraShake) {
+        if shake.duration <= 0.0
+            || shake.frequency <= 0.0
+            || (shake.translation == Vec3::ZERO
+                && shake.rotation == Vec2::ZERO
+                && shake.roll == 0.0)
+        {
+            return;
+        }
+        self.active_shakes.push(ActiveCameraShake {
+            shake,
+            age: 0.0,
+            seed: fastrand::i32(..),
+        });
     }
     pub fn current_zoom_factor(&self) -> f32 {
         let base = (self.base_fov.to_radians() * 0.5).tan();
@@ -55,6 +75,60 @@ impl CameraEffector {
             1.0
         }
     }
+    pub fn reset_zoom(&mut self) {
+        self.zoom_multiplier = 1.0;
+    }
+
+    #[cfg(feature = "client")]
+    fn sample_shakes(&mut self, dt: f32) -> (Vec3, Vec2, f32) {
+        let mut translation = Vec3::ZERO;
+        let mut rotation = Vec2::ZERO;
+        let mut roll = 0.0;
+        self.active_shakes.retain_mut(|active| {
+            active.age += dt;
+            let life = (active.age / active.shake.duration).clamp(0.0, 1.0);
+            let envelope = (1.0 - life) * (1.0 - life);
+            if envelope <= 0.0 {
+                return false;
+            }
+            let sample_t = active.age * active.shake.frequency;
+            translation.x += active.shake.translation.x * envelope * perlin_1d(sample_t, active.seed, 11.0);
+            translation.y += active.shake.translation.y * envelope * perlin_1d(sample_t, active.seed, 23.0);
+            translation.z += active.shake.translation.z * envelope * perlin_1d(sample_t, active.seed, 37.0);
+            rotation.x += active.shake.rotation.x * envelope * perlin_1d(sample_t, active.seed, 41.0);
+            rotation.y += active.shake.rotation.y * envelope * perlin_1d(sample_t, active.seed, 53.0);
+            roll += active.shake.roll * envelope * perlin_1d(sample_t, active.seed, 67.0);
+            true
+        });
+        (translation, rotation, roll)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CameraShake {
+    pub translation: Vec3,
+    pub rotation: Vec2,
+    pub roll: f32,
+    pub duration: f32,
+    pub frequency: f32,
+}
+
+impl CameraShake {
+    pub fn scaled(self, scale: f32) -> Self {
+        Self {
+            translation: self.translation * scale,
+            rotation: self.rotation * scale,
+            roll: self.roll * scale,
+            ..self
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+struct ActiveCameraShake {
+    shake: CameraShake,
+    age: f32,
+    seed: i32,
 }
 // pub mod dep;
 
@@ -75,6 +149,7 @@ pub use biped::{PitchPivot, YawPivot};
 pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
+pub use weapon_slots::WeaponSlots;
 
 /// Tracks both the currently controlled entity and the player's persistent biped.
 #[derive(Resource, Default)]
@@ -139,7 +214,11 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
-        app.init_resource::<InteractionGate>();
+        app.init_resource::<InteractionGate>()
+            .add_systems(
+                PostUpdate,
+                apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
+            );
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
@@ -238,6 +317,53 @@ pub struct MouseSensitivity {
     pub base: f32,
     pub zoom_blend: f32,
     pub vehicle_pitch_yaw: f32,
+}
+
+#[cfg(feature = "client")]
+const KICK_DAMPING: f32 = 0.88; // velocity multiplier per tick at 60 Hz
+#[cfg(feature = "client")]
+const FOV_LERP_SPEED: f32 = 15.0; // how fast zoom eases in/out
+
+/// Integrates recoil, procedural shake, and FOV zoom. Writes Camera3d local Transform and Projection.
+#[cfg(feature = "client")]
+fn apply_camera_effects(
+    time: Res<Time>,
+    mut camera_q: Query<(&mut Transform, &mut CameraEffector, &mut Projection), With<Camera3d>>,
+) {
+    let Ok((mut transform, mut fx, mut proj)) = camera_q.single_mut() else {
+        return;
+    };
+    let dt = time.delta_secs();
+
+    let damp = KICK_DAMPING.powf(dt * 60.0);
+    let decay = (-fx.recovery_speed * dt).exp();
+    fx.pitch_vel *= damp;
+    fx.pitch_offset = (fx.pitch_offset + fx.pitch_vel * dt) * decay;
+    fx.yaw_vel *= damp;
+    fx.yaw_offset = (fx.yaw_offset + fx.yaw_vel * dt) * decay;
+
+    let (shake_translation, shake_rotation, shake_roll) = fx.sample_shakes(dt);
+    transform.translation = fx.base_translation + shake_translation;
+    transform.rotation = Quat::from_euler(
+        EulerRot::XYZ,
+        fx.pitch_offset + shake_rotation.x,
+        fx.yaw_offset + shake_rotation.y,
+        shake_roll,
+    );
+
+    let target_fov = ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier)
+        .atan()
+        .to_degrees()
+        * 2.0;
+    fx.current_fov += (target_fov - fx.current_fov) * (1.0 - (-FOV_LERP_SPEED * dt).exp());
+    if let Projection::Perspective(ref mut p) = *proj {
+        p.fov = fx.current_fov.to_radians();
+    }
+}
+
+#[cfg(feature = "client")]
+fn perlin_1d(x: f32, seed: i32, channel: f32) -> f32 {
+    Perlin.seed(seed).sample2([x, channel]) as f32
 }
 impl Default for MouseSensitivity {
     fn default() -> Self {

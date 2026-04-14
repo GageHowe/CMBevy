@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
+#[cfg(feature = "client")]
+use crate::pawn::CameraShake;
 use crate::projectile::{helpers as projectile_helpers, rpg};
 use crate::{GameObject, GameObjectKind};
 
@@ -79,7 +81,14 @@ impl Weapon for RpgComponent {
         );
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((8.0, 10.0), (-2.0, 2.0), 8.0);
-            cam.add_shake(0.6);
+            #[cfg(feature = "client")]
+            cam.add_shake(CameraShake {
+                translation: Vec3::new(0.01, 0.01, 0.08),
+                rotation: Vec2::new(0.02, 0.015),
+                roll: 0.01,
+                duration: 0.18,
+                frequency: 16.0,
+            });
         }
         #[cfg(feature = "client")]
         helpers::send_fire_request(

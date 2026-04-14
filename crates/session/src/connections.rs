@@ -2,8 +2,7 @@ use crate::replication::{kill_player, slots_to_held, spawn_player};
 use crate::resources::*;
 use bevy::prelude::*;
 use game_objects::level::{LevelBytes, SpawnPoint};
-use game_objects::pawn::biped::WeaponSlots;
-use game_objects::pawn::{HeldWeaponMap, PendingRespawns, PlayerRegistry, SeatedInVehicle};
+use game_objects::pawn::{HeldWeaponMap, PendingRespawns, PlayerRegistry, SeatedInVehicle, WeaponSlots};
 use game_objects::weapon::{WeaponConfig, WeaponState};
 use net::message::*;
 use net::quic::*;
@@ -56,7 +55,7 @@ pub(super) fn handle_connected(
 
     let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
         .iter()
-        .flat_map(|s| [s.primary.0.as_ref(), s.pocket.0.as_ref()])
+        .flat_map(|s| s.slots.iter().map(|slot| slot.0.as_ref()))
         .flatten()
         .collect();
     for (entity, net_id, kind, rb) in spawnables.iter() {

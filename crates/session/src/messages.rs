@@ -23,11 +23,11 @@ use game_objects::health::Health;
 #[cfg(not(feature = "client"))]
 use game_objects::level::LevelBytes;
 #[cfg(feature = "client")]
-use game_objects::pawn::biped::{BipedPawnComponent, WeaponSlots};
+use game_objects::pawn::biped::BipedPawnComponent;
 #[cfg(not(feature = "client"))]
 use game_objects::pawn::{PendingRespawns, PlayerRegistry};
 #[cfg(feature = "client")]
-use game_objects::pawn::{Possessed, SeatedInVehicle};
+use game_objects::pawn::{Possessed, SeatedInVehicle, WeaponSlots};
 #[cfg(feature = "client")]
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
 #[cfg(feature = "client")]
@@ -330,16 +330,13 @@ fn handle_despawn(
             entity.remove_parent_in_place();
         }
         if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
-            for ent in [slots.primary.1.take(), slots.pocket.1.take()]
-                .into_iter()
-                .flatten()
-            {
+            let held: Vec<_> = slots.held_entities().collect();
+            for ent in held {
                 if let Ok(mut entity) = commands.get_entity(ent) {
                     entity.despawn();
                 }
             }
-            slots.primary.0 = None;
-            slots.pocket.0 = None;
+            slots.clear();
         }
         *local_net_id = None;
     } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
@@ -372,7 +369,7 @@ fn handle_weapon_pickup(
     if local_net_id == Some(carrier_net_id) {
         let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
             (
-                weapon_helpers::assign_pickup_slot(&mut slots, weapon_id.clone(), weapon_entity),
+                slots.assign_pickup(weapon_id.clone(), weapon_entity),
                 biped.pitch_pivot,
             )
         } else {
@@ -662,8 +659,9 @@ fn process_server_message(
             dir,
             registry,
             &sp.all_networked,
-            &sp.pawn_slots,
+            &mut sp.pawn_slots,
             &mut sp.weapon_runtime,
+            &mut sp.held_weapons,
             &mut sp.commands,
             &mut sp.world,
             net_ids,

@@ -284,6 +284,7 @@ pub fn attach_camera_on_possess_vehicle(
     commands.entity(cam).insert((
         Transform::from_translation(vehicle.camera_offset),
         CameraEffector {
+            base_translation: vehicle.camera_offset,
             base_fov,
             current_fov: base_fov,
             ..default()
