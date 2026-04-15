@@ -995,8 +995,8 @@ enum InteractTarget {
 }
 
 #[cfg(feature = "client")]
-fn format_interaction_prompt(verb: &str, kind: GameObjectKind) -> String {
-    format!("Press F to {verb} {}", kind.interaction_name())
+fn format_interaction_prompt(key: &str, verb: &str, kind: GameObjectKind) -> String {
+    format!("Press {key} to {verb} {}", kind.interaction_name())
 }
 
 #[cfg(feature = "client")]
@@ -1005,14 +1005,17 @@ fn current_interact_target(
     origin: Vec3,
     forward: Vec3,
     world: &PhysicsWorld,
-    interactables: &Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
+    interactables: &Query<
+        (&net::message::NetworkID, &crate::interaction::Interactable),
+        With<crate::interaction::Interactable>,
+    >,
     cockpits: &Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
 ) -> Option<InteractTarget> {
     let mut cockpit_target = None;
     for (cockpit_entity, cockpit, cockpit_gt, child_of) in cockpits.iter() {
         let (_, _, seat_center) = cockpit_gt.to_scale_rotation_translation();
         let Some(distance) =
-            ray_hits_cockpit(origin, forward, 4.0, seat_center, cockpit.interact_radius)
+            ray_hits_cockpit(origin, forward, cockpit.interact_radius + 4.0, seat_center, cockpit.interact_radius)
         else {
             continue;
         };
@@ -1030,15 +1033,39 @@ fn current_interact_target(
     }
 
     let (hit_entity, _) = world.cast_ray(origin, forward, 4.0, &[pawn_entity])?;
-    let net_id = interactables.get(hit_entity).ok()?.clone();
+    let (net_id, interactable) = interactables.get(hit_entity).ok()?;
+    if !interactable_in_range(world, pawn_entity, hit_entity, interactable.range) {
+        return None;
+    }
+    let net_id = net_id.clone();
     Some(InteractTarget::Entity { hit_entity, net_id })
+}
+
+#[cfg(feature = "client")]
+fn interactable_in_range(
+    world: &PhysicsWorld,
+    pawn_entity: Entity,
+    target_entity: Entity,
+    range: f32,
+) -> bool {
+    matches!(
+        (
+            world.entity_to_handle.get(&pawn_entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos),
+            world.entity_to_handle.get(&target_entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos),
+        ),
+        (Some(pawn_pos), Some(target_pos)) if pawn_pos.distance_squared(target_pos) <= range * range
+    )
 }
 
 #[cfg(feature = "client")]
 fn update_interaction_hint(
     egui_wants: Option<Res<EguiWantsInput>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
-    interactables: Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
+    bindings: Res<common::ActiveKeyBindings>,
+    interactables: Query<
+        (&net::message::NetworkID, &crate::interaction::Interactable),
+        With<crate::interaction::Interactable>,
+    >,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     world: Res<PhysicsWorld>,
     object_kinds: Query<&GameObjectKind>,
@@ -1071,19 +1098,20 @@ fn update_interaction_hint(
         hint.0 = None;
         return;
     };
+    let key = bindings.binding(common::InputAction::Interact).prompt_label();
     hint.0 = match target {
         InteractTarget::Vehicle { vehicle_entity, .. } => object_kinds
             .get(vehicle_entity)
             .ok()
-            .map(|kind| format_interaction_prompt("enter", kind.clone())),
+            .map(|kind| format_interaction_prompt(&key, "enter", kind.clone())),
         InteractTarget::Entity { hit_entity, .. } if weapon_q.contains(hit_entity) => object_kinds
             .get(hit_entity)
             .ok()
-            .map(|kind| format_interaction_prompt("equip", kind.clone())),
+            .map(|kind| format_interaction_prompt(&key, "equip", kind.clone())),
         InteractTarget::Entity { hit_entity, .. } if pickup_q.contains(hit_entity) => object_kinds
             .get(hit_entity)
             .ok()
-            .map(|kind| format_interaction_prompt("equip", kind.clone())),
+            .map(|kind| format_interaction_prompt(&key, "equip", kind.clone())),
         _ => None,
     };
 }
@@ -1093,7 +1121,10 @@ fn interact(
     state: Res<State<common::game_state::GameState>>,
     mut input: InteractInputParams,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
-    interactables: Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
+    interactables: Query<
+        (&net::message::NetworkID, &crate::interaction::Interactable),
+        With<crate::interaction::Interactable>,
+    >,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut world: ResMut<PhysicsWorld>,
     mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,

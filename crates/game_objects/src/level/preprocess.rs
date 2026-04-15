@@ -2,7 +2,7 @@
 
 #[rustfmt::skip]
 const KEY_EXPANSIONS: &[(&str, &str)] = &[
-    ( "Transform", "bevy_transform::components::transform::Transform"),
+    ("Transform", "bevy_transform::components::transform::Transform"),
     ("ChildOf", "bevy_ecs::hierarchy::ChildOf"),
     ("MapMeta", "game_objects::level::MapMeta"),
     ("StaticCollider", "game_objects::level::StaticCollider"),

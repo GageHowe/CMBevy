@@ -79,6 +79,20 @@ impl BindingButton {
             BindingButton::Mouse(button) => mouse.just_pressed(button),
         }
     }
+
+    pub fn label(self) -> String {
+        match self {
+            BindingButton::Key(key) => key_label(key),
+            BindingButton::Mouse(button) => match button {
+                MouseButton::Left => "Mouse Left".to_string(),
+                MouseButton::Right => "Mouse Right".to_string(),
+                MouseButton::Middle => "Mouse Middle".to_string(),
+                MouseButton::Back => "Mouse Back".to_string(),
+                MouseButton::Forward => "Mouse Forward".to_string(),
+                MouseButton::Other(idx) => format!("Mouse {idx}"),
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug, Default)]
@@ -126,6 +140,31 @@ impl ActionBinding {
             self.secondary = None;
         }
     }
+
+    pub fn prompt_label(self) -> String {
+        self.primary
+            .or(self.secondary)
+            .map(BindingButton::label)
+            .unwrap_or_else(|| "Unbound".to_string())
+    }
+}
+
+fn key_label(key: KeyCode) -> String {
+    let name = format!("{key:?}");
+    if let Some(rest) = name.strip_prefix("Key") {
+        return rest.to_string();
+    }
+    if let Some(rest) = name.strip_prefix("Digit") {
+        return rest.to_string();
+    }
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, ch) in name.chars().enumerate() {
+        if i > 0 && ch.is_ascii_uppercase() && !name[..i].ends_with(' ') {
+            out.push(' ');
+        }
+        out.push(ch);
+    }
+    out
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]

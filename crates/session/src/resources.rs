@@ -193,6 +193,7 @@ pub struct ServerMessageParams<'w, 's> {
     pub pawn_slots: Query<'w, 's, &'static mut WeaponSlots>,
     pub bipeds: Query<'w, 's, &'static mut BipedPawnComponent>,
     pub vehicles: Query<'w, 's, &'static VehicleComponent>,
+    pub interactables: Query<'w, 's, &'static game_objects::interaction::Interactable>,
     pub net_ids: Query<'w, 's, &'static NetworkID>,
     pub seated_bipeds: Query<'w, 's, (&'static NetworkID, &'static SeatedInVehicle)>,
     pub driver_seats: Query<'w, 's, (&'static mut DriverSeat, &'static Transform)>,

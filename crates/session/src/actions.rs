@@ -57,6 +57,7 @@ pub(super) fn handle_interact(
     pawn_slots: &mut Query<&mut WeaponSlots>,
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
+    interactables: &Query<&game_objects::interaction::Interactable>,
     driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
     commands: &mut Commands,
     on_pickup_q: &Query<&OnPickup>,
@@ -97,7 +98,16 @@ pub(super) fn handle_interact(
         return;
     }
 
-    if handle_ability_pickup_interact(character, target, target_net_id.clone(), world, on_pickup_q, commands, quic)
+    if handle_ability_pickup_interact(
+        character,
+        target,
+        target_net_id.clone(),
+        world,
+        interactables,
+        on_pickup_q,
+        commands,
+        quic,
+    )
     {
         return;
     }
@@ -113,6 +123,7 @@ pub(super) fn handle_interact(
         held_weapons,
         pawn_slots,
         commands,
+        interactables,
         aim_dir,
     );
 }
@@ -286,6 +297,7 @@ fn handle_ability_pickup_interact(
     target: Entity,
     target_net_id: NetworkID,
     world: &PhysicsWorld,
+    interactables: &Query<&game_objects::interaction::Interactable>,
     on_pickup_q: &Query<&OnPickup>,
     commands: &mut Commands,
     quic: &mut QuicManager,
@@ -293,9 +305,10 @@ fn handle_ability_pickup_interact(
     let Ok(&OnPickup(f)) = on_pickup_q.get(target) else {
         return false;
     };
-    let player_pos = body_position(world, character);
-    let pickup_pos = body_position(world, target);
-    if !matches!((player_pos, pickup_pos), (Some(pp), Some(wp)) if pp.distance(wp) < 3.5) {
+    let Ok(interactable) = interactables.get(target) else {
+        return true;
+    };
+    if !interactable_in_range(world, character, target, interactable.range) {
         return true;
     }
     f(character, target, commands);
@@ -334,14 +347,16 @@ fn try_weapon_interact(
     held_weapons: &mut HeldWeaponMap,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     commands: &mut Commands,
+    interactables: &Query<&game_objects::interaction::Interactable>,
     drop_dir: Vec3,
 ) {
     if held_weapons.0.contains_key(&target_net_id) {
         return;
     }
-    let player_pos = body_position(world, player_entity);
-    let weapon_pos = body_position(world, target_entity);
-    if !matches!((player_pos, weapon_pos), (Some(pp), Some(wp)) if pp.distance(wp) < 2.0) {
+    let Ok(interactable) = interactables.get(target_entity) else {
+        return;
+    };
+    if !interactable_in_range(world, player_entity, target_entity, interactable.range) {
         return;
     }
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
@@ -379,6 +394,18 @@ fn try_weapon_interact(
         Channel::Ordered,
         &MsgType::WeaponPickup(target_net_id, player_net_id),
     );
+}
+
+fn interactable_in_range(
+    world: &PhysicsWorld,
+    player_entity: Entity,
+    target_entity: Entity,
+    range: f32,
+) -> bool {
+    matches!(
+        (body_position(world, player_entity), body_position(world, target_entity)),
+        (Some(player_pos), Some(target_pos)) if player_pos.distance_squared(target_pos) <= range * range
+    )
 }
 
 pub(super) fn handle_drop_weapon(
