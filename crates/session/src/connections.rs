@@ -38,7 +38,7 @@ pub(super) fn handle_connected(
         }
         teams.len().max(1)
     };
-    let team = (registry.by_conn.len() % num_teams) as u8;
+    let team = (registry.controlled_count() % num_teams) as u8;
     let Some((sp, sr, sv)) = game_objects::lifecycle::pick_spawn_point_with_velocity(
         spawn_points,
         parent_transforms,
@@ -46,7 +46,7 @@ pub(super) fn handle_connected(
         parent_bodies,
         world,
         team,
-        registry.by_conn.len(),
+        registry.controlled_count(),
     ) else {
         warn!("conn {conn_id}: server ready but no spawn point resolved");
         return false;
@@ -83,7 +83,7 @@ pub(super) fn handle_connected(
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &MsgType::WeaponState(net_id.clone(), state.snapshot()),
+                &MsgType::WeaponState(net_id.clone(), *state),
             );
         }
     }
@@ -153,7 +153,7 @@ pub(super) fn handle_disconnected(
     world: &mut PhysicsWorld,
 ) {
     pending_respawns.0.remove(&conn_id);
-    if let Some((entity, net_id)) = registry.remove_by_conn(conn_id) {
+    if let Some((entity, net_id)) = registry.remove_character_for_conn(conn_id) {
         info!("GameServer: Player disconnected: entity={entity} conn={:?}", conn_id);
         let held = slots_to_held(&pawn_slots.get(entity).ok());
         kill_player(entity, net_id, held, quic, registry, held_weapons, commands, world);
@@ -170,7 +170,7 @@ pub(super) fn flush_pending_connections(
 ) {
     let pending_conn_ids: Vec<_> = pending_connections.0.iter().copied().collect();
     for conn_id in pending_conn_ids {
-        if registry.by_conn.contains_key(&conn_id) {
+        if registry.controlled_pawn(conn_id).is_some() {
             pending_connections.0.remove(&conn_id);
             continue;
         }

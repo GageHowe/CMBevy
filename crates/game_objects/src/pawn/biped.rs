@@ -32,7 +32,6 @@ const SLIDE_HALF_HEIGHT: f32 = 0.1;
 const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 /// max speed gained per tick when accelerating on the ground
 const GROUND_ACCEL: f32 = 0.7;
-const SPRINT_ACCEL: f32 = 0.8;
 const JUMP_IMPULSE: f32 = 8.0;
 const AIR_CONTROL: f32 = 0.15;
 const GROUND_DIST: f32 = 0.05; // must be nearly touching to count as grounded
@@ -219,7 +218,7 @@ impl GameObject for BipedPawnComponent {
             .and_then(LastDamageSource::resolved_attacker);
         let conn_id = world
             .get_resource::<super::PlayerRegistry>()
-            .and_then(|registry| registry.conn_id_for_entity(entity));
+            .and_then(|registry| registry.conn_id_for_character(entity));
         let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
             crate::weapon::helpers::place_world_weapon(
@@ -262,7 +261,7 @@ impl GameObject for BipedPawnComponent {
         if !deferred_removal
             && let Some(mut registry) = world.get_resource_mut::<super::PlayerRegistry>()
         {
-            let _ = registry.remove_by_entity(entity);
+            let _ = registry.remove_character(entity);
         }
         if let Some(conn_id) = conn_id {
             let respawn_delay = world
@@ -293,6 +292,7 @@ impl Plugin for BipedPlugin {
                     biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
                     toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
                     drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
+                    update_interaction_hint.run_if(resource_exists::<ButtonInput<KeyCode>>),
                     interact
                         .run_if(
                             in_state(common::game_state::GameState::SinglePlayer)
@@ -373,8 +373,7 @@ fn gather_biped_input(
     }
     input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons);
     input.slide = bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons);
-    input.sprint = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
-    input.ability = bindings.pressed(common::InputAction::Ability, &keyboard, &mouse_buttons);
+    input.ability1 = bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
 
     if let Some(yaw_e) = biped.yaw_pivot {
         if let Ok(yp) = yaw_pivots.get(yaw_e) {
@@ -529,19 +528,19 @@ fn switch_weapon_slot(
         return;
     };
     let old_active_primary = slots.active_primary();
-    if let Some(e) = slots.active().1 {
-        crate::weapon::helpers::clear_inactive_slot_reload(weapon_states.get_mut(e).ok());
-    }
+    let old_active_weapon = slots.active().1;
     let switched = if scroll.delta.y > 0.0 { slots.next_weapon() } else { slots.prev_weapon() };
     if !switched {
         return;
+    }
+    if let Some(e) = old_active_weapon {
+        crate::weapon::helpers::clear_inactive_slot_reload(weapon_states.get_mut(e).ok());
     }
     crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera);
     if matches!(state.get(), common::game_state::GameState::Multiplayer)
         && old_active_primary != slots.active_primary()
     {
-        quic.send(
-            net::quic::SendTarget::All,
+        quic.send_to_server(
             net::quic::Channel::Ordered,
             &net::message::MsgType::SetActiveWeaponSlot(slots.active_primary()),
         );
@@ -687,14 +686,10 @@ pub fn apply_biped_movement(
     };
 
     let planet_up = body_rot * Vec3::Y;
-    let facing = body_rot * Quat::from_rotation_y(input.look_yaw);
-    let forward = facing * Vec3::NEG_Z;
-    let right = facing * Vec3::X;
+    let desired = biped_move_direction(body_rot, input);
 
     let is_jump = input.jump;
     let is_slide = input.slide;
-    let is_sprint = input.sprint;
-
     // body center is always CAPSULE_BOTTOM above foot level; cast ray from foot position
     let (grounded, ground_linvel, support_entity) =
         ground_state(world, body_handle.0, capsule_pos, planet_up);
@@ -726,10 +721,8 @@ pub fn apply_biped_movement(
     let _ = (capsule_linvel, ground_linvel);
 
     if grounded && !is_slide {
-        let desired = (forward * input.forward + right * input.right).normalize_or_zero();
         if desired.length_squared() > 1e-6 {
-            let accel = if is_sprint && input.forward >= 0.0 { SPRINT_ACCEL } else { GROUND_ACCEL };
-            let impulse = desired * accel * capsule_mass;
+            let impulse = desired * GROUND_ACCEL * capsule_mass;
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
             }
@@ -752,15 +745,21 @@ pub fn apply_biped_movement(
     }
 
     if !grounded {
-        let lateral = (forward * input.forward + right * input.right).normalize_or_zero();
         let down = input.slide as i8 as f32;
-        let impulse = (lateral * AIR_CONTROL - planet_up * down * AIR_CONTROL) * capsule_mass;
+        let impulse = (desired * AIR_CONTROL - planet_up * down * AIR_CONTROL) * capsule_mass;
         if impulse.length_squared() > 1e-6 {
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
                 rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
             }
         }
     }
+}
+
+pub fn biped_move_direction(body_rot: Quat, input: BipedInput) -> Vec3 {
+    let facing = body_rot * Quat::from_rotation_y(input.look_yaw);
+    let forward = facing * Vec3::NEG_Z;
+    let right = facing * Vec3::X;
+    (forward * input.forward + right * input.right).normalize_or_zero()
 }
 
 /// Re-parents the Camera3d under the biped's pitch pivot when Possessed is added.
@@ -838,8 +837,7 @@ fn toggle_flashlight(
     }
     // no-op in singleplayer (client_connected is false)
     if quic.client_connected {
-        quic.send(
-            net::quic::SendTarget::All,
+        quic.send_to_server(
             net::quic::Channel::Ordered,
             &net::message::MsgType::FlashlightToggle,
         );
@@ -910,6 +908,10 @@ fn biped_fire(
         return;
     };
     let Ok(driver) = drivers.get(weapon_entity) else {
+        let Some((_weapon_id, _removed_weapon_entity)) = slots.remove_active() else {
+            return;
+        };
+        crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
         return;
     };
     let Some(pitch_e) = biped.pitch_pivot else {
@@ -924,8 +926,7 @@ fn biped_fire(
         && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())
         && quic.client_connected
     {
-        quic.send(
-            net::quic::SendTarget::All,
+        quic.send_to_server(
             net::quic::Channel::Ordered,
             &net::message::MsgType::ReloadWeapon(weapon_net_id.clone()),
         );
@@ -988,6 +989,106 @@ struct InteractInputParams<'w> {
 }
 
 #[cfg(feature = "client")]
+enum InteractTarget {
+    Vehicle { cockpit_entity: Entity, vehicle_entity: Entity },
+    Entity { hit_entity: Entity, net_id: net::message::NetworkID },
+}
+
+#[cfg(feature = "client")]
+fn format_interaction_prompt(verb: &str, kind: GameObjectKind) -> String {
+    format!("Press F to {verb} {}", kind.interaction_name())
+}
+
+#[cfg(feature = "client")]
+fn current_interact_target(
+    pawn_entity: Entity,
+    origin: Vec3,
+    forward: Vec3,
+    world: &PhysicsWorld,
+    interactables: &Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
+    cockpits: &Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
+) -> Option<InteractTarget> {
+    let mut cockpit_target = None;
+    for (cockpit_entity, cockpit, cockpit_gt, child_of) in cockpits.iter() {
+        let (_, _, seat_center) = cockpit_gt.to_scale_rotation_translation();
+        let Some(distance) =
+            ray_hits_cockpit(origin, forward, 4.0, seat_center, cockpit.interact_radius)
+        else {
+            continue;
+        };
+        if cockpit.occupant.is_some() {
+            continue;
+        }
+        let vehicle_entity = child_of.parent();
+        let target = (distance, cockpit_entity, vehicle_entity);
+        if cockpit_target.is_none_or(|best: (f32, Entity, Entity)| distance < best.0) {
+            cockpit_target = Some(target);
+        }
+    }
+    if let Some((_, cockpit_entity, vehicle_entity)) = cockpit_target {
+        return Some(InteractTarget::Vehicle { cockpit_entity, vehicle_entity });
+    }
+
+    let (hit_entity, _) = world.cast_ray(origin, forward, 4.0, &[pawn_entity])?;
+    let net_id = interactables.get(hit_entity).ok()?.clone();
+    Some(InteractTarget::Entity { hit_entity, net_id })
+}
+
+#[cfg(feature = "client")]
+fn update_interaction_hint(
+    egui_wants: Option<Res<EguiWantsInput>>,
+    player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
+    interactables: Query<&net::message::NetworkID, With<crate::interaction::Interactable>>,
+    pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
+    world: Res<PhysicsWorld>,
+    object_kinds: Query<&GameObjectKind>,
+    weapon_q: Query<(), With<crate::weapon::WeaponComponent>>,
+    pickup_q: Query<(), With<crate::pawn::biped_ability::OnPickup>>,
+    cockpit_q: Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
+    mut hint: ResMut<InteractionHint>,
+) {
+    if egui_wants.as_ref().is_some_and(|e| e.wants_any_input()) {
+        hint.0 = None;
+        return;
+    }
+    let Ok((pawn_entity, biped)) = player.single() else {
+        hint.0 = None;
+        return;
+    };
+    let Some(pitch_e) = biped.pitch_pivot else {
+        hint.0 = None;
+        return;
+    };
+    let Ok(pivot_gt) = pitch_pivots.get(pitch_e) else {
+        hint.0 = None;
+        return;
+    };
+    let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
+    let forward = rot * Vec3::NEG_Z;
+    let Some(target) =
+        current_interact_target(pawn_entity, origin, forward, &world, &interactables, &cockpit_q)
+    else {
+        hint.0 = None;
+        return;
+    };
+    hint.0 = match target {
+        InteractTarget::Vehicle { vehicle_entity, .. } => object_kinds
+            .get(vehicle_entity)
+            .ok()
+            .map(|kind| format_interaction_prompt("enter", kind.clone())),
+        InteractTarget::Entity { hit_entity, .. } if weapon_q.contains(hit_entity) => object_kinds
+            .get(hit_entity)
+            .ok()
+            .map(|kind| format_interaction_prompt("equip", kind.clone())),
+        InteractTarget::Entity { hit_entity, .. } if pickup_q.contains(hit_entity) => object_kinds
+            .get(hit_entity)
+            .ok()
+            .map(|kind| format_interaction_prompt("equip", kind.clone())),
+        _ => None,
+    };
+}
+
+#[cfg(feature = "client")]
 fn interact(
     state: Res<State<common::game_state::GameState>>,
     mut input: InteractInputParams,
@@ -1021,37 +1122,25 @@ fn interact(
     };
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
-    let mut cockpit_target = None;
-    for (cockpit_entity, cockpit, cockpit_gt, child_of) in cockpit_q.p0().iter() {
-        let (_, _, seat_center) = cockpit_gt.to_scale_rotation_translation();
-        let Some(distance) =
-            ray_hits_cockpit(origin, forward, 4.0, seat_center, cockpit.interact_radius)
-        else {
-            continue;
-        };
-        if cockpit.occupant.is_some() {
-            continue;
-        }
-        let vehicle_entity = child_of.parent();
-        let target = (distance, cockpit_entity, vehicle_entity);
-        if cockpit_target.is_none_or(|best: (f32, Entity, Entity)| distance < best.0) {
-            cockpit_target = Some(target);
-        }
+    let Some(target) = current_interact_target(
+        pawn_entity,
+        origin,
+        forward,
+        &world,
+        &interactables,
+        &cockpit_q.p0(),
+    ) else {
+        return;
+    };
+    if !input.interaction.consume_press(
+        !blocked
+            && input.bindings.pressed(common::InputAction::Interact, &input.keyboard, &input.mouse),
+        input.ticker.tick,
+    ) {
+        return;
     }
-
-    if let Some((_, cockpit_entity, vehicle_entity)) = cockpit_target {
-        if !input.interaction.consume_press(
-            !blocked
-                && input.bindings.pressed(
-                    common::InputAction::Interact,
-                    &input.keyboard,
-                    &input.mouse,
-                ),
-            input.ticker.tick,
-        ) {
-            return;
-        }
-        match state.get() {
+    match target {
+        InteractTarget::Vehicle { cockpit_entity, vehicle_entity } => match state.get() {
             GameState::SinglePlayer => {
                 let mut cockpits = cockpit_q.p1();
                 let Ok((mut cockpit, seat_transform, child_of)) = cockpits.get_mut(cockpit_entity)
@@ -1074,46 +1163,29 @@ fn interact(
                 commands.entity(pawn_entity).remove::<Possessed>();
                 commands.entity(vehicle_entity).insert(Possessed::new(128));
                 if let Ok(kind) = object_kinds.get(vehicle_entity) {
-                    crate::messages::push(&mut commands, format!("Entered {kind:?}"));
+                    crate::messages::push(
+                        &mut commands,
+                        format!("Entered {}", kind.interaction_name()),
+                    );
                 }
-                return;
             }
             GameState::Multiplayer => {
                 let Ok(vehicle_net_id) = vehicle_net_ids.get(vehicle_entity) else {
                     return;
                 };
-                quic.send(
-                    net::quic::SendTarget::All,
+                quic.send_to_server(
                     net::quic::Channel::Ordered,
                     &net::message::MsgType::Interact(vehicle_net_id.clone()),
                 );
-                return;
             }
             _ => {}
-        }
-    }
-
-    let Some((hit_entity, _)) = world.cast_ray(origin, forward, 4.0, &[pawn_entity]) else {
-        return;
-    };
-    let Ok(interact_net_id) = interactables.get(hit_entity) else {
-        return;
-    };
-    let interact_net_id = interact_net_id.clone();
-    if !input.interaction.consume_press(
-        !blocked
-            && input.bindings.pressed(common::InputAction::Interact, &input.keyboard, &input.mouse),
-        input.ticker.tick,
-    ) {
-        return;
-    }
-
+        },
+        InteractTarget::Entity { hit_entity, net_id: interact_net_id } => {
     if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = pickup_fns.get(hit_entity) {
         // Always run locally for prediction (singleplayer) or immediate feedback (multiplayer).
         f(pawn_entity, hit_entity, &mut commands);
         if matches!(state.get(), GameState::Multiplayer) {
-            quic.send(
-                net::quic::SendTarget::All,
+            quic.send_to_server(
                 net::quic::Channel::Ordered,
                 &net::message::MsgType::Interact(interact_net_id),
             );
@@ -1154,17 +1226,21 @@ fn interact(
             );
             crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
             if let Ok(kind) = object_kinds.get(hit_entity) {
-                crate::messages::push(&mut commands, format!("Picked up {kind:?}"));
+                crate::messages::push(
+                    &mut commands,
+                    format!("Picked up {}", kind.interaction_name()),
+                );
             }
         }
         GameState::Multiplayer => {
-            quic.send(
-                net::quic::SendTarget::All,
+            quic.send_to_server(
                 net::quic::Channel::Ordered,
                 &net::message::MsgType::Interact(interact_net_id),
             );
         }
         _ => {}
+    }
+        }
     }
 }
 
@@ -1206,8 +1282,7 @@ fn drop_active_weapon(
                 return;
             };
             let (_, rot, _) = pivot_gt.to_scale_rotation_translation();
-            quic.send(
-                net::quic::SendTarget::All,
+            quic.send_to_server(
                 net::quic::Channel::Ordered,
                 &net::message::MsgType::DropWeapon(rot * Vec3::NEG_Z),
             );

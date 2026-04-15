@@ -37,6 +37,11 @@ pub fn rb_angvel(rb: &RigidBody) -> Vec3 {
     let v = rb.angvel();
     Vec3::new(v.x, v.y, v.z)
 }
+#[inline]
+pub fn rb_point_vel(rb: &RigidBody, point: Vec3) -> Vec3 {
+    let offset = point - rb_pos(rb);
+    rb_vel(rb) + rb_angvel(rb).cross(offset)
+}
 
 /// scales how strongly planetary gravity affects this body. Defaults to 1.0 if absent.
 #[derive(Component, Clone, Copy)]

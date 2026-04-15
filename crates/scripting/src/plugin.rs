@@ -79,6 +79,6 @@ fn dispatch_player_kill_callbacks(world: &mut World) {
         return;
     };
     for entity in removals {
-        let _ = registry.remove_by_entity(entity);
+        let _ = registry.remove_character(entity);
     }
 }

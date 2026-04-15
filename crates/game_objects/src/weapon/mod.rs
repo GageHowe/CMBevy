@@ -6,6 +6,8 @@ use physics::physics_world::PhysicsWorld;
 
 use crate::{pawn::CameraEffector, sound::SoundQueue};
 
+pub use common::WeaponState;
+
 pub mod hail_mary;
 pub mod helpers;
 pub mod pistol;
@@ -37,32 +39,6 @@ pub struct WeaponConfig {
     pub reload_ticks: u16,
     pub fire_cooldown_ticks: u16,
     pub projectile_kind: net::message::GameObjectKind,
-}
-
-#[derive(Component, Clone, Copy, Reflect, Default)]
-pub struct WeaponState {
-    pub ammo_in_mag: u16,
-    pub reserve_ammo: u16,
-    pub reload_ticks: u16,
-    pub cooldown_ticks: u16,
-}
-
-impl WeaponState {
-    pub fn snapshot(self) -> common::WeaponStateSnapshot {
-        common::WeaponStateSnapshot {
-            ammo_in_mag: self.ammo_in_mag,
-            reserve_ammo: self.reserve_ammo,
-            reload_ticks: self.reload_ticks,
-            cooldown_ticks: self.cooldown_ticks,
-        }
-    }
-
-    pub fn apply_snapshot(&mut self, snapshot: common::WeaponStateSnapshot) {
-        self.ammo_in_mag = snapshot.ammo_in_mag;
-        self.reserve_ammo = snapshot.reserve_ammo;
-        self.reload_ticks = snapshot.reload_ticks;
-        self.cooldown_ticks = snapshot.cooldown_ticks;
-    }
 }
 
 /// Type-erased fire hook for the weapon entity. Biped code only forwards input here.
@@ -145,14 +121,28 @@ pub fn weapon_bundle<W: Weapon + 'static>(weapon: W, world: &mut World) -> impl 
     (
         weapon,
         WeaponConfig::new::<W>(),
-        WeaponState::new::<W>(),
+        WeaponState {
+            ammo_in_mag: W::MAGAZINE_SIZE,
+            reserve_ammo: W::RESERVE_AMMO,
+            reload_ticks: 0,
+            cooldown_ticks: 0,
+        },
         WeaponDriver { fixed_update: world.register_system_cached(fire_weapon::<W>) },
     )
 }
 
 #[cfg(not(feature = "client"))]
 pub fn weapon_bundle<W: Weapon>(weapon: W, _world: &mut World) -> impl Bundle {
-    (weapon, WeaponConfig::new::<W>(), WeaponState::new::<W>())
+    (
+        weapon,
+        WeaponConfig::new::<W>(),
+        WeaponState {
+            ammo_in_mag: W::MAGAZINE_SIZE,
+            reserve_ammo: W::RESERVE_AMMO,
+            reload_ticks: 0,
+            cooldown_ticks: 0,
+        },
+    )
 }
 
 #[cfg(feature = "client")]
@@ -221,17 +211,6 @@ impl WeaponConfig {
             reload_ticks: W::RELOAD_TICKS,
             fire_cooldown_ticks: W::FIRE_COOLDOWN_TICKS,
             projectile_kind: W::PROJECTILE_KIND,
-        }
-    }
-}
-
-impl WeaponState {
-    pub fn new<W: Weapon>() -> Self {
-        Self {
-            ammo_in_mag: W::MAGAZINE_SIZE,
-            reserve_ammo: W::RESERVE_AMMO,
-            reload_ticks: 0,
-            cooldown_ticks: 0,
         }
     }
 }

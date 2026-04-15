@@ -142,6 +142,7 @@ pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 #[cfg(feature = "client")]
 use net::message::MsgType;
 use net::{message::NetworkID, quic::ConnectionId};
+use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
@@ -149,51 +150,115 @@ pub use weapon_slots::WeaponSlots;
 
 use crate::GameObject;
 
-/// Tracks both the currently controlled entity and the player's persistent biped.
+/// Tracks two different pawn identities per connection.
+///
+/// `controlled_by_conn` is the pawn currently receiving that client's inputs.
+/// This can be a vehicle while the player is driving.
+///
+/// `character_by_conn` is the player's persistent biped character.
+/// Interactions, inventory, respawns, and other character-owned state should use this.
 #[derive(Resource, Default)]
 pub struct PlayerRegistry {
-    pub by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
-    pub characters: HashMap<ConnectionId, (Entity, NetworkID)>,
-    pub by_character_entity: HashMap<Entity, ConnectionId>,
+    controlled_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
+    character_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
+    conn_by_character_entity: HashMap<Entity, ConnectionId>,
 }
 impl PlayerRegistry {
-    pub fn insert(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        self.by_conn.insert(conn_id, (entity, net_id.clone()));
-        if let Some((old_entity, _)) = self.characters.insert(conn_id, (entity, net_id.clone())) {
-            self.by_character_entity.remove(&old_entity);
+    pub fn register_character(
+        &mut self,
+        conn_id: ConnectionId,
+        entity: Entity,
+        net_id: NetworkID,
+    ) {
+        self.controlled_by_conn.insert(conn_id, (entity, net_id.clone()));
+        if let Some((old_entity, _)) =
+            self.character_by_conn.insert(conn_id, (entity, net_id.clone()))
+        {
+            self.conn_by_character_entity.remove(&old_entity);
         }
-        self.by_character_entity.insert(entity, conn_id);
+        self.conn_by_character_entity.insert(entity, conn_id);
     }
 
-    pub fn set_controlled(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        self.by_conn.insert(conn_id, (entity, net_id));
+    pub fn set_controlled_pawn(
+        &mut self,
+        conn_id: ConnectionId,
+        entity: Entity,
+        net_id: NetworkID,
+    ) {
+        self.controlled_by_conn.insert(conn_id, (entity, net_id));
     }
 
-    pub fn get_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.by_conn.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
+    pub fn controlled_pawn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
+        self.controlled_by_conn.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
     }
 
-    pub fn get_character_by_conn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.characters.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
+    pub fn character(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
+        self.character_by_conn.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
     }
 
-    pub fn remove_by_conn(&mut self, conn_id: ConnectionId) -> Option<(Entity, NetworkID)> {
-        self.by_conn.remove(&conn_id);
-        let (entity, net_id) = self.characters.remove(&conn_id)?;
-        self.by_character_entity.remove(&entity);
+    pub fn remove_character_for_conn(
+        &mut self,
+        conn_id: ConnectionId,
+    ) -> Option<(Entity, NetworkID)> {
+        self.controlled_by_conn.remove(&conn_id);
+        let (entity, net_id) = self.character_by_conn.remove(&conn_id)?;
+        self.conn_by_character_entity.remove(&entity);
         Some((entity, net_id))
     }
 
-    pub fn remove_by_entity(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
-        let conn_id = self.by_character_entity.remove(&entity)?;
-        self.by_conn.remove(&conn_id);
-        let (_, net_id) = self.characters.remove(&conn_id)?;
+    pub fn remove_character(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
+        let conn_id = self.conn_by_character_entity.remove(&entity)?;
+        self.controlled_by_conn.remove(&conn_id);
+        let (_, net_id) = self.character_by_conn.remove(&conn_id)?;
         Some((conn_id, net_id))
     }
 
-    pub fn conn_id_for_entity(&self, entity: Entity) -> Option<ConnectionId> {
-        self.by_character_entity.get(&entity).copied()
+    pub fn conn_id_for_character(&self, entity: Entity) -> Option<ConnectionId> {
+        self.conn_by_character_entity.get(&entity).copied()
     }
+
+    pub fn controlled_count(&self) -> usize {
+        self.controlled_by_conn.len()
+    }
+
+    pub fn controlled_conn_ids(&self) -> impl Iterator<Item = ConnectionId> + '_ {
+        self.controlled_by_conn.keys().copied()
+    }
+
+    pub fn controlled_entries(
+        &self,
+    ) -> impl Iterator<Item = (&ConnectionId, &(Entity, NetworkID))> + '_ {
+        self.controlled_by_conn.iter()
+    }
+
+    pub fn character_entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.character_by_conn.values().map(|(entity, _)| *entity)
+    }
+}
+
+/// Switches the input-controlled pawn for a connection and tells that client to possess it.
+pub fn possess_pawn(
+    conn_id: ConnectionId,
+    entity: Entity,
+    net_id: &NetworkID,
+    registry: &mut PlayerRegistry,
+    quic: &mut QuicManager,
+) {
+    registry.set_controlled_pawn(conn_id, entity, net_id.clone());
+    quic.send(SendTarget::One(conn_id), Channel::Ordered, &net::message::MsgType::Possess(net_id.clone()));
+}
+
+/// Broadcasts whether a character is seated in a vehicle.
+pub fn broadcast_seat_state(
+    quic: &mut QuicManager,
+    biped_net_id: &NetworkID,
+    vehicle_net_id: Option<&NetworkID>,
+) {
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &net::message::MsgType::SeatState(biped_net_id.clone(), vehicle_net_id.cloned()),
+    );
 }
 
 /// Pending respawns: conn_id -> (seconds_remaining, kind).
@@ -208,10 +273,12 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
-        app.init_resource::<InteractionGate>().add_systems(
-            PostUpdate,
-            apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
-        );
+        app.init_resource::<InteractionGate>()
+            .init_resource::<InteractionHint>()
+            .add_systems(
+                PostUpdate,
+                apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
+            );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
@@ -251,6 +318,10 @@ impl InteractionGate {
         true
     }
 }
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub struct InteractionHint(pub Option<String>);
 
 /// all pawns implement this; defines input and movement
 pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
@@ -428,9 +499,5 @@ pub fn send_pawn_input(
         return;
     };
     let seq = predicted.record_input(input.clone());
-    quic.send(
-        net::quic::SendTarget::All,
-        net::quic::Channel::Unreliable,
-        &MsgType::Input(seq, input),
-    );
+    quic.send_to_server(net::quic::Channel::Unreliable, &MsgType::Input(seq, input));
 }

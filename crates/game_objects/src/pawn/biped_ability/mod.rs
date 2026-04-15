@@ -4,10 +4,14 @@ use std::marker::PhantomData;
 use bevy::ecs::system::{In, SystemId};
 use bevy::prelude::*;
 use net::message::NetworkID;
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
-use super::{BipedPawnComponent, CameraEffector};
+#[cfg(feature = "client")]
+use super::BipedPawnComponent;
+use super::CameraEffector;
+#[cfg(feature = "client")]
+use crate::pawn::biped::consume_fixed_press;
 use crate::{GameObjectKind, sound::SoundQueue};
 pub mod implementors;
 
@@ -92,6 +96,7 @@ pub struct BipedAbilityInput {
     pub origin: Vec3,
     pub owner: Entity,
     pub tick: u64,
+    pub biped_input: Option<common::BipedInput>,
 }
 
 pub struct BipedAbilityCtx<'a> {
@@ -104,6 +109,7 @@ pub struct BipedAbilityCtx<'a> {
     pub aim_dir: Vec3,
     pub owner: Entity,
     pub tick: u64,
+    pub biped_input: Option<common::BipedInput>,
     pub sound: Option<&'a mut SoundQueue>,
     pub camera: Option<&'a mut CameraEffector>,
     pub quic: Option<&'a mut net::quic::QuicManager>,
@@ -176,9 +182,9 @@ fn drop_ability_pickup<A: BipedAbility + 'static>(pos: Vec3, vel: Vec3, world: &
 
 /// Drops all abilities owned by `owner`. `throw_vel` is added on top of the owner's physics velocity.
 fn drop_owned_abilities(owner: Entity, throw_vel: Vec3, world: &mut World) {
-    let vel = {
+    let (vel, pos) = {
         let physics = world.resource::<PhysicsWorld>();
-        physics
+        let vel = physics
             .entity_to_handle
             .get(&owner)
             .and_then(|h| physics.rigid_body_set.get(*h))
@@ -186,9 +192,16 @@ fn drop_owned_abilities(owner: Entity, throw_vel: Vec3, world: &mut World) {
                 let v = rb.linvel();
                 Vec3::new(v.x, v.y, v.z)
             })
-            .unwrap_or(Vec3::ZERO)
-    } + throw_vel;
-    let pos = world.get::<Transform>(owner).map(|t| t.translation).unwrap_or(Vec3::ZERO);
+            .unwrap_or(Vec3::ZERO);
+        let pos = physics
+            .entity_to_handle
+            .get(&owner)
+            .and_then(|h| physics.rigid_body_set.get(*h))
+            .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::Y * 1.2)
+            .or_else(|| world.get::<Transform>(owner).map(|t| t.translation + Vec3::Y * 1.2))
+            .unwrap_or(Vec3::Y * 1.2);
+        (vel + throw_vel, pos)
+    };
     let mut q =
         world.query_filtered::<(Entity, &AbilityOwner, &AbilityDropFn), With<BipedAbilityComponent>>();
     let to_drop: Vec<(Entity, AbilityDropFn)> = q
@@ -354,6 +367,7 @@ pub fn use_biped_ability<A: BipedAbility>(
         aim_dir,
         owner: input.owner,
         tick: input.tick,
+        biped_input: input.biped_input,
         sound: sound_queue.as_deref_mut(),
         camera: camera_slot.as_deref_mut(),
         quic: quic.as_deref_mut(),
@@ -419,13 +433,15 @@ fn drive_biped_abilities(
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     bindings: Res<common::ActiveKeyBindings>,
     ticker: Res<common::tick::Ticker>,
-    possessed: Query<(Entity, &BipedPawnComponent), With<super::Possessed>>,
+    possessed: Query<(Entity, &BipedPawnComponent, &super::Possessed)>,
     pitch_pivots: Query<&GlobalTransform, With<super::PitchPivot>>,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
     abilities: Query<(Entity, &BipedAbilityDriver, &AbilityOwner)>,
     mut commands: Commands,
+    mut drop_pressed_latched: Local<bool>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
-    let Ok((pawn_entity, biped)) = possessed.single() else {
+    let Ok((pawn_entity, biped, possessed)) = possessed.single() else {
         return;
     };
     let Some(pitch_e) = biped.pitch_pivot else {
@@ -434,19 +450,31 @@ fn drive_biped_abilities(
     let Ok(gt) = pitch_pivots.get(pitch_e) else {
         return;
     };
-    let (_, rot, origin) = gt.to_scale_rotation_translation();
-    let aim_dir = rot * Vec3::NEG_Z;
+    let (_, pivot_rot, origin) = gt.to_scale_rotation_translation();
+    let aim_dir = camera
+        .single()
+        .ok()
+        .map(|gt| gt.compute_transform().rotation * Vec3::NEG_Z)
+        .unwrap_or(pivot_rot * Vec3::NEG_Z);
 
-    let held = !blocked && bindings.pressed(common::InputAction::Ability, &keyboard, &mouse);
+    let held = !blocked && bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse);
     let pressed =
-        !blocked && bindings.just_pressed(common::InputAction::Ability, &keyboard, &mouse);
-    let drop_pressed =
-        !blocked && bindings.just_pressed(common::InputAction::DropAbility, &keyboard, &mouse);
+        !blocked && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse);
+    let drop_pressed = !blocked
+        && consume_fixed_press(
+            bindings.pressed(common::InputAction::DropAbility, &keyboard, &mouse),
+            &mut drop_pressed_latched,
+        );
 
     if drop_pressed {
         commands.queue(DropActiveAbility { owner: pawn_entity, aim_dir });
         return;
     }
+
+    let biped_input = possessed.peek_newest().cloned().and_then(|input| match input {
+        common::PawnInputKind::Biped(input) => Some(input),
+        _ => None,
+    });
 
     for (ability_entity, driver, owner) in abilities.iter() {
         if owner.0 != pawn_entity {
@@ -463,6 +491,7 @@ fn drive_biped_abilities(
                 origin,
                 owner: pawn_entity,
                 tick: ticker.tick,
+                biped_input,
             },
         );
     }

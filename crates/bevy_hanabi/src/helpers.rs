@@ -16,6 +16,7 @@ pub fn burst_effect(
     colors: &[(f32, Vec4)],
 ) -> EffectAsset {
     let writer = ExprWriter::new();
+    let inherit_velocity = writer.add_property("inherit_velocity", Vec3::ZERO.into());
 
     let mut color_gradient = hanabi::prelude::Gradient::new();
     for (time, value) in colors {
@@ -25,13 +26,23 @@ pub fn burst_effect(
     let init_pos = SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
     let init_vel = SetAttributeModifier::new(
         Attribute::VELOCITY,
-        (writer.prop(writer.add_property("inherit_velocity", Vec3::ZERO.into()))
+        (writer.prop(inherit_velocity)
             + writer
                 .rand(VectorType::VEC3F)
                 .mul(writer.lit(2.0))
                 .sub(writer.lit(1.0))
                 .normalized()
                 * writer.lit(speed.0).uniform(writer.lit(speed.1)))
+        .expr(),
+    );
+    let update_vel = SetAttributeModifier::new(
+        Attribute::VELOCITY,
+        (
+            writer.prop(inherit_velocity)
+                + (writer.attr(Attribute::VELOCITY) - writer.prop(inherit_velocity))
+                    * (writer.lit(1.0) - writer.lit(drag) * writer.delta_time())
+                        .max(writer.lit(0.0))
+        )
         .expr(),
     );
     let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
@@ -52,7 +63,6 @@ pub fn burst_effect(
         )
     });
     let rotation_attr = writer.attr(Attribute::F32_0).expr();
-    let drag_modifier = LinearDragModifier::new(writer.lit(drag).expr());
     let size_modifier = SizeOverLifetimeModifier {
         gradient: hanabi::prelude::Gradient::constant(size),
         screen_space_size: false,
@@ -70,7 +80,7 @@ pub fn burst_effect(
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)
-        .update(drag_modifier)
+        .update(update_vel)
         .render(ColorOverLifetimeModifier::new(color_gradient))
         .render(size_modifier);
 

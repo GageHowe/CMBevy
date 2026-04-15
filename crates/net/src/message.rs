@@ -4,7 +4,7 @@ use bevy::{
 };
 pub use common::{
     BodyState, GameObjectKind, LeaderboardScope, NetworkID, NetworkIDResource, PawnInputKind,
-    ScoringOption, SimulationState, WeaponStateSnapshot,
+    ScoringOption, SimulationState, WeaponState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -71,7 +71,7 @@ pub enum MsgType {
     OnscreenMessage(String),
     FlashlightToggle,
     FlashlightState(NetworkID, bool),
-    WeaponState(NetworkID, WeaponStateSnapshot),
+    WeaponState(NetworkID, WeaponState),
     Scoreboard(ScoreboardSnapshot),
     MapHash(String),
     FileData(String, Vec<u8>),

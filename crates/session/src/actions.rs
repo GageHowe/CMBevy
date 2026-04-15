@@ -30,7 +30,7 @@ pub(super) fn handle_flashlight_toggle(
     bipeds: &mut Query<&mut BipedPawnComponent>,
     quic: &mut QuicManager,
 ) {
-    let Some((entity, net_id)) = registry.get_character_by_conn(conn_id) else {
+    let Some((entity, net_id)) = registry.character(conn_id) else {
         return;
     };
     let Ok(mut biped) = bipeds.get_mut(entity) else {
@@ -61,46 +61,51 @@ pub(super) fn handle_interact(
     commands: &mut Commands,
     on_pickup_q: &Query<&OnPickup>,
 ) {
-    let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
+    let Some((controlled, _)) = registry.controlled_pawn(conn_id) else {
         return;
     };
-    let Some(target_entity) = find_networked_entity(all_networked, &target_net_id) else {
+    let Some((character, character_net_id)) = registry.character(conn_id) else {
         return;
     };
-    let player_net_id = player_net_id.clone();
+    let character_net_id = character_net_id.clone();
+    let Some(target) = find_networked_entity(all_networked, &target_net_id) else {
+        return;
+    };
+    let aim_dir = pending_inputs
+        .0
+        .get(&conn_id)
+        .map(|(_, input)| input)
+        .and_then(|input| biped_aim_dir(world, character, Some(input)))
+        .unwrap_or_else(|| body_forward(world, character));
 
-    // Ability pickup: run server-side attach and broadcast despawn to all clients.
-    if let Ok(&OnPickup(f)) = on_pickup_q.get(target_entity) {
-        let player_pos = body_position(world, player_entity);
-        let pickup_pos = body_position(world, target_entity);
-        if !matches!((player_pos, pickup_pos), (Some(pp), Some(wp)) if pp.distance(wp) < 3.5) {
-            return;
-        }
-        f(player_entity, target_entity, commands);
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(target_net_id));
+    if vehicles.contains(target) {
+        handle_vehicle_interact(
+            conn_id,
+            controlled,
+            character,
+            &character_net_id,
+            target,
+            &target_net_id,
+            registry,
+            quic,
+            world,
+            net_ids,
+            vehicles,
+            driver_seats,
+            commands,
+        );
         return;
     }
 
-    if try_vehicle_interact(
-        conn_id,
-        player_entity,
-        &player_net_id,
-        target_entity,
-        &target_net_id,
-        registry,
-        quic,
-        world,
-        net_ids,
-        vehicles,
-        driver_seats,
-        commands,
-    ) {
+    if handle_ability_pickup_interact(character, target, target_net_id.clone(), world, on_pickup_q, commands, quic)
+    {
         return;
     }
+
     try_weapon_interact(
-        player_entity,
-        player_net_id,
-        target_entity,
+        character,
+        character_net_id,
+        target,
         target_net_id,
         quic,
         world,
@@ -108,12 +113,7 @@ pub(super) fn handle_interact(
         held_weapons,
         pawn_slots,
         commands,
-        pending_inputs
-            .0
-            .get(&conn_id)
-            .map(|(_, input)| input)
-            .and_then(|input| biped_aim_dir(world, player_entity, Some(input)))
-            .unwrap_or_else(|| body_forward(world, player_entity)),
+        aim_dir,
     );
 }
 
@@ -204,7 +204,7 @@ pub(super) fn handle_set_active_weapon_slot(
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     quic: &mut QuicManager,
 ) {
-    let Some((player_entity, _)) = registry.get_by_conn(conn_id) else {
+    let Some((player_entity, _)) = registry.controlled_pawn(conn_id) else {
         return;
     };
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
@@ -230,15 +230,16 @@ pub(super) fn handle_set_active_weapon_slot(
     quic.send(
         SendTarget::All,
         Channel::Ordered,
-        &MsgType::WeaponState(old_weapon_id, weapon_state.snapshot()),
+        &MsgType::WeaponState(old_weapon_id, *weapon_state),
     );
 }
 
-fn try_vehicle_interact(
+fn handle_vehicle_interact(
     conn_id: ConnectionId,
-    player_entity: Entity,
-    player_net_id: &NetworkID,
-    target_entity: Entity,
+    controlled: Entity,
+    character: Entity,
+    character_net_id: &NetworkID,
+    target: Entity,
     target_net_id: &NetworkID,
     registry: &mut PlayerRegistry,
     quic: &mut QuicManager,
@@ -247,57 +248,58 @@ fn try_vehicle_interact(
     vehicles: &Query<&VehicleComponent>,
     driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
     commands: &mut Commands,
-) -> bool {
-    let Ok(vehicle) = vehicles.get(target_entity) else {
-        return false;
+) {
+    let Ok(vehicle) = vehicles.get(target) else {
+        return;
     };
     let Ok((mut cockpit, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
-        return false;
+        return;
     };
 
-    if cockpit.occupant.is_some() && player_entity == target_entity {
-        let Some(biped_entity) = exit_vehicle(world, target_entity, &mut cockpit, seat_transform)
+    if cockpit.occupant.is_some() && controlled == target {
+        let Some(biped_entity) = exit_vehicle(world, target, &mut cockpit, seat_transform)
         else {
-            return true;
+            return;
         };
         let Ok(biped_net_id) = net_ids.get(biped_entity) else {
-            return true;
+            return;
         };
         commands.entity(biped_entity).remove::<SeatedInVehicle>();
-        registry.set_controlled(conn_id, biped_entity, biped_net_id.clone());
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::SeatState(biped_net_id.clone(), None),
-        );
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::Possess(biped_net_id.clone()),
-        );
-        return true;
+        game_objects::pawn::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
+        game_objects::pawn::broadcast_seat_state(quic, biped_net_id, None);
+        return;
     }
 
-    if cockpit.occupant.is_some()
-        || !vehicle_in_range(world, player_entity, target_entity, &cockpit, seat_transform)
-    {
-        return true;
+    if cockpit.occupant.is_some() || !vehicle_in_range(world, character, target, &cockpit, seat_transform) {
+        return;
     }
 
-    if enter_vehicle(world, player_entity, target_entity, &mut cockpit, seat_transform) {
-        commands.entity(player_entity).insert(SeatedInVehicle(target_entity));
-        registry.set_controlled(conn_id, target_entity, target_net_id.clone());
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::SeatState(player_net_id.clone(), Some(target_net_id.clone())),
-        );
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::Possess(target_net_id.clone()),
-        );
+    if enter_vehicle(world, character, target, &mut cockpit, seat_transform) {
+        commands.entity(character).insert(SeatedInVehicle(target));
+        game_objects::pawn::possess_pawn(conn_id, target, target_net_id, registry, quic);
+        game_objects::pawn::broadcast_seat_state(quic, character_net_id, Some(target_net_id));
     }
+}
+
+fn handle_ability_pickup_interact(
+    character: Entity,
+    target: Entity,
+    target_net_id: NetworkID,
+    world: &PhysicsWorld,
+    on_pickup_q: &Query<&OnPickup>,
+    commands: &mut Commands,
+    quic: &mut QuicManager,
+) -> bool {
+    let Ok(&OnPickup(f)) = on_pickup_q.get(target) else {
+        return false;
+    };
+    let player_pos = body_position(world, character);
+    let pickup_pos = body_position(world, target);
+    if !matches!((player_pos, pickup_pos), (Some(pp), Some(wp)) if pp.distance(wp) < 3.5) {
+        return true;
+    }
+    f(character, target, commands);
+    quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(target_net_id));
     true
 }
 
@@ -390,7 +392,7 @@ pub(super) fn handle_drop_weapon(
     quic: &mut QuicManager,
     drop_dir: Vec3,
 ) {
-    let Some((player_entity, player_net_id)) = registry.get_by_conn(conn_id) else {
+    let Some((player_entity, player_net_id)) = registry.character(conn_id) else {
         return;
     };
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
@@ -432,7 +434,7 @@ pub(super) fn handle_fire_request(
     quic: &mut QuicManager,
     tick: u64,
 ) {
-    let Some((shooter_entity, _)) = registry.get_by_conn(conn_id) else {
+    let Some((shooter_entity, _)) = registry.character(conn_id) else {
         return;
     };
     let shooter_holds =
@@ -452,14 +454,14 @@ pub(super) fn handle_fire_request(
         quic.send(
             SendTarget::One(conn_id),
             Channel::Ordered,
-            &MsgType::WeaponState(weapon_net_id, weapon_state.snapshot()),
+            &MsgType::WeaponState(weapon_net_id, *weapon_state),
         );
         return;
     }
     quic.send(
         SendTarget::All,
         Channel::Ordered,
-        &MsgType::WeaponState(weapon_net_id.clone(), weapon_state.snapshot()),
+        &MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
     );
     let depleted = weapon::is_depleted(&weapon_state);
     let Some(fired) = projectile::fire_authoritative(
@@ -506,7 +508,7 @@ pub(super) fn handle_reload_weapon(
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     quic: &mut QuicManager,
 ) {
-    let Some((shooter_entity, _)) = registry.get_by_conn(conn_id) else {
+    let Some((shooter_entity, _)) = registry.character(conn_id) else {
         return;
     };
     let shooter_holds =
@@ -524,6 +526,6 @@ pub(super) fn handle_reload_weapon(
     quic.send(
         if started { SendTarget::All } else { SendTarget::One(conn_id) },
         Channel::Ordered,
-        &MsgType::WeaponState(weapon_net_id, weapon_state.snapshot()),
+        &MsgType::WeaponState(weapon_net_id, *weapon_state),
     );
 }

@@ -556,7 +556,7 @@ fn tick_respawns(
             &parent_bodies,
             &physics,
             0,
-            registry.by_conn.len(),
+            registry.controlled_count(),
         ) else {
             continue;
         };
@@ -610,8 +610,8 @@ fn process_console_commands(
                 println!("[Server] {text}");
             }
             "status" => {
-                println!("{} player(s) connected:", registry.by_conn.len());
-                for (conn_id, (entity, net_id)) in &registry.by_conn {
+                println!("{} player(s) connected:", registry.controlled_count());
+                for (conn_id, (entity, net_id)) in registry.controlled_entries() {
                     println!("  conn={conn_id} entity={entity:?} net_id={net_id:?}");
                 }
             }
@@ -652,7 +652,7 @@ fn restart_round(world: &mut World) {
 
     for (conn_id, spawn_pos, spawn_rot, spawn_vel) in collect_restart_spawns(world) {
         let existing = world.get_resource::<PlayerRegistry>().and_then(|registry| {
-            registry.get_character_by_conn(conn_id).map(|(entity, net_id)| (entity, net_id.clone()))
+            registry.character(conn_id).map(|(entity, net_id)| (entity, net_id.clone()))
         });
 
         if let Some((character_entity, character_net_id)) = existing {
@@ -749,10 +749,10 @@ fn reset_existing_player(
             });
         }
         world.entity_mut(character_entity).remove::<SeatedInVehicle>();
-        world.resource_mut::<QuicManager>().send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::SeatState(character_net_id.clone(), None),
+        game_objects::pawn::broadcast_seat_state(
+            &mut world.resource_mut::<QuicManager>(),
+            &character_net_id,
+            None,
         );
     }
 
@@ -760,7 +760,7 @@ fn reset_existing_player(
         health.current = health.max;
     }
     if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
-        registry.set_controlled(conn_id, character_entity, character_net_id.clone());
+        registry.set_controlled_pawn(conn_id, character_entity, character_net_id.clone());
     }
     world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
         physics.set_body_enabled(character_entity, true);
@@ -802,7 +802,7 @@ fn spawn_restarted_player(
 
     let existing_conn_ids = world
         .get_resource::<PlayerRegistry>()
-        .map(|registry| registry.by_conn.keys().copied().collect::<Vec<_>>())
+        .map(|registry| registry.controlled_conn_ids().collect::<Vec<_>>())
         .unwrap_or_default();
     if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
         for other_conn_id in existing_conn_ids {
@@ -813,10 +813,12 @@ fn spawn_restarted_player(
             );
         }
         quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
-        quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id.clone()));
     }
     if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
-        registry.insert(conn_id, entity, net_id);
+        registry.register_character(conn_id, entity, net_id.clone());
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id));
+        }
     }
 }
 
@@ -830,7 +832,7 @@ fn apply_inputs(
     mut spaceships: Query<&mut game_objects::pawn::spaceship::SpaceshipPawnComponent>,
 ) {
     for (&conn_id, (input_seq, kind)) in pending_inputs.0.iter() {
-        let Some((entity, _)) = registry.get_by_conn(conn_id) else {
+        let Some((entity, _)) = registry.controlled_pawn(conn_id) else {
             continue;
         };
         if game_objects::pawn::apply_server_input(

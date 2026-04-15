@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub const SPEED: f32 = 600.0;
-pub const DAMAGE: f32 = 25.0;
+pub const DAMAGE: f32 = 40.0;
 pub const PISTOL_DAMAGE: f32 = 15.0;
 pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
 const RADIUS: f32 = 0.03;

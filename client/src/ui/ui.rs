@@ -10,14 +10,14 @@ use game_objects::{
     health::Health,
     messages::{GameMessages, MESSAGE_TTL_SECS},
     pawn::{
-        Possessed, VehicleComponent, WeaponSlots,
+        InteractionHint, Possessed, VehicleComponent, WeaponSlots,
         biped::{BipedPawnComponent, PitchPivot},
     },
     weapon::{AimReticle, WeaponConfig, WeaponState, default_crosshair_path},
 };
 use net::{
     message::{MsgType, NetworkID, ScoreboardEntry},
-    quic::{Channel, QuicManager, SendTarget},
+    quic::{Channel, QuicManager},
 };
 use physics::physics_world::{PhysicsWorld, rb_vel};
 use session::{GuiState, PendingExit};
@@ -39,6 +39,7 @@ impl Plugin for UIPlugin {
             .add_systems(Update, update_smoothed_fps)
             .add_systems(EguiPrimaryContextPass, gui_top_left)
             .add_systems(EguiPrimaryContextPass, gui_notifications)
+            .add_systems(EguiPrimaryContextPass, gui_interaction_hint)
             .add_systems(EguiPrimaryContextPass, gui_chat.run_if(in_state(GameState::Multiplayer)))
             .add_systems(EguiPrimaryContextPass, gui_scoreboard)
             .add_systems(EguiPrimaryContextPass, gui_health)
@@ -206,7 +207,7 @@ fn gui_chat(
                         .as_ref()
                         .map(|s| s.friends().name())
                         .unwrap_or_else(|| "Player".to_string());
-                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(name, txt));
+                    quic.send_to_server(Channel::Ordered, &MsgType::ChatMessage(name, txt));
                 }
                 state.command_input.clear();
             }
@@ -349,6 +350,26 @@ fn gui_notifications(
                     egui::Color32::from_rgba_premultiplied(255, 255, 255, (alpha * 255.0) as u8);
                 ui.colored_label(color, &entry.text);
             }
+        });
+}
+
+fn gui_interaction_hint(mut contexts: EguiContexts, hint: Res<InteractionHint>) {
+    let Some(text) = hint.0.as_ref() else {
+        return;
+    };
+    egui::Window::new("interaction_hint")
+        .title_bar(false)
+        .movable(false)
+        .resizable(false)
+        .collapsible(false)
+        .frame(
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgba_premultiplied(10, 0, 10, 100))
+                .corner_radius(egui::CornerRadius::same(4)),
+        )
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -80.0))
+        .show(contexts.ctx_mut().unwrap(), |ui| {
+            ui.label(text);
         });
 }
 

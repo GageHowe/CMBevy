@@ -162,10 +162,10 @@ impl GameObject for SpaceshipPawnComponent {
             let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() else {
                 return true;
             };
-            let Some(conn_id) = registry.conn_id_for_entity(biped_entity) else {
+            let Some(conn_id) = registry.conn_id_for_character(biped_entity) else {
                 return true;
             };
-            registry.set_controlled(conn_id, biped_entity, biped_net_id.clone());
+            registry.set_controlled_pawn(conn_id, biped_entity, biped_net_id.clone());
             drop(registry);
             if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
                 quic.send(
@@ -173,11 +173,7 @@ impl GameObject for SpaceshipPawnComponent {
                     Channel::Ordered,
                     &MsgType::Possess(biped_net_id.clone()),
                 );
-                quic.send(
-                    SendTarget::All,
-                    Channel::Ordered,
-                    &MsgType::SeatState(biped_net_id, None),
-                );
+                super::broadcast_seat_state(&mut quic, &biped_net_id, None);
             }
         }
         true
@@ -230,7 +226,7 @@ fn gather_spaceship_input(
     if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons) {
         input.roll += 1.0;
     }
-    input.sprint = bindings.pressed(common::InputAction::Sprint, &keyboard, &mouse_buttons);
+    input.ability1 = bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
     let s = sensitivity.vehicle_pitch_yaw;
     input.yaw = -mouse.delta.x * s;
     input.pitch = -mouse.delta.y * s;

@@ -47,8 +47,11 @@ pub struct SimulationState {
     pub bodies: HashMap<NetworkID, BodyState>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect, Default)]
-pub struct WeaponStateSnapshot {
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Component, Reflect, Default,
+)]
+#[reflect(Component, Default)]
+pub struct WeaponState {
     pub ammo_in_mag: u16,
     pub reserve_ammo: u16,
     pub reload_ticks: u16,
@@ -82,7 +85,7 @@ impl Default for LeaderboardScope {
     }
 }
 
-/// update this as needed; it defines types of game objects that can be spawned
+/// update this as needed; it's a "Master List" defines types of game objects that can be spawned
 /// this needs to stay in common since both net and game_objects access it
 #[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
@@ -101,4 +104,20 @@ pub enum GameObjectKind {
     Rpg,
     RpgProjectile,
     Jetpack,
+    Dash,
+}
+
+impl GameObjectKind {
+    /// splits CamelCase name -> "Camel Case"
+    pub fn interaction_name(&self) -> String {
+        let debug = format!("{self:?}");
+        let mut out = String::with_capacity(debug.len() + 4);
+        for (i, ch) in debug.chars().enumerate() {
+            if i > 0 && ch.is_ascii_uppercase() {
+                out.push(' ');
+            }
+            out.push(ch);
+        }
+        out
+    }
 }

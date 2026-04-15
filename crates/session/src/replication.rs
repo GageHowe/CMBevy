@@ -28,7 +28,7 @@ pub(super) fn spawn_player(
     let (entity, net_id, spawn_cmd) =
         spawn_game_object(kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids);
 
-    for &other_conn_id in registry.by_conn.keys() {
+    for other_conn_id in registry.controlled_conn_ids() {
         quic.send(
             SendTarget::One(other_conn_id),
             Channel::Ordered,
@@ -36,9 +36,8 @@ pub(super) fn spawn_player(
         );
     }
     quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
-    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id.clone()));
-
-    registry.insert(conn_id, entity, net_id);
+    game_objects::pawn::possess_pawn(conn_id, entity, &net_id, registry, quic);
+    registry.register_character(conn_id, entity, net_id);
     info!("GameServer: spawned {kind_debug} for conn {conn_id}");
 }
 
@@ -79,7 +78,7 @@ pub(super) fn kill_player(
             &MsgType::WeaponDrop(wid, net_id.clone(), drop_pos),
         );
     }
-    registry.remove_by_entity(entity);
+    registry.remove_character(entity);
     commands.entity(entity).despawn();
     let _ = net_id;
 }
@@ -109,7 +108,7 @@ pub fn broadcast_tick(
     let state = snapshot_bodies(&world, tick.tick, query.iter());
     history.0.insert(tick.tick, state.clone());
     history.0.retain(|&t, _| tick.tick.saturating_sub(t) <= 128);
-    for &conn_id in registry.by_conn.keys() {
+    for conn_id in registry.controlled_conn_ids() {
         let mut state_for_client = state.clone();
         state_for_client.last_input_seq = *last_input_seq.0.get(&conn_id).unwrap_or(&0);
         quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::State(state_for_client));
@@ -129,8 +128,7 @@ pub fn broadcast_scoreboard(
     }
     let mode = mode.map_or_else(ModeConfig::default, |value| value.clone());
     let mut players = registry
-        .by_conn
-        .iter()
+        .controlled_entries()
         .map(|(conn_id, (_, net_id))| ScoreboardEntry {
             net_id: net_id.clone(),
             label: format!("Player {conn_id}"),

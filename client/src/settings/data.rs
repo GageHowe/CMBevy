@@ -72,6 +72,7 @@ pub enum SettingsSection {
     Audio,
     Input,
     Controls,
+    Misc,
 }
 
 #[derive(Resource, Serialize, Deserialize, Clone, Reflect)]
@@ -128,8 +129,8 @@ impl Default for Settings {
             ssao_quality: SsaoQuality::Medium,
             shadow_quality: ShadowQuality::Medium,
             fps_cap: 0,
-            gamma: 1.2,
-            contrast: 1.1,
+            gamma: 1.0,
+            contrast: 1.0,
             saturation: 1.2,
             fov: 90.0,
             physics_interp: PhysicsInterp::RotationOnly,

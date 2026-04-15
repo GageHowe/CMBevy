@@ -92,6 +92,11 @@ impl Plugin for NetClientPlugin {
 }
 
 impl QuicManager {
+    /// Client-side send path. `SendTarget` is meaningless on the client.
+    pub fn send_to_server(&mut self, channel: Channel, msg: &crate::message::MsgType) {
+        self.outbound.push_back((crate::quic::SendTarget::One(SERVER_CONN_ID), channel, msg.clone()));
+    }
+
     pub fn connect(&mut self, server_addr: SocketAddr) {
         self.disconnect();
         let (tx, rx) = mpsc::unbounded_channel();

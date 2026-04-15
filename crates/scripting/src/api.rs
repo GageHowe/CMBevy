@@ -90,7 +90,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let entity = Entity::from_bits(entity_id as u64);
             Ok(world
                 .get_resource::<PlayerRegistry>()
-                .is_some_and(|registry| registry.conn_id_for_entity(entity).is_some()))
+                .is_some_and(|registry| registry.conn_id_for_character(entity).is_some()))
         })
     });
 
@@ -101,9 +101,8 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 .get_resource::<PlayerRegistry>()
                 .map(|registry| {
                     registry
-                        .characters
-                        .values()
-                        .map(|(entity, _)| entity.to_bits() as i64)
+                        .character_entities()
+                        .map(|entity| entity.to_bits() as i64)
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
@@ -144,7 +143,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let entity = Entity::from_bits(entity_id as u64);
             let winner = world
                 .get_resource::<PlayerRegistry>()
-                .and_then(|registry| registry.conn_id_for_entity(entity));
+                .and_then(|registry| registry.conn_id_for_character(entity));
             end_game(world, winner, None);
             Ok(())
         })
@@ -333,7 +332,7 @@ fn add_number(numbers: &mut Vec<i32>, index: usize, amount: i32) {
 }
 
 fn player_number(world: &World, entity: Entity, index: usize) -> Option<i32> {
-    let conn_id = world.get_resource::<PlayerRegistry>()?.conn_id_for_entity(entity)?;
+    let conn_id = world.get_resource::<PlayerRegistry>()?.conn_id_for_character(entity)?;
     Some(
         world
             .get_resource::<PlayerNumbers>()?
@@ -346,7 +345,7 @@ fn player_number(world: &World, entity: Entity, index: usize) -> Option<i32> {
 fn add_player_number(world: &mut World, entity: Entity, index: usize, amount: i32) {
     let Some(conn_id) = world
         .get_resource::<PlayerRegistry>()
-        .and_then(|registry| registry.conn_id_for_entity(entity))
+        .and_then(|registry| registry.conn_id_for_character(entity))
     else {
         return;
     };

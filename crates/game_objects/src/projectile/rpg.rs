@@ -206,9 +206,19 @@ fn explode(
 ) {
     #[cfg(feature = "client")]
     let inherit_velocity = direct_hit
-        .and_then(|entity| world.entity_to_handle.get(&entity).copied())
-        .and_then(|handle| world.rigid_body_set.get(handle))
-        .map(rb_vel)
+        .and_then(|entity| {
+            let hit_point = direct_hit_impulse.and_then(
+                |(hit, _, hit_point)| {
+                    if hit == entity { Some(hit_point) } else { None }
+                },
+            );
+            let handle = world.entity_to_handle.get(&entity).copied()?;
+            let rb = world.rigid_body_set.get(handle)?;
+            Some(match hit_point {
+                Some(hit_point) => rb_point_vel(rb, hit_point),
+                None => rb_vel(rb),
+            })
+        })
         .unwrap_or(Vec3::ZERO);
     #[cfg(feature = "client")]
     commands.queue(move |world: &mut World| {

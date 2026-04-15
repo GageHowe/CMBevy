@@ -3,7 +3,7 @@
 use bevy::prelude::{Command, *};
 use common::GameObjectKind;
 use net::message::SpawnCommand;
-use pawn::biped_ability::implementors::JetpackPickup;
+use pawn::biped_ability::implementors::{DashPickup, JetpackPickup};
 
 use crate::{pawn, projectile, weapon};
 
@@ -21,7 +21,8 @@ macro_rules! for_each_game_object {
             GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
             GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
             GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile,
-            GameObjectKind::Jetpack => JetpackPickup
+            GameObjectKind::Jetpack => JetpackPickup,
+            GameObjectKind::Dash => DashPickup
         )
     };
 }

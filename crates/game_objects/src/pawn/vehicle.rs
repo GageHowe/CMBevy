@@ -5,7 +5,9 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
-use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
+use physics::physics_world::{
+    PhysicsWorld, rb_angvel, rb_point_vel, rb_pos, rb_rot, rb_vel, step_physics,
+};
 
 use super::Pawn;
 #[cfg(feature = "client")]
@@ -141,12 +143,11 @@ pub fn exit_vehicle(
         world.entity_to_handle.get(&vehicle_entity).and_then(|&h| world.rigid_body_set.get(h))?;
     let vehicle_pos = rb_pos(vehicle_body);
     let vehicle_rot = rb_rot(vehicle_body);
-    let exit_vel = rb_vel(vehicle_body);
-    let vehicle_angvel = rb_angvel(vehicle_body);
     let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
+    let exit_vel = rb_point_vel(vehicle_body, exit_pos);
     let exit_rot = vehicle_rot * seat_transform.rotation;
     world.set_body_enabled(biped_entity, true);
-    world.set_body_pose(biped_entity, exit_pos, exit_rot, exit_vel, vehicle_angvel);
+    world.set_body_pose(biped_entity, exit_pos, exit_rot, exit_vel, Vec3::ZERO);
     Some(biped_entity)
 }
 
@@ -291,8 +292,7 @@ fn vehicle_exit_interact(
     match state.get() {
         GameState::Multiplayer => {
             let Some(net_id) = net_id else { return };
-            quic.send(
-                net::quic::SendTarget::All,
+            quic.send_to_server(
                 net::quic::Channel::Ordered,
                 &net::message::MsgType::Interact(net_id.clone()),
             );
@@ -309,7 +309,10 @@ fn vehicle_exit_interact(
             commands.entity(vehicle_entity).remove::<Possessed>();
             commands.entity(biped_entity).remove::<SeatedInVehicle>().insert(Possessed::new(128));
             if let Ok(kind) = object_kinds.get(vehicle_entity) {
-                crate::messages::push(&mut commands, format!("Exited {kind:?}"));
+                crate::messages::push(
+                    &mut commands,
+                    format!("Exited {}", kind.interaction_name()),
+                );
             }
         }
         _ => {}

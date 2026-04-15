@@ -58,8 +58,7 @@ pub fn send_fire_request(
     let (Some(quic), Some(weapon_net_id)) = (quic, weapon_net_id) else {
         return;
     };
-    quic.send(
-        net::quic::SendTarget::All,
+    quic.send_to_server(
         net::quic::Channel::Unordered,
         &net::message::MsgType::FireRequest {
             weapon: weapon_net_id.clone(),

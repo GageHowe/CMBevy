@@ -57,14 +57,14 @@ pub fn show_controls_settings(
         show_binding_row(ui, settings, capture, InputAction::MoveLeft, "Move left");
         show_binding_row(ui, settings, capture, InputAction::Jump, "Jump / ascend");
         show_binding_row(ui, settings, capture, InputAction::Crouch, "Crouch / descend");
-        show_binding_row(ui, settings, capture, InputAction::Sprint, "Sprint / boost");
+        show_binding_row(ui, settings, capture, InputAction::Ability1, "Ability 1 / boost");
         show_binding_row(ui, settings, capture, InputAction::RollLeft, "Ship roll left");
         show_binding_row(ui, settings, capture, InputAction::RollRight, "Ship roll right");
     });
 
     egui::CollapsingHeader::new("Actions").default_open(true).show(ui, |ui| {
         show_binding_row(ui, settings, capture, InputAction::Interact, "Interact / use");
-        show_binding_row(ui, settings, capture, InputAction::Ability, "Secondary ability");
+        show_binding_row(ui, settings, capture, InputAction::Ability2, "Ability 2");
         show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");
         show_binding_row(ui, settings, capture, InputAction::Fire, "Fire");
         show_binding_row(ui, settings, capture, InputAction::AltFire, "Alt fire / zoom");

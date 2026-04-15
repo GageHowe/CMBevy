@@ -300,7 +300,10 @@ fn handle_seat_state(
             if local_net_id == Some(biped_net_id)
                 && let Ok(kind) = object_kinds.get(vehicle_entity)
             {
-                game_objects::messages::push(commands, format!("Entered {kind:?}"));
+                game_objects::messages::push(
+                    commands,
+                    format!("Entered {}", kind.interaction_name()),
+                );
             }
         }
         None => {
@@ -311,7 +314,10 @@ fn handle_seat_state(
                 && let Some(vehicle_entity) = old_vehicle
                 && let Ok(kind) = object_kinds.get(vehicle_entity)
             {
-                game_objects::messages::push(commands, format!("Exited {kind:?}"));
+                game_objects::messages::push(
+                    commands,
+                    format!("Exited {}", kind.interaction_name()),
+                );
             }
         }
     }
@@ -390,7 +396,10 @@ fn handle_weapon_pickup(
                 weapon_helpers::attach_local_viewmodel(commands, weapon_entity, parent, is_primary);
             }
             if let Ok(kind) = object_kinds.get(weapon_entity) {
-                game_objects::messages::push(commands, format!("Picked up {kind:?}"));
+                game_objects::messages::push(
+                    commands,
+                    format!("Picked up {}", kind.interaction_name()),
+                );
             }
         }
         return;
@@ -476,7 +485,7 @@ fn handle_health_update(
 #[cfg(feature = "client")]
 fn handle_weapon_state(
     net_id: &NetworkID,
-    state: net::message::WeaponStateSnapshot,
+    state: net::message::WeaponState,
     networked: &NetworkEntityMap,
     weapon_states: &mut Query<&mut WeaponState>,
 ) {
@@ -486,7 +495,7 @@ fn handle_weapon_state(
     let Ok(mut weapon_state) = weapon_states.get_mut(entity) else {
         return;
     };
-    weapon_state.apply_snapshot(state);
+    *weapon_state = state;
 }
 
 #[cfg(feature = "client")]

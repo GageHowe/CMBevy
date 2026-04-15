@@ -1,6 +1,7 @@
 mod audio;
 mod graphics;
 mod input;
+mod misc;
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -26,6 +27,7 @@ pub fn show_settings_ui(
         ui.selectable_value(section, SettingsSection::Audio, "Audio");
         ui.selectable_value(section, SettingsSection::Input, "Input");
         ui.selectable_value(section, SettingsSection::Controls, "Controls");
+        ui.selectable_value(section, SettingsSection::Misc, "Misc");
     });
     ui.separator();
 
@@ -34,6 +36,7 @@ pub fn show_settings_ui(
         SettingsSection::Audio => audio::show(ui, settings, audio_outputs),
         SettingsSection::Input => input::show(ui, settings),
         SettingsSection::Controls => show_controls_settings(ui, settings, keyboard, mouse, capture),
+        SettingsSection::Misc => misc::show(ui, settings),
     }
 
     ui.add_space(12.0);
