@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+#[cfg(feature = "client")]
+use crate::projectile::helpers as projectile_helpers;
 
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::{
     GameObject, GameObjectKind,
-    projectile::{hail_mary, helpers as projectile_helpers},
+    projectile::hail_mary,
 };
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
@@ -41,6 +43,8 @@ impl Weapon for HailMaryComponent {
     const FIRE_COOLDOWN_TICKS: u16 = 60;
     const PROJECTILE_KIND: net::message::GameObjectKind =
         net::message::GameObjectKind::HailMaryProjectile;
+    const FIRE_PROJECTILE: super::FireProjectileFn =
+        <hail_mary::HailMaryProjectile as crate::projectile::Projectile>::fire_authoritative;
 
     fn fixed_update(
         &mut self,
@@ -65,23 +69,7 @@ impl Weapon for HailMaryComponent {
         self.fire_requested = false;
         self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
 
-        let velocity = projectile_helpers::projectile_velocity(
-            world,
-            ctx.shooter,
-            ctx.aim_dir,
-            hail_mary::SPEED,
-        );
-        let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-        let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
-        hail_mary::spawn(
-            ctx.origin,
-            velocity,
-            shooter_velocity,
-            commands,
-            world,
-            ctx.shooter,
-            temp_id,
-        );
+        helpers::fire_projectile(ctx, world, commands, hail_mary::SPEED, hail_mary::spawn);
         #[cfg(feature = "client")]
         projectile_helpers::apply_recoil::<hail_mary::HailMaryProjectile>(ctx, world, 1.0);
         helpers::queue_fire_sound(
@@ -96,15 +84,6 @@ impl Weapon for HailMaryComponent {
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0);
         }
-        #[cfg(feature = "client")]
-        helpers::send_fire_request(
-            ctx.quic.as_deref_mut(),
-            ctx.net_id,
-            net::message::GameObjectKind::HailMaryProjectile,
-            temp_id,
-            ctx.origin,
-            ctx.aim_dir,
-        );
     }
 }
 

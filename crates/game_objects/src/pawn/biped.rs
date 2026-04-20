@@ -64,6 +64,8 @@ pub struct BipedPawnComponent {
     pub flashlight: Option<Entity>,
     #[reflect(ignore)]
     pub collider: Option<ColliderHandle>,
+    #[reflect(ignore)]
+    pub ability: Option<crate::pawn::biped_ability::EquippedAbility>,
     pub is_sliding: bool,
     /// When crouched in the air, keep the camera/head fixed and lift the feet instead.
     pub slide_feet_planted: bool,
@@ -288,7 +290,7 @@ impl Plugin for BipedPlugin {
                     gather_biped_input
                         .run_if(resource_exists::<ButtonInput<KeyCode>>)
                         .in_set(GatherInputSet),
-                    move_pawns::<BipedPawnComponent>().in_set(MovePawnsSet),
+                    move_bipeds.in_set(MovePawnsSet),
                     biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
                     toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
                     drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
@@ -374,6 +376,8 @@ fn gather_biped_input(
     input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons);
     input.slide = bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons);
     input.ability1 = bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
+    input.ability1_pressed =
+        bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
 
     if let Some(yaw_e) = biped.yaw_pivot {
         if let Ok(yp) = yaw_pivots.get(yaw_e) {
@@ -544,6 +548,19 @@ fn switch_weapon_slot(
             net::quic::Channel::Ordered,
             &net::message::MsgType::SetActiveWeaponSlot(slots.active_primary()),
         );
+    }
+}
+
+#[cfg(feature = "client")]
+fn move_bipeds(
+    mut world: ResMut<PhysicsWorld>,
+    mut pawns: Query<(Entity, &mut Possessed, &RigidBodyHandleComponent, &mut BipedPawnComponent)>,
+) {
+    for (pawn_entity, mut possessed, handle, mut biped) in pawns.iter_mut() {
+        let Some(PawnInputKind::Biped(input)) = possessed.consume() else {
+            continue;
+        };
+        apply_biped_input(&mut world, pawn_entity, input, handle, &mut biped);
     }
 }
 
@@ -753,6 +770,19 @@ pub fn apply_biped_movement(
             }
         }
     }
+}
+
+pub fn apply_biped_input(
+    world: &mut PhysicsWorld,
+    owner: Entity,
+    input: BipedInput,
+    body_handle: &RigidBodyHandleComponent,
+    biped: &mut BipedPawnComponent,
+) {
+    biped.look_yaw = input.look_yaw;
+    biped.look_pitch = input.look_pitch;
+    apply_biped_movement(world, body_handle, input, biped);
+    crate::pawn::biped_ability::apply_input(owner, input, world, biped);
 }
 
 pub fn biped_move_direction(body_rot: Quat, input: BipedInput) -> Vec3 {

@@ -4,7 +4,6 @@ use bevy::{
     prelude::*,
 };
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use bevy_steamworks::Client;
 use common::{ActiveKeyBindings, InputAction, LeaderboardScope, ScoringOption, tick::NetworkStats};
 use game_objects::{
     health::Health,
@@ -22,7 +21,7 @@ use net::{
 use physics::physics_world::{PhysicsWorld, rb_vel};
 use session::{GuiState, PendingExit};
 
-use crate::{GameState, UiState, settings::Settings};
+use crate::{GameState, UiState, settings::Settings, steam::SteamClient};
 
 pub struct UIPlugin;
 
@@ -162,7 +161,7 @@ fn gui_chat(
     mut contexts: EguiContexts,
     mut state: ResMut<GuiState>,
     mut quic: ResMut<QuicManager>,
-    steam: Option<Res<Client>>,
+    steam: Option<Res<SteamClient>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<ActiveKeyBindings>,

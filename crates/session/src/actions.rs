@@ -491,8 +491,7 @@ pub(super) fn handle_fire_request(
         &MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
     );
     let depleted = weapon::is_depleted(&weapon_state);
-    let Some(fired) = projectile::fire_authoritative(
-        kind,
+    let Some(fired) = (weapon_config.fire_projectile)(
         origin,
         dir,
         shooter_entity,

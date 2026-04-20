@@ -21,43 +21,6 @@ pub struct FiredProjectile {
     pub spawn_cmd: SpawnCommand,
 }
 
-macro_rules! for_each_projectile_type {
-    ($m:ident $($args:tt)*) => {
-        $m!(
-            $($args)*
-            rifle::RifleProjectile,
-            rifle::PistolProjectile,
-            hail_mary::HailMaryProjectile,
-            rpg::RpgProjectile
-        )
-    };
-}
-
-macro_rules! fire_authoritative_match {
-    (
-        $kind:expr,
-        $origin:expr,
-        $dir:expr,
-        $shooter:expr,
-        $tick:expr,
-        $weapon:expr,
-        $temp_id:expr,
-        $commands:expr,
-        $world:expr,
-        $net_ids:expr;
-        $($ty:path),+ $(,)?
-    ) => {
-        match $kind {
-            $(
-                <$ty as Projectile>::KIND => <$ty as Projectile>::fire_authoritative(
-                    $origin, $dir, $shooter, $tick, $weapon, $temp_id, $commands, $world, $net_ids,
-                ),
-            )+
-            _ => None,
-        }
-    };
-}
-
 pub struct ProjectilePlugin;
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
@@ -75,25 +38,6 @@ impl Plugin for ProjectilePlugin {
             rpg::RpgProjectilePlugin,
         ));
     }
-}
-
-pub fn fire_authoritative(
-    kind: GameObjectKind,
-    origin: Vec3,
-    dir: Vec3,
-    shooter: Entity,
-    tick: u64,
-    weapon: Entity,
-    temp_id: u32,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    net_ids: &mut net::message::NetworkIDResource,
-) -> Option<FiredProjectile> {
-    let dir = dir.normalize_or_zero();
-    if dir == Vec3::ZERO {
-        return None;
-    }
-    for_each_projectile_type!(fire_authoritative_match kind, origin, dir, shooter, tick, weapon, temp_id, commands, world, net_ids;)
 }
 
 /// Per-projectile-type behavior. Analogous to Weapon / Pawn.

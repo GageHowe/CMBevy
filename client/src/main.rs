@@ -77,15 +77,6 @@ fn main() {
     let server_addr = parse_server_addr();
     let mut app = App::new();
 
-    match bevy_steamworks::SteamworksPlugin::init_app(3526510u32) {
-        Ok(steam) => {
-            app.add_plugins(steam);
-        }
-        Err(err) => {
-            warn!("Steam init failed: {err}");
-        }
-    }
-
     app.add_plugins(
         DefaultPlugins
             .build()

@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+#[cfg(feature = "client")]
+use crate::projectile::helpers as projectile_helpers;
 
 use super::{FireCtx, Weapon, helpers, weapon_bundle};
 use crate::{
     GameObject, GameObjectKind,
-    projectile::{helpers as projectile_helpers, rifle},
+    projectile::rifle,
 };
 
 pub const COOLDOWN_TICKS: u32 = 10;
@@ -34,6 +36,8 @@ impl Weapon for PistolComponent {
     const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
     const PROJECTILE_KIND: net::message::GameObjectKind =
         net::message::GameObjectKind::PistolProjectile;
+    const FIRE_PROJECTILE: super::FireProjectileFn =
+        <rifle::PistolProjectile as crate::projectile::Projectile>::fire_authoritative;
 
     fn fixed_update(
         &mut self,
@@ -53,19 +57,7 @@ impl Weapon for PistolComponent {
         }
         self.trigger_down = true;
 
-        let velocity =
-            projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
-        let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-        let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
-        rifle::spawn_pistol(
-            ctx.origin,
-            velocity,
-            shooter_velocity,
-            commands,
-            world,
-            ctx.shooter,
-            temp_id,
-        );
+        helpers::fire_projectile(ctx, world, commands, rifle::SPEED, rifle::spawn_pistol);
         #[cfg(feature = "client")]
         projectile_helpers::apply_recoil::<rifle::PistolProjectile>(ctx, world, 0.6);
         helpers::queue_fire_sound(
@@ -80,15 +72,6 @@ impl Weapon for PistolComponent {
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((1.2, 0.3), (-0.6, 0.6), 22.0);
         }
-        #[cfg(feature = "client")]
-        helpers::send_fire_request(
-            ctx.quic.as_deref_mut(),
-            ctx.net_id,
-            net::message::GameObjectKind::PistolProjectile,
-            temp_id,
-            ctx.origin,
-            ctx.aim_dir,
-        );
     }
 }
 

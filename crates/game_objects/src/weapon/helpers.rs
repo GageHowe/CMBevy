@@ -11,7 +11,6 @@ use crate::pawn::CameraEffector;
 use crate::pawn::WeaponSlots;
 #[cfg(feature = "client")]
 use crate::pawn::biped::viewmodel_offset;
-#[cfg(feature = "client")]
 use crate::weapon::FireCtx;
 use crate::{
     generic::attach_hull_collider,
@@ -44,6 +43,41 @@ pub fn queue_fire_sound(
     } else {
         sound.play_3d(remote_event, origin, entity_velocity(world, shooter));
     }
+}
+
+pub fn fire_projectile<F, R>(
+    ctx: &mut FireCtx,
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+    speed: f32,
+    spawn: F,
+) -> u32
+where
+    F: FnOnce(Vec3, Vec3, Vec3, &mut Commands, &mut PhysicsWorld, Option<Entity>, u32) -> R,
+{
+    let velocity =
+        crate::projectile::helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, speed);
+    let temp_id = crate::projectile::helpers::next_temp_id(ctx.id_counter.as_deref_mut());
+    let shooter_velocity = crate::projectile::helpers::shooter_velocity(world, ctx.shooter);
+    let _ = spawn(
+        ctx.origin,
+        velocity,
+        shooter_velocity,
+        commands,
+        world,
+        ctx.shooter,
+        temp_id,
+    );
+    #[cfg(feature = "client")]
+    send_fire_request(
+        ctx.quic.as_deref_mut(),
+        ctx.net_id,
+        ctx.weapon_config.projectile_kind.clone(),
+        temp_id,
+        ctx.origin,
+        ctx.aim_dir,
+    );
+    temp_id
 }
 
 #[cfg(feature = "client")]

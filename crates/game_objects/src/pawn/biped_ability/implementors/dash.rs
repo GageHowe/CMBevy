@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use physics::physics_world::{PhysicsWorld, rb_rot};
 use rapier3d::prelude::Vector3;
 
-use super::super::{BipedAbility, BipedAbilityCtx, consume_charge};
+use super::super::{BipedAbility, BipedAbilityState, consume_charge};
 use crate::{GameObjectKind, pawn::biped::biped_move_direction};
 
 const DASH_IMPULSE: f32 = 14.0;
@@ -11,25 +11,20 @@ const DASH_IMPULSE: f32 = 14.0;
 pub struct DashAbility;
 
 impl BipedAbility for DashAbility {
-    const MODEL_PATH: &'static str = "models/placeholder_dash.glb#Scene0";
-    const ICON_PATH: &'static str = "textures/icons/dash.png";
     const COOLDOWN_TICKS: u16 = 20;
     const KIND: GameObjectKind = GameObjectKind::Dash;
     const PICKUP_COLOR: (f32, f32, f32) = (1.0, 0.8, 0.2);
 
-    fn fixed_update(
-        &mut self,
+    fn apply_input(
         world: &mut PhysicsWorld,
-        _commands: &mut Commands,
-        ctx: &mut BipedAbilityCtx,
+        owner: Entity,
+        input: common::BipedInput,
+        state: &mut BipedAbilityState,
     ) {
-        if !ctx.pressed {
+        if !input.ability1_pressed {
             return;
         }
-        let Some(input) = ctx.biped_input else {
-            return;
-        };
-        let Some(&handle) = world.entity_to_handle.get(&ctx.owner) else {
+        let Some(&handle) = world.entity_to_handle.get(&owner) else {
             return;
         };
         let (move_dir, mass) = {
@@ -38,7 +33,9 @@ impl BipedAbility for DashAbility {
             };
             (biped_move_direction(rb_rot(rb), input), rb.mass())
         };
-        if move_dir.length_squared() <= 1e-6 || !consume_charge(ctx.state, &ctx.config) {
+        if move_dir.length_squared() <= 1e-6
+            || !consume_charge(state, Self::COOLDOWN_TICKS, Self::ACTIVE_TICKS)
+        {
             return;
         }
         if let Some(rb) = world.rigid_body_set.get_mut(handle) {

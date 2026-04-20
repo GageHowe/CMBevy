@@ -349,12 +349,11 @@ pub fn apply_server_input(
             let Ok(mut biped) = bipeds.get_mut(entity) else {
                 return false;
             };
-            biped.look_yaw = input.look_yaw;
-            biped.look_pitch = input.look_pitch;
-            biped::apply_biped_movement(
+            biped::apply_biped_input(
                 world,
-                &RigidBodyHandleComponent(handle),
+                entity,
                 input,
+                &RigidBodyHandleComponent(handle),
                 &mut biped,
             );
             true

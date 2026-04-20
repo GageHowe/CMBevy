@@ -8,6 +8,7 @@ pub struct BipedInput {
     pub jump: bool,
     pub slide: bool,
     pub ability1: bool,
+    pub ability1_pressed: bool,
     /// pawn-local yaw from the YawPivot at input time (radians, absolute)
     pub look_yaw: f32,
     /// camera pitch from the PitchPivot at input time (radians, absolute)

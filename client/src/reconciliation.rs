@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemParam, prelude::*};
 use common::{
     NetworkID, PredictedCommands, PredictedImpulse, PredictedTick,
     tick::{NetworkStats, Ticker},
@@ -15,6 +15,7 @@ use game_objects::{
     },
     pawn::{
         GatherInputSet, Pawn, Possessed, SeatedInVehicle, biped::BipedPawnComponent,
+        biped_ability::EquippedAbility,
         spaceship::SpaceshipPawnComponent,
     },
 };
@@ -36,7 +37,7 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
         app.init_resource::<PredictedCommands>()
-            .init_resource::<BipedStateHistory>()
+            .init_resource::<ReplayStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(
                 FixedPreUpdate,
@@ -74,23 +75,42 @@ struct BipedReplayState {
 }
 
 #[derive(Resource, Default)]
-pub struct BipedStateHistory(HashMap<u64, BipedReplayState>);
+pub struct ReplayStateHistory(HashMap<u64, ReplayState>);
+
+#[derive(Clone, Default)]
+struct ReplayState {
+    biped: Option<BipedReplayState>,
+    ability: Option<EquippedAbility>,
+}
+
+#[derive(SystemParam)]
+struct ReplayPhysicsEnv<'w, 's> {
+    gravity_sources: Query<'w, 's, (&'static GravitySource, &'static RigidBodyHandleComponent)>,
+    snap_sources: Query<'w, 's, (&'static SnapSource, &'static RigidBodyHandleComponent)>,
+    atmospheres:
+        Query<'w, 's, (&'static AtmosphericDragComponent, &'static Transform, Option<&'static RigidBodyHandleComponent>)>,
+    gravity_scales: Query<'w, 's, &'static GravityScale>,
+}
 
 fn record_biped_state(
     pawns: Query<&BipedPawnComponent, With<Possessed>>,
     predicted: Res<PredictedCommands>,
-    mut history: ResMut<BipedStateHistory>,
+    mut history: ResMut<ReplayStateHistory>,
 ) {
-    let Ok(biped) = pawns.single() else {
-        return;
-    };
     let seq = predicted.latest_seq();
     if seq == 0 {
         return;
     }
+    let biped = pawns.single().ok();
     history.0.insert(
         seq,
-        BipedReplayState { jump_cooldown: biped.jump_cooldown, is_sliding: biped.is_sliding },
+        ReplayState {
+            biped: biped.map(|biped| BipedReplayState {
+                jump_cooldown: biped.jump_cooldown,
+                is_sliding: biped.is_sliding,
+            }),
+            ability: biped.and_then(|biped| biped.ability.clone()),
+        },
     );
     history.0.retain(|&old_seq, _| old_seq + 128 >= seq);
 }
@@ -160,7 +180,7 @@ pub fn apply_physics_corrections(
     });
 }
 
-pub fn maybe_reconcile(
+fn maybe_reconcile(
     mut pending: ResMut<PendingReconciliation>,
     mut world: ResMut<PhysicsWorld>,
     tick: Res<Ticker>,
@@ -169,12 +189,9 @@ pub fn maybe_reconcile(
     possessed: Query<&NetworkID, With<Possessed>>,
     bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
     seated: Query<&SeatedInVehicle>,
-    gravity_sources: Query<(&GravitySource, &RigidBodyHandleComponent)>,
-    snap_sources: Query<(&SnapSource, &RigidBodyHandleComponent)>,
-    atmospheres: Query<(&AtmosphericDragComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
-    gravity_scales: Query<&GravityScale>,
+    env: ReplayPhysicsEnv,
     predicted: Res<PredictedCommands>,
-    history: Res<BipedStateHistory>,
+    history: Res<ReplayStateHistory>,
     mut errors: ResMut<PhysicsErrors>,
     mut pawn_q: ParamSet<(
         Query<&mut BipedPawnComponent, With<Possessed>>,
@@ -200,13 +217,21 @@ pub fn maybe_reconcile(
         jump_cooldown: biped.jump_cooldown,
         is_sliding: biped.is_sliding,
     });
+    let current_ability = pawn_q.p0().single().ok().and_then(|biped| biped.ability.clone());
+    let possessed_entity = networked.get_entity(our_net_id);
 
     restore_snapshot(&mut world, &snapshot, &pairs);
+    if let (Some(Some(saved)), Ok(mut biped)) = (
+        history.0.get(&snapshot.last_input_seq).map(|saved| saved.biped),
+        pawn_q.p0().single_mut(),
+    ) {
+        biped.jump_cooldown = saved.jump_cooldown;
+        biped.is_sliding = saved.is_sliding;
+    }
     if let (Some(saved), Ok(mut biped)) =
         (history.0.get(&snapshot.last_input_seq), pawn_q.p0().single_mut())
     {
-        biped.jump_cooldown = saved.jump_cooldown;
-        biped.is_sliding = saved.is_sliding;
+        biped.ability = saved.ability.clone();
     }
 
     let tracked: HashSet<RigidBodyHandle> = pairs.iter().map(|(_, h)| *h).collect();
@@ -234,11 +259,12 @@ pub fn maybe_reconcile(
                 our_rb,
                 tick,
                 &mut pawn_q,
+                possessed_entity,
             );
         }
-        apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);
-        apply_gravity_impulses(&mut world, &gravity_sources, &gravity_scales, &seated);
-        orient_bipeds_to_planets_impulses(&mut world, &bipeds, &snap_sources);
+        apply_wind_resistance_impulses(&mut world, &env.atmospheres, &seated);
+        apply_gravity_impulses(&mut world, &env.gravity_sources, &env.gravity_scales, &seated);
+        orient_bipeds_to_planets_impulses(&mut world, &bipeds, &env.snap_sources);
         step_world(&mut world);
     }
 
@@ -254,6 +280,9 @@ pub fn maybe_reconcile(
     if let (Some(saved), Ok(mut biped)) = (current_biped_state, pawn_q.p0().single_mut()) {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
+    }
+    if let Ok(mut biped) = pawn_q.p0().single_mut() {
+        biped.ability = current_ability;
     }
 
     for (net_id, resim) in &resim_state.bodies {
@@ -282,10 +311,21 @@ fn apply_predicted_tick(
         Query<&mut BipedPawnComponent, With<Possessed>>,
         Query<&mut SpaceshipPawnComponent, With<Possessed>>,
     )>,
+    owner_entity: Option<Entity>,
 ) {
     let handle = RigidBodyHandleComponent(our_rb);
     let handled = if let Ok(mut b) = pawn_q.p0().single_mut() {
-        b.apply_input(world, &handle, tick.input.clone());
+        if let (Some(owner_entity), common::PawnInputKind::Biped(input)) = (owner_entity, tick.input.clone()) {
+            game_objects::pawn::biped::apply_biped_input(
+                world,
+                owner_entity,
+                input,
+                &handle,
+                &mut b,
+            );
+        } else {
+            b.apply_input(world, &handle, tick.input.clone());
+        }
         true
     } else {
         false

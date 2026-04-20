@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
 
-use crate::{pawn::CameraEffector, sound::SoundQueue};
+use crate::{pawn::CameraEffector, projectile::FiredProjectile, sound::SoundQueue};
 
 pub use common::WeaponState;
 
@@ -13,6 +13,18 @@ pub mod helpers;
 pub mod pistol;
 pub mod rifle;
 pub mod rpg;
+
+pub type FireProjectileFn = fn(
+    Vec3,
+    Vec3,
+    Entity,
+    u64,
+    Entity,
+    u32,
+    &mut Commands,
+    &mut PhysicsWorld,
+    &mut net::message::NetworkIDResource,
+) -> Option<FiredProjectile>;
 
 /// Shared weapon plugin.
 pub struct WeaponPlugin;
@@ -33,12 +45,13 @@ impl Plugin for WeaponPlugin {
 #[derive(Component)]
 pub struct WeaponComponent;
 
-#[derive(Component, Clone, Reflect)]
+#[derive(Component, Clone)]
 pub struct WeaponConfig {
     pub magazine_size: u16,
     pub reload_ticks: u16,
     pub fire_cooldown_ticks: u16,
     pub projectile_kind: net::message::GameObjectKind,
+    pub fire_projectile: FireProjectileFn,
 }
 
 /// Type-erased fire hook for the weapon entity. Biped code only forwards input here.
@@ -106,6 +119,7 @@ pub trait Weapon: Component<Mutability = bevy::ecs::component::Mutable> + Defaul
     const RELOAD_TICKS: u16;
     const FIRE_COOLDOWN_TICKS: u16;
     const PROJECTILE_KIND: net::message::GameObjectKind;
+    const FIRE_PROJECTILE: FireProjectileFn;
     /// Called every FixedPreUpdate tick when this weapon is the active slot.
     /// The weapon reads input from ctx, spawns projectiles/effects, and calls ctx helpers as needed.
     fn fixed_update(
@@ -211,6 +225,7 @@ impl WeaponConfig {
             reload_ticks: W::RELOAD_TICKS,
             fire_cooldown_ticks: W::FIRE_COOLDOWN_TICKS,
             projectile_kind: W::PROJECTILE_KIND,
+            fire_projectile: W::FIRE_PROJECTILE,
         }
     }
 }

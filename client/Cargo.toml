@@ -11,7 +11,7 @@ bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", 
 bevy_egui = "0.39.1"
 zstd = "0.13.3"
 rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
-bevy-steamworks = "0.16"
+steamworks = "0.13.0"
 serde = { version = "1", features = ["derive"] }
 dirs = "6.0.0"
 toml = { version = "1.0.6", features = ["preserve_order"] }

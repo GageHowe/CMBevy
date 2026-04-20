@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+#[cfg(feature = "client")]
+use crate::projectile::helpers as projectile_helpers;
 
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::{
     GameObject, GameObjectKind,
-    projectile::{helpers as projectile_helpers, rifle},
+    projectile::rifle,
 };
 
 pub const COOLDOWN_TICKS: u32 = 8;
@@ -34,6 +36,8 @@ impl Weapon for RifleComponent {
     const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
     const PROJECTILE_KIND: net::message::GameObjectKind =
         net::message::GameObjectKind::RifleProjectile;
+    const FIRE_PROJECTILE: super::FireProjectileFn =
+        <rifle::RifleProjectile as crate::projectile::Projectile>::fire_authoritative;
 
     fn fixed_update(
         &mut self,
@@ -60,11 +64,7 @@ pub fn fire_rifle_projectile(
     ctx: &mut FireCtx,
     kick_scale: f32,
 ) {
-    let velocity =
-        projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rifle::SPEED);
-    let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-    let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
-    rifle::spawn(ctx.origin, velocity, shooter_velocity, commands, world, ctx.shooter, temp_id);
+    helpers::fire_projectile(ctx, world, commands, rifle::SPEED, rifle::spawn);
     #[cfg(feature = "client")]
     projectile_helpers::apply_recoil::<rifle::RifleProjectile>(ctx, world, kick_scale);
     helpers::queue_fire_sound(
@@ -79,15 +79,6 @@ pub fn fire_rifle_projectile(
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((2.0 * kick_scale, 0.5 * kick_scale), (-kick_scale, kick_scale), 20.0);
     }
-    #[cfg(feature = "client")]
-    helpers::send_fire_request(
-        ctx.quic.as_deref_mut(),
-        ctx.net_id,
-        net::message::GameObjectKind::RifleProjectile,
-        temp_id,
-        ctx.origin,
-        ctx.aim_dir,
-    );
 }
 
 impl GameObject for RifleComponent {

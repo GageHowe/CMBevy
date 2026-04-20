@@ -7,7 +7,7 @@ use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::pawn::CameraShake;
 use crate::{
     GameObject, GameObjectKind,
-    projectile::{helpers as projectile_helpers, rpg},
+    projectile::rpg,
 };
 
 pub const COOLDOWN_TICKS: u32 = 45;
@@ -35,6 +35,8 @@ impl Weapon for RpgComponent {
     const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
     const PROJECTILE_KIND: net::message::GameObjectKind =
         net::message::GameObjectKind::RpgProjectile;
+    const FIRE_PROJECTILE: super::FireProjectileFn =
+        <rpg::RpgProjectile as crate::projectile::Projectile>::fire_authoritative;
 
     fn fixed_update(
         &mut self,
@@ -50,11 +52,7 @@ impl Weapon for RpgComponent {
             return;
         }
 
-        let velocity =
-            projectile_helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, rpg::SPEED);
-        let temp_id = projectile_helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-        let shooter_velocity = projectile_helpers::shooter_velocity(world, ctx.shooter);
-        rpg::spawn(ctx.origin, velocity, shooter_velocity, commands, world, ctx.shooter, temp_id);
+        helpers::fire_projectile(ctx, world, commands, rpg::SPEED, rpg::spawn);
 
         // Keep the local launcher recoil on the same path the server uses for authoritative fire.
         #[cfg(feature = "client")]
@@ -83,15 +81,6 @@ impl Weapon for RpgComponent {
                 frequency: 16.0,
             });
         }
-        #[cfg(feature = "client")]
-        helpers::send_fire_request(
-            ctx.quic.as_deref_mut(),
-            ctx.net_id,
-            net::message::GameObjectKind::RpgProjectile,
-            temp_id,
-            ctx.origin,
-            ctx.aim_dir,
-        );
     }
 }
 
