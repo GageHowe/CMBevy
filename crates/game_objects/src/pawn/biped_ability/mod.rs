@@ -7,15 +7,14 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
-use crate::{GameObjectKind, pawn::biped::BipedPawnComponent};
-use crate::spawn::AppGameObjectExt;
+use crate::{GameObjectKind, pawn::biped::BipedPawnComponent, spawn::AppGameObjectExt};
 pub mod fx;
 pub mod implementors;
 pub use fx::{AbilityFx, fx_channel, fx_message};
 #[cfg(feature = "client")]
-pub use fx::{queue_fx, queue_remote_fx};
-#[cfg(feature = "client")]
 use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
+#[cfg(feature = "client")]
+pub use fx::{queue_fx, queue_remote_fx};
 
 type TickAbilityState = fn(&mut BipedAbilityState);
 type PickupAbilityFn = fn(Entity, Entity, &mut Commands);
@@ -32,13 +31,11 @@ impl Plugin for BipedAbilityPlugin {
         #[cfg(feature = "client")]
         app.add_systems(
             bevy::app::FixedPreUpdate,
-            (
-                drop_active_ability_input
-                    .run_if(resource_exists::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>)
-                    .in_set(super::GatherInputSet),
-                sync_jetpack_fx_velocity.before(super::MovePawnsSet),
-            ),
+            drop_active_ability_input
+                .run_if(resource_exists::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>)
+                .in_set(super::GatherInputSet),
         )
+        .add_systems(bevy::app::FixedPostUpdate, sync_jetpack_fx_velocity)
         .add_systems(Update, cleanup_orphaned_jetpack_fx);
     }
 }
@@ -84,9 +81,8 @@ impl EquippedAbility {
     }
 
     fn drop(self, pos: Vec3, vel: Vec3, world: &mut World) {
-        let net_id = world
-            .get_resource_mut::<common::NetworkIDResource>()
-            .map(|mut r| NetworkID(r.next()));
+        let net_id =
+            world.get_resource_mut::<common::NetworkIDResource>().map(|mut r| NetworkID(r.next()));
         let entity = world.spawn_empty().id();
         if let Some(net_id) = net_id {
             world.entity_mut(entity).insert(net_id);
@@ -189,9 +185,8 @@ fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
             .unwrap_or(Vec3::Y * 1.2);
         (vel + throw_vel, pos)
     };
-    let Some(ability) = world
-        .get_mut::<BipedPawnComponent>(owner)
-        .and_then(|mut biped| biped.ability.take())
+    let Some(ability) =
+        world.get_mut::<BipedPawnComponent>(owner).and_then(|mut biped| biped.ability.take())
     else {
         return;
     };
@@ -206,10 +201,7 @@ pub trait BipedAbility: Default {
     const PICKUP_COLOR: (f32, f32, f32) = (0.8, 0.8, 0.8);
 
     fn initial_state() -> BipedAbilityState {
-        BipedAbilityState {
-            meter: Self::METER_MAX,
-            active: false,
-        }
+        BipedAbilityState { meter: Self::METER_MAX, active: false }
     }
 
     fn tick(state: &mut BipedAbilityState) {

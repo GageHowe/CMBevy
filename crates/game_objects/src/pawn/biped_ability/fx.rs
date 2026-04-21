@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::{
-    EffectProperties, EffectSpawner, spawn_dash_effect, spawn_jetpack_effect,
-};
+use bevy_hanabi_plugin::prelude::{EffectSpawner, spawn_dash_effect, spawn_jetpack_effect};
 use net::{
     message::{MsgType, NetworkID},
     quic::Channel,
@@ -10,7 +8,7 @@ use net::{
 #[cfg(feature = "client")]
 use physics::physics_world::PhysicsWorld;
 #[cfg(feature = "client")]
-use physics::physics_world::{rb_pos, rb_rot, rb_vel};
+use physics::physics_world::{rb_pos, rb_rot};
 
 #[cfg(feature = "client")]
 use crate::{NetworkEntityMap, pawn::biped::BipedPawnComponent};
@@ -75,9 +73,8 @@ pub fn queue_remote_fx(
 #[cfg(feature = "client")]
 pub fn queue_jetpack_fx(owner: Entity, active: bool, commands: &mut Commands) {
     commands.queue(move |world: &mut World| {
-        let current = world
-            .get::<BipedPawnComponent>(owner)
-            .and_then(|biped| biped.jetpack_fx_entity);
+        let current =
+            world.get::<BipedPawnComponent>(owner).and_then(|biped| biped.jetpack_fx_entity);
         if active {
             if let Some(fx_entity) = current {
                 if let Some(mut spawner) = world.get_mut::<EffectSpawner>(fx_entity) {
@@ -108,13 +105,10 @@ pub fn queue_dash_fx(owner: Entity, dir: Vec3, world: &PhysicsWorld, commands: &
     let Some(rb) = world.rigid_body_set.get(handle) else {
         return;
     };
-    let inherit_velocity = rb_vel(rb);
-    let local_emit_dir = {
-        let world_emit_dir = if dir.length_squared() > 1e-6 { -dir.normalize() } else { Vec3::NEG_Y };
-        rb_rot(rb).inverse() * world_emit_dir
-    };
+    let world_emit_dir = if dir.length_squared() > 1e-6 { -dir.normalize() } else { Vec3::NEG_Y };
+    let local_emit_dir = { rb_rot(rb).inverse() * world_emit_dir };
     commands.queue(move |world: &mut World| {
-        spawn_dash_effect(world, owner, local_emit_dir, inherit_velocity);
+        spawn_dash_effect(world, owner, local_emit_dir);
     });
 }
 
@@ -122,13 +116,13 @@ pub fn queue_dash_fx(owner: Entity, dir: Vec3, world: &PhysicsWorld, commands: &
 pub(crate) fn sync_jetpack_fx_velocity(
     world: Res<PhysicsWorld>,
     bipeds: Query<(Entity, &BipedPawnComponent)>,
-    mut jetpack_fx: Query<(&mut Transform, &mut EffectProperties), With<JetpackFxTag>>,
+    mut jetpack_fx: Query<&mut Transform, With<JetpackFxTag>>,
 ) {
     for (owner, biped) in &bipeds {
         let Some(fx_entity) = biped.jetpack_fx_entity else {
             continue;
         };
-        let Ok((mut transform, mut properties)) = jetpack_fx.get_mut(fx_entity) else {
+        let Ok(mut transform) = jetpack_fx.get_mut(fx_entity) else {
             continue;
         };
         let Some(&handle) = world.entity_to_handle.get(&owner) else {
@@ -137,9 +131,9 @@ pub(crate) fn sync_jetpack_fx_velocity(
         let Some(rb) = world.rigid_body_set.get(handle) else {
             continue;
         };
-        transform.translation = rb_pos(rb) + rb_rot(rb) * JETPACK_OFFSET;
-        transform.rotation = rb_rot(rb);
-        properties.set("inherit_velocity", rb_vel(rb).into());
+        let rot = rb_rot(rb);
+        transform.translation = rb_pos(rb) + rot * JETPACK_OFFSET;
+        transform.rotation = rot;
     }
 }
 
