@@ -12,9 +12,7 @@ use common::ActiveKeyBindings;
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
 
-use super::data::{
-    DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, ShadowQuality, SsaoQuality, VsyncMode,
-};
+use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
 use crate::outline::OutlineSettings;
 
 pub fn apply_settings(
@@ -84,38 +82,28 @@ pub fn sync_dynamic_graphics_settings(
     mut commands: Commands,
     settings: Option<Res<Settings>>,
     primary_window_q: Query<&Window, With<PrimaryWindow>>,
-    resized_window_q: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
-    camera_entities: Query<Entity, With<Camera3d>>,
+    _resized_window_q: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
     added_cameras: Query<Entity, Added<Camera3d>>,
-    mut added_directional_lights: Query<&mut DirectionalLight, Added<DirectionalLight>>,
-    mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
+    // mut added_directional_lights: Query<&mut DirectionalLight, Added<DirectionalLight>>,
+    _directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
 ) {
     let Some(settings) = settings else {
         return;
     };
 
     let window_size = primary_window_q.single().ok().map(Window::physical_size);
-    let window_changed = resized_window_q.single().is_ok();
 
     for camera_entity in &added_cameras {
         let mut camera = commands.entity(camera_entity);
         apply_camera_graphics(&mut camera, &settings, window_size);
     }
 
-
-    if !added_directional_lights.is_empty() {
-        directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
-        for mut directional_light in &mut added_directional_lights {
-            directional_light.shadows_enabled =
-                !matches!(settings.shadow_quality, ShadowQuality::Off);
-        }
-    }
 }
 
 fn apply_camera_graphics(
     camera: &mut EntityCommands,
     settings: &Settings,
-    window_size: Option<UVec2>,
+    _window_size: Option<UVec2>,
 ) {
     if settings.anti_aliasing {
         camera.insert(bevy::anti_alias::smaa::Smaa::default());
@@ -152,7 +140,7 @@ fn apply_camera_graphics(
 
     if settings.motion_blur {
         camera.insert(MotionVectorPrepass);
-        camera.insert(MotionBlur { shutter_angle: 0.5, samples: 1 });
+        camera.insert(MotionBlur { shutter_angle: settings.motion_blur_shutter_angle, samples: 1 });
     } else {
         camera.remove::<MotionBlur>();
         camera.remove::<MotionVectorPrepass>();
@@ -196,7 +184,6 @@ fn apply_camera_graphics(
             ..default()
         },
     ));
-
 }
 
 fn shadow_map_size(shadow_quality: &ShadowQuality) -> usize {

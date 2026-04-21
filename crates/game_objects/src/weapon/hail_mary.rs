@@ -8,6 +8,7 @@ use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::{
     GameObject, GameObjectKind,
     projectile::hail_mary,
+    spawn::AppGameObjectExt,
 };
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
@@ -18,7 +19,8 @@ const MUZZLE_FLASH_TICKS: u8 = 3;
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, tick_muzzle_flash);
+        app.register_game_object::<HailMaryComponent>()
+            .add_systems(FixedUpdate, tick_muzzle_flash);
     }
 }
 
@@ -88,6 +90,8 @@ impl Weapon for HailMaryComponent {
 }
 
 impl GameObject for HailMaryComponent {
+    const KIND: GameObjectKind = GameObjectKind::HailMary;
+
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let light = world
             .spawn((

@@ -16,6 +16,7 @@ unused_results = "deny"
 [profile.dev]
 opt-level = 1
 lto = false
+incremental = false
 strip = "debuginfo"
 
 [profile.dev.package.rapier3d]

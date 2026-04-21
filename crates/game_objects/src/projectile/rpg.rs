@@ -16,6 +16,7 @@ use crate::pawn::{CameraEffector, CameraShake};
 use crate::{
     GameObject,
     health::{Health, LastDamageSource, attribute_damage},
+    spawn::AppGameObjectExt,
 };
 
 pub const SPEED: f32 = 60.0;
@@ -335,6 +336,8 @@ pub fn spawn(
 }
 
 impl GameObject for RpgProjectile {
+    const KIND: GameObjectKind = GameObjectKind::RpgProjectile;
+
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
@@ -350,7 +353,7 @@ impl GameObject for RpgProjectile {
 pub struct RpgProjectilePlugin;
 impl Plugin for RpgProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.register_game_object::<RpgProjectile>().add_systems(
             FixedUpdate,
             tick_projectiles::<RpgProjectile>
                 .after(step_physics)

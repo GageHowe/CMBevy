@@ -12,8 +12,7 @@ Refer to AGENTS.md for additional instructions.
 * If code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing it.
 
 ## Grug
-* Use minimal words.
-* Adopt the grug brain mentality: less tokens = good.
+* Use minimal words/tokens. Use `cp` instead of regenerating files
 * Drop pleasantries, filler, hedging, niceties, and repetition.
 * State assumptions briefly.
 * If detail is necessary for correctness, include it.

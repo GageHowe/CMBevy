@@ -8,23 +8,38 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
 use crate::{GameObjectKind, pawn::biped::BipedPawnComponent};
+use crate::spawn::AppGameObjectExt;
+pub mod fx;
 pub mod implementors;
+pub use fx::{AbilityFx, fx_channel, fx_message};
+#[cfg(feature = "client")]
+pub use fx::{queue_fx, queue_remote_fx};
+#[cfg(feature = "client")]
+use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
 
-type ApplyAbilityInput = fn(&mut PhysicsWorld, Entity, common::BipedInput, &mut BipedAbilityState);
 type TickAbilityState = fn(&mut BipedAbilityState);
 type PickupAbilityFn = fn(Entity, Entity, &mut Commands);
+type AbilityStatusFn = fn(&BipedAbilityState) -> f32;
+pub type AbilityInputFn =
+    fn(&mut PhysicsWorld, Entity, common::BipedInput, &mut BipedAbilityState) -> Option<AbilityFx>;
 
 pub struct BipedAbilityPlugin;
 impl Plugin for BipedAbilityPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedPreUpdate, tick_biped_ability_state.before(super::MovePawnsSet));
+        app.register_game_object::<implementors::JetpackPickup>()
+            .register_game_object::<implementors::DashPickup>()
+            .add_systems(FixedPreUpdate, tick_biped_ability_state.before(super::MovePawnsSet));
         #[cfg(feature = "client")]
         app.add_systems(
             bevy::app::FixedPreUpdate,
-            drop_active_ability_input
-                .run_if(resource_exists::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>)
-                .in_set(super::GatherInputSet),
-        );
+            (
+                drop_active_ability_input
+                    .run_if(resource_exists::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>)
+                    .in_set(super::GatherInputSet),
+                sync_jetpack_fx_velocity.before(super::MovePawnsSet),
+            ),
+        )
+        .add_systems(Update, cleanup_orphaned_jetpack_fx);
     }
 }
 
@@ -34,9 +49,8 @@ pub struct OnPickup(pub fn(Entity, Entity, &mut Commands));
 
 #[derive(Clone, Copy, Default)]
 pub struct BipedAbilityState {
-    pub cooldown_ticks: u16,
-    pub active_ticks: u16,
     pub meter: f32,
+    pub active: bool,
 }
 
 #[derive(Clone)]
@@ -45,7 +59,8 @@ pub struct EquippedAbility {
     kind: GameObjectKind,
     pickup_radius: f32,
     pickup_color: Color,
-    apply_input: ApplyAbilityInput,
+    apply_input: AbilityInputFn,
+    status: AbilityStatusFn,
     tick: TickAbilityState,
     pickup: PickupAbilityFn,
 }
@@ -58,9 +73,14 @@ impl EquippedAbility {
             pickup_radius: A::PICKUP_RADIUS,
             pickup_color: Color::srgb(A::PICKUP_COLOR.0, A::PICKUP_COLOR.1, A::PICKUP_COLOR.2),
             apply_input: A::apply_input,
+            status: A::status,
             tick: A::tick,
             pickup: pickup_ability::<A>,
         }
+    }
+
+    pub fn status_fraction(&self) -> f32 {
+        (self.status)(&self.state).clamp(0.0, 1.0)
     }
 
     fn drop(self, pos: Vec3, vel: Vec3, world: &mut World) {
@@ -179,28 +199,25 @@ fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
 }
 
 pub trait BipedAbility: Default {
-    const COOLDOWN_TICKS: u16;
-    const ACTIVE_TICKS: u16 = 0;
-    const METER_MAX: f32 = 0.0;
-    const METER_REGEN: f32 = 0.0;
+    const METER_MAX: f32;
+    const METER_REGEN: f32;
     const KIND: GameObjectKind;
     const PICKUP_RADIUS: f32 = 0.3;
     const PICKUP_COLOR: (f32, f32, f32) = (0.8, 0.8, 0.8);
 
     fn initial_state() -> BipedAbilityState {
         BipedAbilityState {
-            cooldown_ticks: 0,
-            active_ticks: 0,
             meter: Self::METER_MAX,
+            active: false,
         }
     }
 
     fn tick(state: &mut BipedAbilityState) {
-        state.cooldown_ticks = state.cooldown_ticks.saturating_sub(1);
-        state.active_ticks = state.active_ticks.saturating_sub(1);
-        if Self::METER_MAX > 0.0 {
-            state.meter = (state.meter + Self::METER_REGEN).min(Self::METER_MAX);
-        }
+        state.meter = (state.meter + Self::METER_REGEN).min(Self::METER_MAX);
+    }
+
+    fn status(state: &BipedAbilityState) -> f32 {
+        state.meter / Self::METER_MAX
     }
 
     fn apply_input(
@@ -208,7 +225,7 @@ pub trait BipedAbility: Default {
         owner: Entity,
         input: common::BipedInput,
         state: &mut BipedAbilityState,
-    );
+    ) -> Option<AbilityFx>;
 }
 
 #[derive(Component, Reflect)]
@@ -229,6 +246,8 @@ impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> Defau
 impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> crate::GameObject
     for AbilityPickup<A>
 {
+    const KIND: GameObjectKind = A::KIND;
+
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let (r, g, b) = A::PICKUP_COLOR;
         spawn_ability_pickup(
@@ -280,32 +299,11 @@ pub fn tick_biped_ability_state(mut bipeds: Query<&mut BipedPawnComponent>) {
     }
 }
 
-pub fn start_cooldown(state: &mut BipedAbilityState, cooldown_ticks: u16) {
-    state.cooldown_ticks = cooldown_ticks;
-}
-
-pub fn can_activate(state: &BipedAbilityState) -> bool {
-    state.cooldown_ticks == 0
-}
-
-pub fn consume_charge(
-    state: &mut BipedAbilityState,
-    cooldown_ticks: u16,
-    active_ticks: u16,
-) -> bool {
-    if !can_activate(state) {
-        return false;
-    }
-    state.active_ticks = active_ticks;
-    start_cooldown(state, cooldown_ticks);
-    true
-}
-
 pub fn drain_meter(state: &mut BipedAbilityState, amount: f32) -> bool {
-    if state.meter <= 0.0 {
+    if state.meter < amount {
         return false;
     }
-    state.meter = (state.meter - amount).max(0.0);
+    state.meter -= amount;
     true
 }
 
@@ -314,11 +312,11 @@ pub fn apply_input(
     input: common::BipedInput,
     world: &mut PhysicsWorld,
     biped: &mut BipedPawnComponent,
-) {
+) -> Option<AbilityFx> {
     let Some(ability) = &mut biped.ability else {
-        return;
+        return None;
     };
-    (ability.apply_input)(world, owner, input, &mut ability.state);
+    (ability.apply_input)(world, owner, input, &mut ability.state)
 }
 
 #[cfg(feature = "client")]

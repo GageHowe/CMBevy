@@ -122,6 +122,15 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             "Uses per-object motion vectors to blur fast movement. Costs extra GPU time.",
         );
 
+        if settings.motion_blur {
+            ui.horizontal(|ui| {
+                ui.label("Shutter angle").on_hover_text(
+                    "How wide the motion blur is. Higher values blur more. No performance cost.",
+                );
+                ui.add(egui::Slider::new(&mut settings.motion_blur_shutter_angle, 0.0..=std::f32::consts::TAU));
+            });
+        }
+
         ui.horizontal(|ui| {
             ui.label("SSAO").on_hover_text(
                 "GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.",

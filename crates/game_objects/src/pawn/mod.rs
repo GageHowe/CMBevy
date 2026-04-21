@@ -340,27 +340,27 @@ pub fn apply_server_input(
     world: &mut PhysicsWorld,
     bipeds: &mut Query<&mut biped::BipedPawnComponent>,
     spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
-) -> bool {
+) -> (bool, Option<biped_ability::AbilityFx>) {
     let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
-        return false;
+        return (false, None);
     };
     match input {
         PawnInputKind::Biped(input) => {
             let Ok(mut biped) = bipeds.get_mut(entity) else {
-                return false;
+                return (false, None);
             };
-            biped::apply_biped_input(
+            let fx = biped::apply_biped_input(
                 world,
                 entity,
                 input,
                 &RigidBodyHandleComponent(handle),
                 &mut biped,
             );
-            true
+            (true, fx)
         }
         PawnInputKind::Spaceship(input) => {
             let Ok(mut ship) = spaceships.get_mut(entity) else {
-                return false;
+                return (false, None);
             };
             spaceship::apply_spaceship_movement(
                 world,
@@ -368,7 +368,7 @@ pub fn apply_server_input(
                 input,
                 &mut ship,
             );
-            true
+            (true, None)
         }
     }
 }

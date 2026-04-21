@@ -22,13 +22,14 @@ pub use components::{atmosphere, planet};
 pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers};
 pub use network_index::NetworkEntityMap;
-pub use spawn::{GameObject, SpawnGameObjectCommand, dispatch_game_object_on_death};
+pub use spawn::{GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death};
 
 pub struct GameObjectsPlugin;
 
 impl Plugin for GameObjectsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
+            .init_resource::<spawn::GameObjectRegistry>()
             .register_type::<net::message::NetworkID>()
             .init_resource::<messages::GameMessages>()
             .add_observer(on_remove_networked_entity)

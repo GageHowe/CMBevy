@@ -7,6 +7,7 @@ use super::{Projectile, helpers, tick_projectiles};
 use crate::{
     GameObject,
     health::{Health, LastDamageSource},
+    spawn::AppGameObjectExt,
 };
 
 pub const SPEED: f32 = 600.0;
@@ -196,6 +197,8 @@ pub fn spawn_pistol(
 /// Spawns a rifle projectile when a SpawnCommand arrives (other clients receiving server broadcast).
 /// starting_velocity already includes the shooter's velocity, computed server-side.
 impl GameObject for RifleProjectile {
+    const KIND: GameObjectKind = GameObjectKind::RifleProjectile;
+
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
@@ -209,6 +212,8 @@ impl GameObject for RifleProjectile {
 }
 
 impl GameObject for PistolProjectile {
+    const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
+
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
@@ -224,7 +229,9 @@ impl GameObject for PistolProjectile {
 pub struct RifleProjectilePlugin;
 impl Plugin for RifleProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.register_game_object::<RifleProjectile>()
+            .register_game_object::<PistolProjectile>()
+            .add_systems(
             FixedUpdate,
             (tick_projectiles::<RifleProjectile>, tick_projectiles::<PistolProjectile>)
                 .after(step_physics)

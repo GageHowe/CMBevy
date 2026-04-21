@@ -20,6 +20,7 @@ use crate::{
     GameObject, GameObjectKind,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource, copy_last_damage_source},
+    spawn::AppGameObjectExt,
     weapon::AimReticle,
 };
 
@@ -35,6 +36,7 @@ const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
     fn build(&self, app: &mut App) {
+        app.register_game_object::<SpaceshipPawnComponent>();
         #[cfg(not(feature = "client"))]
         let _ = app;
         #[cfg(feature = "client")]
@@ -74,6 +76,8 @@ impl VehiclePawn for SpaceshipPawnComponent {
 }
 
 impl GameObject for SpaceshipPawnComponent {
+    const KIND: GameObjectKind = GameObjectKind::Spaceship;
+
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
             translation: cmd.position.into(),

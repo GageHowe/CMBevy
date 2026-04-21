@@ -19,7 +19,7 @@ use game_objects::{
 };
 use reconciliation::*;
 use tick_sync::TickSyncPlugin;
-use ui::{ui::UIPlugin, window::WindowSettingsPlugin};
+use ui::{UIPlugin, window::WindowSettingsPlugin};
 
 mod camera;
 mod menu;

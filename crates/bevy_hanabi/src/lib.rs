@@ -15,6 +15,7 @@ impl Plugin for HanabiEffectsPlugin {
         // Keep the integration point small so effects can live here without leaking Hanabi setup
         // into the client binary or gameplay crates.
         app.add_plugins(hanabi::prelude::HanabiPlugin)
+            .init_resource::<effects::ability::AbilityEffects>()
             .init_resource::<effects::rpg::RpgExplosionEffect>()
             .add_systems(Update, helpers::tick_one_shot_effects);
     }

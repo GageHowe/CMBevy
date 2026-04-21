@@ -8,6 +8,7 @@ use super::{FireCtx, Weapon, helpers, weapon_bundle};
 use crate::{
     GameObject, GameObjectKind,
     projectile::rifle,
+    spawn::AppGameObjectExt,
 };
 
 pub const COOLDOWN_TICKS: u32 = 10;
@@ -17,7 +18,9 @@ pub const RELOAD_TICKS: u16 = 50;
 
 pub struct PistolPlugin;
 impl Plugin for PistolPlugin {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.register_game_object::<PistolComponent>();
+    }
 }
 
 #[derive(Component, Default, Reflect)]
@@ -76,6 +79,8 @@ impl Weapon for PistolComponent {
 }
 
 impl GameObject for PistolComponent {
+    const KIND: GameObjectKind = GameObjectKind::Pistol;
+
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(PistolComponent::default(), world);
         helpers::insert_generic_weapon(

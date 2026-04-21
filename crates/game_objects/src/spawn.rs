@@ -1,68 +1,60 @@
 //! Central spawn dispatch for the reflected game object types shared across the game.
 
-use bevy::prelude::{Command, *};
+use bevy::prelude::{App, Command, Resource, *};
 use common::GameObjectKind;
 use net::message::SpawnCommand;
-use pawn::biped_ability::implementors::{DashPickup, JetpackPickup};
 
-use crate::{pawn, projectile, weapon};
+type SpawnGameObjectFn = fn(Entity, &SpawnCommand, &mut World);
+type GameObjectDeathFn = fn(Entity, &mut World) -> bool;
 
-macro_rules! for_each_game_object {
-    ($m:ident $($args:tt)*) => {
-        $m!(
-            $($args)*
-            GameObjectKind::Biped => pawn::biped::BipedPawnComponent,
-            GameObjectKind::Spaceship => pawn::spaceship::SpaceshipPawnComponent,
-            GameObjectKind::Pistol => weapon::pistol::PistolComponent,
-            GameObjectKind::Rifle => weapon::rifle::RifleComponent,
-            GameObjectKind::HailMary => weapon::hail_mary::HailMaryComponent,
-            GameObjectKind::Rpg => weapon::rpg::RpgComponent,
-            GameObjectKind::PistolProjectile => projectile::rifle::PistolProjectile,
-            GameObjectKind::RifleProjectile => projectile::rifle::RifleProjectile,
-            GameObjectKind::HailMaryProjectile => projectile::hail_mary::HailMaryProjectile,
-            GameObjectKind::RpgProjectile => projectile::rpg::RpgProjectile,
-            GameObjectKind::Jetpack => JetpackPickup,
-            GameObjectKind::Dash => DashPickup
-        )
-    };
+#[derive(Clone, Copy)]
+struct GameObjectRegistration {
+    spawn: SpawnGameObjectFn,
+    on_death: GameObjectDeathFn,
 }
 
-macro_rules! dispatch_game_object_match {
-    (
-        $method:ident,
-        $kind:expr,
-        $entity:expr,
-        $world:expr;
-        $($kind_path:path => $ty:path),+ $(,)?
-    ) => {
-        match $kind.clone() {
-            $(
-                $kind_path => <$ty as GameObject>::$method($entity, $world),
-            )+
-            _ => panic!("GameObjectKind::{:?} is not registered for SpawnGameObjectCommand", $kind),
-        }
-    };
+impl GameObjectRegistration {
+    fn of<T: GameObject>() -> Self {
+        Self { spawn: T::spawn, on_death: T::on_death }
+    }
 }
 
-macro_rules! dispatch_spawn_match {
-    (
-        $kind:expr,
-        $entity:expr,
-        $cmd:expr,
-        $world:expr;
-        $($kind_path:path => $ty:path),+ $(,)?
-    ) => {
-        match $kind.clone() {
-            $(
-                $kind_path => <$ty as GameObject>::spawn($entity, $cmd, $world),
-            )+
-            _ => panic!("GameObjectKind::{:?} is not registered for SpawnGameObjectCommand", $kind),
+#[derive(Resource, Default)]
+pub struct GameObjectRegistry(Vec<(GameObjectKind, GameObjectRegistration)>);
+
+impl GameObjectRegistry {
+    pub fn register<T: GameObject>(&mut self) {
+        if self.0.iter().any(|(kind, _)| *kind == T::KIND) {
+            panic!("GameObjectKind::{:?} registered more than once", T::KIND);
         }
-    };
+        self.0.push((T::KIND, GameObjectRegistration::of::<T>()));
+    }
+
+    fn get(&self, kind: GameObjectKind) -> GameObjectRegistration {
+        *self
+            .0
+            .iter()
+            .find(|(registered_kind, _)| *registered_kind == kind)
+            .map(|(_, registration)| registration)
+            .unwrap_or_else(|| panic!("GameObjectKind::{kind:?} is not registered"))
+    }
+}
+
+pub trait AppGameObjectExt {
+    fn register_game_object<T: GameObject>(&mut self) -> &mut Self;
+}
+
+impl AppGameObjectExt for App {
+    fn register_game_object<T: GameObject>(&mut self) -> &mut Self {
+        self.init_resource::<GameObjectRegistry>();
+        self.world_mut().resource_mut::<GameObjectRegistry>().register::<T>();
+        self
+    }
 }
 
 /// Runtime constructor for a spawnable game object.
 pub trait GameObject: Default + Reflect {
+    const KIND: GameObjectKind;
     /// responsible for enacting all side effects that spawn this entity
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
     /// callback that is called when entities' health drops to 0, before they are despawned.
@@ -77,7 +69,11 @@ pub fn dispatch_game_object_on_death(
     entity: Entity,
     world: &mut World,
 ) -> bool {
-    for_each_game_object!(dispatch_game_object_match on_death, kind, entity, world;)
+    let registration = {
+        let registry = world.resource::<GameObjectRegistry>();
+        registry.get(kind)
+    };
+    (registration.on_death)(entity, world)
 }
 
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.
@@ -92,6 +88,10 @@ impl Command for SpawnGameObjectCommand {
         // Insert NetworkID before type-specific spawn so the on_add hook for GameObjectKind
         // can use its presence as a guard to skip already-spawned entities.
         world.entity_mut(self.entity).insert(self.cmd.net_id.clone());
-        for_each_game_object!(dispatch_spawn_match self.cmd.kind, self.entity, &self.cmd, world;);
+        let registration = {
+            let registry = world.resource::<GameObjectRegistry>();
+            registry.get(self.cmd.kind.clone())
+        };
+        (registration.spawn)(self.entity, &self.cmd, world);
     }
 }

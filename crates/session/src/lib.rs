@@ -1,7 +1,15 @@
 mod helpers;
 mod messages;
+#[cfg(feature = "client")]
+mod messages_client;
+#[cfg(not(feature = "client"))]
+mod messages_server;
 mod resources;
 mod runtime;
+#[cfg(feature = "client")]
+mod runtime_client;
+#[cfg(not(feature = "client"))]
+mod runtime_server;
 
 #[cfg(not(feature = "client"))]
 mod actions;

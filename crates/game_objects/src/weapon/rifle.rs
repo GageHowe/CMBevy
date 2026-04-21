@@ -8,6 +8,7 @@ use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::{
     GameObject, GameObjectKind,
     projectile::rifle,
+    spawn::AppGameObjectExt,
 };
 
 pub const COOLDOWN_TICKS: u32 = 8;
@@ -18,7 +19,9 @@ const ZOOMED_KICK_SCALE: f32 = 0.3;
 
 pub struct RiflePlugin;
 impl Plugin for RiflePlugin {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.register_game_object::<RifleComponent>();
+    }
 }
 
 #[derive(Component, Default, Reflect)]
@@ -82,6 +85,8 @@ pub fn fire_rifle_projectile(
 }
 
 impl GameObject for RifleComponent {
+    const KIND: GameObjectKind = GameObjectKind::Rifle;
+
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(RifleComponent::default(), world);
         helpers::insert_generic_weapon(

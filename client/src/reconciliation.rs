@@ -316,7 +316,7 @@ fn apply_predicted_tick(
     let handle = RigidBodyHandleComponent(our_rb);
     let handled = if let Ok(mut b) = pawn_q.p0().single_mut() {
         if let (Some(owner_entity), common::PawnInputKind::Biped(input)) = (owner_entity, tick.input.clone()) {
-            game_objects::pawn::biped::apply_biped_input(
+            let _ = game_objects::pawn::biped::apply_biped_input(
                 world,
                 owner_entity,
                 input,

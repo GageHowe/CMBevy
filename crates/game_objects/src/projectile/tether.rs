@@ -67,6 +67,8 @@ impl Projectile for TetherHookProjectile {
 }
 
 impl GameObject for TetherHookProjectile {
+    const KIND: GameObjectKind = GameObjectKind::TetherHookProjectile;
+
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         world.entity_mut(entity).insert((
             GameObjectKind::TetherHookProjectile,

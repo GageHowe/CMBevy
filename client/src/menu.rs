@@ -748,7 +748,7 @@ fn pause_menu(
             next_ui.set(UiState::Settings);
         }
         ui.add_space(4.0);
-        if ui.button("Quit to Menu (this will kick all players)").clicked() {
+        if ui.button("Quit to Menu").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_game.set(GameState::MainMenu);
             next_ui.set(UiState::Playing);

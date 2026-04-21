@@ -26,7 +26,6 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
             // This render path uses SMAA plus prepass-driven post effects; keep MSAA off.
             Msaa::Off,
             Camera {
-                // hdr: true,
                 clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..Default::default()
             },

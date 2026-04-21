@@ -8,6 +8,7 @@ use crate::{
     GameObject,
     health::{Health, LastDamageSource},
     sound::SoundEmitter,
+    spawn::AppGameObjectExt,
 };
 
 pub const SPEED: f32 = 500.0;
@@ -126,6 +127,8 @@ pub fn spawn(
 /// Spawns a Hail Mary projectile when a SpawnCommand arrives (other clients receiving server broadcast).
 /// starting_velocity already includes the shooter's velocity, computed server-side.
 impl GameObject for HailMaryProjectile {
+    const KIND: GameObjectKind = GameObjectKind::HailMaryProjectile;
+
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
@@ -157,7 +160,7 @@ impl GameObject for HailMaryProjectile {
 pub struct HailMaryProjectilePlugin;
 impl Plugin for HailMaryProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.register_game_object::<HailMaryProjectile>().add_systems(
             FixedUpdate,
             tick_projectiles::<HailMaryProjectile>
                 .after(step_physics)

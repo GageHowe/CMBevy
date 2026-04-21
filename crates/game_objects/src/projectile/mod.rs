@@ -101,7 +101,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
                 shooter_velocity,
                 rotation: Quat::IDENTITY,
                 server_tick: tick,
-                kind: Self::KIND,
+                kind: <Self as Projectile>::KIND,
             },
         })
     }

@@ -8,6 +8,7 @@ use crate::pawn::CameraShake;
 use crate::{
     GameObject, GameObjectKind,
     projectile::rpg,
+    spawn::AppGameObjectExt,
 };
 
 pub const COOLDOWN_TICKS: u32 = 45;
@@ -17,7 +18,9 @@ pub const RELOAD_TICKS: u16 = 95;
 
 pub struct RpgPlugin;
 impl Plugin for RpgPlugin {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.register_game_object::<RpgComponent>();
+    }
 }
 
 #[derive(Component, Default, Reflect)]
@@ -85,6 +88,8 @@ impl Weapon for RpgComponent {
 }
 
 impl GameObject for RpgComponent {
+    const KIND: GameObjectKind = GameObjectKind::Rpg;
+
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(RpgComponent::default(), world);
         helpers::insert_generic_weapon(

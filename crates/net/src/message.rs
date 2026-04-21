@@ -71,6 +71,8 @@ pub enum MsgType {
     OnscreenMessage(String),
     FlashlightToggle,
     FlashlightState(NetworkID, bool),
+    JetpackFx(NetworkID, bool),
+    DashFx(NetworkID, Vec3),
     WeaponState(NetworkID, WeaponState),
     Scoreboard(ScoreboardSnapshot),
     MapHash(String),
