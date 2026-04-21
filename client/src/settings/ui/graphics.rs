@@ -1,6 +1,8 @@
 use bevy_egui::egui;
 
-use crate::settings::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
+use crate::settings::{
+    DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode,
+};
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
     egui::CollapsingHeader::new("Display")
@@ -127,7 +129,10 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                 ui.label("Shutter angle").on_hover_text(
                     "How wide the motion blur is. Higher values blur more. No performance cost.",
                 );
-                ui.add(egui::Slider::new(&mut settings.motion_blur_shutter_angle, 0.0..=std::f32::consts::TAU));
+                ui.add(egui::Slider::new(
+                    &mut settings.motion_blur_shutter_angle,
+                    0.0..=std::f32::consts::TAU,
+                ));
             });
         }
 

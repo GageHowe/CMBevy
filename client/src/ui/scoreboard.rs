@@ -1,10 +1,9 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use common::{LeaderboardScope, ScoringOption};
+use game_objects::pawn::Possessed;
 use net::message::{NetworkID, ScoreboardEntry};
 use session::GuiState;
-
-use game_objects::pawn::Possessed;
 
 pub fn gui_scoreboard(
     mut contexts: EguiContexts,

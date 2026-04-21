@@ -63,6 +63,11 @@ fn set_style(mut contexts: EguiContexts) {
     ctx.set_fonts(fonts);
 
     let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+    style.spacing.button_padding = egui::vec2(5.0, 2.0);
+    style.spacing.window_margin = egui::Margin::same(8);
+    style.spacing.menu_margin = egui::Margin::same(6);
+    style.spacing.indent = 12.0;
     style.visuals.window_shadow = egui::epaint::Shadow::NONE;
     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 100);
     style.visuals.window_corner_radius = egui::CornerRadius::ZERO;

@@ -173,7 +173,6 @@ fn main_menu(
     show_fullscreen_menu(ctx, "main_menu", |ui| {
         ui.set_min_width(280.0);
         ui.heading(title);
-        ui.add_space(8.0);
         match *screen {
             Screen::Root => {
                 show_root_screen(ui, &mut host, &mut screen, &mut exit, &mut sound_queue)
@@ -322,19 +321,15 @@ fn show_root_screen(
         reset_host_catalog(host);
         go_to_screen(screen, Screen::SinglePlayer, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Multiplayer").clicked() {
         go_to_screen(screen, Screen::Multiplayer, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Settings").clicked() {
         go_to_screen(screen, Screen::Settings, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Credits").clicked() {
         go_to_screen(screen, Screen::Credits, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Exit").clicked() {
         queue_ui_sound(sound_queue, UI_CLICK_EVENT);
         exit.write(AppExit::Success);
@@ -360,7 +355,6 @@ fn show_credits_screen(
         credits.offset = 0.0;
     }
 
-    ui.add_space(8.0);
     egui::ScrollArea::vertical()
         .id_salt("credits_scroll")
         .auto_shrink([false, false])
@@ -386,7 +380,6 @@ fn show_credits_screen(
                 ui.add_space(24.0);
             });
         });
-    ui.add_space(8.0);
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
     }
@@ -406,7 +399,6 @@ fn show_settings_screen(
     sound_queue: &mut SoundQueue,
 ) {
     show_settings_ui(ui, settings, settings_section, audio_outputs, keyboard, mouse, capture);
-    ui.add_space(8.0);
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
     }
@@ -424,7 +416,6 @@ fn show_singleplayer_screen(
     sound_queue: &mut SoundQueue,
 ) {
     show_map_gametype_grid(ui, "sp", host);
-    ui.add_space(8.0);
 
     let can_start = !host.maps.is_empty() && !host.gametypes.is_empty();
     if ui.add_enabled(can_start, egui::Button::new("Start")).clicked() {
@@ -435,7 +426,6 @@ fn show_singleplayer_screen(
         *screen = Screen::Root;
         next_state.set(GameState::SinglePlayer);
     }
-    ui.add_space(4.0);
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
     }
@@ -452,21 +442,17 @@ fn show_multiplayer_screen(
         *browser = LobbyBrowser::default();
         go_to_screen(screen, Screen::JoinLan, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Custom Games").clicked() {
         *browser = LobbyBrowser::default();
         go_to_screen(screen, Screen::CustomGames, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Matchmaking").clicked() {
         go_to_screen(screen, Screen::Matchmaking, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Host").clicked() {
         reset_host_catalog(host);
         go_to_screen(screen, Screen::Host, sound_queue);
     }
-    ui.add_space(4.0);
     if ui.button("Back").clicked() {
         queue_ui_sound(sound_queue, UI_BACK_EVENT);
         *screen = Screen::Root;
@@ -572,12 +558,10 @@ fn show_browser_screen(
         }
     }
 
-    ui.add_space(4.0);
     if ui.button(refresh_label).clicked() {
         queue_ui_sound(sound_queue, UI_CLICK_EVENT);
         *browser = LobbyBrowser::default();
     }
-    ui.add_space(4.0);
     if ui.button("Back").clicked() {
         let _ = back_target;
         back_screen(screen, credits, browser, sound_queue);
@@ -592,7 +576,6 @@ fn show_matchmaking_screen(
     sound_queue: &mut SoundQueue,
 ) {
     ui.label("Matchmaking coming soon.");
-    ui.add_space(8.0);
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
     }
@@ -661,8 +644,6 @@ fn show_host_screen(
         }
     });
 
-    ui.add_space(8.0);
-
     let port_ok = host.port.parse::<u16>().is_ok();
     let max_players_ok = !host.advertise || host.max_players.parse::<u8>().is_ok();
     let can_host = !host.maps.is_empty() && !host.gametypes.is_empty() && port_ok && max_players_ok;
@@ -688,7 +669,6 @@ fn show_host_screen(
             }
         }
     }
-    ui.add_space(4.0);
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
     }
@@ -737,26 +717,21 @@ fn pause_menu(
     show_fullscreen_menu(ctx, "pause_menu", |ui| {
         ui.set_min_width(200.0);
         ui.heading("Paused");
-        ui.add_space(8.0);
         if ui.button("Resume").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_ui.set(UiState::Playing);
         }
-        ui.add_space(4.0);
         if ui.button("Settings").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_ui.set(UiState::Settings);
         }
-        ui.add_space(4.0);
         if ui.button("Quit to Menu").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_game.set(GameState::MainMenu);
             next_ui.set(UiState::Playing);
         }
         if hosted.child.is_some() {
-            ui.add_space(8.0);
             ui.separator();
-            ui.add_space(4.0);
             ui.label("Server console");
             let response = ui.text_edit_singleline(&mut *console_input);
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -789,7 +764,6 @@ fn settings_menu(
     show_fullscreen_menu(ctx, "settings_menu", |ui| {
         ui.set_min_width(250.0);
         ui.heading("Settings");
-        ui.add_space(8.0);
         show_settings_ui(
             ui,
             &mut settings,
@@ -799,7 +773,6 @@ fn settings_menu(
             &mouse,
             &mut capture,
         );
-        ui.add_space(8.0);
         if ui.button("Back").clicked() {
             queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
             next_ui.set(UiState::Paused);

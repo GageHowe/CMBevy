@@ -48,7 +48,6 @@ pub fn show_controls_settings(
             ui.label("Two binds per action.");
         }
     });
-    ui.add_space(8.0);
 
     egui::CollapsingHeader::new("Movement").default_open(true).show(ui, |ui| {
         show_binding_row(ui, settings, capture, InputAction::MoveForward, "Move forward");

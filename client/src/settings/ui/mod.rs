@@ -39,9 +39,7 @@ pub fn show_settings_ui(
         SettingsSection::Misc => misc::show(ui, settings),
     }
 
-    ui.add_space(12.0);
     ui.separator();
-    ui.add_space(8.0);
     ui.horizontal(|ui| {
         if ui.button("View settings file").clicked()
             && let Err(err) = persistence::reveal_settings_file()
