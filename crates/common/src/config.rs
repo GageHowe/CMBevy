@@ -24,5 +24,11 @@ pub fn runtime_path(path: impl AsRef<Path>) -> PathBuf {
 }
 
 pub fn asset_dir() -> PathBuf {
+    let cwd_assets = std::env::current_dir().ok().map(|dir| dir.join("assets"));
+    if let Some(path) = cwd_assets
+        && path.exists()
+    {
+        return path;
+    }
     runtime_path("assets")
 }

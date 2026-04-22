@@ -6,6 +6,9 @@ use bevy::prelude::*;
 use common::{LeaderboardScope, ScoringOption};
 use net::quic::ConnectionId;
 
+#[derive(Component, Clone, Copy, Reflect)]
+pub struct Team(pub u8);
+
 /// Script-defined presentation and rules metadata for the active mode.
 #[derive(Resource, Clone)]
 pub struct ModeConfig {

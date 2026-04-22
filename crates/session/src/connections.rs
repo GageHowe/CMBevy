@@ -31,14 +31,10 @@ pub(super) fn handle_connected(
     entity_net_ids: &Query<&NetworkID>,
     seated_bipeds: &Query<(&NetworkID, &SeatedInVehicle)>,
 ) -> bool {
-    let num_teams = {
-        let mut teams = std::collections::HashSet::new();
-        for (_, sp, _, _) in spawn_points.iter() {
-            teams.insert(sp.team);
-        }
-        teams.len().max(1)
-    };
-    let team = (registry.controlled_count() % num_teams) as u8;
+    let mut teams = spawn_points.iter().map(|(_, sp, _, _)| sp.team).collect::<Vec<_>>();
+    teams.sort();
+    teams.dedup();
+    let team = teams.get(registry.controlled_count() % teams.len().max(1)).copied().unwrap_or(0);
     let Some((sp, sr, sv)) = game_objects::lifecycle::pick_spawn_point_with_velocity(
         spawn_points,
         parent_transforms,
@@ -100,6 +96,7 @@ pub(super) fn handle_connected(
     spawn_player(
         conn_id,
         GameObjectKind::Biped,
+        game_objects::Team(team),
         sp,
         sr,
         sv,

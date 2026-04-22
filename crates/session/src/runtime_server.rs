@@ -7,7 +7,7 @@ use game_objects::{
     SpawnGameObjectCommand,
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
-    mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers},
+    mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
     pawn::{PendingRespawns, PlayerRegistry, SeatedInVehicle},
 };
 use net::{message::*, quic::*};
@@ -75,6 +75,7 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(Update, (tick_respawns, process_console_commands))
             .add_systems(Update, restart_round)
             .add_systems(Startup, (load_server_level, start_server, init_mode_config).chain())
+            .add_systems(FixedUpdate, crate::bots::run_bots.before(step_physics))
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
@@ -172,15 +173,15 @@ fn tick_respawns(
     physics: Res<PhysicsWorld>,
 ) {
     let dt = time.delta_secs();
-    let ready: Vec<(ConnectionId, GameObjectKind)> = pending
+    let ready: Vec<(ConnectionId, GameObjectKind, Team)> = pending
         .0
         .iter_mut()
-        .filter_map(|(&id, (t, k))| {
+        .filter_map(|(&id, (t, k, team))| {
             *t -= dt;
-            (*t <= 0.0).then(|| (id, k.clone()))
+            (*t <= 0.0).then(|| (id, k.clone(), *team))
         })
         .collect();
-    for (conn_id, kind) in ready {
+    for (conn_id, kind, team) in ready {
         pending.0.remove(&conn_id);
         let Some((sp, sr, sv)) = game_objects::lifecycle::pick_spawn_point_with_velocity(
             &spawn_points,
@@ -188,7 +189,7 @@ fn tick_respawns(
             &parent_parents,
             &parent_bodies,
             &physics,
-            0,
+            team.0,
             registry.controlled_count(),
         ) else {
             continue;
@@ -196,6 +197,7 @@ fn tick_respawns(
         spawn_player(
             conn_id,
             kind,
+            team,
             sp,
             sr,
             sv,
@@ -212,6 +214,14 @@ fn process_console_commands(
     cmds: Res<ConsoleCommands>,
     mut quic: ResMut<QuicManager>,
     registry: Res<PlayerRegistry>,
+    mut net_ids: ResMut<NetworkIDResource>,
+    mut commands: Commands,
+    tick: Res<common::tick::Ticker>,
+    spawn_points: Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+    parent_transforms: Query<&Transform>,
+    parent_parents: Query<&ChildOf>,
+    parent_bodies: Query<&RigidBodyHandleComponent>,
+    physics: Res<PhysicsWorld>,
 ) {
     while let Ok(line) = cmds.0.lock().unwrap().try_recv() {
         let mut parts = line.trim().splitn(2, ' ');
@@ -248,9 +258,45 @@ fn process_console_commands(
                     println!("  conn={conn_id} entity={entity:?} net_id={net_id:?}");
                 }
             }
+            "bot" => {
+                let team = parts
+                    .next()
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(1);
+                if let Some((pos, rot, vel)) =
+                    game_objects::lifecycle::pick_spawn_point_with_velocity(
+                        &spawn_points,
+                        &parent_transforms,
+                        &parent_parents,
+                        &parent_bodies,
+                        &physics,
+                        team,
+                        tick.tick as usize,
+                    )
+                {
+                    let (entity, _, spawn_cmd) = game_objects::lifecycle::spawn_game_object(
+                        GameObjectKind::Biped,
+                        pos,
+                        rot,
+                        vel,
+                        tick.tick,
+                        &mut commands,
+                        &mut net_ids,
+                    );
+                    commands.entity(entity).insert((
+                        Team(team),
+                        game_objects::bot::BotController::new(
+                            Team(team),
+                            game_objects::bot::HeuristicKillerBot,
+                        ),
+                    ));
+                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+                }
+                println!("spawned bot on team {}", team + 1);
+            }
             "" => {}
             other => println!(
-                "Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status"
+                "Unknown command: {other}. Commands: shutdown, kick <id>, say <text>, status, bot [team]"
             ),
         }
     }
@@ -282,7 +328,7 @@ fn restart_round(world: &mut World) {
         team_numbers.0.clear();
     }
 
-    for (conn_id, spawn_pos, spawn_rot, spawn_vel) in collect_restart_spawns(world) {
+    for (conn_id, team, spawn_pos, spawn_rot, spawn_vel) in collect_restart_spawns(world) {
         let existing = world.get_resource::<PlayerRegistry>().and_then(|registry| {
             registry.character(conn_id).map(|(entity, net_id)| (entity, net_id.clone()))
         });
@@ -293,6 +339,7 @@ fn restart_round(world: &mut World) {
                 conn_id,
                 character_entity,
                 character_net_id,
+                team,
                 spawn_pos,
                 spawn_rot,
                 spawn_vel,
@@ -300,11 +347,11 @@ fn restart_round(world: &mut World) {
             continue;
         }
 
-        spawn_restarted_player(world, conn_id, spawn_pos, spawn_rot, spawn_vel);
+        spawn_restarted_player(world, conn_id, team, spawn_pos, spawn_rot, spawn_vel);
     }
 }
 
-fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Vec3, Quat, Vec3)> {
+fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Team, Vec3, Quat, Vec3)> {
     let mut state: SystemState<(
         Res<ActiveConnections>,
         Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
@@ -345,7 +392,9 @@ fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Vec3, Quat, V
                 team,
                 index,
             )
-            .map(|(spawn_pos, spawn_rot, spawn_vel)| (conn_id, spawn_pos, spawn_rot, spawn_vel))
+            .map(|(spawn_pos, spawn_rot, spawn_vel)| {
+                (conn_id, Team(team), spawn_pos, spawn_rot, spawn_vel)
+            })
         })
         .collect()
 }
@@ -355,6 +404,7 @@ fn reset_existing_player(
     conn_id: ConnectionId,
     character_entity: Entity,
     character_net_id: NetworkID,
+    team: Team,
     spawn_pos: Vec3,
     spawn_rot: Quat,
     spawn_vel: Vec3,
@@ -392,6 +442,7 @@ fn reset_existing_player(
     if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
         registry.set_controlled_pawn(conn_id, character_entity, character_net_id.clone());
     }
+    world.entity_mut(character_entity).insert(team);
     world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
         physics.set_body_enabled(character_entity, true);
         physics.set_body_pose(character_entity, spawn_pos, spawn_rot, spawn_vel, Vec3::ZERO);
@@ -406,6 +457,7 @@ fn reset_existing_player(
 fn spawn_restarted_player(
     world: &mut World,
     conn_id: ConnectionId,
+    team: Team,
     spawn_pos: Vec3,
     spawn_rot: Quat,
     spawn_vel: Vec3,
@@ -428,6 +480,7 @@ fn spawn_restarted_player(
     };
     let entity = world.spawn_empty().id();
     SpawnGameObjectCommand { entity, cmd: spawn_cmd.clone() }.apply(world);
+    world.entity_mut(entity).insert(team);
 
     let existing_conn_ids = world
         .get_resource::<PlayerRegistry>()

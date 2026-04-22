@@ -1,21 +1,31 @@
 //! Registers the small, bounded gameplay API that Lua gametypes can call.
 
-use bevy::{ecs::system::SystemState, prelude::*};
+use bevy::{
+    ecs::system::{Command, SystemState},
+    prelude::*,
+};
+use common::{GameObjectKind, NetworkID, NetworkIDResource};
 use game_objects::{
+    SpawnGameObjectCommand, Team,
+    bot::{BotController, HeuristicKillerBot},
     health::Health,
-    level::{ScriptZone, parented_world_pose},
+    level::{ScriptZone, SpawnPoint, parented_world_pose},
     messages::push_world,
     mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
-    pawn::PlayerRegistry,
+    pawn::{PlayerRegistry, WeaponSlots},
 };
 use mlua::prelude::*;
 use net::{
-    message::MsgType,
+    message::{MsgType, SpawnCommand},
     quic::{Channel, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
-use crate::{runtime::ScriptRuntime, tag_index::ScriptTagIndex};
+use crate::{
+    plugin::{PendingWeaponGrants, WeaponGrant},
+    runtime::ScriptRuntime,
+    tag_index::ScriptTagIndex,
+};
 
 fn lua_world(lua: &Lua) -> LuaResult<&mut World> {
     let Some(world_ptr) = lua.app_data_ref::<*mut World>() else {
@@ -245,6 +255,111 @@ pub(crate) fn register_script_functions(world: &mut World) {
         })
     });
 
+    register_lua_function(&runtime.lua, "spawn_pawn", |lua| {
+        lua.create_function(|lua, (team, kind): (i32, Option<String>)| {
+            let world = lua_world(lua)?;
+            if !world
+                .get_resource::<crate::config::ScriptConfig>()
+                .is_some_and(|config| config.is_server)
+            {
+                return Ok(None);
+            }
+            let kind = GameObjectKind::from_name(kind.as_deref().unwrap_or("biped"))
+                .filter(|kind| matches!(kind, GameObjectKind::Biped | GameObjectKind::Spaceship));
+            let Some(kind) = kind else {
+                println!("script spawn_pawn failed: invalid kind {kind:?}");
+                return Ok(None);
+            };
+            let team = Team(lua_team(team));
+            let Some((pos, rot, vel)) = pick_script_spawn(world, team.0) else {
+                println!("script spawn_pawn failed: no spawn point for team {}", team.0);
+                return Ok(None);
+            };
+            let kind_debug = format!("{kind:?}");
+            let tick = world.resource::<common::tick::Ticker>().tick;
+            let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+            let cmd = SpawnCommand {
+                net_id,
+                position: pos,
+                starting_velocity: vel,
+                shooter_velocity: Vec3::ZERO,
+                rotation: rot,
+                server_tick: tick,
+                kind,
+            };
+            let entity = world.spawn_empty().id();
+            SpawnGameObjectCommand { entity, cmd: cmd.clone() }.apply(world);
+            world.entity_mut(entity).insert(team);
+            if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(cmd));
+            }
+            println!("script spawned {kind_debug} entity={entity:?} team={} pos={pos:?}", team.0);
+            Ok(Some(entity.to_bits() as i64))
+        })
+    });
+
+    register_lua_function(&runtime.lua, "add_bot", |lua| {
+        lua.create_function(|lua, (entity_id, brain): (i64, Option<String>)| {
+            let world = lua_world(lua)?;
+            if !world
+                .get_resource::<crate::config::ScriptConfig>()
+                .is_some_and(|config| config.is_server)
+            {
+                return Ok(false);
+            }
+            if brain.as_deref().is_some_and(|brain| brain != "killer") {
+                return Ok(false);
+            }
+            let entity = Entity::from_bits(entity_id as u64);
+            let team = world.get::<Team>(entity).copied().unwrap_or(Team(0));
+            world.entity_mut(entity).insert(BotController::new(team, HeuristicKillerBot));
+            println!("script added bot entity={entity:?} team={} brain=killer", team.0);
+            Ok(true)
+        })
+    });
+
+    register_lua_function(&runtime.lua, "spawn_bot", |lua| {
+        lua.create_function(|lua, (team, brain): (i32, Option<String>)| {
+            let globals = lua.globals();
+            let spawn_pawn: LuaFunction = globals.get("spawn_pawn")?;
+            let add_bot: LuaFunction = globals.get("add_bot")?;
+            let entity: Option<i64> = spawn_pawn.call((team, "biped"))?;
+            if let Some(entity) = entity {
+                let _: bool = add_bot.call((entity, brain))?;
+            }
+            Ok(entity)
+        })
+    });
+
+    register_lua_function(&runtime.lua, "give_weapon", |lua| {
+        lua.create_function(|lua, (owner_id, kind): (i64, String)| {
+            let world = lua_world(lua)?;
+            if !world
+                .get_resource::<crate::config::ScriptConfig>()
+                .is_some_and(|config| config.is_server)
+            {
+                return Ok(false);
+            }
+            let Some(kind) =
+                GameObjectKind::from_name(&kind).filter(game_objects::weapon::is_weapon_kind)
+            else {
+                return Ok(false);
+            };
+            let owner = Entity::from_bits(owner_id as u64);
+            if world.get::<WeaponSlots>(owner).is_none() {
+                println!("script give_weapon failed: owner {owner:?} has no WeaponSlots");
+                return Ok(false);
+            }
+            let kind_debug = format!("{kind:?}");
+            world
+                .resource_mut::<PendingWeaponGrants>()
+                .0
+                .push(WeaponGrant { owner, kind, weapon: None });
+            println!("script queued give_weapon owner={owner:?} kind={kind_debug}");
+            Ok(true)
+        })
+    });
+
     // register_lua_function(&runtime.lua, "spawn_box", |lua| {
     //     lua.create_function(
     //         |lua,
@@ -318,6 +433,32 @@ fn entities_in_zone(world: &mut World, zone_entity: Entity) -> Vec<Entity> {
 
 fn normalize_index(index: i32) -> usize {
     index.max(0) as usize
+}
+
+fn lua_team(team: i32) -> u8 {
+    team.clamp(0, u8::MAX as i32) as u8
+}
+
+fn pick_script_spawn(world: &mut World, team: u8) -> Option<(Vec3, Quat, Vec3)> {
+    let tick = world.resource::<common::tick::Ticker>().tick;
+    let mut state: SystemState<(
+        Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+        Query<&Transform>,
+        Query<&ChildOf>,
+        Query<&RigidBodyHandleComponent>,
+        Res<PhysicsWorld>,
+    )> = SystemState::new(world);
+    let (spawn_points, parent_transforms, parent_parents, parent_bodies, physics) =
+        state.get(world);
+    game_objects::lifecycle::pick_spawn_point_with_velocity(
+        &spawn_points,
+        &parent_transforms,
+        &parent_parents,
+        &parent_bodies,
+        &physics,
+        team,
+        tick as usize,
+    )
 }
 
 fn get_number(numbers: &[i32], index: usize) -> i32 {

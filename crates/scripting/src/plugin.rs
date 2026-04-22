@@ -14,18 +14,29 @@ use crate::{
     tag_index::{ScriptTagIndex, sync_script_tags},
 };
 
+#[derive(Resource, Default)]
+pub(crate) struct PendingWeaponGrants(pub Vec<WeaponGrant>);
+
+pub(crate) struct WeaponGrant {
+    pub owner: Entity,
+    pub kind: common::GameObjectKind,
+    pub weapon: Option<(Entity, common::NetworkID, net::message::SpawnCommand)>,
+}
+
 pub struct ScriptingPlugin;
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
         app.insert_non_send_resource(ScriptRuntime { lua: Lua::new(), loaded: false })
             .init_resource::<ScriptTagIndex>()
+            .init_resource::<PendingWeaponGrants>()
             .init_resource::<PendingPlayerKills>()
             .init_resource::<PendingPlayerRemovals>()
             .add_systems(Startup, (load, register_script_functions).chain())
             .add_systems(PreUpdate, sync_script_tags)
             .add_systems(Update, eval_script_update)
             .add_systems(FixedUpdate, (reload_script, eval_script_fixed_update))
+            .add_systems(FixedLast, process_weapon_grants)
             .add_systems(FixedUpdate, dispatch_player_kill_callbacks.after(handle_deaths));
     }
 }
@@ -51,6 +62,88 @@ fn eval_script_update(world: &mut World) {
 
 fn eval_script_fixed_update(world: &mut World) {
     call_script(world, "on_fixed_tick");
+}
+
+fn process_weapon_grants(world: &mut World) {
+    use game_objects::{
+        SpawnGameObjectCommand,
+        interaction::Interactable,
+        pawn::WeaponSlots,
+        weapon::helpers::give_world_weapon,
+    };
+    use net::{
+        message::MsgType,
+        quic::{Channel, QuicManager, SendTarget},
+    };
+    use physics::physics_world::{PhysicsWorld, rb_pos};
+
+    let mut grants = world
+        .get_resource_mut::<PendingWeaponGrants>()
+        .map(|mut pending| std::mem::take(&mut pending.0))
+        .unwrap_or_default();
+    for mut grant in grants.drain(..) {
+        if world.get::<WeaponSlots>(grant.owner).is_none() {
+            continue;
+        }
+        if grant.weapon.is_none() {
+            let tick = world.resource::<common::tick::Ticker>().tick;
+            let pos = {
+                let physics = world.resource::<PhysicsWorld>();
+                physics
+                    .entity_to_handle
+                    .get(&grant.owner)
+                    .and_then(|handle| physics.rigid_body_set.get(*handle))
+                    .map(rb_pos)
+                    .unwrap_or(Vec3::ZERO)
+            };
+            let weapon_id = common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
+            let spawn_cmd = net::message::SpawnCommand {
+                net_id: weapon_id.clone(),
+                position: pos,
+                starting_velocity: Vec3::ZERO,
+                shooter_velocity: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+                server_tick: tick,
+                kind: grant.kind.clone(),
+            };
+            let weapon_entity = world.spawn_empty().id();
+            SpawnGameObjectCommand { entity: weapon_entity, cmd: spawn_cmd.clone() }.apply(world);
+            if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+                quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd.clone()));
+            }
+            grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
+            world.resource_mut::<PendingWeaponGrants>().0.push(grant);
+            continue;
+        }
+
+        let Some((weapon_entity, weapon_id, _)) = grant.weapon else {
+            continue;
+        };
+        let ok = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
+            let Some(mut slots) = world.get_mut::<WeaponSlots>(grant.owner) else {
+                return false;
+            };
+            give_world_weapon(&mut physics, &mut slots, weapon_entity, weapon_id.clone())
+        });
+        if !ok {
+            continue;
+        }
+        if let Some(mut held) = world.get_resource_mut::<game_objects::pawn::HeldWeaponMap>() {
+            held.0.insert(weapon_id.clone(), grant.owner);
+        }
+        world.entity_mut(weapon_entity).remove::<Interactable>();
+        let owner_net_id = world.get::<common::NetworkID>(grant.owner).cloned();
+        if let (Some(owner_net_id), Some(mut quic)) =
+            (owner_net_id, world.get_resource_mut::<QuicManager>())
+        {
+            quic.send(
+                SendTarget::All,
+                Channel::Ordered,
+                &MsgType::WeaponPickup(weapon_id, owner_net_id),
+            );
+        }
+        println!("script granted weapon entity={weapon_entity:?} owner={:?}", grant.owner);
+    }
 }
 
 /// Drains deferred kill callbacks after authoritative death handling so scripts can award

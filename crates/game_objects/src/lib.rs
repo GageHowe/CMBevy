@@ -4,6 +4,7 @@ use bevy::prelude::*;
 pub use common::GameObjectKind;
 
 pub mod asset_path;
+pub mod bot;
 pub mod components;
 pub mod generic;
 pub mod health;
@@ -20,7 +21,7 @@ mod spawn;
 pub mod weapon;
 pub use components::{atmosphere, planet};
 pub use generic::{GenericShape, spawn_generic};
-pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers};
+pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers};
 pub use network_index::NetworkEntityMap;
 pub use spawn::{
     GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death,
@@ -33,6 +34,7 @@ impl Plugin for GameObjectsPlugin {
         app.init_resource::<NetworkEntityMap>()
             .init_resource::<spawn::GameObjectRegistry>()
             .register_type::<net::message::NetworkID>()
+            .register_type::<Team>()
             .init_resource::<messages::GameMessages>()
             .add_observer(on_remove_networked_entity)
             .add_systems(

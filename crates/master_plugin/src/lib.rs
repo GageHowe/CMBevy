@@ -10,6 +10,7 @@ use game_objects::{
     generic::swap_hull_colliders,
     health::HealthPlugin,
     level::LevelPlugin,
+    pawn::HeldWeaponMap,
 };
 #[cfg(feature = "client")]
 use net::clientonly::NetClientPlugin;
@@ -32,6 +33,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(GameObjectsPlugin);
         app.add_plugins(HealthPlugin);
         app.add_plugins(LevelPlugin);
+        app.init_resource::<HeldWeaponMap>();
         app.add_systems(FixedUpdate, swap_hull_colliders);
 
         // tick should increment after everything else in FixedUpdate

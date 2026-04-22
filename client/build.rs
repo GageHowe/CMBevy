@@ -6,11 +6,9 @@ fn main() {
     };
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../assets");
     println!("cargo:rerun-if-changed=../dev-assets/lib");
 
     add_linux_fmod_rpath();
-    stage_assets(&target_dir);
     stage_fmod_runtime(&target_dir);
     copy_steam_runtime(&target_dir);
 }
@@ -68,14 +66,6 @@ fn stage_fmod_runtime(target_dir: &std::path::Path) {
     }
 }
 
-// Keep runtime assets next to the built executable so both cargo-run and shipped builds use
-// the same path convention.
-fn stage_assets(target_dir: &std::path::Path) {
-    let src = repo_root().join("assets");
-    let dst = target_dir.join("assets");
-    copy_dir(&src, &dst);
-}
-
 fn stage_file(src: &std::path::Path, dst: &std::path::Path) {
     if !src.exists() {
         return;
@@ -84,29 +74,6 @@ fn stage_file(src: &std::path::Path, dst: &std::path::Path) {
         let _ = std::fs::remove_file(dst);
     }
     let _ = std::fs::copy(src, dst);
-}
-
-fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
-    if !src.exists() {
-        return;
-    }
-    if std::fs::symlink_metadata(dst).is_ok() {
-        let _ = std::fs::remove_dir_all(dst);
-        let _ = std::fs::remove_file(dst);
-    }
-    let _ = std::fs::create_dir_all(dst);
-    let Ok(entries) = std::fs::read_dir(src) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir(&src_path, &dst_path);
-        } else {
-            stage_file(&src_path, &dst_path);
-        }
-    }
 }
 
 fn copy_steam_runtime(target_dir: &std::path::Path) {

@@ -15,6 +15,7 @@ use crate::resources::*;
 pub(super) fn spawn_player(
     conn_id: ConnectionId,
     kind: GameObjectKind,
+    team: Team,
     spawn_pos: Vec3,
     spawn_rot: Quat,
     spawn_vel: Vec3,
@@ -27,6 +28,7 @@ pub(super) fn spawn_player(
     let kind_debug = format!("{kind:?}");
     let (entity, net_id, spawn_cmd) =
         spawn_game_object(kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids);
+    commands.entity(entity).insert(team);
 
     for other_conn_id in registry.controlled_conn_ids() {
         quic.send(
@@ -119,6 +121,7 @@ pub fn broadcast_scoreboard(
     mut quic: ResMut<QuicManager>,
     tick: Res<Ticker>,
     registry: Res<PlayerRegistry>,
+    teams_q: Query<&Team>,
     player_numbers: Res<game_objects::mode::PlayerNumbers>,
     team_numbers: Res<game_objects::mode::TeamNumbers>,
     mode: Option<Res<ModeConfig>>,
@@ -129,10 +132,10 @@ pub fn broadcast_scoreboard(
     let mode = mode.map_or_else(ModeConfig::default, |value| value.clone());
     let mut players = registry
         .controlled_entries()
-        .map(|(conn_id, (_, net_id))| ScoreboardEntry {
+        .map(|(conn_id, (entity, net_id))| ScoreboardEntry {
             net_id: net_id.clone(),
             label: format!("Player {conn_id}"),
-            team: 0,
+            team: teams_q.get(*entity).map_or(0, |team| team.0),
             value: player_numbers
                 .0
                 .get(conn_id)

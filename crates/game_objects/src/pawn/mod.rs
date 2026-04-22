@@ -264,7 +264,7 @@ pub fn broadcast_seat_state(
 
 /// Pending respawns: conn_id -> (seconds_remaining, kind).
 #[derive(Resource, Default)]
-pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind)>);
+pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind, crate::Team)>);
 
 #[derive(Resource, Default)]
 pub struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);

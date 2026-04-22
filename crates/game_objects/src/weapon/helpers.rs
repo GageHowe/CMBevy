@@ -1,18 +1,15 @@
 use bevy::prelude::*;
-use common::GameObjectKind;
-#[cfg(feature = "client")]
-use common::NetworkID;
+use common::{GameObjectKind, NetworkID};
 use physics::physics_world::*;
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
 #[cfg(feature = "client")]
 use crate::pawn::CameraEffector;
 #[cfg(feature = "client")]
-use crate::pawn::WeaponSlots;
-#[cfg(feature = "client")]
 use crate::pawn::biped::viewmodel_offset;
 use crate::{
     generic::attach_hull_collider,
+    pawn::WeaponSlots,
     sound::{SoundQueue, entity_velocity},
     weapon::{AimReticle, FireCtx, WeaponComponent, WeaponState},
 };
@@ -205,6 +202,19 @@ pub fn pickup_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity) {
     world.set_body_enabled(weapon_entity, false);
 }
 
+pub fn give_world_weapon(
+    world: &mut PhysicsWorld,
+    slots: &mut WeaponSlots,
+    weapon_entity: Entity,
+    weapon_id: NetworkID,
+) -> bool {
+    if slots.assign_pickup(weapon_id, weapon_entity).is_none() {
+        return false;
+    }
+    pickup_world_weapon(world, weapon_entity);
+    true
+}
+
 #[cfg(feature = "client")]
 pub fn attach_local_viewmodel(
     commands: &mut Commands,
@@ -226,7 +236,7 @@ pub fn attach_remote_viewmodel(commands: &mut Commands, weapon_entity: Entity, p
         .entity(weapon_entity)
         .remove::<crate::interaction::Interactable>()
         .set_parent_in_place(parent)
-        .insert(viewmodel_offset(true));
+        .insert((viewmodel_offset(true), Visibility::Inherited));
 }
 
 #[cfg(feature = "client")]

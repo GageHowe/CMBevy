@@ -495,24 +495,67 @@ pub(super) fn handle_fire_request(
     let Some(weapon_entity) = find_networked_entity(all_networked, &weapon_net_id) else {
         return;
     };
+    if !fire_weapon_authoritative(
+        shooter_entity,
+        weapon_entity,
+        &weapon_net_id,
+        kind,
+        temp_id,
+        origin,
+        dir,
+        pawn_slots,
+        weapon_runtime,
+        held_weapons,
+        commands,
+        world,
+        net_ids,
+        quic,
+        tick,
+        Some(conn_id),
+    ) {
+        if let Ok((weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::WeaponState(weapon_net_id, *weapon_state),
+            );
+        }
+    }
+}
+
+pub(super) fn fire_weapon_authoritative(
+    shooter_entity: Entity,
+    weapon_entity: Entity,
+    weapon_net_id: &NetworkID,
+    kind: GameObjectKind,
+    temp_id: u32,
+    origin: Vec3,
+    dir: Vec3,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    net_ids: &mut NetworkIDResource,
+    quic: &mut QuicManager,
+    tick: u64,
+    owner_conn: Option<ConnectionId>,
+) -> bool {
+    let Ok(mut slots) = pawn_slots.get_mut(shooter_entity) else {
+        return false;
+    };
+    if !slots.contains_net_id(weapon_net_id) {
+        return false;
+    }
     let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
-        return;
+        return false;
     };
     if weapon_config.projectile_kind != kind
         || !weapon::consume_round(&mut weapon_state, weapon_config)
     {
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::WeaponState(weapon_net_id, *weapon_state),
-        );
-        return;
+        return false;
     }
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
-    );
+    let weapon_state_after_fire = *weapon_state;
     let depleted = weapon::is_depleted(&weapon_state);
     let Some(fired) = (weapon_config.fire_projectile)(
         origin,
@@ -525,27 +568,39 @@ pub(super) fn handle_fire_request(
         world,
         net_ids,
     ) else {
-        return;
+        return false;
     };
-    quic.send(
-        SendTarget::AllExcept(conn_id),
-        Channel::Unordered,
-        &MsgType::SpawnCommand(fired.spawn_cmd),
-    );
-    quic.send(
-        SendTarget::One(conn_id),
-        Channel::Ordered,
-        &MsgType::ProjectileConfirm { temp_id, net_id: fired.net_id },
-    );
     drop(weapon_state);
-    if !depleted {
-        return;
+
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &MsgType::WeaponState(weapon_net_id.clone(), weapon_state_after_fire),
+    );
+    match owner_conn {
+        Some(conn_id) => {
+            quic.send(
+                SendTarget::AllExcept(conn_id),
+                Channel::Unordered,
+                &MsgType::SpawnCommand(fired.spawn_cmd),
+            );
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::ProjectileConfirm { temp_id, net_id: fired.net_id },
+            );
+        }
+        None => {
+            quic.send(SendTarget::All, Channel::Unordered, &MsgType::SpawnCommand(fired.spawn_cmd))
+        }
     }
-    held_weapons.0.remove(&weapon_net_id);
-    if let Ok(mut slots) = pawn_slots.get_mut(shooter_entity) {
-        slots.remove_by_net_id(&weapon_net_id);
+
+    if depleted {
+        held_weapons.0.remove(weapon_net_id);
+        slots.remove_by_net_id(weapon_net_id);
+        commands.entity(weapon_entity).despawn();
     }
-    commands.entity(weapon_entity).despawn();
+    true
 }
 
 pub(super) fn handle_reload_weapon(

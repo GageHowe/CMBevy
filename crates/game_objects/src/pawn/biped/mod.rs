@@ -273,8 +273,11 @@ impl GameObject for BipedPawnComponent {
             let respawn_delay = world
                 .get_resource::<crate::mode::ModeConfig>()
                 .map_or(common::config::RESPAWN_DELAY_SECS, |cfg| cfg.respawn_delay);
+            let team = world.get::<crate::Team>(entity).copied().unwrap_or(crate::Team(0));
             if let Some(mut pending_respawns) = world.get_resource_mut::<super::PendingRespawns>() {
-                pending_respawns.0.insert(conn_id, (respawn_delay, common::GameObjectKind::Biped));
+                pending_respawns
+                    .0
+                    .insert(conn_id, (respawn_delay, common::GameObjectKind::Biped, team));
             }
         }
         true
@@ -304,7 +307,7 @@ fn push_death_message(
         }
         (Some(_), Some(killer_name), _) => format!("{killer_name} killed {victim_name}"),
         (_, _, DamageCause::Explosion) => format!("{victim_name} blew up"),
-        (_, _, DamageCause::Collision) => format!("{victim_name} is gone... reduced to atoms"),
+        (_, _, DamageCause::Collision) => format!("{victim_name} is gone... reduced to atoms..."),
         _ => format!("{victim_name} died"),
     };
 

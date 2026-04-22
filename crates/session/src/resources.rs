@@ -135,10 +135,15 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     pub driver_seats: Query<'w, 's, (&'static DriverSeat, &'static Transform)>,
     pub weapon_states: Query<'w, 's, &'static mut WeaponState>,
     pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
+    pub pending_weapon_pickups: ResMut<'w, PendingWeaponPickups>,
 }
 
 #[cfg(feature = "client")]
 pub(crate) type JustSpawned = HashMap<NetworkID, (Entity, u64)>;
+
+#[cfg(feature = "client")]
+#[derive(Resource, Default)]
+pub(crate) struct PendingWeaponPickups(pub Vec<(NetworkID, NetworkID)>);
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource)]

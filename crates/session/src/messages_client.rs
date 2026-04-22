@@ -139,6 +139,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mp.object_kinds,
             &mut mp.spawn.commands,
             &mut mp.world,
+            Some(&mut mp.pending_weapon_pickups),
         ),
         MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => handle_ability_pickup(
             &carrier_net_id,
@@ -396,8 +397,12 @@ fn handle_weapon_pickup(
     object_kinds: &Query<&GameObjectKind>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
+    mut pending: Option<&mut PendingWeaponPickups>,
 ) {
     let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
+        if let Some(pending) = pending.as_mut() {
+            pending.0.push((weapon_id.clone(), carrier_net_id.clone()));
+        }
         return;
     };
     weapon_helpers::pickup_world_weapon(world, weapon_entity);
@@ -423,13 +428,45 @@ fn handle_weapon_pickup(
         }
         return;
     }
-    let carrier = find_networked_entity(networked, carrier_net_id);
-    let pivot_e = {
-        let q = biped_q.p1();
-        carrier.and_then(|entity| q.get(entity).ok().and_then(|b| b.pitch_pivot))
+    let Some(carrier) = find_networked_entity(networked, carrier_net_id) else {
+        if let Some(pending) = pending.as_mut() {
+            pending.0.push((weapon_id.clone(), carrier_net_id.clone()));
+        }
+        return;
     };
-    if let Some(pivot) = pivot_e {
-        weapon_helpers::attach_remote_viewmodel(commands, weapon_entity, pivot);
+    let parent = {
+        let q = biped_q.p1();
+        q.get(carrier).ok().and_then(|b| b.pitch_pivot).unwrap_or(carrier)
+    };
+    weapon_helpers::attach_remote_viewmodel(commands, weapon_entity, parent);
+}
+
+pub(crate) fn retry_weapon_pickups(
+    mut pending: ResMut<PendingWeaponPickups>,
+    networked: Res<NetworkEntityMap>,
+    camera: Query<Entity, With<Camera3d>>,
+    mut biped_q: ParamSet<(
+        Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
+        Query<&BipedPawnComponent>,
+    )>,
+    object_kinds: Query<&GameObjectKind>,
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+) {
+    let pickups = std::mem::take(&mut pending.0);
+    for (weapon_id, carrier_id) in pickups {
+        handle_weapon_pickup(
+            &weapon_id,
+            &carrier_id,
+            None,
+            &networked,
+            &camera,
+            &mut biped_q,
+            &object_kinds,
+            &mut commands,
+            &mut world,
+            Some(&mut pending),
+        );
     }
 }
 

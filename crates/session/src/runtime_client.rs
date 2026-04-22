@@ -1,12 +1,15 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
 use common::GameObjectKind;
 use game_objects::{
+    Team,
+    bot::{BotContext, BotController},
+    health::Health,
     level::{
         LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
         default_asset_dir, load_level_source, read_cached_map, write_cached_map,
     },
     lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
-    pawn::{InteractionGate, Possessed},
+    pawn::{InteractionGate, Possessed, biped::BipedPawnComponent, spaceship::SpaceshipPawnComponent},
 };
 use net::{
     message::{MsgType, NetworkIDResource},
@@ -53,6 +56,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<PendingWorldReady>()
             .init_resource::<PendingReconciliation>()
+            .init_resource::<PendingWeaponPickups>()
             .insert_resource(ClientSessionState { main_menu })
             .add_systems(
                 OnEnter(single_player),
@@ -63,9 +67,11 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
                 (reset_interaction_gate, cleanup_world, remove_script).chain(),
             )
             .add_systems(FixedUpdate, respawn_singleplayer.run_if(in_state(single_player)))
+            .add_systems(FixedUpdate, run_singleplayer_bots.run_if(in_state(single_player)))
             .add_systems(OnEnter(multiplayer), (reset_interaction_gate, connect).chain())
             .add_systems(OnExit(multiplayer), (cleanup_world, disconnect, remove_script).chain())
             .add_systems(Update, show_transport_notices.run_if(in_state(multiplayer)))
+            .add_systems(Update, messages::retry_weapon_pickups.run_if(in_state(multiplayer)))
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
             .add_systems(Update, mark_world_ready_after_level_load.run_if(in_state(multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
@@ -114,7 +120,7 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
     }
     commands.insert_resource(scripting::ScriptConfig {
         path: sp.gametype.clone(),
-        is_server: false,
+        is_server: true,
         source: None,
     });
     game_objects::messages::push(&mut commands, "Loading map...");
@@ -168,8 +174,70 @@ fn respawn_singleplayer(
         &mut commands,
         &mut net_ids,
     );
-    commands.entity(entity).insert(Possessed::new(128));
+    commands.entity(entity).insert((Possessed::new(128), Team(0)));
     sp.spawned_once = true;
+}
+
+fn run_singleplayer_bots(
+    mut bots: Query<(Entity, &mut BotController)>,
+    actors: Query<(Entity, &Team, &Health)>,
+    mut bipeds: Query<&mut BipedPawnComponent>,
+    mut spaceships: Query<&mut SpaceshipPawnComponent>,
+    mut world: ResMut<PhysicsWorld>,
+) {
+    let actors = actors
+        .iter()
+        .filter_map(|(entity, team, health)| {
+            let body = world
+                .entity_to_handle
+                .get(&entity)
+                .and_then(|handle| world.rigid_body_set.get(*handle))?;
+            Some(BotContext {
+                entity,
+                team: *team,
+                pos: physics::physics_world::rb_pos(body),
+                rot: physics::physics_world::rb_rot(body),
+                vel: physics::physics_world::rb_vel(body),
+                health: health.current,
+                visible: Vec::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+    for (entity, mut bot) in &mut bots {
+        let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
+            continue;
+        };
+        ctx.visible = actors.clone();
+        let output = bot.brain.think(&ctx);
+        let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
+            continue;
+        };
+        match output.input {
+            common::PawnInputKind::Biped(input) => {
+                let Ok(mut biped) = bipeds.get_mut(entity) else {
+                    continue;
+                };
+                game_objects::pawn::biped::apply_biped_input(
+                    &mut world,
+                    entity,
+                    input,
+                    &RigidBodyHandleComponent(handle),
+                    &mut biped,
+                );
+            }
+            common::PawnInputKind::Spaceship(input) => {
+                let Ok(mut ship) = spaceships.get_mut(entity) else {
+                    continue;
+                };
+                game_objects::pawn::spaceship::apply_spaceship_movement(
+                    &mut world,
+                    &RigidBodyHandleComponent(handle),
+                    input,
+                    &mut ship,
+                );
+            }
+        }
+    }
 }
 
 fn load_skybox(

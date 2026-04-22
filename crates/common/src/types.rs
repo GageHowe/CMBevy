@@ -108,6 +108,22 @@ pub enum GameObjectKind {
 }
 
 impl GameObjectKind {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "biped" => Self::Biped,
+            "spaceship" => Self::Spaceship,
+            "planet" => Self::Planet,
+            "pistol" => Self::Pistol,
+            "rifle" => Self::Rifle,
+            "shotgun" => Self::Shotgun,
+            "hail_mary" => Self::HailMary,
+            "rpg" => Self::Rpg,
+            "jetpack" => Self::Jetpack,
+            "dash" => Self::Dash,
+            _ => return None,
+        })
+    }
+
     /// splits CamelCase name -> "Camel Case"
     pub fn interaction_name(&self) -> String {
         let debug = format!("{self:?}");
