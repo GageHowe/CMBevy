@@ -1,21 +1,26 @@
-use bevy::prelude::*;
-use bevy::state::state::FreelyMutableState;
-use common::GameObjectKind;
-use common::tick::{NetworkStats, Ticker};
-use game_objects::NetworkEntityMap;
-use game_objects::health::Health;
-use game_objects::pawn::biped::BipedPawnComponent;
-use game_objects::pawn::{Possessed, SeatedInVehicle, WeaponSlots};
-use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
-use game_objects::weapon::WeaponState;
-use game_objects::weapon::helpers as weapon_helpers;
-use net::message::{MsgType, NetworkID, SpawnCommand};
-use net::quic::QuicManager;
-use physics::physics_world::PhysicsWorld;
+use bevy::{prelude::*, state::state::FreelyMutableState};
+use common::{
+    GameObjectKind,
+    tick::{NetworkStats, Ticker},
+};
+use game_objects::{
+    NetworkEntityMap,
+    health::Health,
+    pawn::{Possessed, SeatedInVehicle, WeaponSlots, biped::BipedPawnComponent},
+    projectile::{PredictedProjectileMap, ProjectileState},
+    weapon::{WeaponState, helpers as weapon_helpers},
+};
+use net::{
+    message::{MsgType, NetworkID, SpawnCommand},
+    quic::QuicManager,
+};
+use physics::physics_world::{PhysicsWorld, Vector3};
 
-use crate::helpers::find_networked_entity;
-use crate::resources::*;
-use crate::runtime::{ClientSessionState, handle_file_data, handle_map_hash};
+use crate::{
+    helpers::find_networked_entity,
+    resources::*,
+    runtime::{ClientSessionState, handle_file_data, handle_map_hash},
+};
 
 pub fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
     let Some(state) = &last.0 else { return };
@@ -44,6 +49,7 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
     let mut just_spawned: JustSpawned = Default::default();
     let mut local_net_id: Option<NetworkID> = possessed_q.single().ok().map(|(_, nid)| nid.clone());
     crate::helpers::drain_inbound(&mut quic, |msg, quic| {
+        net_stats.last_packet_bytes = msg.packet_size;
         process_client_message(
             msg.msg,
             quic,
@@ -82,9 +88,13 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
     match msg {
         MsgType::Connected => {}
         MsgType::MapHash(hash) => handle_map_hash(hash, quic, &mut mp.spawn.commands),
-        MsgType::SpawnCommand(cmd) => {
-            handle_spawn_command(&mut mp.spawn.commands, &mp.networked, just_spawned, cmd, net_stats.rtt_secs)
-        }
+        MsgType::SpawnCommand(cmd) => handle_spawn_command(
+            &mut mp.spawn.commands,
+            &mp.networked,
+            just_spawned,
+            cmd,
+            net_stats.rtt_secs,
+        ),
         MsgType::Possess(net_id) => handle_possess(
             net_id,
             local_net_id,
@@ -102,6 +112,8 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mp.networked,
             &mp.object_kinds,
             &mp.seated,
+            &mp.vehicles,
+            &mp.driver_seats,
             &mut mp.spawn.commands,
             &mut mp.world,
         ),
@@ -127,6 +139,14 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mp.object_kinds,
             &mut mp.spawn.commands,
             &mut mp.world,
+        ),
+        MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => handle_ability_pickup(
+            &carrier_net_id,
+            &pickup_net_id,
+            local_net_id.as_ref(),
+            &mp.networked,
+            &mp.on_pickup_q,
+            &mut mp.spawn.commands,
         ),
         MsgType::WeaponDrop(weapon_id, carrier_id, drop_pos) => handle_weapon_drop(
             &weapon_id,
@@ -165,7 +185,9 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             gui.push_log(format!("pong: {text}"));
         }
         MsgType::ChatMessage(sender, text) => gui.push_log(format!("[{sender}] {text}")),
-        MsgType::OnscreenMessage(text) => game_objects::messages::push(&mut mp.spawn.commands, text),
+        MsgType::OnscreenMessage(text) => {
+            game_objects::messages::push(&mut mp.spawn.commands, text)
+        }
         MsgType::TimePong(bits) => net_stats.record_pong(bits, time.elapsed_secs_f64()),
         MsgType::State(st) => {
             if st.last_input_seq >= last_acked_input_seq.0 {
@@ -259,6 +281,8 @@ fn handle_seat_state(
     networked: &NetworkEntityMap,
     object_kinds: &Query<&GameObjectKind>,
     seated: &Query<&SeatedInVehicle>,
+    vehicles: &Query<&game_objects::pawn::vehicle::VehicleComponent>,
+    driver_seats: &Query<(&game_objects::pawn::vehicle::DriverSeat, &Transform)>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -276,18 +300,45 @@ fn handle_seat_state(
             if local_net_id == Some(biped_net_id)
                 && let Ok(kind) = object_kinds.get(vehicle_entity)
             {
-                game_objects::messages::push(commands, format!("Entered {}", kind.interaction_name()));
+                game_objects::messages::push(
+                    commands,
+                    format!("Entered {}", kind.interaction_name()),
+                );
             }
         }
         None => {
             let old_vehicle = seated.get(biped_entity).ok().map(|seat| seat.0);
-            world.set_body_enabled(biped_entity, true);
+            let predicted_exit = old_vehicle
+                .and_then(|vehicle_entity| {
+                    vehicles.get(vehicle_entity).ok().map(|vehicle| (vehicle_entity, vehicle))
+                })
+                .and_then(|(vehicle_entity, vehicle)| {
+                    driver_seats.get(vehicle.driver_seat).ok().and_then(|(seat, seat_transform)| {
+                        let exit_offset =
+                            seat_transform.rotation * seat.exit_offset + seat_transform.translation;
+                        world.predicted_body_point_after(vehicle_entity, exit_offset, 0.0)
+                    })
+                });
+            if let Some((pos, rot, vel, _)) = predicted_exit {
+                world.set_body_enabled(biped_entity, true);
+                world.set_body_pose(biped_entity, pos, rot, vel, Vec3::ZERO);
+            } else {
+                world.set_body_enabled(biped_entity, true);
+            }
+            if let Some(&handle) = world.entity_to_handle.get(&biped_entity)
+                && let Some(rb) = world.rigid_body_set.get_mut(handle)
+            {
+                rb.set_angvel(Vector3::ZERO, true);
+            }
             commands.entity(biped_entity).remove::<SeatedInVehicle>();
             if local_net_id == Some(biped_net_id)
                 && let Some(vehicle_entity) = old_vehicle
                 && let Ok(kind) = object_kinds.get(vehicle_entity)
             {
-                game_objects::messages::push(commands, format!("Exited {}", kind.interaction_name()));
+                game_objects::messages::push(
+                    commands,
+                    format!("Exited {}", kind.interaction_name()),
+                );
             }
         }
     }
@@ -364,7 +415,10 @@ fn handle_weapon_pickup(
                 weapon_helpers::attach_local_viewmodel(commands, weapon_entity, parent, is_primary);
             }
             if let Ok(kind) = object_kinds.get(weapon_entity) {
-                game_objects::messages::push(commands, format!("Picked up {}", kind.interaction_name()));
+                game_objects::messages::push(
+                    commands,
+                    format!("Picked up {}", kind.interaction_name()),
+                );
             }
         }
         return;
@@ -377,6 +431,29 @@ fn handle_weapon_pickup(
     if let Some(pivot) = pivot_e {
         weapon_helpers::attach_remote_viewmodel(commands, weapon_entity, pivot);
     }
+}
+
+fn handle_ability_pickup(
+    carrier_net_id: &NetworkID,
+    pickup_net_id: &NetworkID,
+    local_net_id: Option<&NetworkID>,
+    networked: &NetworkEntityMap,
+    on_pickup_q: &Query<&game_objects::pawn::biped_ability::OnPickup>,
+    commands: &mut Commands,
+) {
+    if local_net_id != Some(carrier_net_id) {
+        return;
+    }
+    let Some(carrier) = find_networked_entity(networked, carrier_net_id) else {
+        return;
+    };
+    let Some(pickup) = find_networked_entity(networked, pickup_net_id) else {
+        return;
+    };
+    let Ok(&game_objects::pawn::biped_ability::OnPickup(f)) = on_pickup_q.get(pickup) else {
+        return;
+    };
+    f(carrier, pickup, commands);
 }
 
 fn handle_weapon_drop(

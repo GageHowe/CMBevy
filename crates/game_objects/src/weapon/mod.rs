@@ -1,12 +1,11 @@
 #[cfg(feature = "client")]
 use bevy::ecs::system::{In, SystemId};
 use bevy::prelude::*;
+pub use common::WeaponState;
 use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
 
 use crate::{pawn::CameraEffector, projectile::FiredProjectile, sound::SoundQueue};
-
-pub use common::WeaponState;
 
 pub mod hail_mary;
 pub mod helpers;

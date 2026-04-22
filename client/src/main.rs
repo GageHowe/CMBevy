@@ -12,10 +12,8 @@ use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
 use camera::spawn_camera;
 pub use common::game_state::GameState;
 use game_objects::{
-    GameObjectsPlugin,
     pawn::{self, vehicle::draw_driver_seat_debug, *},
     projectile::{hail_mary::HailMaryProjectile, rifle::*, rpg::RpgProjectile, *},
-    weapon::WeaponPlugin,
 };
 use reconciliation::*;
 use tick_sync::TickSyncPlugin;
@@ -29,7 +27,7 @@ mod tick_sync;
 mod ui;
 use game_objects::{
     components::planet::draw_planet_radii,
-    level::{LevelPlugin, MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene},
+    level::{MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene},
 };
 use master_plugin::MasterPlugin;
 use menu::MenuPlugin;
@@ -97,18 +95,14 @@ fn main() {
     );
 
     app.add_plugins(OutlinePlugin)
+        .init_state::<GameState>()
+        .init_state::<UiState>()
         .add_plugins(MasterPlugin)
         .add_plugins(SteamworksPlugin) // prints steam info on Startup
         .add_plugins(SettingsPlugin)
-        .init_state::<GameState>()
-        .init_state::<UiState>()
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MenuPlugin)
-        .add_plugins(GameObjectsPlugin)
-        .add_plugins(PawnPlugin)
-        .add_plugins(LevelPlugin)
-        .add_plugins(WeaponPlugin)
         .add_plugins(HanabiEffectsPlugin)
         .add_plugins(SoundPlugin)
         .add_plugins(ClientSessionPlugin {

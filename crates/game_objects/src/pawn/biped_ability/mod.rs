@@ -1,10 +1,18 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::*;
-use net::message::NetworkID;
+#[cfg(feature = "client")]
+use net::quic::{Channel, QuicManager};
+#[cfg(not(feature = "client"))]
+use net::{
+    message::{NetworkID, SpawnCommand},
+    quic::{Channel, QuicManager, SendTarget},
+};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
+#[cfg(not(feature = "client"))]
+use crate::SpawnGameObjectCommand;
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
 use crate::{GameObjectKind, pawn::biped::BipedPawnComponent, spawn::AppGameObjectExt};
@@ -81,12 +89,35 @@ impl EquippedAbility {
     }
 
     fn drop(self, pos: Vec3, vel: Vec3, world: &mut World) {
-        let net_id =
-            world.get_resource_mut::<common::NetworkIDResource>().map(|mut r| NetworkID(r.next()));
-        let entity = world.spawn_empty().id();
-        if let Some(net_id) = net_id {
-            world.entity_mut(entity).insert(net_id);
+        #[cfg(not(feature = "client"))]
+        {
+            if let Some(net_id) = world
+                .get_resource_mut::<common::NetworkIDResource>()
+                .map(|mut r| NetworkID(r.next()))
+            {
+                let entity = world.spawn_empty().id();
+                let cmd = SpawnCommand {
+                    net_id,
+                    position: pos,
+                    starting_velocity: vel,
+                    shooter_velocity: Vec3::ZERO,
+                    rotation: Quat::IDENTITY,
+                    server_tick: world.resource::<common::tick::Ticker>().tick,
+                    kind: self.kind.clone(),
+                };
+                SpawnGameObjectCommand { entity, cmd: cmd.clone() }.apply(world);
+                if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+                    quic.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &net::message::MsgType::SpawnCommand(cmd),
+                    );
+                }
+                return;
+            }
         }
+
+        let entity = world.spawn_empty().id();
         spawn_ability_pickup(
             entity,
             pos,
@@ -163,10 +194,13 @@ fn attach_ability_to_biped<A: BipedAbility + Send + 'static>(owner: Entity, worl
     }
 }
 
+const DROP_SPEED: f32 = 8.0;
+
 /// Drops the equipped ability of `owner`. `throw_vel` is added on top of the owner's physics velocity.
 fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
     let (vel, pos) = {
         let physics = world.resource::<PhysicsWorld>();
+        let forward = throw_vel.normalize_or_zero();
         let vel = physics
             .entity_to_handle
             .get(&owner)
@@ -180,7 +214,7 @@ fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
             .entity_to_handle
             .get(&owner)
             .and_then(|h| physics.rigid_body_set.get(*h))
-            .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::Y * 1.2)
+            .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::Y * 1.2 + forward)
             .or_else(|| world.get::<Transform>(owner).map(|t| t.translation + Vec3::Y * 1.2))
             .unwrap_or(Vec3::Y * 1.2);
         (vel + throw_vel, pos)
@@ -279,7 +313,7 @@ pub struct DropActiveAbility {
 
 impl bevy::ecs::system::Command for DropActiveAbility {
     fn apply(self, world: &mut World) {
-        drop_owned_ability(self.owner, self.aim_dir * 5.0, world);
+        drop_owned_ability(self.owner, self.aim_dir.normalize_or_zero() * DROP_SPEED, world);
     }
 }
 
@@ -317,10 +351,12 @@ fn drop_active_ability_input(
     mouse: Res<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     bindings: Res<common::ActiveKeyBindings>,
+    state: Res<State<common::game_state::GameState>>,
     possessed: Query<Entity, With<super::Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<super::PitchPivot>>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
     mut commands: Commands,
+    mut quic: Option<ResMut<QuicManager>>,
     mut drop_pressed_latched: Local<bool>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
@@ -343,6 +379,12 @@ fn drop_active_ability_input(
         );
 
     if drop_pressed {
-        commands.queue(DropActiveAbility { owner: pawn_entity, aim_dir });
+        if matches!(state.get(), common::game_state::GameState::Multiplayer)
+            && let Some(quic) = quic.as_mut()
+        {
+            quic.send_to_server(Channel::Ordered, &net::message::MsgType::DropAbility(aim_dir));
+        } else {
+            commands.queue(DropActiveAbility { owner: pawn_entity, aim_dir });
+        }
     }
 }

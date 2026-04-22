@@ -22,7 +22,9 @@ pub use components::{atmosphere, planet};
 pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers};
 pub use network_index::NetworkEntityMap;
-pub use spawn::{GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death};
+pub use spawn::{
+    GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death,
+};
 
 pub struct GameObjectsPlugin;
 
@@ -51,6 +53,9 @@ impl Plugin for GameObjectsPlugin {
                     network_index::index_removed_rigid_bodies,
                 ),
             );
+        app.add_plugins(pawn::PawnPlugin);
+        app.add_plugins(projectile::ProjectilePlugin);
+        app.add_plugins(weapon::WeaponPlugin);
     }
 }
 

@@ -15,8 +15,7 @@ use game_objects::{
     },
     pawn::{
         GatherInputSet, Pawn, Possessed, SeatedInVehicle, biped::BipedPawnComponent,
-        biped_ability::EquippedAbility,
-        spaceship::SpaceshipPawnComponent,
+        biped_ability::EquippedAbility, spaceship::SpaceshipPawnComponent,
     },
 };
 use physics::physics_world::{
@@ -87,8 +86,15 @@ struct ReplayState {
 struct ReplayPhysicsEnv<'w, 's> {
     gravity_sources: Query<'w, 's, (&'static GravitySource, &'static RigidBodyHandleComponent)>,
     snap_sources: Query<'w, 's, (&'static SnapSource, &'static RigidBodyHandleComponent)>,
-    atmospheres:
-        Query<'w, 's, (&'static AtmosphericDragComponent, &'static Transform, Option<&'static RigidBodyHandleComponent>)>,
+    atmospheres: Query<
+        'w,
+        's,
+        (
+            &'static AtmosphericDragComponent,
+            &'static Transform,
+            Option<&'static RigidBodyHandleComponent>,
+        ),
+    >,
     gravity_scales: Query<'w, 's, &'static GravityScale>,
 }
 
@@ -221,10 +227,9 @@ fn maybe_reconcile(
     let possessed_entity = networked.get_entity(our_net_id);
 
     restore_snapshot(&mut world, &snapshot, &pairs);
-    if let (Some(Some(saved)), Ok(mut biped)) = (
-        history.0.get(&snapshot.last_input_seq).map(|saved| saved.biped),
-        pawn_q.p0().single_mut(),
-    ) {
+    if let (Some(Some(saved)), Ok(mut biped)) =
+        (history.0.get(&snapshot.last_input_seq).map(|saved| saved.biped), pawn_q.p0().single_mut())
+    {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
     }
@@ -315,7 +320,9 @@ fn apply_predicted_tick(
 ) {
     let handle = RigidBodyHandleComponent(our_rb);
     let handled = if let Ok(mut b) = pawn_q.p0().single_mut() {
-        if let (Some(owner_entity), common::PawnInputKind::Biped(input)) = (owner_entity, tick.input.clone()) {
+        if let (Some(owner_entity), common::PawnInputKind::Biped(input)) =
+            (owner_entity, tick.input.clone())
+        {
             let _ = game_objects::pawn::biped::apply_biped_input(
                 world,
                 owner_entity,

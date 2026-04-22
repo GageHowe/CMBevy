@@ -141,8 +141,10 @@ use common::PredictedCommands;
 pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 #[cfg(feature = "client")]
 use net::message::MsgType;
-use net::{message::NetworkID, quic::ConnectionId};
-use net::quic::{Channel, QuicManager, SendTarget};
+use net::{
+    message::NetworkID,
+    quic::{Channel, ConnectionId, QuicManager, SendTarget},
+};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
@@ -164,12 +166,7 @@ pub struct PlayerRegistry {
     conn_by_character_entity: HashMap<Entity, ConnectionId>,
 }
 impl PlayerRegistry {
-    pub fn register_character(
-        &mut self,
-        conn_id: ConnectionId,
-        entity: Entity,
-        net_id: NetworkID,
-    ) {
+    pub fn register_character(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
         self.controlled_by_conn.insert(conn_id, (entity, net_id.clone()));
         if let Some((old_entity, _)) =
             self.character_by_conn.insert(conn_id, (entity, net_id.clone()))
@@ -245,7 +242,11 @@ pub fn possess_pawn(
     quic: &mut QuicManager,
 ) {
     registry.set_controlled_pawn(conn_id, entity, net_id.clone());
-    quic.send(SendTarget::One(conn_id), Channel::Ordered, &net::message::MsgType::Possess(net_id.clone()));
+    quic.send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &net::message::MsgType::Possess(net_id.clone()),
+    );
 }
 
 /// Broadcasts whether a character is seated in a vehicle.
@@ -273,12 +274,10 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
-        app.init_resource::<InteractionGate>()
-            .init_resource::<InteractionHint>()
-            .add_systems(
-                PostUpdate,
-                apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
-            );
+        app.init_resource::<InteractionGate>().init_resource::<InteractionHint>().add_systems(
+            PostUpdate,
+            apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
+        );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);

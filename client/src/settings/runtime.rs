@@ -97,7 +97,6 @@ pub fn sync_dynamic_graphics_settings(
         let mut camera = commands.entity(camera_entity);
         apply_camera_graphics(&mut camera, &settings, window_size);
     }
-
 }
 
 fn apply_camera_graphics(

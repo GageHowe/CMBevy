@@ -5,11 +5,7 @@ use rapier3d::prelude::*;
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
-use crate::{
-    GameObject, GameObjectKind,
-    projectile::rpg,
-    spawn::AppGameObjectExt,
-};
+use crate::{GameObject, GameObjectKind, projectile::rpg, spawn::AppGameObjectExt};
 
 pub const COOLDOWN_TICKS: u32 = 45;
 pub const MAGAZINE_SIZE: u16 = 1;

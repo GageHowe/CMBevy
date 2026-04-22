@@ -1,18 +1,23 @@
-use bevy::ecs::system::{Command, SystemState};
-use bevy::prelude::*;
+use bevy::{
+    ecs::system::{Command, SystemState},
+    prelude::*,
+};
 use common::{LeaderboardScope, ScoringOption};
-use game_objects::SpawnGameObjectCommand;
-use game_objects::health::Health;
-use game_objects::level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source};
-use game_objects::mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers};
-use game_objects::pawn::{PendingRespawns, PlayerRegistry, SeatedInVehicle};
-use net::message::*;
-use net::quic::*;
+use game_objects::{
+    SpawnGameObjectCommand,
+    health::Health,
+    level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
+    mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, TeamNumbers},
+    pawn::{PendingRespawns, PlayerRegistry, SeatedInVehicle},
+};
+use net::{message::*, quic::*};
 use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
 
-use crate::replication::{broadcast_health_updates, broadcast_scoreboard, broadcast_tick, spawn_player};
-use crate::resources::*;
+use crate::{
+    replication::{broadcast_health_updates, broadcast_scoreboard, broadcast_tick, spawn_player},
+    resources::*,
+};
 
 pub struct ServerSessionPlugin {
     pub bind_addr: std::net::SocketAddr,
@@ -39,7 +44,8 @@ impl Plugin for ServerSessionPlugin {
             )
             .configure_sets(
                 FixedUpdate,
-                game_objects::projectile::ProjectileAuthoritySet.run_if(crate::runtime::has_authority),
+                game_objects::projectile::ProjectileAuthoritySet
+                    .run_if(crate::runtime::has_authority),
             )
             .configure_sets(
                 FixedUpdate,
@@ -220,6 +226,7 @@ fn process_console_commands(
                     quic.inbound.push_back(InboundMessage {
                         conn_id: id,
                         channel: Channel::Ordered,
+                        packet_size: 0,
                         msg: MsgType::Disconnected,
                     });
                 } else {

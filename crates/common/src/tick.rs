@@ -9,6 +9,7 @@ pub struct Ticker {
 #[derive(Resource, Default)]
 pub struct NetworkStats {
     pub rtt_secs: f32,
+    pub last_packet_bytes: usize,
 }
 
 impl NetworkStats {

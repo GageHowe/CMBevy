@@ -5,9 +5,7 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
-use physics::physics_world::{
-    PhysicsWorld, rb_angvel, rb_point_vel, rb_pos, rb_rot, rb_vel, step_physics,
-};
+use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
 
 use super::Pawn;
 #[cfg(feature = "client")]
@@ -137,17 +135,10 @@ pub fn exit_vehicle(
     let biped_entity = seat.occupant.take()?;
 
     let exit_offset = seat_transform.rotation * seat.exit_offset + seat_transform.translation;
-    // let (exit_pos, vehicle_rot, exit_vel, vehicle_angvel) =
-    //     world.predicted_body_point(vehicle_entity, exit_offset)?;
-    let vehicle_body =
-        world.entity_to_handle.get(&vehicle_entity).and_then(|&h| world.rigid_body_set.get(h))?;
-    let vehicle_pos = rb_pos(vehicle_body);
-    let vehicle_rot = rb_rot(vehicle_body);
-    let exit_pos = seat_world_point(vehicle_pos, vehicle_rot, exit_offset);
-    let exit_vel = rb_point_vel(vehicle_body, exit_pos);
-    let exit_rot = vehicle_rot * seat_transform.rotation;
+    let (exit_pos, vehicle_rot, exit_vel, _) =
+        world.predicted_body_point_after(vehicle_entity, exit_offset, 0.0)?;
     world.set_body_enabled(biped_entity, true);
-    world.set_body_pose(biped_entity, exit_pos, exit_rot, exit_vel, Vec3::ZERO);
+    world.set_body_pose(biped_entity, exit_pos, vehicle_rot, exit_vel, Vec3::ZERO);
     Some(biped_entity)
 }
 
@@ -309,10 +300,7 @@ fn vehicle_exit_interact(
             commands.entity(vehicle_entity).remove::<Possessed>();
             commands.entity(biped_entity).remove::<SeatedInVehicle>().insert(Possessed::new(128));
             if let Ok(kind) = object_kinds.get(vehicle_entity) {
-                crate::messages::push(
-                    &mut commands,
-                    format!("Exited {}", kind.interaction_name()),
-                );
+                crate::messages::push(&mut commands, format!("Exited {}", kind.interaction_name()));
             }
         }
         _ => {}

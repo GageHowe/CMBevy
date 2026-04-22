@@ -232,11 +232,11 @@ impl Plugin for RifleProjectilePlugin {
         app.register_game_object::<RifleProjectile>()
             .register_game_object::<PistolProjectile>()
             .add_systems(
-            FixedUpdate,
-            (tick_projectiles::<RifleProjectile>, tick_projectiles::<PistolProjectile>)
-                .after(step_physics)
-                .in_set(super::ProjectileAuthoritySet),
-        );
+                FixedUpdate,
+                (tick_projectiles::<RifleProjectile>, tick_projectiles::<PistolProjectile>)
+                    .after(step_physics)
+                    .in_set(super::ProjectileAuthoritySet),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             bevy::prelude::Update,

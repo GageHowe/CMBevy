@@ -166,7 +166,7 @@ pub fn apply_raycast_hit<P: Projectile>(
 ) {
     apply_hit_impulse::<P>(world, hit.entity, hit.dir, Some(hit.point));
     if let Ok(mut health) = health_q.get_mut(hit.entity) {
-        attribute_damage(last_damage_q, hit.entity, shooter);
+        attribute_damage(last_damage_q, hit.entity, shooter, P::DAMAGE_CAUSE);
         health.apply_damage(damage);
     }
 }

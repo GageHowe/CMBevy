@@ -1,9 +1,10 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::level::LevelBytes;
-use game_objects::pawn::{PendingRespawns, PlayerRegistry};
-use net::message::*;
-use net::quic::*;
+use game_objects::{
+    level::LevelBytes,
+    pawn::{PendingRespawns, PlayerRegistry},
+};
+use net::{message::*, quic::*};
 use scripting::ScriptConfig;
 
 use crate::{actions::*, connections::*, resources::*};
@@ -124,6 +125,9 @@ fn process_server_message(
             quic,
             drop_dir,
         ),
+        MsgType::DropAbility(drop_dir) => {
+            handle_drop_ability(conn_id, registry, &mut sp.commands, drop_dir);
+        }
         MsgType::SetActiveWeaponSlot(active_primary) => handle_set_active_weapon_slot(
             conn_id,
             active_primary,

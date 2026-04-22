@@ -38,11 +38,21 @@ pub struct HealthRegen {
     pub per_sec: f32,
 }
 
-/// Tracks the most recent gameplay-owned attacker for a health-bearing entity so match scripts
-/// can resolve kills without re-implementing attribution logic in Lua.
+#[derive(Clone, Copy, Default, Reflect)]
+pub enum DamageCause {
+    #[default]
+    Unknown,
+    Collision,
+    Projectile,
+    Sniper,
+    Explosion,
+}
+
+/// Tracks the most recent gameplay-owned attacker and damage cause for death handling.
 #[derive(Component, Clone, Copy, Default, Reflect)]
 pub struct LastDamageSource {
     pub attacker: Option<Entity>,
+    pub cause: DamageCause,
     pub age_secs: f32,
 }
 
@@ -120,6 +130,7 @@ pub fn apply_collision_damage(
     world: Res<PhysicsWorld>,
     has_health_q: Query<Option<&CollisionDamageConfig>, With<Health>>,
     mut health_q: Query<&mut Health>,
+    mut last_damage_q: Query<&mut LastDamageSource>,
 ) {
     let mut damage_map: HashMap<Entity, f32> = HashMap::new();
     for pair in world.narrow_phase.contact_pairs() {
@@ -158,6 +169,11 @@ pub fn apply_collision_damage(
 
     for (entity, damage) in damage_map {
         if let Ok(mut health) = health_q.get_mut(entity) {
+            if let Ok(mut last_damage) = last_damage_q.get_mut(entity) {
+                last_damage.attacker = None;
+                last_damage.cause = DamageCause::Collision;
+                last_damage.age_secs = 0.0;
+            }
             health.apply_damage(damage);
         }
     }
@@ -169,12 +185,13 @@ fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageS
         return;
     }
     for mut last_damage in &mut q {
-        if last_damage.attacker.is_none() {
+        if last_damage.attacker.is_none() && matches!(last_damage.cause, DamageCause::Unknown) {
             continue;
         }
         last_damage.age_secs += dt;
         if last_damage.age_secs > DAMAGE_ATTRIBUTION_WINDOW_SECS {
             last_damage.attacker = None;
+            last_damage.cause = DamageCause::Unknown;
         }
     }
 }
@@ -192,6 +209,7 @@ fn regenerate_health(time: Res<Time<Fixed>>, mut health_q: Query<(&mut Health, &
     }
 }
 
+/// calls GameObject::on_death for objects that have been killed, and despawns if it returns true
 pub fn handle_deaths(world: &mut World) {
     let dead: Vec<(Entity, Option<common::GameObjectKind>)> = {
         let mut q = world
@@ -225,11 +243,13 @@ pub fn attribute_damage(
     last_damage_q: &mut Query<&mut LastDamageSource>,
     victim: Entity,
     attacker: Option<Entity>,
+    cause: DamageCause,
 ) {
     let Ok(mut last_damage) = last_damage_q.get_mut(victim) else {
         return;
     };
     last_damage.attacker = attacker;
+    last_damage.cause = cause;
     last_damage.age_secs = 0.0;
 }
 

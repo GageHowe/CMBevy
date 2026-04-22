@@ -28,6 +28,7 @@ pub enum Channel {
 pub struct InboundMessage {
     pub conn_id: ConnectionId,
     pub channel: Channel,
+    pub packet_size: usize,
     pub msg: MsgType,
 }
 
@@ -41,6 +42,7 @@ pub enum SendTarget {
 #[derive(Resource, Default)]
 pub struct QuicManager {
     pub inbound: VecDeque<InboundMessage>,
+    pub notices: VecDeque<String>,
     pub(crate) outbound: VecDeque<(SendTarget, Channel, MsgType)>,
     #[cfg(feature = "client")]
     pub client_connected: bool,
@@ -67,6 +69,8 @@ pub(crate) enum TransportEvent {
     Connected(ConnectionId),
     Disconnected(ConnectionId),
     Message(InboundMessage),
+    #[cfg(feature = "client")]
+    Notice(String),
 }
 
 pub(crate) fn encode_message(msg: &MsgType) -> Result<Vec<u8>, String> {
@@ -91,6 +95,7 @@ pub(crate) fn drain_transport_events(quic: &mut QuicManager, events: Vec<Transpo
                 quic.inbound.push_back(InboundMessage {
                     conn_id,
                     channel: Channel::Ordered,
+                    packet_size: 0,
                     msg: MsgType::Connected,
                 });
             }
@@ -103,10 +108,13 @@ pub(crate) fn drain_transport_events(quic: &mut QuicManager, events: Vec<Transpo
                 quic.inbound.push_back(InboundMessage {
                     conn_id,
                     channel: Channel::Ordered,
+                    packet_size: 0,
                     msg: MsgType::Disconnected,
                 });
             }
             TransportEvent::Message(message) => quic.inbound.push_back(message),
+            #[cfg(feature = "client")]
+            TransportEvent::Notice(message) => quic.notices.push_back(message),
         }
     }
 }
@@ -117,10 +125,15 @@ pub(crate) fn forward_decoded_message(
     bytes: Vec<u8>,
     event_tx: &std::sync::mpsc::Sender<TransportEvent>,
 ) {
+    let packet_size = bytes.len();
     match decode_message(&bytes) {
         Ok(msg) => {
-            let _ =
-                event_tx.send(TransportEvent::Message(InboundMessage { conn_id, channel, msg }));
+            let _ = event_tx.send(TransportEvent::Message(InboundMessage {
+                conn_id,
+                channel,
+                packet_size,
+                msg,
+            }));
         }
         Err(e) => eprintln!("[conn {conn_id}] decode error: {e}"),
     }

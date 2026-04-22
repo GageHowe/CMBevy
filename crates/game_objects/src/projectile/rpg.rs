@@ -15,7 +15,7 @@ use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 use crate::pawn::{CameraEffector, CameraShake};
 use crate::{
     GameObject,
-    health::{Health, LastDamageSource, attribute_damage},
+    health::{DamageCause, Health, LastDamageSource, attribute_damage},
     spawn::AppGameObjectExt,
 };
 
@@ -208,11 +208,8 @@ fn explode(
     #[cfg(feature = "client")]
     let inherit_velocity = direct_hit
         .and_then(|entity| {
-            let hit_point = direct_hit_impulse.and_then(
-                |(hit, _, hit_point)| {
-                    if hit == entity { Some(hit_point) } else { None }
-                },
-            );
+            let hit_point = direct_hit_impulse
+                .and_then(|(hit, _, hit_point)| if hit == entity { Some(hit_point) } else { None });
             let handle = world.entity_to_handle.get(&entity).copied()?;
             let rb = world.rigid_body_set.get(handle)?;
             Some(match hit_point {
@@ -302,7 +299,7 @@ fn explode(
                     if shooter == Some(entity) {
                         damage *= SELF_DAMAGE_SCALE;
                     }
-                    attribute_damage(last_damage_q, entity, shooter);
+                    attribute_damage(last_damage_q, entity, shooter, DamageCause::Explosion);
                     health.apply_damage(damage);
                     health.apply_percent_damage(0.2 * falloff);
                 }

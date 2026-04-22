@@ -9,7 +9,7 @@ use rapier3d::prelude::*;
 use super::*;
 use crate::{
     GameObject, GameObjectKind,
-    health::{Health, HealthRegen, LastDamageSource},
+    health::{DamageCause, Health, HealthRegen, LastDamageSource},
     spawn::AppGameObjectExt,
 };
 
@@ -211,22 +211,20 @@ impl GameObject for BipedPawnComponent {
             .map(|slots| slots.held_weapons().map(|(net_id, _)| (net_id, drop_pos)).collect())
             .unwrap_or_default();
         #[cfg(feature = "client")]
-        if let Some(fx_entity) = world
-            .get::<BipedPawnComponent>(entity)
-            .and_then(|biped| biped.jetpack_fx_entity)
+        if let Some(fx_entity) =
+            world.get::<BipedPawnComponent>(entity).and_then(|biped| biped.jetpack_fx_entity)
         {
             if let Ok(fx) = world.get_entity_mut(fx_entity) {
                 fx.despawn();
             }
         }
         let owner_net_id = world.get::<NetworkID>(entity).cloned();
-        let killer = world
-            .get::<LastDamageSource>(entity)
-            .copied()
-            .and_then(LastDamageSource::resolved_attacker);
+        let last_damage = world.get::<LastDamageSource>(entity).copied().unwrap_or_default();
+        let killer = last_damage.resolved_attacker();
         let conn_id = world
             .get_resource::<super::PlayerRegistry>()
             .and_then(|registry| registry.conn_id_for_character(entity));
+        push_death_message(world, entity, killer, last_damage.cause);
         let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
             crate::weapon::helpers::place_world_weapon(
@@ -283,11 +281,53 @@ impl GameObject for BipedPawnComponent {
     }
 }
 
+fn push_death_message(
+    world: &mut World,
+    victim: Entity,
+    killer: Option<Entity>,
+    cause: DamageCause,
+) {
+    let victim_name = player_name(world, victim);
+    let killer_name = killer.map(|killer| player_name(world, killer));
+    let text = match (killer, killer_name, cause) {
+        (Some(killer), Some(_), DamageCause::Explosion) if killer == victim => {
+            format!("{victim_name} blew themselves up")
+        }
+        (Some(killer), Some(_), _) if killer == victim => {
+            format!("{victim_name} committed suicide")
+        }
+        (Some(_), Some(killer_name), DamageCause::Sniper) => {
+            format!("{killer_name} sniped {victim_name}")
+        }
+        (Some(_), Some(killer_name), DamageCause::Explosion) => {
+            format!("{killer_name} blew up {victim_name}")
+        }
+        (Some(_), Some(killer_name), _) => format!("{killer_name} killed {victim_name}"),
+        (_, _, DamageCause::Explosion) => format!("{victim_name} blew up"),
+        (_, _, DamageCause::Collision) => format!("{victim_name} is gone... reduced to atoms"),
+        _ => format!("{victim_name} died"),
+    };
+
+    #[cfg(not(feature = "client"))]
+    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+        quic.send(SendTarget::All, Channel::Ordered, &MsgType::OnscreenMessage(text));
+        return;
+    }
+    crate::messages::push_world(world, text);
+}
+
+fn player_name(world: &World, entity: Entity) -> String {
+    world
+        .get_resource::<super::PlayerRegistry>()
+        .and_then(|registry| registry.conn_id_for_character(entity))
+        .map(|conn_id| format!("Player {conn_id}"))
+        .unwrap_or_else(|| "Player".to_string())
+}
+
 pub struct BipedPlugin;
 impl Plugin for BipedPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<BipedPawnComponent>()
-            .init_resource::<MouseSensitivity>();
+        app.register_game_object::<BipedPawnComponent>().init_resource::<MouseSensitivity>();
         app.add_systems(FixedUpdate, update_slide_camera);
         #[cfg(feature = "client")]
         client::configure(app);

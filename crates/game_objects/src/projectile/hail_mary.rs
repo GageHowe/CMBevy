@@ -6,7 +6,7 @@ use physics::physics_world::*;
 use super::{Projectile, helpers, tick_projectiles};
 use crate::{
     GameObject,
-    health::{Health, LastDamageSource},
+    health::{DamageCause, Health, LastDamageSource},
     sound::SoundEmitter,
     spawn::AppGameObjectExt,
 };
@@ -31,6 +31,7 @@ impl Projectile for HailMaryProjectile {
     const KIND: GameObjectKind = GameObjectKind::HailMaryProjectile;
     const SPEED: f32 = SPEED;
     const KNOCKBACK: f32 = 1.5;
+    const DAMAGE_CAUSE: DamageCause = DamageCause::Sniper;
 
     fn tick(
         &mut self,

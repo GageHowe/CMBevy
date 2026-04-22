@@ -5,7 +5,7 @@ use physics::physics_world::*;
 
 use crate::{
     GameObject,
-    health::{Health, LastDamageSource},
+    health::{DamageCause, Health, LastDamageSource},
 };
 
 pub mod hail_mary;
@@ -50,6 +50,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
     const SPEED: f32;
     const KNOCKBACK: f32 = 0.0;
     const SHOOTER_KNOCKBACK: f32 = Self::KNOCKBACK;
+    const DAMAGE_CAUSE: DamageCause = DamageCause::Projectile;
     /// Handles lifetime, hit detection, and on-hit effects.
     /// Server-side / singleplayer only — caller registers with appropriate run_if.
     fn tick(

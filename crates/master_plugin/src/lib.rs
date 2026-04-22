@@ -5,10 +5,11 @@
 use bevy::prelude::*;
 use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
 use game_objects::{
+    GameObjectsPlugin,
     components::{atmosphere::AtmospherePlugin, planet::PlanetPlugin},
     generic::swap_hull_colliders,
     health::HealthPlugin,
-    projectile::ProjectilePlugin,
+    level::LevelPlugin,
 };
 #[cfg(feature = "client")]
 use net::clientonly::NetClientPlugin;
@@ -28,8 +29,9 @@ impl Plugin for MasterPlugin {
         app.add_plugins(PlanetPlugin);
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
+        app.add_plugins(GameObjectsPlugin);
         app.add_plugins(HealthPlugin);
-        app.add_plugins(ProjectilePlugin);
+        app.add_plugins(LevelPlugin);
         app.add_systems(FixedUpdate, swap_hull_colliders);
 
         // tick should increment after everything else in FixedUpdate

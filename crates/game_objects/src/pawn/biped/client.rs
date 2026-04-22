@@ -49,6 +49,7 @@ pub fn configure(app: &mut App) {
         .add_systems(
             Update,
             (
+                reset_look_on_possess.before(attach_camera_on_possess),
                 attach_camera_on_possess,
                 hide_weapons_while_seated,
                 switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
@@ -234,6 +235,33 @@ fn attach_camera_on_possess(
     crate::weapon::helpers::set_local_slot_visibility(&mut commands, slots);
 }
 
+fn reset_look_on_possess(
+    mut bipeds: Query<&mut BipedPawnComponent, Added<Possessed>>,
+    mut pivots: ParamSet<(
+        Query<(&mut Transform, &mut YawPivot)>,
+        Query<(&mut Transform, &mut PitchPivot)>,
+    )>,
+) {
+    let Ok(mut biped) = bipeds.single_mut() else {
+        return;
+    };
+    if let Some(yaw_e) = biped.yaw_pivot
+        && let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e)
+    {
+        pivot.yaw = 0.0;
+        t.rotation = Quat::IDENTITY;
+    }
+    if let Some(pitch_e) = biped.pitch_pivot
+        && let Ok((mut t, mut pivot)) = pivots.p1().get_mut(pitch_e)
+    {
+        pivot.pitch = 0.0;
+        t.rotation = Quat::IDENTITY;
+    }
+    biped.look_yaw = 0.0;
+    biped.look_pitch = 0.0;
+    biped.last_look_frame_body_rot = None;
+}
+
 fn hide_weapons_while_seated(
     seated: Query<&WeaponSlots, Added<SeatedInVehicle>>,
     mut commands: Commands,
@@ -413,7 +441,7 @@ struct InteractInputParams<'w> {
 
 enum InteractTarget {
     Vehicle { cockpit_entity: Entity, vehicle_entity: Entity },
-    Entity { hit_entity: Entity, net_id: net::message::NetworkID },
+    Entity { hit_entity: Entity, net_id: Option<net::message::NetworkID> },
 }
 
 fn format_interaction_prompt(key: &str, verb: &str, kind: GameObjectKind) -> String {
@@ -426,7 +454,7 @@ fn current_interact_target(
     forward: Vec3,
     world: &PhysicsWorld,
     interactables: &Query<
-        (&net::message::NetworkID, &crate::interaction::Interactable),
+        (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
         With<crate::interaction::Interactable>,
     >,
     cockpits: &Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
@@ -461,7 +489,7 @@ fn current_interact_target(
     if !interactable_in_range(world, pawn_entity, hit_entity, interactable.range) {
         return None;
     }
-    Some(InteractTarget::Entity { hit_entity, net_id: net_id.clone() })
+    Some(InteractTarget::Entity { hit_entity, net_id: net_id.cloned() })
 }
 
 fn interactable_in_range(
@@ -484,7 +512,7 @@ fn update_interaction_hint(
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     bindings: Res<common::ActiveKeyBindings>,
     interactables: Query<
-        (&net::message::NetworkID, &crate::interaction::Interactable),
+        (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
         With<crate::interaction::Interactable>,
     >,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
@@ -542,7 +570,7 @@ fn interact(
     mut input: InteractInputParams,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     interactables: Query<
-        (&net::message::NetworkID, &crate::interaction::Interactable),
+        (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
         With<crate::interaction::Interactable>,
     >,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
@@ -633,18 +661,26 @@ fn interact(
         },
         InteractTarget::Entity { hit_entity, net_id: interact_net_id } => {
             if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = pickup_fns.get(hit_entity) {
-                f(pawn_entity, hit_entity, &mut commands);
-                if matches!(state.get(), GameState::Multiplayer) {
-                    quic.send_to_server(
-                        net::quic::Channel::Ordered,
-                        &net::message::MsgType::Interact(interact_net_id),
-                    );
+                match state.get() {
+                    GameState::SinglePlayer => f(pawn_entity, hit_entity, &mut commands),
+                    GameState::Multiplayer => {
+                        if let Some(interact_net_id) = interact_net_id {
+                            quic.send_to_server(
+                                net::quic::Channel::Ordered,
+                                &net::message::MsgType::Interact(interact_net_id),
+                            );
+                        }
+                    }
+                    _ => {}
                 }
                 return;
             }
 
             match state.get() {
                 GameState::SinglePlayer => {
+                    let Some(interact_net_id) = interact_net_id else {
+                        return;
+                    };
                     let Ok(mut slots) = possessed_q.single_mut() else {
                         return;
                     };
@@ -690,10 +726,12 @@ fn interact(
                     }
                 }
                 GameState::Multiplayer => {
-                    quic.send_to_server(
-                        net::quic::Channel::Ordered,
-                        &net::message::MsgType::Interact(interact_net_id),
-                    );
+                    if let Some(interact_net_id) = interact_net_id {
+                        quic.send_to_server(
+                            net::quic::Channel::Ordered,
+                            &net::message::MsgType::Interact(interact_net_id),
+                        );
+                    }
                 }
                 _ => {}
             }

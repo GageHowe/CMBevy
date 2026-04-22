@@ -1,15 +1,11 @@
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
-#[cfg(feature = "client")]
-use crate::projectile::helpers as projectile_helpers;
 
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
-use crate::{
-    GameObject, GameObjectKind,
-    projectile::hail_mary,
-    spawn::AppGameObjectExt,
-};
+#[cfg(feature = "client")]
+use crate::projectile::helpers as projectile_helpers;
+use crate::{GameObject, GameObjectKind, projectile::hail_mary, spawn::AppGameObjectExt};
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
@@ -19,8 +15,7 @@ const MUZZLE_FLASH_TICKS: u8 = 3;
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryComponent>()
-            .add_systems(FixedUpdate, tick_muzzle_flash);
+        app.register_game_object::<HailMaryComponent>().add_systems(FixedUpdate, tick_muzzle_flash);
     }
 }
 

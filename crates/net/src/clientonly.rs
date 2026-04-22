@@ -94,7 +94,11 @@ impl Plugin for NetClientPlugin {
 impl QuicManager {
     /// Client-side send path. `SendTarget` is meaningless on the client.
     pub fn send_to_server(&mut self, channel: Channel, msg: &crate::message::MsgType) {
-        self.outbound.push_back((crate::quic::SendTarget::One(SERVER_CONN_ID), channel, msg.clone()));
+        self.outbound.push_back((
+            crate::quic::SendTarget::One(SERVER_CONN_ID),
+            channel,
+            msg.clone(),
+        ));
     }
 
     pub fn connect(&mut self, server_addr: SocketAddr) {
@@ -172,8 +176,16 @@ fn run_client_worker(
             .await
             {
                 Ok(Ok(connection)) => break connection,
-                Ok(Err(e)) => eprintln!("Failed to open QUIC connection: {e}; retrying..."),
-                Err(_) => eprintln!("Timed out opening QUIC connection; retrying..."),
+                Ok(Err(e)) => {
+                    let message = format!("Failed to open QUIC connection: {e}; retrying...");
+                    eprintln!("{message}");
+                    let _ = event_tx.send(TransportEvent::Notice(message));
+                }
+                Err(_) => {
+                    let message = "Timed out opening QUIC connection; retrying...".to_string();
+                    eprintln!("{message}");
+                    let _ = event_tx.send(TransportEvent::Notice(message));
+                }
             }
             tokio::time::sleep(CONNECT_RETRY_DELAY).await;
         };

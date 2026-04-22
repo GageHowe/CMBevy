@@ -216,13 +216,22 @@ impl PhysicsWorld {
         entity: Entity,
         local_point: Vec3,
     ) -> Option<(Vec3, Quat, Vec3, Vec3)> {
+        self.predicted_body_point_after(entity, local_point, self.integration_parameters.dt)
+    }
+
+    pub fn predicted_body_point_after(
+        &self,
+        entity: Entity,
+        local_point: Vec3,
+        dt: f32,
+    ) -> Option<(Vec3, Quat, Vec3, Vec3)> {
         let rb = self
             .entity_to_handle
             .get(&entity)
             .and_then(|&handle| self.rigid_body_set.get(handle))?;
         let linvel = rb_vel(rb);
         let angvel = rb_angvel(rb);
-        let predicted = rb.predict_position_using_velocity(self.integration_parameters.dt);
+        let predicted = rb.predict_position_using_velocity(dt.max(0.0));
         let predicted_pos =
             Vec3::new(predicted.translation.x, predicted.translation.y, predicted.translation.z);
         let predicted_rot = Quat::from_xyzw(

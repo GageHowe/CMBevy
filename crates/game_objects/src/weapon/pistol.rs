@@ -1,15 +1,11 @@
 use bevy::prelude::*;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
-#[cfg(feature = "client")]
-use crate::projectile::helpers as projectile_helpers;
 
 use super::{FireCtx, Weapon, helpers, weapon_bundle};
-use crate::{
-    GameObject, GameObjectKind,
-    projectile::rifle,
-    spawn::AppGameObjectExt,
-};
+#[cfg(feature = "client")]
+use crate::projectile::helpers as projectile_helpers;
+use crate::{GameObject, GameObjectKind, projectile::rifle, spawn::AppGameObjectExt};
 
 pub const COOLDOWN_TICKS: u32 = 10;
 pub const MAGAZINE_SIZE: u16 = 12;

@@ -11,6 +11,8 @@ use game_objects::level::SpawnPoint;
 use game_objects::pawn::WeaponSlots;
 #[cfg(feature = "client")]
 use game_objects::pawn::biped::BipedPawnComponent;
+#[cfg(feature = "client")]
+use game_objects::pawn::vehicle::{DriverSeat, VehicleComponent};
 #[cfg(not(feature = "client"))]
 use game_objects::pawn::vehicle::{DriverSeat, VehicleComponent};
 #[cfg(not(feature = "client"))]
@@ -129,7 +131,10 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     pub predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
     pub object_kinds: Query<'w, 's, &'static GameObjectKind>,
     pub seated: Query<'w, 's, &'static SeatedInVehicle>,
+    pub vehicles: Query<'w, 's, &'static VehicleComponent>,
+    pub driver_seats: Query<'w, 's, (&'static DriverSeat, &'static Transform)>,
     pub weapon_states: Query<'w, 's, &'static mut WeaponState>,
+    pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
 }
 
 #[cfg(feature = "client")]

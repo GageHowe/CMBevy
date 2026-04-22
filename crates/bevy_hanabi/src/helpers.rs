@@ -37,12 +37,9 @@ pub fn burst_effect(
     );
     let update_vel = SetAttributeModifier::new(
         Attribute::VELOCITY,
-        (
-            writer.prop(inherit_velocity)
-                + (writer.attr(Attribute::VELOCITY) - writer.prop(inherit_velocity))
-                    * (writer.lit(1.0) - writer.lit(drag) * writer.delta_time())
-                        .max(writer.lit(0.0))
-        )
+        (writer.prop(inherit_velocity)
+            + (writer.attr(Attribute::VELOCITY) - writer.prop(inherit_velocity))
+                * (writer.lit(1.0) - writer.lit(drag) * writer.delta_time()).max(writer.lit(0.0)))
         .expr(),
     );
     let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());

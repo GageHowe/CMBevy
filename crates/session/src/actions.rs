@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use game_objects::{
     pawn::{
         HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots,
-        biped::BipedPawnComponent, biped_ability::OnPickup, vehicle::*,
+        biped::BipedPawnComponent,
+        biped_ability::{DropActiveAbility, OnPickup},
+        vehicle::*,
     },
     weapon::{WeaponConfig, WeaponState},
     *,
@@ -99,7 +101,9 @@ pub(super) fn handle_interact(
     }
 
     if handle_ability_pickup_interact(
+        conn_id,
         character,
+        character_net_id.clone(),
         target,
         target_net_id.clone(),
         world,
@@ -107,8 +111,7 @@ pub(super) fn handle_interact(
         on_pickup_q,
         commands,
         quic,
-    )
-    {
+    ) {
         return;
     }
 
@@ -268,8 +271,7 @@ fn handle_vehicle_interact(
     };
 
     if cockpit.occupant.is_some() && controlled == target {
-        let Some(biped_entity) = exit_vehicle(world, target, &mut cockpit, seat_transform)
-        else {
+        let Some(biped_entity) = exit_vehicle(world, target, &mut cockpit, seat_transform) else {
             return;
         };
         let Ok(biped_net_id) = net_ids.get(biped_entity) else {
@@ -281,7 +283,9 @@ fn handle_vehicle_interact(
         return;
     }
 
-    if cockpit.occupant.is_some() || !vehicle_in_range(world, character, target, &cockpit, seat_transform) {
+    if cockpit.occupant.is_some()
+        || !vehicle_in_range(world, character, target, &cockpit, seat_transform)
+    {
         return;
     }
 
@@ -293,7 +297,9 @@ fn handle_vehicle_interact(
 }
 
 fn handle_ability_pickup_interact(
+    conn_id: ConnectionId,
     character: Entity,
+    character_net_id: NetworkID,
     target: Entity,
     target_net_id: NetworkID,
     world: &PhysicsWorld,
@@ -312,6 +318,11 @@ fn handle_ability_pickup_interact(
         return true;
     }
     f(character, target, commands);
+    quic.send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &MsgType::AbilityPickup(character_net_id, target_net_id.clone()),
+    );
     quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(target_net_id));
     true
 }
@@ -441,6 +452,18 @@ pub(super) fn handle_drop_weapon(
         commands,
         quic,
     );
+}
+
+pub(super) fn handle_drop_ability(
+    conn_id: ConnectionId,
+    registry: &PlayerRegistry,
+    commands: &mut Commands,
+    drop_dir: Vec3,
+) {
+    let Some((player_entity, _)) = registry.character(conn_id) else {
+        return;
+    };
+    commands.queue(DropActiveAbility { owner: player_entity, aim_dir: drop_dir });
 }
 
 pub(super) fn handle_fire_request(

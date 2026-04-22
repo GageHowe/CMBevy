@@ -1,20 +1,24 @@
-use bevy::core_pipeline::Skybox;
-use bevy::prelude::*;
-use bevy::state::state::FreelyMutableState;
+use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
 use common::GameObjectKind;
-use game_objects::level::{
-    LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash, default_asset_dir,
-    load_level_source, read_cached_map, write_cached_map,
+use game_objects::{
+    level::{
+        LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
+        default_asset_dir, load_level_source, read_cached_map, write_cached_map,
+    },
+    lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
+    pawn::{InteractionGate, Possessed},
 };
-use game_objects::lifecycle::{pick_spawn_point_with_velocity, spawn_game_object};
-use game_objects::pawn::Possessed;
-use net::message::{MsgType, NetworkIDResource};
-use net::quic::QuicManager;
+use net::{
+    message::{MsgType, NetworkIDResource},
+    quic::QuicManager,
+};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
-use crate::hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session};
-use crate::messages;
-use crate::resources::*;
+use crate::{
+    hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session},
+    messages,
+    resources::*,
+};
 
 pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
     pub main_menu: S,
@@ -34,7 +38,8 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             )
             .configure_sets(
                 FixedUpdate,
-                game_objects::projectile::ProjectileAuthoritySet.run_if(crate::runtime::has_authority),
+                game_objects::projectile::ProjectileAuthoritySet
+                    .run_if(crate::runtime::has_authority),
             )
             .configure_sets(
                 FixedUpdate,
@@ -53,10 +58,14 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
                 OnEnter(single_player),
                 (reset_singleplayer_spawn_state, load_sp_level::<S>).chain(),
             )
-            .add_systems(OnExit(single_player), (cleanup_world, remove_script).chain())
+            .add_systems(
+                OnExit(single_player),
+                (reset_interaction_gate, cleanup_world, remove_script).chain(),
+            )
             .add_systems(FixedUpdate, respawn_singleplayer.run_if(in_state(single_player)))
-            .add_systems(OnEnter(multiplayer), connect)
+            .add_systems(OnEnter(multiplayer), (reset_interaction_gate, connect).chain())
             .add_systems(OnExit(multiplayer), (cleanup_world, disconnect, remove_script).chain())
+            .add_systems(Update, show_transport_notices.run_if(in_state(multiplayer)))
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
             .add_systems(Update, mark_world_ready_after_level_load.run_if(in_state(multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
@@ -71,6 +80,15 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
     }
 }
 
+fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: Commands) {
+    let Some(quic) = quic.as_mut() else {
+        return;
+    };
+    while let Some(message) = quic.notices.pop_front() {
+        game_objects::messages::push(&mut commands, message);
+    }
+}
+
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct ClientSessionState<S: States + Copy> {
     pub main_menu: S,
@@ -79,6 +97,10 @@ pub(crate) struct ClientSessionState<S: States + Copy> {
 fn reset_singleplayer_spawn_state(mut sp: ResMut<SinglePlayerConfig>) {
     sp.timer = None;
     sp.spawned_once = false;
+}
+
+fn reset_interaction_gate(mut interaction: ResMut<InteractionGate>) {
+    *interaction = InteractionGate::default();
 }
 
 fn load_sp_level<S: States + FreelyMutableState + Copy>(
