@@ -122,6 +122,7 @@ pub(crate) struct ClientMessageParams<'w, 's> {
         (
             Query<'w, 's, (&'static mut WeaponSlots, &'static BipedPawnComponent), With<Possessed>>,
             Query<'w, 's, &'static BipedPawnComponent>,
+            Query<'w, 's, &'static mut BipedPawnComponent>,
         ),
     >,
     pub networked: Res<'w, game_objects::NetworkEntityMap>,

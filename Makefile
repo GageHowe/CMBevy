@@ -7,12 +7,9 @@ PERF_BUILDID_DIR := $(CURDIR)/target/perf-buildid
 PROFILING_RUSTFLAGS := -C force-frame-pointers=yes
 
 build:
-	cargo build -p gameserver
 	cargo build -p client
+	cargo build -p gameserver
 	cargo build -p network_emulator
-
-cross-windows-release:
-	cross build --target x86_64-pc-windows-gnu --profile distribution
 
 dev:
 	cargo build -p gameserver && cargo run -p client

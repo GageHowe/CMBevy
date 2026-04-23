@@ -49,6 +49,8 @@ pub struct BipedPawnComponent {
     /// Look yaw/pitch (radians). Set from input; used for server-side movement simulation.
     pub look_yaw: f32,
     pub look_pitch: f32,
+    #[reflect(ignore)]
+    pub look_sync_dirty: bool,
     /// Ccached pivot entities set by setup_camera_rig; None on the server.
     pub yaw_pivot: Option<Entity>,
     pub pitch_pivot: Option<Entity>,
@@ -193,22 +195,22 @@ impl GameObject for BipedPawnComponent {
                 }
             }
         }
-        let drop_pos = {
+        let (drop_pos, drop_velocity) = {
             let physics = world.resource::<PhysicsWorld>();
             physics
                 .entity_to_handle
                 .get(&entity)
                 .and_then(|&h| physics.rigid_body_set.get(h))
-                .map(rb_pos)
-                .unwrap_or(Vec3::ZERO)
+                .map(|rb| (rb_pos(rb), rb_vel(rb)))
+                .unwrap_or((Vec3::ZERO, Vec3::ZERO))
         };
         let held: Vec<Entity> = world
             .get::<WeaponSlots>(entity)
             .map(|slots| slots.held_entities().collect())
             .unwrap_or_default();
-        let weapon_drops: Vec<(NetworkID, Vec3)> = world
+        let weapon_drops: Vec<NetworkID> = world
             .get::<WeaponSlots>(entity)
-            .map(|slots| slots.held_weapons().map(|(net_id, _)| (net_id, drop_pos)).collect())
+            .map(|slots| slots.held_weapons().map(|(net_id, _)| net_id).collect())
             .unwrap_or_default();
         #[cfg(feature = "client")]
         if let Some(fx_entity) =
@@ -225,24 +227,22 @@ impl GameObject for BipedPawnComponent {
             .get_resource::<super::PlayerRegistry>()
             .and_then(|registry| registry.conn_id_for_character(entity));
         push_death_message(world, entity, killer, last_damage.cause);
-        let mut physics = world.resource_mut::<PhysicsWorld>();
         for weapon_entity in held {
-            crate::weapon::helpers::place_world_weapon(
-                &mut physics,
+            crate::weapon::helpers::restore_world_weapon(
+                world,
                 weapon_entity,
                 drop_pos,
-                Vec3::ZERO,
+                drop_velocity,
             );
         }
-        drop(physics);
 
         if let Some(mut held_map) = world.get_resource_mut::<super::HeldWeaponMap>() {
-            for (weapon_id, _) in &weapon_drops {
+            for weapon_id in &weapon_drops {
                 held_map.0.remove(weapon_id);
             }
         }
         if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-            for (weapon_id, drop_pos) in weapon_drops.iter().cloned() {
+            for weapon_id in weapon_drops.iter().cloned() {
                 if let Some(ref net_id) = owner_net_id {
                     quic.send(
                         SendTarget::All,
@@ -336,7 +336,9 @@ impl Plugin for BipedPlugin {
         client::configure(app);
         app.add_systems(
             PostUpdate,
-            preserve_look_across_body_rotation.before(TransformSystems::Propagate),
+            (sync_remote_look_pivots, preserve_look_across_body_rotation)
+                .chain()
+                .before(TransformSystems::Propagate),
         );
     }
 }
@@ -351,6 +353,33 @@ pub struct YawPivot {
 pub struct PitchPivot {
     pub pitch: f32,
 }
+
+#[cfg(feature = "client")]
+fn sync_remote_look_pivots(
+    bipeds: Query<&BipedPawnComponent, Without<Possessed>>,
+    mut pivots: ParamSet<(
+        Query<(&mut Transform, &mut YawPivot)>,
+        Query<(&mut Transform, &mut PitchPivot)>,
+    )>,
+) {
+    for biped in &bipeds {
+        if let Some(yaw_e) = biped.yaw_pivot
+            && let Ok((mut transform, mut pivot)) = pivots.p0().get_mut(yaw_e)
+        {
+            pivot.yaw = biped.look_yaw;
+            transform.rotation = Quat::from_rotation_y(biped.look_yaw);
+        }
+        if let Some(pitch_e) = biped.pitch_pivot
+            && let Ok((mut transform, mut pivot)) = pivots.p1().get_mut(pitch_e)
+        {
+            pivot.pitch = biped.look_pitch;
+            transform.rotation = Quat::from_rotation_x(biped.look_pitch);
+        }
+    }
+}
+
+#[cfg(not(feature = "client"))]
+fn sync_remote_look_pivots() {}
 
 /// moves the biped's yaw and pitch components on Update
 fn preserve_look_across_body_rotation(
@@ -645,6 +674,11 @@ pub fn apply_biped_input(
     body_handle: &RigidBodyHandleComponent,
     biped: &mut BipedPawnComponent,
 ) -> Option<crate::pawn::biped_ability::AbilityFx> {
+    if (biped.look_yaw - input.look_yaw).abs() > 0.0001
+        || (biped.look_pitch - input.look_pitch).abs() > 0.0001
+    {
+        biped.look_sync_dirty = true;
+    }
     biped.look_yaw = input.look_yaw;
     biped.look_pitch = input.look_pitch;
     apply_biped_movement(world, body_handle, input, biped);

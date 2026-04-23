@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use common::PawnInputKind;
+use physics::physics_world::{PhysicsWorld, rb_pos, rb_rot, rb_vel};
 
-use crate::Team;
+use crate::{Team, health::Health};
 
 pub struct BotContext {
     pub entity: Entity,
@@ -56,4 +57,28 @@ impl BotController {
         self.temp_id = self.temp_id.wrapping_add(1).max(1);
         id
     }
+}
+
+pub fn collect_contexts(
+    actors: &Query<(Entity, &Team, &Health)>,
+    world: &PhysicsWorld,
+) -> Vec<BotContext> {
+    actors
+        .iter()
+        .filter_map(|(entity, team, health)| {
+            let body = world
+                .entity_to_handle
+                .get(&entity)
+                .and_then(|handle| world.rigid_body_set.get(*handle))?;
+            Some(BotContext {
+                entity,
+                team: *team,
+                pos: rb_pos(body),
+                rot: rb_rot(body),
+                vel: rb_vel(body),
+                health: health.current,
+                visible: Vec::new(),
+            })
+        })
+        .collect()
 }

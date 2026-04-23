@@ -5,7 +5,12 @@ pub use common::WeaponState;
 use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
 
-use crate::{pawn::CameraEffector, projectile::FiredProjectile, sound::SoundQueue};
+use crate::{
+    GameObjectKind,
+    pawn::{CameraEffector, HeldWeaponMap, WeaponSlots},
+    projectile::FiredProjectile,
+    sound::SoundQueue,
+};
 
 pub mod hail_mary;
 pub mod helpers;
@@ -68,8 +73,15 @@ pub struct WeaponFireInput {
     pub want_alt_fire: bool,
     pub reload_pressed: bool,
     pub origin: Vec3,
+    pub aim_dir: Vec3,
     pub shooter: Entity,
     pub tick: u64,
+}
+
+pub struct FiredHeldWeapon {
+    pub weapon_net_id: NetworkID,
+    pub weapon_state: WeaponState,
+    pub fired: FiredProjectile,
 }
 
 /// UI reads this from the active controllable object so reticle selection stays gameplay-owned.
@@ -174,18 +186,17 @@ pub fn fire_weapon<W: Weapon>(
     let Ok((mut weapon, mut weapon_state, weapon_config)) = weapons.get_mut(input.weapon) else {
         return;
     };
-    // use camera's GlobalTransform for aim so kick offsets affect projectile direction
     let Ok((mut cam_fx, cam_gt)) = camera_fx.single_mut() else {
         return;
     };
-    let (_, cam_rot, _) = cam_gt.to_scale_rotation_translation();
+    let _ = cam_gt;
     let mut ctx = FireCtx {
         weapon: input.weapon,
         want_fire: input.want_fire,
         want_alt_fire: input.want_alt_fire,
         reload_pressed: input.reload_pressed,
         origin: input.origin,
-        aim_dir: cam_rot * Vec3::NEG_Z,
+        aim_dir: input.aim_dir,
         shooter: Some(input.shooter),
         tick: input.tick,
         net_id: net_ids.get(input.weapon).ok(),
@@ -199,6 +210,64 @@ pub fn fire_weapon<W: Weapon>(
         weapon_config: weapon_config.clone(),
     };
     weapon.fixed_update(&mut world, &mut commands, &mut ctx);
+}
+
+pub fn fire_held_weapon(
+    shooter_entity: Entity,
+    weapon_entity: Entity,
+    weapon_net_id: &NetworkID,
+    kind: Option<GameObjectKind>,
+    temp_id: u32,
+    origin: Vec3,
+    dir: Vec3,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    net_ids: &mut net::message::NetworkIDResource,
+    tick: u64,
+) -> Option<FiredHeldWeapon> {
+    let Ok(mut slots) = pawn_slots.get_mut(shooter_entity) else {
+        return None;
+    };
+    if !slots.contains_net_id(weapon_net_id) {
+        return None;
+    }
+    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
+        return None;
+    };
+    if kind.is_some_and(|kind| weapon_config.projectile_kind != kind)
+        || !consume_round(&mut weapon_state, weapon_config)
+    {
+        return None;
+    }
+    let weapon_state_after_fire = *weapon_state;
+    let depleted = is_depleted(&weapon_state);
+    let fired = (weapon_config.fire_projectile)(
+        origin,
+        dir,
+        shooter_entity,
+        tick,
+        weapon_entity,
+        temp_id,
+        commands,
+        world,
+        net_ids,
+    )?;
+    drop(weapon_state);
+
+    if depleted {
+        held_weapons.0.remove(weapon_net_id);
+        slots.remove_by_net_id(weapon_net_id);
+        commands.entity(weapon_entity).despawn();
+    }
+
+    Some(FiredHeldWeapon {
+        weapon_net_id: weapon_net_id.clone(),
+        weapon_state: weapon_state_after_fire,
+        fired,
+    })
 }
 
 pub fn default_crosshair_path() -> &'static str {

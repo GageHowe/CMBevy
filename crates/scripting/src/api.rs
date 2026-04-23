@@ -83,6 +83,13 @@ pub(crate) fn register_script_functions(world: &mut World) {
         })
     });
 
+    register_lua_function(&runtime.lua, "entity_exists", |lua| {
+        lua.create_function(|lua, entity_id: i64| {
+            let world = lua_world(lua)?;
+            Ok(world.get_entity(Entity::from_bits(entity_id as u64)).is_ok())
+        })
+    });
+
     register_lua_function(&runtime.lua, "get_entities_in_zone", |lua| {
         lua.create_function(|lua, entity_id: i64| {
             let world = lua_world(lua)?;
@@ -101,6 +108,13 @@ pub(crate) fn register_script_functions(world: &mut World) {
             Ok(world
                 .get_resource::<PlayerRegistry>()
                 .is_some_and(|registry| registry.conn_id_for_character(entity).is_some()))
+        })
+    });
+
+    register_lua_function(&runtime.lua, "is_bot", |lua| {
+        lua.create_function(|lua, entity_id: i64| {
+            let world = lua_world(lua)?;
+            Ok(world.get::<BotController>(Entity::from_bits(entity_id as u64)).is_some())
         })
     });
 
@@ -244,6 +258,14 @@ pub(crate) fn register_script_functions(world: &mut World) {
         })
     });
 
+    register_lua_function(&runtime.lua, "entity_alive", |lua| {
+        lua.create_function(|lua, entity_id: i64| {
+            let world = lua_world(lua)?;
+            let entity = Entity::from_bits(entity_id as u64);
+            Ok(world.get::<Health>(entity).is_some_and(|health| !health.is_dead()))
+        })
+    });
+
     register_lua_function(&runtime.lua, "set_health", |lua| {
         lua.create_function(|lua, (entity_id, amount): (i64, i32)| {
             let world = lua_world(lua)?;
@@ -275,7 +297,6 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 println!("script spawn_pawn failed: no spawn point for team {}", team.0);
                 return Ok(None);
             };
-            let kind_debug = format!("{kind:?}");
             let tick = world.resource::<common::tick::Ticker>().tick;
             let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
             let cmd = SpawnCommand {
@@ -293,7 +314,6 @@ pub(crate) fn register_script_functions(world: &mut World) {
             if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
                 quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(cmd));
             }
-            println!("script spawned {kind_debug} entity={entity:?} team={} pos={pos:?}", team.0);
             Ok(Some(entity.to_bits() as i64))
         })
     });
@@ -313,7 +333,6 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let entity = Entity::from_bits(entity_id as u64);
             let team = world.get::<Team>(entity).copied().unwrap_or(Team(0));
             world.entity_mut(entity).insert(BotController::new(team, HeuristicKillerBot));
-            println!("script added bot entity={entity:?} team={} brain=killer", team.0);
             Ok(true)
         })
     });
@@ -350,12 +369,11 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 println!("script give_weapon failed: owner {owner:?} has no WeaponSlots");
                 return Ok(false);
             }
-            let kind_debug = format!("{kind:?}");
-            world
-                .resource_mut::<PendingWeaponGrants>()
-                .0
-                .push(WeaponGrant { owner, kind, weapon: None });
-            println!("script queued give_weapon owner={owner:?} kind={kind_debug}");
+            world.resource_mut::<PendingWeaponGrants>().0.push(WeaponGrant {
+                owner,
+                kind,
+                weapon: None,
+            });
             Ok(true)
         })
     });

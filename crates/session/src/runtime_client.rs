@@ -1,15 +1,19 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
-use common::GameObjectKind;
+use common::{GameObjectKind, tick::Ticker};
 use game_objects::{
     Team,
-    bot::{BotContext, BotController},
+    bot::{BotController, collect_contexts},
     health::Health,
     level::{
         LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
         default_asset_dir, load_level_source, read_cached_map, write_cached_map,
     },
     lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
-    pawn::{InteractionGate, Possessed, biped::BipedPawnComponent, spaceship::SpaceshipPawnComponent},
+    pawn::{
+        HeldWeaponMap, InteractionGate, Possessed, WeaponSlots, biped::BipedPawnComponent,
+        spaceship::SpaceshipPawnComponent,
+    },
+    weapon::{WeaponConfig, WeaponState},
 };
 use net::{
     message::{MsgType, NetworkIDResource},
@@ -181,63 +185,85 @@ fn respawn_singleplayer(
 fn run_singleplayer_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
+    mut pawn_slots: Query<&mut WeaponSlots>,
+    mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     mut bipeds: Query<&mut BipedPawnComponent>,
     mut spaceships: Query<&mut SpaceshipPawnComponent>,
     mut world: ResMut<PhysicsWorld>,
+    mut commands: Commands,
+    mut net_ids: ResMut<NetworkIDResource>,
+    mut held_weapons: ResMut<HeldWeaponMap>,
+    tick: Res<Ticker>,
 ) {
-    let actors = actors
-        .iter()
-        .filter_map(|(entity, team, health)| {
-            let body = world
-                .entity_to_handle
-                .get(&entity)
-                .and_then(|handle| world.rigid_body_set.get(*handle))?;
-            Some(BotContext {
-                entity,
-                team: *team,
-                pos: physics::physics_world::rb_pos(body),
-                rot: physics::physics_world::rb_rot(body),
-                vel: physics::physics_world::rb_vel(body),
-                health: health.current,
-                visible: Vec::new(),
-            })
-        })
-        .collect::<Vec<_>>();
+    let actors = collect_contexts(&actors, &world);
     for (entity, mut bot) in &mut bots {
         let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
             continue;
         };
         ctx.visible = actors.clone();
         let output = bot.brain.think(&ctx);
-        let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
-            continue;
-        };
-        match output.input {
-            common::PawnInputKind::Biped(input) => {
-                let Ok(mut biped) = bipeds.get_mut(entity) else {
-                    continue;
-                };
-                game_objects::pawn::biped::apply_biped_input(
-                    &mut world,
-                    entity,
-                    input,
-                    &RigidBodyHandleComponent(handle),
-                    &mut biped,
-                );
-            }
-            common::PawnInputKind::Spaceship(input) => {
-                let Ok(mut ship) = spaceships.get_mut(entity) else {
-                    continue;
-                };
-                game_objects::pawn::spaceship::apply_spaceship_movement(
-                    &mut world,
-                    &RigidBodyHandleComponent(handle),
-                    input,
-                    &mut ship,
-                );
-            }
+        let _ = game_objects::pawn::apply_server_input(
+            entity,
+            output.input,
+            &mut world,
+            &mut bipeds,
+            &mut spaceships,
+        );
+        if output.fire {
+            fire_singleplayer_bot_weapon(
+                entity,
+                output.aim_origin,
+                output.aim_dir,
+                bot.next_temp_id(),
+                &mut pawn_slots,
+                &mut weapon_runtime,
+                &mut held_weapons,
+                &mut commands,
+                &mut world,
+                &mut net_ids,
+                tick.tick,
+            );
         }
     }
+}
+
+fn fire_singleplayer_bot_weapon(
+    shooter: Entity,
+    origin: Vec3,
+    dir: Vec3,
+    temp_id: u32,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    net_ids: &mut NetworkIDResource,
+    tick: u64,
+) {
+    let Some((weapon_net_id, weapon_entity)) = ({
+        let Ok(slots) = pawn_slots.get_mut(shooter) else {
+            return;
+        };
+        slots.active_weapon()
+    }) else {
+        return;
+    };
+    let _ = game_objects::weapon::fire_held_weapon(
+        shooter,
+        weapon_entity,
+        &weapon_net_id,
+        None,
+        temp_id,
+        origin,
+        dir,
+        pawn_slots,
+        weapon_runtime,
+        held_weapons,
+        commands,
+        world,
+        net_ids,
+        tick,
+    );
 }
 
 fn load_skybox(

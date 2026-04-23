@@ -259,10 +259,7 @@ fn process_console_commands(
                 }
             }
             "bot" => {
-                let team = parts
-                    .next()
-                    .and_then(|s| s.parse::<u8>().ok())
-                    .unwrap_or(1);
+                let team = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
                 if let Some((pos, rot, vel)) =
                     game_objects::lifecycle::pick_spawn_point_with_velocity(
                         &spawn_points,

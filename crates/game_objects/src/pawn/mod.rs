@@ -332,7 +332,6 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
     );
 }
 
-#[cfg(not(feature = "client"))]
 pub fn apply_server_input(
     entity: Entity,
     input: PawnInputKind,

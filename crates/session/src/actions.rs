@@ -131,10 +131,6 @@ pub(super) fn handle_interact(
     );
 }
 
-fn body_position(world: &PhysicsWorld, entity: Entity) -> Option<Vec3> {
-    world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos)
-}
-
 fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
     world
         .entity_to_handle
@@ -144,19 +140,8 @@ fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
         .unwrap_or(Vec3::NEG_Z)
 }
 
-fn weapon_drop_pose(world: &PhysicsWorld, player_entity: Entity, drop_dir: Vec3) -> (Vec3, Vec3) {
-    let pos = body_position(world, player_entity).unwrap_or(Vec3::ZERO);
-    let forward = drop_dir
-        .normalize_or_zero()
-        .try_normalize()
-        .unwrap_or_else(|| body_forward(world, player_entity));
-    let velocity = world
-        .entity_to_handle
-        .get(&player_entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(rb_vel)
-        .unwrap_or(Vec3::ZERO);
-    (pos + forward, velocity + forward * 8.0)
+fn body_position(world: &PhysicsWorld, entity: Entity) -> Option<Vec3> {
+    world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos)
 }
 
 fn biped_aim_dir(
@@ -188,7 +173,8 @@ fn drop_weapon(
     quic: &mut QuicManager,
 ) {
     held_weapons.0.remove(&weapon_id);
-    let (drop_pos, drop_velocity) = weapon_drop_pose(world, owner_entity, drop_dir);
+    let (drop_pos, drop_velocity) =
+        game_objects::weapon::helpers::drop_pose(world, owner_entity, drop_dir);
     let despawned = {
         let weapon_state = weapon_runtime.get_mut(weapon_entity).ok().map(|(state, _)| state);
         game_objects::weapon::helpers::drop_or_despawn_weapon(
@@ -373,11 +359,16 @@ fn try_weapon_interact(
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
         return;
     };
-    if slots.is_full() {
-        let Some((drop_id, drop_entity)) = slots.remove_active() else {
+    let dropped = if slots.is_full() {
+        let Some(dropped) = slots.remove_active() else {
             return;
         };
-        drop(slots);
+        Some(dropped)
+    } else {
+        None
+    };
+    drop(slots);
+    if let Some((drop_id, drop_entity)) = dropped {
         drop_weapon(
             drop_id,
             player_net_id.clone(),
@@ -390,15 +381,12 @@ fn try_weapon_interact(
             commands,
             quic,
         );
-        let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
-            return;
-        };
-        let _ = slots.assign_pickup(target_net_id.clone(), target_entity);
-        held_weapons.0.insert(target_net_id.clone(), player_entity);
-    } else {
-        let _ = slots.assign_pickup(target_net_id.clone(), target_entity);
-        held_weapons.0.insert(target_net_id.clone(), player_entity);
     }
+    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+        return;
+    };
+    let _ = slots.assign_pickup(target_net_id.clone(), target_entity);
+    held_weapons.0.insert(target_net_id.clone(), player_entity);
     game_objects::weapon::helpers::pickup_world_weapon(world, target_entity);
     quic.send(
         SendTarget::All,
@@ -541,64 +529,48 @@ pub(super) fn fire_weapon_authoritative(
     tick: u64,
     owner_conn: Option<ConnectionId>,
 ) -> bool {
-    let Ok(mut slots) = pawn_slots.get_mut(shooter_entity) else {
-        return false;
-    };
-    if !slots.contains_net_id(weapon_net_id) {
-        return false;
-    }
-    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
-        return false;
-    };
-    if weapon_config.projectile_kind != kind
-        || !weapon::consume_round(&mut weapon_state, weapon_config)
-    {
-        return false;
-    }
-    let weapon_state_after_fire = *weapon_state;
-    let depleted = weapon::is_depleted(&weapon_state);
-    let Some(fired) = (weapon_config.fire_projectile)(
+    let Some(fired) = weapon::fire_held_weapon(
+        shooter_entity,
+        weapon_entity,
+        weapon_net_id,
+        Some(kind),
+        temp_id,
         origin,
         dir,
-        shooter_entity,
-        tick,
-        weapon_entity,
-        temp_id,
+        pawn_slots,
+        weapon_runtime,
+        held_weapons,
         commands,
         world,
         net_ids,
+        tick,
     ) else {
         return false;
     };
-    drop(weapon_state);
 
     quic.send(
         SendTarget::All,
         Channel::Ordered,
-        &MsgType::WeaponState(weapon_net_id.clone(), weapon_state_after_fire),
+        &MsgType::WeaponState(fired.weapon_net_id.clone(), fired.weapon_state),
     );
     match owner_conn {
         Some(conn_id) => {
             quic.send(
                 SendTarget::AllExcept(conn_id),
                 Channel::Unordered,
-                &MsgType::SpawnCommand(fired.spawn_cmd),
+                &MsgType::SpawnCommand(fired.fired.spawn_cmd),
             );
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &MsgType::ProjectileConfirm { temp_id, net_id: fired.net_id },
+                &MsgType::ProjectileConfirm { temp_id, net_id: fired.fired.net_id },
             );
         }
-        None => {
-            quic.send(SendTarget::All, Channel::Unordered, &MsgType::SpawnCommand(fired.spawn_cmd))
-        }
-    }
-
-    if depleted {
-        held_weapons.0.remove(weapon_net_id);
-        slots.remove_by_net_id(weapon_net_id);
-        commands.entity(weapon_entity).despawn();
+        None => quic.send(
+            SendTarget::All,
+            Channel::Unordered,
+            &MsgType::SpawnCommand(fired.fired.spawn_cmd),
+        ),
     }
     true
 }

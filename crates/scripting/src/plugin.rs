@@ -66,9 +66,7 @@ fn eval_script_fixed_update(world: &mut World) {
 
 fn process_weapon_grants(world: &mut World) {
     use game_objects::{
-        SpawnGameObjectCommand,
-        interaction::Interactable,
-        pawn::WeaponSlots,
+        SpawnGameObjectCommand, interaction::Interactable, pawn::WeaponSlots,
         weapon::helpers::give_world_weapon,
     };
     use net::{
@@ -96,7 +94,8 @@ fn process_weapon_grants(world: &mut World) {
                     .map(rb_pos)
                     .unwrap_or(Vec3::ZERO)
             };
-            let weapon_id = common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
+            let weapon_id =
+                common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
             let spawn_cmd = net::message::SpawnCommand {
                 net_id: weapon_id.clone(),
                 position: pos,
@@ -109,16 +108,37 @@ fn process_weapon_grants(world: &mut World) {
             let weapon_entity = world.spawn_empty().id();
             SpawnGameObjectCommand { entity: weapon_entity, cmd: spawn_cmd.clone() }.apply(world);
             if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd.clone()));
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::SpawnCommand(spawn_cmd.clone()),
+                );
             }
             grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
             world.resource_mut::<PendingWeaponGrants>().0.push(grant);
             continue;
         }
 
-        let Some((weapon_entity, weapon_id, _)) = grant.weapon else {
+        let Some((weapon_entity, weapon_id, spawn_cmd)) = grant.weapon.take() else {
             continue;
         };
+        #[cfg(not(feature = "client"))]
+        let _ = &spawn_cmd;
+        #[cfg(feature = "client")]
+        let local_parent =
+            if !world.get_resource::<QuicManager>().is_some_and(|quic| quic.client_connected) {
+                let Some(parent) = world
+                    .get::<game_objects::pawn::biped::BipedPawnComponent>(grant.owner)
+                    .and_then(|biped| biped.pitch_pivot)
+                else {
+                    grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
+                    world.resource_mut::<PendingWeaponGrants>().0.push(grant);
+                    continue;
+                };
+                Some(parent)
+            } else {
+                None
+            };
         let ok = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
             let Some(mut slots) = world.get_mut::<WeaponSlots>(grant.owner) else {
                 return false;
@@ -132,6 +152,15 @@ fn process_weapon_grants(world: &mut World) {
             held.0.insert(weapon_id.clone(), grant.owner);
         }
         world.entity_mut(weapon_entity).remove::<Interactable>();
+        #[cfg(feature = "client")]
+        if let Some(parent) = local_parent {
+            let mut commands = world.commands();
+            game_objects::weapon::helpers::attach_remote_viewmodel(
+                &mut commands,
+                weapon_entity,
+                parent,
+            );
+        }
         let owner_net_id = world.get::<common::NetworkID>(grant.owner).cloned();
         if let (Some(owner_net_id), Some(mut quic)) =
             (owner_net_id, world.get_resource_mut::<QuicManager>())
@@ -142,7 +171,6 @@ fn process_weapon_grants(world: &mut World) {
                 &MsgType::WeaponPickup(weapon_id, owner_net_id),
             );
         }
-        println!("script granted weapon entity={weapon_entity:?} owner={:?}", grant.owner);
     }
 }
 

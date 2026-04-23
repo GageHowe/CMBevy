@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use common::tick::Ticker;
 use game_objects::{
     Team,
-    bot::{BotContext, BotController},
+    bot::{BotController, collect_contexts},
     health::Health,
     pawn::{WeaponSlots, biped::BipedPawnComponent, spaceship::SpaceshipPawnComponent},
     weapon::{WeaponConfig, WeaponState},
@@ -26,7 +26,7 @@ pub(super) fn run_bots(
     mut held_weapons: ResMut<game_objects::pawn::HeldWeaponMap>,
     tick: Res<Ticker>,
 ) {
-    let actors = collect_actors(&actors, &world);
+    let actors = collect_contexts(&actors, &world);
     for (entity, mut bot) in &mut bots {
         let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
             continue;
@@ -62,33 +62,6 @@ pub(super) fn run_bots(
     }
 }
 
-fn collect_actors(
-    actors: &Query<(Entity, &Team, &Health)>,
-    world: &PhysicsWorld,
-) -> Vec<BotContext> {
-    actors
-        .iter()
-        .filter_map(|(entity, team, health)| {
-            let (pos, rot, vel) = body_state(entity, world)?;
-            Some(BotContext {
-                entity,
-                team: *team,
-                pos,
-                rot,
-                vel,
-                health: health.current,
-                visible: Vec::new(),
-            })
-        })
-        .collect()
-}
-
-fn body_state(entity: Entity, world: &PhysicsWorld) -> Option<(Vec3, Quat, Vec3)> {
-    let body =
-        world.entity_to_handle.get(&entity).and_then(|handle| world.rigid_body_set.get(*handle))?;
-    Some((rb_pos(body), rb_rot(body), rb_vel(body)))
-}
-
 fn fire_active_weapon(
     shooter: Entity,
     origin: Vec3,
@@ -107,8 +80,7 @@ fn fire_active_weapon(
         let Ok(slots) = pawn_slots.get_mut(shooter) else {
             return;
         };
-        let (weapon_net_id, weapon_entity) = slots.active();
-        weapon_net_id.clone().zip(*weapon_entity)
+        slots.active_weapon()
     }) else {
         return;
     };
@@ -146,8 +118,7 @@ fn reload_active_weapon(
         let Ok(slots) = pawn_slots.get_mut(shooter) else {
             return;
         };
-        let (weapon_net_id, weapon_entity) = slots.active();
-        weapon_net_id.clone().zip(*weapon_entity)
+        slots.active_weapon()
     }) else {
         return;
     };

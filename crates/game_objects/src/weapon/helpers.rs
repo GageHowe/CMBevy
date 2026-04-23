@@ -161,14 +161,64 @@ pub fn place_world_weapon(
     drop_pos: Vec3,
     drop_velocity: Vec3,
 ) {
+    world.set_body_enabled(weapon_entity, true);
     world.teleport_body(weapon_entity, drop_pos);
     if let Some(&handle) = world.entity_to_handle.get(&weapon_entity)
         && let Some(rb) = world.rigid_body_set.get_mut(handle)
     {
         rb.set_linvel(Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z), true);
         rb.set_angvel(Vector3::ZERO, true);
+        rb.wake_up(true);
     }
-    world.set_body_enabled(weapon_entity, true);
+}
+
+pub fn drop_pose(world: &PhysicsWorld, owner: Entity, drop_dir: Vec3) -> (Vec3, Vec3) {
+    let Some(body) =
+        world.entity_to_handle.get(&owner).and_then(|&handle| world.rigid_body_set.get(handle))
+    else {
+        return (Vec3::ZERO, Vec3::ZERO);
+    };
+    let forward =
+        drop_dir.normalize_or_zero().try_normalize().unwrap_or_else(|| rb_rot(body) * Vec3::NEG_Z);
+    let velocity = rb_vel(body) + forward * 8.0;
+    (rb_pos(body) + forward, velocity)
+}
+
+pub fn predicted_drop_pos(drop_pos: Vec3, drop_velocity: Vec3, rtt_secs: f32) -> Vec3 {
+    drop_pos + drop_velocity * (rtt_secs * 0.5)
+}
+
+pub fn body_velocity(world: &PhysicsWorld, entity: Entity) -> Vec3 {
+    world
+        .entity_to_handle
+        .get(&entity)
+        .and_then(|&handle| world.rigid_body_set.get(handle))
+        .map(rb_vel)
+        .unwrap_or(Vec3::ZERO)
+}
+
+pub fn restore_world_weapon(
+    world: &mut World,
+    weapon_entity: Entity,
+    drop_pos: Vec3,
+    drop_velocity: Vec3,
+) {
+    let handle = world.resource::<PhysicsWorld>().entity_to_handle.get(&weapon_entity).copied();
+    #[cfg(feature = "client")]
+    {
+        let mut entity = world.entity_mut(weapon_entity);
+        entity.remove_parent_in_place();
+    }
+    {
+        let mut entity = world.entity_mut(weapon_entity);
+        entity.insert((crate::interaction::Interactable { range: 2.0 }, Visibility::Inherited));
+        if let Some(handle) = handle {
+            entity.insert(RigidBodyHandleComponent(handle));
+        }
+    }
+    world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
+        place_world_weapon(&mut physics, weapon_entity, drop_pos, drop_velocity);
+    });
 }
 
 pub fn drop_or_despawn_weapon(
@@ -216,7 +266,7 @@ pub fn give_world_weapon(
 }
 
 #[cfg(feature = "client")]
-pub fn attach_local_viewmodel(
+fn attach_viewmodel(
     commands: &mut Commands,
     weapon_entity: Entity,
     parent: Entity,
@@ -231,12 +281,18 @@ pub fn attach_local_viewmodel(
 }
 
 #[cfg(feature = "client")]
+pub fn attach_local_viewmodel(
+    commands: &mut Commands,
+    weapon_entity: Entity,
+    parent: Entity,
+    is_primary: bool,
+) {
+    attach_viewmodel(commands, weapon_entity, parent, is_primary);
+}
+
+#[cfg(feature = "client")]
 pub fn attach_remote_viewmodel(commands: &mut Commands, weapon_entity: Entity, parent: Entity) {
-    commands
-        .entity(weapon_entity)
-        .remove::<crate::interaction::Interactable>()
-        .set_parent_in_place(parent)
-        .insert((viewmodel_offset(true), Visibility::Inherited));
+    attach_viewmodel(commands, weapon_entity, parent, true);
 }
 
 #[cfg(feature = "client")]

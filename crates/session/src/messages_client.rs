@@ -141,6 +141,15 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mut mp.world,
             Some(&mut mp.pending_weapon_pickups),
         ),
+        MsgType::BipedLook(net_id, yaw, pitch) => {
+            if local_net_id.as_ref() != Some(&net_id)
+                && let Some(entity) = find_networked_entity(&mp.networked, &net_id)
+                && let Ok(mut biped) = mp.biped_q.p2().get_mut(entity)
+            {
+                biped.look_yaw = yaw;
+                biped.look_pitch = pitch;
+            }
+        }
         MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => handle_ability_pickup(
             &carrier_net_id,
             &pickup_net_id,
@@ -153,6 +162,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &weapon_id,
             &carrier_id,
             drop_pos,
+            net_stats.rtt_secs,
             local_net_id.as_ref(),
             &mp.networked,
             &mut mp.biped_q,
@@ -353,6 +363,7 @@ fn handle_despawn(
     biped_q: &mut ParamSet<(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
         Query<&BipedPawnComponent>,
+        Query<&mut BipedPawnComponent>,
     )>,
     commands: &mut Commands,
 ) {
@@ -393,6 +404,7 @@ fn handle_weapon_pickup(
     biped_q: &mut ParamSet<(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
         Query<&BipedPawnComponent>,
+        Query<&mut BipedPawnComponent>,
     )>,
     object_kinds: &Query<&GameObjectKind>,
     commands: &mut Commands,
@@ -434,9 +446,14 @@ fn handle_weapon_pickup(
         }
         return;
     };
-    let parent = {
+    let Some(parent) = ({
         let q = biped_q.p1();
-        q.get(carrier).ok().and_then(|b| b.pitch_pivot).unwrap_or(carrier)
+        q.get(carrier).ok().and_then(|b| b.pitch_pivot)
+    }) else {
+        if let Some(pending) = pending.as_mut() {
+            pending.0.push((weapon_id.clone(), carrier_net_id.clone()));
+        }
+        return;
     };
     weapon_helpers::attach_remote_viewmodel(commands, weapon_entity, parent);
 }
@@ -448,6 +465,7 @@ pub(crate) fn retry_weapon_pickups(
     mut biped_q: ParamSet<(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
         Query<&BipedPawnComponent>,
+        Query<&mut BipedPawnComponent>,
     )>,
     object_kinds: Query<&GameObjectKind>,
     mut commands: Commands,
@@ -497,11 +515,13 @@ fn handle_weapon_drop(
     weapon_id: &NetworkID,
     carrier_id: &NetworkID,
     drop_pos: Vec3,
+    rtt_secs: f32,
     local_net_id: Option<&NetworkID>,
     networked: &NetworkEntityMap,
     biped_q: &mut ParamSet<(
         Query<(&mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
         Query<&BipedPawnComponent>,
+        Query<&mut BipedPawnComponent>,
     )>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
@@ -509,7 +529,11 @@ fn handle_weapon_drop(
     let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
         return;
     };
-    weapon_helpers::place_world_weapon(world, weapon_entity, drop_pos, Vec3::ZERO);
+    let drop_velocity = find_networked_entity(networked, carrier_id)
+        .map(|carrier| weapon_helpers::body_velocity(world, carrier))
+        .unwrap_or(Vec3::ZERO);
+    let drop_pos = weapon_helpers::predicted_drop_pos(drop_pos, drop_velocity, rtt_secs);
+    weapon_helpers::place_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
     if local_net_id == Some(carrier_id)
         && let Ok((mut slots, _)) = biped_q.p0().single_mut()
     {

@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [features]
-client = ["net/client"]
+client = ["net/client", "scripting/client"]
 server = ["net/server"]
 
 [dependencies]

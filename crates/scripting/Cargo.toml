@@ -6,6 +6,9 @@ edition = "2024"
 [lints]
 workspace = true
 
+[features]
+client = ["game_objects/client"]
+
 [dependencies]
 game_objects = { path = "../game_objects" }
 common = { path = "../common" }

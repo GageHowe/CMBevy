@@ -34,6 +34,11 @@ impl WeaponSlots {
         &self.slots[self.active_index]
     }
 
+    pub fn active_weapon(&self) -> Option<(NetworkID, Entity)> {
+        let (id, entity) = self.active();
+        id.clone().zip(*entity)
+    }
+
     pub fn is_full(&self) -> bool {
         self.slots.iter().all(|slot| slot.0.is_some())
     }

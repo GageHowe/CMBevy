@@ -60,19 +60,19 @@ pub(super) fn kill_player(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
-    let drop_pos = world
+    let (drop_pos, drop_velocity) = world
         .entity_to_handle
         .get(&entity)
         .and_then(|&h| world.rigid_body_set.get(h))
-        .map(rb_pos)
-        .unwrap_or(Vec3::ZERO);
+        .map(|rb| (rb_pos(rb), rb_vel(rb)))
+        .unwrap_or((Vec3::ZERO, Vec3::ZERO));
     for (wid, weapon_entity) in held_weapons {
         held_weapon_map.0.remove(&wid);
         game_objects::weapon::helpers::place_world_weapon(
             world,
             weapon_entity,
             drop_pos,
-            Vec3::ZERO,
+            drop_velocity,
         );
         quic.send(
             SendTarget::All,
@@ -103,6 +103,7 @@ pub fn broadcast_tick(
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
+    mut biped_looks: Query<(&NetworkID, &mut game_objects::pawn::biped::BipedPawnComponent)>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,
@@ -114,6 +115,17 @@ pub fn broadcast_tick(
         let mut state_for_client = state.clone();
         state_for_client.last_input_seq = *last_input_seq.0.get(&conn_id).unwrap_or(&0);
         quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::State(state_for_client));
+    }
+    for (net_id, mut biped) in &mut biped_looks {
+        if !biped.look_sync_dirty {
+            continue;
+        }
+        biped.look_sync_dirty = false;
+        quic.send(
+            SendTarget::All,
+            Channel::Unreliable,
+            &MsgType::BipedLook(net_id.clone(), biped.look_yaw, biped.look_pitch),
+        );
     }
 }
 

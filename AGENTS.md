@@ -25,6 +25,7 @@ Refer to AGENTS.md for additional instructions.
 
 ## Software Design
 * Everything should be clean and minimal. Every line of code counts against you.
+* No "special-case" systems.
 * Decouple unrelated systems.
 * Don't use bevy's events/messages.
 * Simplicity: Simplicity and decoupling is everything. I prefer simple-looking imperative code over functional programming or clever one-liners.

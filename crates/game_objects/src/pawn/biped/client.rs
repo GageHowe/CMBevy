@@ -355,6 +355,7 @@ fn biped_fire(
     bindings: Res<common::ActiveKeyBindings>,
     mut pawn: Query<(Entity, &mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
+    camera_gt: Query<&GlobalTransform, With<Camera3d>>,
     drivers: Query<&WeaponDriver>,
     weapon_states: Query<&crate::weapon::WeaponState>,
     mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
@@ -390,7 +391,11 @@ fn biped_fire(
     let Ok(pivot_gt) = pitch_pivot.get(pitch_e) else {
         return;
     };
-    let (_, _, origin) = pivot_gt.to_scale_rotation_translation();
+    let (_, pivot_rot, origin) = pivot_gt.to_scale_rotation_translation();
+    let aim_dir = camera_gt
+        .single()
+        .map(|gt| gt.to_scale_rotation_translation().1 * Vec3::NEG_Z)
+        .unwrap_or(pivot_rot * Vec3::NEG_Z);
     let reload_pressed = !blocked && fixed_presses.consume_reload();
     if reload_pressed
         && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())
@@ -410,6 +415,7 @@ fn biped_fire(
                 && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse),
             reload_pressed,
             origin,
+            aim_dir,
             shooter: pawn_entity,
             tick: ticker.tick,
         },
