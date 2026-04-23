@@ -3,13 +3,17 @@
 /// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
 /// across all vehicle types.
 use bevy::prelude::*;
+use net::{
+    message::{MsgType, NetworkID},
+    quic::{Channel, QuicManager, SendTarget},
+};
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
 use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
 
-use super::Pawn;
 #[cfg(feature = "client")]
 use super::*;
+use super::{Pawn, PlayerRegistry};
 
 /// Marks an entity as a driveable vehicle.
 #[derive(Component, Reflect)]
@@ -32,6 +36,7 @@ pub trait VehiclePawn: Pawn {
     const CAMERA_OFFSET: Vec3;
     const DRIVER_SEAT_OFFSET: Vec3;
     const DRIVER_INTERACT_RADIUS: f32 = 1.0;
+    const EXIT_OFFSET: Vec3 = Vec3::ZERO;
 }
 
 /// A vehicle seat child entity. The child transform defines the driver anchor.
@@ -87,7 +92,11 @@ pub fn ray_hits_cockpit(
 pub fn spawn_driver_seat<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
     let seat = world
         .spawn((
-            DriverSeat { interact_radius: T::DRIVER_INTERACT_RADIUS, ..default() },
+            DriverSeat {
+                interact_radius: T::DRIVER_INTERACT_RADIUS,
+                exit_offset: T::EXIT_OFFSET,
+                ..default()
+            },
             Transform::from_translation(T::DRIVER_SEAT_OFFSET),
             Visibility::default(),
         ))
@@ -140,6 +149,56 @@ pub fn exit_vehicle(
     world.set_body_enabled(biped_entity, true);
     world.set_body_pose(biped_entity, exit_pos, vehicle_rot, exit_vel, Vec3::ZERO);
     Some(biped_entity)
+}
+
+pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
+    let Some(driver_seat) =
+        world.get::<VehicleComponent>(vehicle_entity).map(|vehicle| vehicle.driver_seat)
+    else {
+        return;
+    };
+    let Some(seat_transform) = world.get::<Transform>(driver_seat).cloned() else {
+        return;
+    };
+    let biped_net_id = world
+        .get::<DriverSeat>(driver_seat)
+        .and_then(|seat| seat.occupant)
+        .and_then(|biped_entity| world.get::<NetworkID>(biped_entity).cloned());
+    let Some(biped_entity) = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
+        let Some(mut seat) = world.get_mut::<DriverSeat>(driver_seat) else {
+            return None;
+        };
+        exit_vehicle(&mut physics, vehicle_entity, &mut seat, &seat_transform)
+    }) else {
+        return;
+    };
+
+    world.entity_mut(biped_entity).remove::<SeatedInVehicle>();
+    crate::health::copy_last_damage_source(world, vehicle_entity, biped_entity);
+
+    #[cfg(feature = "client")]
+    if world.get::<Possessed>(vehicle_entity).is_some() {
+        super::detach_local_camera(world);
+        world.entity_mut(vehicle_entity).remove::<Possessed>();
+        world.entity_mut(biped_entity).insert(Possessed::new(128));
+    }
+
+    let conn_id = world
+        .get_resource::<PlayerRegistry>()
+        .and_then(|registry| registry.conn_id_for_character(biped_entity));
+    if let (Some(conn_id), Some(biped_net_id)) = (conn_id, biped_net_id) {
+        if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
+            registry.set_controlled_pawn(conn_id, biped_entity, biped_net_id.clone());
+        }
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::Possess(biped_net_id.clone()),
+            );
+            super::broadcast_seat_state(&mut quic, &biped_net_id, None);
+        }
+    }
 }
 
 fn sync_seated_bipeds(

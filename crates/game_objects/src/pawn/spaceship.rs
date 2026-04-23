@@ -5,21 +5,17 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
-use net::{
-    message::{MsgType, NetworkID},
-    quic::{Channel, QuicManager, SendTarget},
-};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
 use super::{
-    vehicle::{DriverSeat, VehicleComponent, VehiclePawn, spawn_driver_seat},
+    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_seat},
     *,
 };
 use crate::{
     GameObject, GameObjectKind,
     generic::attach_hull_collider,
-    health::{CollisionDamageConfig, Health, LastDamageSource, copy_last_damage_source},
+    health::{CollisionDamageConfig, Health, LastDamageSource},
     spawn::AppGameObjectExt,
     weapon::AimReticle,
 };
@@ -135,51 +131,7 @@ impl GameObject for SpaceshipPawnComponent {
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
-        let biped_net_id = world
-            .get::<VehicleComponent>(entity)
-            .and_then(|vehicle| world.get::<DriverSeat>(vehicle.driver_seat))
-            .and_then(|cockpit| cockpit.occupant)
-            .and_then(|biped_entity| world.get::<NetworkID>(biped_entity).cloned());
-        let Some((driver_seat_entity, seat_transform)) =
-            world.get::<VehicleComponent>(entity).and_then(|vehicle| {
-                world
-                    .get::<Transform>(vehicle.driver_seat)
-                    .cloned()
-                    .map(|transform| (vehicle.driver_seat, transform))
-            })
-        else {
-            return true;
-        };
-
-        let Some(biped_entity) = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
-            let Some(mut cockpit) = world.get_mut::<DriverSeat>(driver_seat_entity) else {
-                return None;
-            };
-            super::vehicle::exit_vehicle(&mut physics, entity, &mut cockpit, &seat_transform)
-        }) else {
-            return true;
-        };
-
-        world.entity_mut(biped_entity).remove::<super::SeatedInVehicle>();
-        copy_last_damage_source(world, entity, biped_entity);
-        if let Some(biped_net_id) = biped_net_id {
-            let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() else {
-                return true;
-            };
-            let Some(conn_id) = registry.conn_id_for_character(biped_entity) else {
-                return true;
-            };
-            registry.set_controlled_pawn(conn_id, biped_entity, biped_net_id.clone());
-            drop(registry);
-            if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                quic.send(
-                    SendTarget::One(conn_id),
-                    Channel::Ordered,
-                    &MsgType::Possess(biped_net_id.clone()),
-                );
-                super::broadcast_seat_state(&mut quic, &biped_net_id, None);
-            }
-        }
+        super::vehicle::handle_vehicle_death(entity, world);
         true
     }
 }

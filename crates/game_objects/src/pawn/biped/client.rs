@@ -668,7 +668,7 @@ fn interact(
         InteractTarget::Entity { hit_entity, net_id: interact_net_id } => {
             if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = pickup_fns.get(hit_entity) {
                 match state.get() {
-                    GameState::SinglePlayer => f(pawn_entity, hit_entity, &mut commands),
+                    GameState::SinglePlayer => f(pawn_entity, hit_entity, forward, &mut commands),
                     GameState::Multiplayer => {
                         if let Some(interact_net_id) = interact_net_id {
                             quic.send_to_server(

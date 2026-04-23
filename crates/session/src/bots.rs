@@ -62,7 +62,7 @@ pub(super) fn run_bots(
     }
 }
 
-fn fire_active_weapon(
+pub(super) fn fire_active_weapon(
     shooter: Entity,
     origin: Vec3,
     dir: Vec3,
@@ -108,7 +108,7 @@ fn fire_active_weapon(
     );
 }
 
-fn reload_active_weapon(
+pub(super) fn reload_active_weapon(
     shooter: Entity,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,

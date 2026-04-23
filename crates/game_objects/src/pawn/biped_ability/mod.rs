@@ -25,7 +25,7 @@ use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
 pub use fx::{queue_fx, queue_remote_fx};
 
 type TickAbilityState = fn(&mut BipedAbilityState);
-type PickupAbilityFn = fn(Entity, Entity, &mut Commands);
+type PickupAbilityFn = fn(Entity, Entity, Vec3, &mut Commands);
 type AbilityStatusFn = fn(&BipedAbilityState) -> f32;
 pub type AbilityInputFn =
     fn(&mut PhysicsWorld, Entity, common::BipedInput, &mut BipedAbilityState) -> Option<AbilityFx>;
@@ -50,7 +50,7 @@ impl Plugin for BipedAbilityPlugin {
 
 /// Stored on pickup entities. Called by the interact system when a biped picks it up.
 #[derive(Component, Clone, Copy)]
-pub struct OnPickup(pub fn(Entity, Entity, &mut Commands));
+pub struct OnPickup(pub fn(Entity, Entity, Vec3, &mut Commands));
 
 #[derive(Clone, Copy, Default)]
 pub struct BipedAbilityState {
@@ -61,26 +61,26 @@ pub struct BipedAbilityState {
 #[derive(Clone)]
 pub struct EquippedAbility {
     pub state: BipedAbilityState,
+    #[cfg(not(feature = "client"))]
     kind: GameObjectKind,
-    pickup_radius: f32,
-    pickup_color: Color,
     apply_input: AbilityInputFn,
     status: AbilityStatusFn,
     tick: TickAbilityState,
     pickup: PickupAbilityFn,
+    spawn_pickup: fn(Entity, Vec3, Vec3, &mut World),
 }
 
 impl EquippedAbility {
     pub fn new<A: BipedAbility + Send + 'static>() -> Self {
         Self {
             state: A::initial_state(),
+            #[cfg(not(feature = "client"))]
             kind: A::KIND,
-            pickup_radius: A::PICKUP_RADIUS,
-            pickup_color: Color::srgb(A::PICKUP_COLOR.0, A::PICKUP_COLOR.1, A::PICKUP_COLOR.2),
             apply_input: A::apply_input,
             status: A::status,
             tick: A::tick,
             pickup: pickup_ability::<A>,
+            spawn_pickup: A::spawn_pickup,
         }
     }
 
@@ -118,15 +118,7 @@ impl EquippedAbility {
         }
 
         let entity = world.spawn_empty().id();
-        spawn_ability_pickup(
-            entity,
-            pos,
-            vel,
-            self.kind,
-            self.pickup_radius,
-            self.pickup_color,
-            world,
-        );
+        (self.spawn_pickup)(entity, pos, vel, world);
         world.entity_mut(entity).insert(OnPickup(self.pickup));
     }
 }
@@ -150,13 +142,14 @@ pub fn spawn_ability_pickup(
             .angular_damping(0.5)
             .build();
         let rb_handle = physics.insert_body(entity, rb);
-        let col = ColliderBuilder::ball(radius).build();
-        let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-        collider_set.insert_with_parent(col, rb_handle, rigid_body_set);
         rb_handle
     };
+    let collider = ColliderBuilder::ball(radius).build();
+    let mut physics = world.resource_mut::<PhysicsWorld>();
+    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+    collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
     world.entity_mut(entity).insert((
-        kind,
+        kind.clone(),
         Transform::from_translation(pos),
         RigidBodyHandleComponent(rb_handle),
         crate::interaction::Interactable { range: 3.0 },
@@ -177,21 +170,17 @@ pub fn spawn_ability_pickup(
 fn pickup_ability<A: BipedAbility + Send + 'static>(
     biped: Entity,
     pickup: Entity,
+    aim_dir: Vec3,
     commands: &mut Commands,
 ) {
-    commands.queue(AttachAbility::<A>::new(biped));
+    commands.queue(move |world: &mut World| {
+        let _ = swap_ability_kind(biped, A::KIND, aim_dir.normalize_or_zero() * DROP_SPEED, world);
+    });
     commands.entity(pickup).despawn();
 }
 
 fn pickup_callback<A: BipedAbility + Send + 'static>() -> OnPickup {
     OnPickup(pickup_ability::<A>)
-}
-
-fn attach_ability_to_biped<A: BipedAbility + Send + 'static>(owner: Entity, world: &mut World) {
-    drop_owned_ability(owner, Vec3::ZERO, world);
-    if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
-        biped.ability = Some(EquippedAbility::new::<A>());
-    }
 }
 
 const DROP_SPEED: f32 = 8.0;
@@ -227,6 +216,44 @@ fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
     ability.drop(pos, vel, world);
 }
 
+fn set_ability(owner: Entity, ability: EquippedAbility, world: &mut World) {
+    if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
+        biped.ability = Some(ability);
+    }
+}
+
+pub fn set_ability_kind(owner: Entity, kind: GameObjectKind, world: &mut World) -> bool {
+    let ability = match kind {
+        GameObjectKind::Jetpack => EquippedAbility::new::<implementors::JetpackAbility>(),
+        GameObjectKind::Dash => EquippedAbility::new::<implementors::DashAbility>(),
+        _ => return false,
+    };
+    set_ability(owner, ability, world);
+    true
+}
+
+pub fn swap_ability_kind(
+    owner: Entity,
+    kind: GameObjectKind,
+    throw_vel: Vec3,
+    world: &mut World,
+) -> bool {
+    let ability = match kind {
+        GameObjectKind::Jetpack => EquippedAbility::new::<implementors::JetpackAbility>(),
+        GameObjectKind::Dash => EquippedAbility::new::<implementors::DashAbility>(),
+        _ => return false,
+    };
+    drop_owned_ability(owner, throw_vel, world);
+    if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
+        biped.ability = Some(ability);
+    }
+    true
+}
+
+pub fn drop_ability_on_death(owner: Entity, world: &mut World) {
+    drop_owned_ability(owner, Vec3::ZERO, world);
+}
+
 pub trait BipedAbility: Default {
     const METER_MAX: f32;
     const METER_REGEN: f32;
@@ -244,6 +271,19 @@ pub trait BipedAbility: Default {
 
     fn status(state: &BipedAbilityState) -> f32 {
         state.meter / Self::METER_MAX
+    }
+
+    fn spawn_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut World) {
+        let (r, g, b) = Self::PICKUP_COLOR;
+        spawn_ability_pickup(
+            entity,
+            pos,
+            vel,
+            Self::KIND,
+            Self::PICKUP_RADIUS,
+            Color::srgb(r, g, b),
+            world,
+        );
     }
 
     fn apply_input(
@@ -275,34 +315,8 @@ impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> crate
     const KIND: GameObjectKind = A::KIND;
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let (r, g, b) = A::PICKUP_COLOR;
-        spawn_ability_pickup(
-            entity,
-            cmd.position,
-            cmd.starting_velocity,
-            A::KIND,
-            A::PICKUP_RADIUS,
-            Color::srgb(r, g, b),
-            world,
-        );
-        world.entity_mut(entity).insert(pickup_callback::<A>());
-    }
-}
-
-pub struct AttachAbility<A: BipedAbility + Send> {
-    pub owner: Entity,
-    _phantom: PhantomData<A>,
-}
-
-impl<A: BipedAbility + Send> AttachAbility<A> {
-    pub fn new(owner: Entity) -> Self {
-        Self { owner, _phantom: PhantomData }
-    }
-}
-
-impl<A: BipedAbility + Send + 'static> bevy::ecs::system::Command for AttachAbility<A> {
-    fn apply(self, world: &mut World) {
-        attach_ability_to_biped::<A>(self.owner, world);
+        A::spawn_pickup(entity, cmd.position, cmd.starting_velocity, world);
+        world.entity_mut(entity).insert((cmd.net_id.clone(), pickup_callback::<A>()));
     }
 }
 

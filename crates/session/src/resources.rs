@@ -135,7 +135,6 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     pub vehicles: Query<'w, 's, &'static VehicleComponent>,
     pub driver_seats: Query<'w, 's, (&'static DriverSeat, &'static Transform)>,
     pub weapon_states: Query<'w, 's, &'static mut WeaponState>,
-    pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
     pub pending_weapon_pickups: ResMut<'w, PendingWeaponPickups>,
 }
 

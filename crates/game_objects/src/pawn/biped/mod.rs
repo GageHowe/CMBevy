@@ -187,13 +187,7 @@ impl GameObject for BipedPawnComponent {
     fn on_death(entity: Entity, world: &mut World) -> bool {
         #[cfg(feature = "client")]
         if world.get::<Possessed>(entity).is_some() {
-            let mut camera_q = world.query_filtered::<Entity, With<Camera3d>>();
-            let camera = camera_q.single(world).ok();
-            if let Some(camera) = camera {
-                if let Ok(mut entity) = world.get_entity_mut(camera) {
-                    entity.remove_parent_in_place();
-                }
-            }
+            super::detach_local_camera(world);
         }
         let (drop_pos, drop_velocity) = {
             let physics = world.resource::<PhysicsWorld>();
@@ -235,6 +229,7 @@ impl GameObject for BipedPawnComponent {
                 drop_velocity,
             );
         }
+        crate::pawn::biped_ability::drop_ability_on_death(entity, world);
 
         if let Some(mut held_map) = world.get_resource_mut::<super::HeldWeaponMap>() {
             for weapon_id in &weapon_drops {

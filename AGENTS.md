@@ -57,10 +57,6 @@ Examples:
 - `pawn/biped.rs` should decide what biped death means.
 - `pawn/spaceship.rs` should decide what spaceship death means.
 
-prefer imperative code that is easy to scan
-
-If a cleanup keeps the same amount of code but merely redistributes confusion, it is not a good cleanup.
-
 If a cleanup makes a generic subsystem smaller and pushes object-specific behavior back to the object implementation, that is usually a good cleanup.
 
 ## Standards for New Changes

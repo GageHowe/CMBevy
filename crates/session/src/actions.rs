@@ -111,6 +111,7 @@ pub(super) fn handle_interact(
         on_pickup_q,
         commands,
         quic,
+        aim_dir,
     ) {
         return;
     }
@@ -293,6 +294,7 @@ fn handle_ability_pickup_interact(
     on_pickup_q: &Query<&OnPickup>,
     commands: &mut Commands,
     quic: &mut QuicManager,
+    aim_dir: Vec3,
 ) -> bool {
     let Ok(&OnPickup(f)) = on_pickup_q.get(target) else {
         return false;
@@ -303,7 +305,7 @@ fn handle_ability_pickup_interact(
     if !interactable_in_range(world, character, target, interactable.range) {
         return true;
     }
-    f(character, target, commands);
+    f(character, target, aim_dir, commands);
     quic.send(
         SendTarget::One(conn_id),
         Channel::Ordered,
@@ -529,11 +531,11 @@ pub(super) fn fire_weapon_authoritative(
     tick: u64,
     owner_conn: Option<ConnectionId>,
 ) -> bool {
-    let Some(fired) = weapon::fire_held_weapon(
+    crate::helpers::fire_weapon_authoritative(
         shooter_entity,
         weapon_entity,
         weapon_net_id,
-        Some(kind),
+        kind,
         temp_id,
         origin,
         dir,
@@ -543,36 +545,10 @@ pub(super) fn fire_weapon_authoritative(
         commands,
         world,
         net_ids,
+        Some(quic),
         tick,
-    ) else {
-        return false;
-    };
-
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::WeaponState(fired.weapon_net_id.clone(), fired.weapon_state),
-    );
-    match owner_conn {
-        Some(conn_id) => {
-            quic.send(
-                SendTarget::AllExcept(conn_id),
-                Channel::Unordered,
-                &MsgType::SpawnCommand(fired.fired.spawn_cmd),
-            );
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &MsgType::ProjectileConfirm { temp_id, net_id: fired.fired.net_id },
-            );
-        }
-        None => quic.send(
-            SendTarget::All,
-            Channel::Unordered,
-            &MsgType::SpawnCommand(fired.fired.spawn_cmd),
-        ),
-    }
-    true
+        owner_conn,
+    )
 }
 
 pub(super) fn handle_reload_weapon(

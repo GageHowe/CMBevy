@@ -245,14 +245,18 @@ fn fire_singleplayer_bot_weapon(
             return;
         };
         slots.active_weapon()
-    }) else {
+    })
+    else {
         return;
     };
-    let _ = game_objects::weapon::fire_held_weapon(
+    let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
+        return;
+    };
+    let _ = crate::helpers::fire_weapon_authoritative(
         shooter,
         weapon_entity,
         &weapon_net_id,
-        None,
+        config.projectile_kind.clone(),
         temp_id,
         origin,
         dir,
@@ -262,7 +266,9 @@ fn fire_singleplayer_bot_weapon(
         commands,
         world,
         net_ids,
+        None,
         tick,
+        None,
     );
 }
 

@@ -179,6 +179,7 @@ pub fn fire_weapon<W: Weapon>(
     mut commands: Commands,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
     mut sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
+    possessed: Query<Entity, With<crate::pawn::Possessed>>,
     mut camera_fx: Query<(&mut CameraEffector, &GlobalTransform), With<Camera3d>>,
     mut id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
     mut predicted: Option<ResMut<common::PredictedCommands>>,
@@ -186,10 +187,9 @@ pub fn fire_weapon<W: Weapon>(
     let Ok((mut weapon, mut weapon_state, weapon_config)) = weapons.get_mut(input.weapon) else {
         return;
     };
-    let Ok((mut cam_fx, cam_gt)) = camera_fx.single_mut() else {
-        return;
-    };
-    let _ = cam_gt;
+    let local_shooter = possessed.single().ok() == Some(input.shooter);
+    let mut local_camera =
+        if local_shooter { camera_fx.single_mut().ok().map(|(cam_fx, _)| cam_fx) } else { None };
     let mut ctx = FireCtx {
         weapon: input.weapon,
         want_fire: input.want_fire,
@@ -202,7 +202,7 @@ pub fn fire_weapon<W: Weapon>(
         net_id: net_ids.get(input.weapon).ok(),
         shooter_net_id: net_ids.get(input.shooter).ok(),
         sound: sound_queue.as_deref_mut(),
-        camera: Some(&mut *cam_fx),
+        camera: local_camera.as_deref_mut(),
         quic: quic.as_deref_mut(),
         id_counter: id_counter.as_mut().map(|c| &mut c.count),
         predicted: predicted.as_deref_mut(),

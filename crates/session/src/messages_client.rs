@@ -14,7 +14,7 @@ use net::{
     message::{MsgType, NetworkID, SpawnCommand},
     quic::QuicManager,
 };
-use physics::physics_world::{PhysicsWorld, Vector3};
+use physics::physics_world::{PhysicsWorld, Vector3, rb_pos};
 
 use crate::{
     helpers::find_networked_entity,
@@ -155,7 +155,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &pickup_net_id,
             local_net_id.as_ref(),
             &mp.networked,
-            &mp.on_pickup_q,
+            &mp.object_kinds,
             &mut mp.spawn.commands,
         ),
         MsgType::WeaponDrop(weapon_id, carrier_id, drop_pos) => handle_weapon_drop(
@@ -381,7 +381,10 @@ fn handle_despawn(
             let held: Vec<_> = slots.held_entities().collect();
             for ent in held {
                 if let Ok(mut entity) = commands.get_entity(ent) {
-                    entity.despawn();
+                    entity.queue_silenced(|entity: EntityWorldMut| {
+                        entity.despawn();
+                        Ok::<(), bevy::ecs::world::error::EntityMutableFetchError>(())
+                    });
                 }
             }
             slots.clear();
@@ -391,7 +394,10 @@ fn handle_despawn(
         slots.remove_by_net_id(net_id);
     }
     if let Ok(mut entity_commands) = commands.get_entity(entity) {
-        entity_commands.despawn();
+        entity_commands.queue_silenced(|entity: EntityWorldMut| {
+            entity.despawn();
+            Ok::<(), bevy::ecs::world::error::EntityMutableFetchError>(())
+        });
     }
 }
 
@@ -493,7 +499,7 @@ fn handle_ability_pickup(
     pickup_net_id: &NetworkID,
     local_net_id: Option<&NetworkID>,
     networked: &NetworkEntityMap,
-    on_pickup_q: &Query<&game_objects::pawn::biped_ability::OnPickup>,
+    object_kinds: &Query<&GameObjectKind>,
     commands: &mut Commands,
 ) {
     if local_net_id != Some(carrier_net_id) {
@@ -505,10 +511,13 @@ fn handle_ability_pickup(
     let Some(pickup) = find_networked_entity(networked, pickup_net_id) else {
         return;
     };
-    let Ok(&game_objects::pawn::biped_ability::OnPickup(f)) = on_pickup_q.get(pickup) else {
+    let Ok(kind) = object_kinds.get(pickup) else {
         return;
     };
-    f(carrier, pickup, commands);
+    let kind = kind.clone();
+    commands.queue(move |world: &mut World| {
+        let _ = game_objects::pawn::biped_ability::set_ability_kind(carrier, kind, world);
+    });
 }
 
 fn handle_weapon_drop(
@@ -529,17 +538,39 @@ fn handle_weapon_drop(
     let Some(weapon_entity) = find_networked_entity(networked, weapon_id) else {
         return;
     };
-    let drop_velocity = find_networked_entity(networked, carrier_id)
-        .map(|carrier| weapon_helpers::body_velocity(world, carrier))
-        .unwrap_or(Vec3::ZERO);
-    let drop_pos = weapon_helpers::predicted_drop_pos(drop_pos, drop_velocity, rtt_secs);
+    let Some(carrier_entity) = find_networked_entity(networked, carrier_id) else {
+        return;
+    };
+    let drop_velocity = weapon_helpers::body_velocity(world, carrier_entity);
+    let is_local = local_net_id == Some(carrier_id);
+    let drop_pos =
+        confirmed_drop_pos(world, carrier_entity, drop_pos, drop_velocity, rtt_secs, is_local);
     weapon_helpers::place_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
-    if local_net_id == Some(carrier_id)
-        && let Ok((mut slots, _)) = biped_q.p0().single_mut()
-    {
+    if is_local && let Ok((mut slots, _)) = biped_q.p0().single_mut() {
         slots.remove_by_net_id(weapon_id);
+        weapon_helpers::set_local_slot_visibility(commands, &slots);
     }
     weapon_helpers::detach_viewmodel(commands, world, weapon_entity);
+}
+
+fn confirmed_drop_pos(
+    world: &PhysicsWorld,
+    carrier_entity: Entity,
+    server_pos: Vec3,
+    velocity: Vec3,
+    rtt_secs: f32,
+    is_local: bool,
+) -> Vec3 {
+    if !is_local {
+        return weapon_helpers::predicted_drop_pos(server_pos, velocity, rtt_secs);
+    }
+    world
+        .entity_to_handle
+        .get(&carrier_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(rb_pos)
+        .unwrap_or(server_pos)
+        + velocity.normalize_or_zero()
 }
 
 fn handle_projectile_confirm(

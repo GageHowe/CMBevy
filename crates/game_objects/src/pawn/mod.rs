@@ -262,6 +262,18 @@ pub fn broadcast_seat_state(
     );
 }
 
+#[cfg(feature = "client")]
+pub fn detach_local_camera(world: &mut World) {
+    let mut camera_q = world.query_filtered::<Entity, With<Camera3d>>();
+    let Some(camera) = camera_q.single(world).ok() else {
+        return;
+    };
+    let Ok(mut entity) = world.get_entity_mut(camera) else {
+        return;
+    };
+    entity.remove_parent_in_place();
+}
+
 /// Pending respawns: conn_id -> (seconds_remaining, kind).
 #[derive(Resource, Default)]
 pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind, crate::Team)>);

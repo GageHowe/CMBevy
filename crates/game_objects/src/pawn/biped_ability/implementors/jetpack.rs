@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use physics::physics_world::{PhysicsWorld, rb_rot};
-use rapier3d::prelude::Vector3;
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
+use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
 use super::super::{AbilityFx, BipedAbility, BipedAbilityState, drain_meter};
 use crate::GameObjectKind;
@@ -16,6 +16,34 @@ impl BipedAbility for JetpackAbility {
     const METER_REGEN: f32 = 0.4;
     const KIND: GameObjectKind = GameObjectKind::Jetpack;
     const PICKUP_COLOR: (f32, f32, f32) = (0.2, 0.5, 1.0);
+
+    fn spawn_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut World) {
+        let rb_handle = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            let rb = RigidBodyBuilder::dynamic()
+                .translation(pos)
+                .linvel(Vector3::new(vel.x, vel.y, vel.z))
+                .angular_damping(0.5)
+                .build();
+            let rb_handle = physics.insert_body(entity, rb);
+            let collider = ColliderBuilder::cuboid(0.22, 0.32, 0.14).build();
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+            rb_handle
+        };
+        world.entity_mut(entity).insert((
+            Self::KIND,
+            Transform::from_translation(pos),
+            RigidBodyHandleComponent(rb_handle),
+            crate::interaction::Interactable { range: 3.0 },
+        ));
+        #[cfg(feature = "client")]
+        {
+            let scene =
+                world.resource::<AssetServer>().load("models/placeholder_jetpack.glb#Scene0");
+            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+        }
+    }
 
     fn apply_input(
         world: &mut PhysicsWorld,
