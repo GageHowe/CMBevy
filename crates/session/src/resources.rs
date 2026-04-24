@@ -107,8 +107,6 @@ pub struct SinglePlayerConfig {
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct SpawnParams<'w, 's> {
     pub commands: Commands<'w, 's>,
-    pub entity_children: Query<'w, 's, &'static Children>,
-    pub lights: Query<'w, 's, &'static mut Visibility, With<SpotLight>>,
 }
 
 #[cfg(feature = "client")]

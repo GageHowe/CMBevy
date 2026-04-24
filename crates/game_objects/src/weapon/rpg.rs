@@ -60,15 +60,7 @@ impl Weapon for RpgComponent {
             world,
             -ctx.aim_dir * rpg::shooter_knockback(helpers::shooter_mass(world, ctx.shooter)),
         );
-        helpers::queue_fire_sound(
-            ctx.sound.as_deref_mut(),
-            world,
-            ctx.shooter,
-            ctx.camera.is_some(),
-            "event:/Weapons/SniperShotLocal",
-            "event:/Weapons/SniperShot",
-            ctx.origin,
-        );
+        helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((8.0, 10.0), (-2.0, 2.0), 8.0);
             #[cfg(feature = "client")]

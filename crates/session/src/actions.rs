@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use game_objects::{
     pawn::{
         HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots,
-        biped::BipedPawnComponent,
         biped_ability::{DropActiveAbility, OnPickup},
         vehicle::*,
     },
@@ -24,26 +23,6 @@ pub(super) fn handle_input(
     if input_seq > newest_seen {
         pending_inputs.0.insert(conn_id, (input_seq, kind));
     }
-}
-
-pub(super) fn handle_flashlight_toggle(
-    conn_id: ConnectionId,
-    registry: &PlayerRegistry,
-    bipeds: &mut Query<&mut BipedPawnComponent>,
-    quic: &mut QuicManager,
-) {
-    let Some((entity, net_id)) = registry.character(conn_id) else {
-        return;
-    };
-    let Ok(mut biped) = bipeds.get_mut(entity) else {
-        return;
-    };
-    biped.flashlight_on = !biped.flashlight_on;
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::FlashlightState(net_id.clone(), biped.flashlight_on),
-    );
 }
 
 pub(super) fn handle_interact(

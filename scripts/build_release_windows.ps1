@@ -1,7 +1,7 @@
 # Build and package CriticalMass for Windows (itch.io release)
 # Run from repo root: ./scripts/build_release_windows.ps1
 
-# todo: convert this to a rust script that encrypts all assets
+# todo: convert this to a rust script that encrypts all assets maybe
 
 param(
     [string]$Version = "0.1.0"

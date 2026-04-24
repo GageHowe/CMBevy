@@ -69,15 +69,7 @@ impl Weapon for HailMaryComponent {
         helpers::fire_projectile(ctx, world, commands, hail_mary::SPEED, hail_mary::spawn);
         #[cfg(feature = "client")]
         projectile_helpers::apply_recoil::<hail_mary::HailMaryProjectile>(ctx, world, 1.0);
-        helpers::queue_fire_sound(
-            ctx.sound.as_deref_mut(),
-            world,
-            ctx.shooter,
-            ctx.camera.is_some(),
-            "event:/Weapons/SniperShotLocal",
-            "event:/Weapons/SniperShot",
-            ctx.origin,
-        );
+        helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0);
         }

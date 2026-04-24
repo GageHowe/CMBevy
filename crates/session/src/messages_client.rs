@@ -209,14 +209,6 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
         MsgType::FileData(name, compressed) => {
             handle_file_data(name, compressed, &mut mp.spawn.commands)
         }
-        MsgType::FlashlightState(net_id, on) => handle_flashlight_state(
-            &net_id,
-            on,
-            local_net_id.as_ref(),
-            &mp.networked,
-            &mp.spawn.entity_children,
-            &mut mp.spawn.lights,
-        ),
         MsgType::JetpackFx(net_id, active) => game_objects::pawn::biped_ability::queue_remote_fx(
             &net_id,
             game_objects::pawn::biped_ability::AbilityFx::Jetpack(active),
@@ -626,28 +618,4 @@ fn handle_weapon_state(
         return;
     };
     *weapon_state = state;
-}
-
-fn handle_flashlight_state(
-    net_id: &NetworkID,
-    on: bool,
-    local_net_id: Option<&NetworkID>,
-    networked: &NetworkEntityMap,
-    entity_children: &Query<&Children>,
-    lights: &mut Query<&mut Visibility, With<SpotLight>>,
-) {
-    if local_net_id == Some(net_id) {
-        return;
-    }
-    let Some(entity) = find_networked_entity(networked, net_id) else {
-        return;
-    };
-    let Ok(children) = entity_children.get(entity) else {
-        return;
-    };
-    for child in children.iter() {
-        if let Ok(mut vis) = lights.get_mut(child) {
-            *vis = if on { Visibility::Inherited } else { Visibility::Hidden };
-        }
-    }
 }

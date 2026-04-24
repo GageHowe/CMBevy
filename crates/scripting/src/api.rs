@@ -332,7 +332,10 @@ pub(crate) fn register_script_functions(world: &mut World) {
             }
             let entity = Entity::from_bits(entity_id as u64);
             let team = world.get::<Team>(entity).copied().unwrap_or(Team(0));
-            world.entity_mut(entity).insert(BotController::new(team, HeuristicKillerBot));
+            world.entity_mut(entity).insert((
+                BotController::new(team, HeuristicKillerBot),
+                Name::new(format!("Bot (team {})", team.0)),
+            ));
             Ok(true)
         })
     });

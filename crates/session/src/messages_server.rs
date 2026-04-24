@@ -91,9 +91,6 @@ fn process_server_message(
             pending_connections.0.remove(&conn_id);
         }
         MsgType::Input(input_seq, kind) => handle_input(conn_id, input_seq, kind, pending_inputs),
-        MsgType::FlashlightToggle => {
-            handle_flashlight_toggle(conn_id, registry, &mut sp.bipeds, quic);
-        }
         MsgType::Interact(target_net_id) => {
             handle_interact(
                 conn_id,

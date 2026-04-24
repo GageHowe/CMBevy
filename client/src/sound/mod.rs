@@ -90,6 +90,9 @@ mod fmod_impl {
         if let Err(e) = core.set_dsp_buffer_size(buffer_size, 4) {
             warn!("FMOD: set DSP buffer size to {buffer_size} failed: {e:?}");
         }
+        if let Err(e) = core.set_3d_settings(0.5, 1.0, 1.0) {
+            warn!("FMOD: set 3D settings failed: {e:?}");
+        }
         let Ok(()) = system
             .initialize(
                 512,

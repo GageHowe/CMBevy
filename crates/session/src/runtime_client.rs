@@ -9,6 +9,7 @@ use game_objects::{
         default_asset_dir, load_level_source, read_cached_map, write_cached_map,
     },
     lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
+    mode::MatchState,
     pawn::{
         HeldWeaponMap, InteractionGate, Possessed, WeaponSlots, biped::BipedPawnComponent,
         spaceship::SpaceshipPawnComponent,
@@ -64,14 +65,20 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .insert_resource(ClientSessionState { main_menu })
             .add_systems(
                 OnEnter(single_player),
-                (reset_singleplayer_spawn_state, load_sp_level::<S>).chain(),
+                (reset_singleplayer_spawn_state, init_singleplayer_match_state, load_sp_level::<S>)
+                    .chain(),
             )
             .add_systems(
                 OnExit(single_player),
-                (reset_interaction_gate, cleanup_world, remove_script).chain(),
+                (reset_interaction_gate, cleanup_world, remove_script, remove_singleplayer_match_state)
+                    .chain(),
             )
             .add_systems(FixedUpdate, respawn_singleplayer.run_if(in_state(single_player)))
             .add_systems(FixedUpdate, run_singleplayer_bots.run_if(in_state(single_player)))
+            .add_systems(
+                FixedUpdate,
+                advance_match_state_time.run_if(in_state(single_player)),
+            )
             .add_systems(OnEnter(multiplayer), (reset_interaction_gate, connect).chain())
             .add_systems(OnExit(multiplayer), (cleanup_world, disconnect, remove_script).chain())
             .add_systems(Update, show_transport_notices.run_if(in_state(multiplayer)))
@@ -111,6 +118,18 @@ fn reset_singleplayer_spawn_state(mut sp: ResMut<SinglePlayerConfig>) {
 
 fn reset_interaction_gate(mut interaction: ResMut<InteractionGate>) {
     *interaction = InteractionGate::default();
+}
+
+fn init_singleplayer_match_state(mut commands: Commands) {
+    commands.insert_resource(MatchState::default());
+}
+
+fn remove_singleplayer_match_state(mut commands: Commands) {
+    commands.remove_resource::<MatchState>();
+}
+
+fn advance_match_state_time(mut match_state: ResMut<MatchState>, time: Res<Time<Fixed>>) {
+    match_state.phase_elapsed_secs += time.delta_secs();
 }
 
 fn load_sp_level<S: States + FreelyMutableState + Copy>(

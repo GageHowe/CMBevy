@@ -14,14 +14,14 @@ build:
 dev:
 	cargo build -p gameserver && cargo run -p client
 
-s:
+runs:
 	cargo run -p gameserver
-s-dist:
+runs-dist:
 	cargo run -p gameserver --profile distribution
 
-c:
+runc:
 	cargo run -p client
-c-dist:
+runc-dist:
 	cargo run -p client --profile distribution
 
 emulator:
@@ -32,7 +32,7 @@ build-release: # contains debug info
 	cargo build -p client --release
 	cargo build -p network_emulator --release
 
-build-distribution:
+build-dist:
 	cargo build -p gameserver --profile distribution
 	cargo build -p client --profile distribution
 	cargo build -p network_emulator --profile distribution

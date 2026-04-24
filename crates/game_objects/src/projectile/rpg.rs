@@ -319,7 +319,7 @@ pub fn spawn(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    helpers::spawn_projectile(
+    let entity = helpers::spawn_projectile(
         GameObjectKind::RpgProjectile,
         RpgProjectile { shooter, lifetime: LIFETIME },
         origin,
@@ -329,7 +329,9 @@ pub fn spawn(
         temp_id,
         commands,
         world,
-    )
+    );
+    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/SniperShot", origin, velocity);
+    entity
 }
 
 impl GameObject for RpgProjectile {

@@ -108,6 +108,7 @@ pub fn spawn(
         commands,
         world,
     );
+    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/SniperShot", origin, velocity);
     // add point light
     let light = commands
         .spawn((

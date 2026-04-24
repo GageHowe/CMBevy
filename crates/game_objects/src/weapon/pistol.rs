@@ -59,15 +59,7 @@ impl Weapon for PistolComponent {
         helpers::fire_projectile(ctx, world, commands, rifle::SPEED, rifle::spawn_pistol);
         #[cfg(feature = "client")]
         projectile_helpers::apply_recoil::<rifle::PistolProjectile>(ctx, world, 0.6);
-        helpers::queue_fire_sound(
-            ctx.sound.as_deref_mut(),
-            world,
-            ctx.shooter,
-            ctx.camera.is_some(),
-            "event:/Weapons/RifleShotLocal",
-            "event:/Weapons/RifleShot",
-            ctx.origin,
-        );
+        helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((1.2, 0.3), (-0.6, 0.6), 22.0);
         }

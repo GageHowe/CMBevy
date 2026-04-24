@@ -159,7 +159,7 @@ pub fn spawn(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    helpers::spawn_projectile(
+    let entity = helpers::spawn_projectile(
         GameObjectKind::RifleProjectile,
         RifleProjectile { shooter, lifetime: LIFETIME },
         origin,
@@ -169,7 +169,9 @@ pub fn spawn(
         temp_id,
         commands,
         world,
-    )
+    );
+    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/RifleShot", origin, velocity);
+    entity
 }
 
 pub fn spawn_pistol(
@@ -181,7 +183,7 @@ pub fn spawn_pistol(
     shooter: Option<Entity>,
     temp_id: u32,
 ) -> Entity {
-    helpers::spawn_projectile(
+    let entity = helpers::spawn_projectile(
         GameObjectKind::PistolProjectile,
         PistolProjectile { shooter, lifetime: LIFETIME },
         origin,
@@ -191,7 +193,9 @@ pub fn spawn_pistol(
         temp_id,
         commands,
         world,
-    )
+    );
+    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/RifleShot", origin, velocity);
+    entity
 }
 
 /// Spawns a rifle projectile when a SpawnCommand arrives (other clients receiving server broadcast).

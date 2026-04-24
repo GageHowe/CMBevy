@@ -13,6 +13,7 @@ pub struct HealthAuthoritySet;
 pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<PendingDeathDespawns>();
         app.add_systems(
             FixedUpdate,
             (
@@ -24,6 +25,7 @@ impl Plugin for HealthPlugin {
                 .in_set(HealthAuthoritySet),
         );
         app.add_systems(FixedUpdate, handle_deaths.after(step_physics).in_set(HealthAuthoritySet));
+        app.add_systems(FixedLast, flush_pending_death_despawns);
     }
 }
 
@@ -70,6 +72,9 @@ pub struct PendingPlayerKills(pub Vec<(Entity, Option<Entity>)>);
 /// mutate their player numbers during `on_player_killed`.
 #[derive(Resource, Default)]
 pub struct PendingPlayerRemovals(pub Vec<Entity>);
+
+#[derive(Resource, Default)]
+pub struct PendingDeathDespawns(pub Vec<Entity>);
 
 impl Health {
     pub fn new(max: f32) -> Self {
@@ -231,7 +236,23 @@ pub fn handle_deaths(world: &mut World) {
         if !should_despawn || !world.entities().contains(entity) {
             continue;
         }
-        world.entity_mut(entity).despawn();
+        if let Some(mut pending) = world.get_resource_mut::<PendingDeathDespawns>() {
+            pending.0.push(entity);
+        } else {
+            world.entity_mut(entity).despawn();
+        }
+    }
+}
+
+fn flush_pending_death_despawns(world: &mut World) {
+    let dead = world
+        .get_resource_mut::<PendingDeathDespawns>()
+        .map(|mut pending| std::mem::take(&mut pending.0))
+        .unwrap_or_default();
+    for entity in dead {
+        if world.entities().contains(entity) {
+            world.entity_mut(entity).despawn();
+        }
     }
 }
 

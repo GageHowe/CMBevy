@@ -10,7 +10,7 @@ use crate::pawn::biped::viewmodel_offset;
 use crate::{
     generic::attach_hull_collider,
     pawn::WeaponSlots,
-    sound::{SoundQueue, entity_velocity},
+    sound::SoundQueue,
     weapon::{AimReticle, FireCtx, WeaponComponent, WeaponState},
 };
 
@@ -24,21 +24,12 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
 
 pub fn queue_fire_sound(
     sound: Option<&mut SoundQueue>,
-    world: &PhysicsWorld,
-    shooter: Option<Entity>,
-    local: bool,
     local_event: &'static str,
-    remote_event: &'static str,
-    origin: Vec3,
 ) {
     let Some(sound) = sound else {
         return;
     };
-    if local {
-        sound.play_2d(local_event);
-    } else {
-        sound.play_3d(remote_event, origin, entity_velocity(world, shooter));
-    }
+    sound.play_2d(local_event);
 }
 
 pub fn fire_projectile<F, R>(

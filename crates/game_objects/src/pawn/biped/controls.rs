@@ -9,7 +9,6 @@ use physics::physics_world::{PhysicsWorld, rb_pos};
 use super::{
     BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
     PITCH_MAX, PitchPivot, Possessed, SeatedInVehicle, WeaponSlots, YawPivot, apply_biped_input,
-    consume_fixed_press,
     vehicle::{DriverSeat, VehicleComponent, enter_vehicle, ray_hits_cockpit},
 };
 use crate::{
@@ -17,7 +16,7 @@ use crate::{
     weapon::{WeaponDriver, WeaponFireInput},
 };
 
-pub fn configure(app: &mut App) {
+pub(super) fn configure(app: &mut App) {
     app.init_resource::<FixedPressQueue>()
         .add_systems(Update, queue_fixed_inputs)
         .add_systems(
@@ -28,7 +27,6 @@ pub fn configure(app: &mut App) {
                     .in_set(super::GatherInputSet),
                 move_bipeds.in_set(super::MovePawnsSet),
                 biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
-                toggle_flashlight.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 update_interaction_hint.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 interact
@@ -57,8 +55,6 @@ pub fn configure(app: &mut App) {
         );
 }
 
-/// Gathers keyboard + look-pivot state into a BipedInput each FixedPreUpdate.
-/// look_yaw/pitch are 1-frame stale (mouse_look runs in Update) — acceptable for movement.
 fn gather_biped_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
@@ -77,7 +73,6 @@ fn gather_biped_input(
         fixed_presses.clear_ability1();
         return;
     };
-
     let mut input = common::BipedInput::default();
     if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons) {
         input.forward += 1.0;
@@ -95,7 +90,6 @@ fn gather_biped_input(
     input.slide = bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons);
     input.ability1 = bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
     input.ability1_pressed = fixed_presses.consume_ability1();
-
     if let Some(yaw_e) = biped.yaw_pivot
         && let Ok(yp) = yaw_pivots.get(yaw_e)
     {
@@ -106,11 +100,9 @@ fn gather_biped_input(
     {
         input.look_pitch = pp.pitch;
     }
-
     possessed.push(common::PawnInputKind::Biped(input));
 }
 
-/// moves the biped's yaw and pitch components on Update
 fn mouse_look(
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
@@ -122,11 +114,7 @@ fn mouse_look(
         Query<(&mut Transform, &mut PitchPivot)>,
     )>,
 ) {
-    if cursor_q.grab_mode == CursorGrabMode::None {
-        return;
-    }
-    let delta = mouse.delta;
-    if delta == Vec2::ZERO {
+    if cursor_q.grab_mode == CursorGrabMode::None || mouse.delta == Vec2::ZERO {
         return;
     }
     let Ok(biped) = possessed.single() else {
@@ -135,17 +123,16 @@ fn mouse_look(
     let zoom = camera_fx.single().map(|fx| fx.zoom_multiplier.max(1.0)).unwrap_or(1.0);
     let zoom_scale = 1.0 + (1.0 / zoom - 1.0) * sensitivity.zoom_blend;
     let s = sensitivity.base * zoom_scale;
-
     if let Some(yaw_e) = biped.yaw_pivot
         && let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e)
     {
-        pivot.yaw -= delta.x * s;
+        pivot.yaw -= mouse.delta.x * s;
         t.rotation = Quat::from_rotation_y(pivot.yaw);
     }
     if let Some(pitch_e) = biped.pitch_pivot
         && let Ok((mut t, mut pivot)) = pivots.p1().get_mut(pitch_e)
     {
-        pivot.pitch = (pivot.pitch - delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
+        pivot.pitch = (pivot.pitch - mouse.delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
         t.rotation = Quat::from_rotation_x(pivot.pitch);
     }
 }
@@ -206,7 +193,6 @@ fn move_bipeds(
     }
 }
 
-/// Re-parents the Camera3d under the biped's pitch pivot when Possessed is added.
 fn attach_camera_on_possess(
     bipeds: Query<(&BipedPawnComponent, &WeaponSlots), Added<Possessed>>,
     camera: Query<(Entity, &Projection), With<Camera3d>>,
@@ -273,37 +259,6 @@ fn hide_weapons_while_seated(
     }
 }
 
-fn toggle_flashlight(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    egui_wants: Res<EguiWantsInput>,
-    bindings: Res<common::ActiveKeyBindings>,
-    possessed_q: Query<&BipedPawnComponent, With<Possessed>>,
-    mut lights: Query<&mut Visibility, With<SpotLight>>,
-    mut quic: ResMut<net::quic::QuicManager>,
-    mut on: Local<bool>,
-    mut toggle_pressed: Local<bool>,
-) {
-    if egui_wants.wants_any_input()
-        || !consume_fixed_press(
-            bindings.pressed(common::InputAction::ToggleFlashlight, &keyboard, &mouse),
-            &mut toggle_pressed,
-        )
-    {
-        return;
-    }
-    *on = !*on;
-    if let Ok(biped) = possessed_q.single()
-        && let Some(light) = biped.flashlight
-        && let Ok(mut vis) = lights.get_mut(light)
-    {
-        *vis = if *on { Visibility::Inherited } else { Visibility::Hidden };
-    }
-    if quic.client_connected {
-        quic.send_to_server(net::quic::Channel::Ordered, &net::message::MsgType::FlashlightToggle);
-    }
-}
-
 #[derive(Resource, Default)]
 struct FixedPressQueue {
     reload: bool,
@@ -314,19 +269,15 @@ impl FixedPressQueue {
     fn queue_reload(&mut self) {
         self.reload = true;
     }
-
     fn queue_ability1(&mut self) {
         self.ability1 = true;
     }
-
     fn consume_reload(&mut self) -> bool {
         std::mem::take(&mut self.reload)
     }
-
     fn consume_ability1(&mut self) -> bool {
         std::mem::take(&mut self.ability1)
     }
-
     fn clear_ability1(&mut self) {
         self.ability1 = false;
     }
@@ -681,7 +632,6 @@ fn interact(
                 }
                 return;
             }
-
             match state.get() {
                 GameState::SinglePlayer => {
                     let Some(interact_net_id) = interact_net_id else {
@@ -805,8 +755,8 @@ fn drop_active_weapon(
             };
             let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
             let forward = rot * Vec3::NEG_Z;
-            let drop_velocity = forward * 8.0
-                + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
+            let drop_velocity =
+                forward * 8.0 + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
             crate::weapon::helpers::drop_or_despawn_weapon(
                 &mut commands,
                 &mut world,
@@ -819,4 +769,16 @@ fn drop_active_weapon(
         }
         _ => {}
     }
+}
+
+pub(crate) fn consume_fixed_press(is_down: bool, latched: &mut Local<bool>) -> bool {
+    if !is_down {
+        **latched = false;
+        return false;
+    }
+    if **latched {
+        return false;
+    }
+    **latched = true;
+    true
 }

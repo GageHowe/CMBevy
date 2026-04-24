@@ -67,7 +67,6 @@ pub fn show_controls_settings(
         show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");
         show_binding_row(ui, settings, capture, InputAction::Fire, "Fire");
         show_binding_row(ui, settings, capture, InputAction::AltFire, "Alt fire / zoom");
-        show_binding_row(ui, settings, capture, InputAction::ToggleFlashlight, "Toggle flashlight");
         show_binding_row(ui, settings, capture, InputAction::DropWeapon, "Drop weapon");
     });
 

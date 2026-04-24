@@ -66,15 +66,7 @@ pub fn fire_rifle_projectile(
     helpers::fire_projectile(ctx, world, commands, rifle::SPEED, rifle::spawn);
     #[cfg(feature = "client")]
     projectile_helpers::apply_recoil::<rifle::RifleProjectile>(ctx, world, kick_scale);
-    helpers::queue_fire_sound(
-        ctx.sound.as_deref_mut(),
-        world,
-        ctx.shooter,
-        ctx.camera.is_some(),
-        "event:/Weapons/RifleShotLocal",
-        "event:/Weapons/RifleShot",
-        ctx.origin,
-    );
+    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((2.0 * kick_scale, 0.5 * kick_scale), (-kick_scale, kick_scale), 20.0);
     }

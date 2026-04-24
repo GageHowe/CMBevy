@@ -115,8 +115,49 @@ pub fn insert_remote_projectile(
         make_projectile_physics(entity, cmd.position, cmd.starting_velocity, radius, &mut physics)
     };
     world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+    play_world_fire_sound(world, None, fire_sound, cmd.position, cmd.starting_velocity);
+}
+
+#[cfg(feature = "client")]
+pub fn queue_world_fire_sound(
+    commands: &mut Commands,
+    shooter: Option<Entity>,
+    fire_sound: &'static str,
+    position: Vec3,
+    velocity: Vec3,
+) {
+    commands.queue(move |world: &mut World| {
+        play_world_fire_sound(world, shooter, fire_sound, position, velocity);
+    });
+}
+
+#[cfg(not(feature = "client"))]
+pub fn queue_world_fire_sound(
+    _commands: &mut Commands,
+    _shooter: Option<Entity>,
+    _fire_sound: &'static str,
+    _position: Vec3,
+    _velocity: Vec3,
+) {
+}
+
+fn play_world_fire_sound(
+    world: &mut World,
+    #[cfg(feature = "client")] shooter: Option<Entity>,
+    #[cfg(not(feature = "client"))] _shooter: Option<Entity>,
+    fire_sound: &'static str,
+    position: Vec3,
+    velocity: Vec3,
+) {
+    #[cfg(feature = "client")]
+    if let Some(local_shooter) =
+        world.query_filtered::<Entity, With<crate::pawn::Possessed>>().single(world).ok()
+        && shooter == Some(local_shooter)
+    {
+        return;
+    }
     if let Some(mut sq) = world.get_resource_mut::<crate::sound::SoundQueue>() {
-        sq.play_3d(fire_sound, cmd.position, cmd.starting_velocity);
+        sq.play_3d(fire_sound, position, velocity);
     }
 }
 

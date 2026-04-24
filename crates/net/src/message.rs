@@ -71,8 +71,6 @@ pub enum MsgType {
     TimePing(u64),
     TimePong(u64),
     OnscreenMessage(String),
-    FlashlightToggle,
-    FlashlightState(NetworkID, bool),
     JetpackFx(NetworkID, bool),
     DashFx(NetworkID, Vec3),
     AbilityPickup(NetworkID, NetworkID),
