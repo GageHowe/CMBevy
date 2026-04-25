@@ -50,16 +50,12 @@ fn set_style(mut contexts: EguiContexts) {
         ))
         .into(),
     );
-    fonts
-        .families
-        .get_mut(&egui::FontFamily::Proportional)
-        .unwrap()
-        .insert(0, "JetBrainsMono-Light".to_owned());
-    fonts
-        .families
-        .get_mut(&egui::FontFamily::Monospace)
-        .unwrap()
-        .insert(0, "JetBrainsMono-Light".to_owned());
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        family.insert(0, "JetBrainsMono-Light".to_owned());
+    }
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+        family.insert(0, "JetBrainsMono-Light".to_owned());
+    }
     ctx.set_fonts(fonts);
 
     let mut style = (*ctx.style()).clone();

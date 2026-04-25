@@ -37,7 +37,7 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert((
             WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
             Health::new(100.0),
-            HealthRegen { per_sec: BIPED_REGEN_PER_SEC },
+            HealthRegen { per_sec: BIPED_HEALTH_REGEN_PER_SEC },
             LastDamageSource::default(),
             GameObjectKind::Biped,
             Transform::from(transform),
@@ -60,9 +60,11 @@ impl GameObject for BipedPawnComponent {
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
             }
-            let collider = movement::make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true);
+            let collider =
+                movement::make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true);
             let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
-            let collider_handle = collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+            let collider_handle =
+                collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
             (rb_handle, collider_handle)
         };
 
@@ -139,7 +141,8 @@ impl GameObject for BipedPawnComponent {
                 }
             }
         }
-        if let Some(mut pending_kills) = world.get_resource_mut::<crate::health::PendingPlayerKills>()
+        if let Some(mut pending_kills) =
+            world.get_resource_mut::<crate::health::PendingPlayerKills>()
         {
             pending_kills.0.push((entity, killer));
         }
@@ -176,7 +179,11 @@ fn spawn_visuals(entity: Entity, world: &mut World) {
         .resource_mut::<Assets<Mesh>>()
         .add(bevy::math::primitives::Capsule3d::new(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT));
     let material = world.resource_mut::<Assets<StandardMaterial>>().add(Color::srgb(0.9, 0.4, 0.1));
-    world.entity_mut(entity).insert((Mesh3d(mesh), MeshMaterial3d(material), Visibility::default()));
+    world.entity_mut(entity).insert((
+        Mesh3d(mesh),
+        MeshMaterial3d(material),
+        Visibility::default(),
+    ));
     let pitch_pivot =
         world.spawn((PitchPivot { pitch: 0.0 }, Transform::default(), Visibility::default())).id();
     let yaw_pivot = world
@@ -194,7 +201,12 @@ fn spawn_visuals(entity: Entity, world: &mut World) {
     }
 }
 
-fn push_death_message(world: &mut World, victim: Entity, killer: Option<Entity>, cause: DamageCause) {
+fn push_death_message(
+    world: &mut World,
+    victim: Entity,
+    killer: Option<Entity>,
+    cause: DamageCause,
+) {
     let victim_name = player_name(world, victim);
     let killer_name = killer.map(|killer| player_name(world, killer));
     let text = match (killer, killer_name, cause) {

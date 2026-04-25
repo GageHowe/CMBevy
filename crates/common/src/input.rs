@@ -31,10 +31,19 @@ pub struct SpaceshipInput {
     pub roll: f32,
 }
 
+/// Per-tick input for a truck pawn.
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub struct TruckInput {
+    pub throttle: f32,
+    pub steer: f32,
+    pub brake: f32,
+}
+
 /// Discriminated union of all pawn input types.
 /// Serialized directly into MsgType::Input; net layer is transport-only.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum PawnInputKind {
     Biped(BipedInput),
     Spaceship(SpaceshipInput),
+    Truck(TruckInput),
 }

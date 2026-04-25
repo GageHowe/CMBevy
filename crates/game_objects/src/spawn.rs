@@ -4,6 +4,8 @@ use bevy::prelude::{App, Command, Resource, *};
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 
+use crate::gc::WorldObjectGc;
+
 type SpawnGameObjectFn = fn(Entity, &SpawnCommand, &mut World);
 type GameObjectDeathFn = fn(Entity, &mut World) -> bool;
 
@@ -11,11 +13,12 @@ type GameObjectDeathFn = fn(Entity, &mut World) -> bool;
 struct GameObjectRegistration {
     spawn: SpawnGameObjectFn,
     on_death: GameObjectDeathFn,
+    gc_after_secs: Option<f32>,
 }
 
 impl GameObjectRegistration {
     fn of<T: GameObject>() -> Self {
-        Self { spawn: T::spawn, on_death: T::on_death }
+        Self { spawn: T::spawn, on_death: T::on_death, gc_after_secs: T::GC_AFTER_SECS }
     }
 }
 
@@ -55,6 +58,7 @@ impl AppGameObjectExt for App {
 /// Runtime constructor for a spawnable game object.
 pub trait GameObject: Default + Reflect {
     const KIND: GameObjectKind;
+    const GC_AFTER_SECS: Option<f32> = None;
     /// responsible for enacting all side effects that spawn this entity
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
     /// callback that is called when entities' health drops to 0, before they are despawned.
@@ -93,5 +97,10 @@ impl Command for SpawnGameObjectCommand {
             registry.get(self.cmd.kind.clone())
         };
         (registration.spawn)(self.entity, &self.cmd, world);
+        if let Some(reset_secs) = registration.gc_after_secs
+            && world.get::<WorldObjectGc>(self.entity).is_none()
+        {
+            world.entity_mut(self.entity).insert(WorldObjectGc::new(reset_secs));
+        }
     }
 }

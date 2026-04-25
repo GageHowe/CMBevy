@@ -18,7 +18,9 @@ pub fn gui_chat(
     mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<ActiveKeyBindings>,
 ) {
-    let ctx = contexts.ctx_mut().unwrap();
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
     egui::Window::new("chat")
         .title_bar(false)
         .movable(false)

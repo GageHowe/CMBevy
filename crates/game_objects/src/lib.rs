@@ -7,6 +7,7 @@ pub mod asset_path;
 pub mod bot;
 pub mod components;
 pub mod generic;
+pub mod gc;
 pub mod health;
 pub mod interaction;
 pub mod level;
@@ -55,6 +56,7 @@ impl Plugin for GameObjectsPlugin {
                     network_index::index_removed_rigid_bodies,
                 ),
             );
+        app.add_plugins(gc::WorldGcPlugin);
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(weapon::WeaponPlugin);

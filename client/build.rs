@@ -19,7 +19,7 @@ fn target_dir() -> Option<PathBuf> {
 }
 
 fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf()
 }
 

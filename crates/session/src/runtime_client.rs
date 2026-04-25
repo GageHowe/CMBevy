@@ -12,7 +12,7 @@ use game_objects::{
     mode::MatchState,
     pawn::{
         HeldWeaponMap, InteractionGate, Possessed, WeaponSlots, biped::BipedPawnComponent,
-        spaceship::SpaceshipPawnComponent,
+        spaceship::SpaceshipPawnComponent, truck::TruckPawnComponent,
     },
     weapon::{WeaponConfig, WeaponState},
 };
@@ -208,6 +208,7 @@ fn run_singleplayer_bots(
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     mut bipeds: Query<&mut BipedPawnComponent>,
     mut spaceships: Query<&mut SpaceshipPawnComponent>,
+    mut trucks: Query<&mut TruckPawnComponent>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -227,6 +228,7 @@ fn run_singleplayer_bots(
             &mut world,
             &mut bipeds,
             &mut spaceships,
+            &mut trucks,
         );
         if output.fire {
             fire_singleplayer_bot_weapon(

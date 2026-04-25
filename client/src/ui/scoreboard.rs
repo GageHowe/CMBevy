@@ -13,6 +13,9 @@ pub fn gui_scoreboard(
     let Some(snapshot) = gui.scoreboard.as_ref() else {
         return;
     };
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
     let local_net_id = possessed.single().ok().cloned();
     egui::Window::new("scoreboard")
         .title_bar(false)
@@ -20,7 +23,7 @@ pub fn gui_scoreboard(
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
-        .show(contexts.ctx_mut().unwrap(), |ui| {
+        .show(ctx, |ui| {
             ui.label(&snapshot.primary_objective_label);
             match snapshot.scoring {
                 ScoringOption::Unscored => ui.label(&snapshot.leaderboard_label),

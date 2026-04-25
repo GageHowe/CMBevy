@@ -4,17 +4,19 @@ use rapier3d::prelude::*;
 use super::*;
 use crate::spawn::AppGameObjectExt;
 
+#[cfg(feature = "client")]
+mod controls;
 mod lifecycle;
 mod look;
 mod movement;
-#[cfg(feature = "client")]
-mod controls;
 
-pub use movement::{apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset};
-#[cfg(feature = "client")]
-pub use look::draw_biped_debug;
 #[cfg(feature = "client")]
 pub(crate) use controls::consume_fixed_press;
+#[cfg(feature = "client")]
+pub use look::draw_biped_debug;
+pub use movement::{
+    apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset,
+};
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
@@ -31,7 +33,7 @@ pub(super) const JUMP_COOLDOWN: u8 = 20;
 pub(super) const MAIN_RESTITUTION: f32 = 0.0;
 pub(super) const MAIN_FRICTION: f32 = 3.0;
 pub(super) const SLIDE_FRICTION: f32 = 0.1;
-pub(super) const BIPED_REGEN_PER_SEC: f32 = 4.0;
+pub(super) const BIPED_HEALTH_REGEN_PER_SEC: f32 = 4.0;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {

@@ -4,7 +4,10 @@ use game_objects::{
     Team,
     bot::{BotController, collect_contexts},
     health::Health,
-    pawn::{WeaponSlots, biped::BipedPawnComponent, spaceship::SpaceshipPawnComponent},
+    pawn::{
+        WeaponSlots, biped::BipedPawnComponent, spaceship::SpaceshipPawnComponent,
+        truck::TruckPawnComponent,
+    },
     weapon::{WeaponConfig, WeaponState},
 };
 use net::{message::*, quic::*};
@@ -19,6 +22,7 @@ pub(super) fn run_bots(
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     mut bipeds: Query<&mut BipedPawnComponent>,
     mut spaceships: Query<&mut SpaceshipPawnComponent>,
+    mut trucks: Query<&mut TruckPawnComponent>,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -39,6 +43,7 @@ pub(super) fn run_bots(
             &mut world,
             &mut bipeds,
             &mut spaceships,
+            &mut trucks,
         );
         if output.fire {
             fire_active_weapon(

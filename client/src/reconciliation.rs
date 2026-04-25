@@ -16,6 +16,7 @@ use game_objects::{
     pawn::{
         GatherInputSet, Pawn, Possessed, SeatedInVehicle, biped::BipedPawnComponent,
         biped_ability::EquippedAbility, spaceship::SpaceshipPawnComponent,
+        truck::TruckPawnComponent,
     },
 };
 use physics::physics_world::{
@@ -202,6 +203,7 @@ fn maybe_reconcile(
     mut pawn_q: ParamSet<(
         Query<&mut BipedPawnComponent, With<Possessed>>,
         Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+        Query<&mut TruckPawnComponent, With<Possessed>>,
     )>,
 ) {
     let Some(snapshot) = pending.0.take() else {
@@ -315,6 +317,7 @@ fn apply_predicted_tick(
     pawn_q: &mut ParamSet<(
         Query<&mut BipedPawnComponent, With<Possessed>>,
         Query<&mut SpaceshipPawnComponent, With<Possessed>>,
+        Query<&mut TruckPawnComponent, With<Possessed>>,
     )>,
     owner_entity: Option<Entity>,
 ) {
@@ -338,7 +341,9 @@ fn apply_predicted_tick(
         false
     };
     if !handled && let Ok(mut s) = pawn_q.p1().single_mut() {
-        s.apply_input(world, &handle, tick.input);
+        s.apply_input(world, &handle, tick.input.clone());
+    } else if let Ok(mut t) = pawn_q.p2().single_mut() {
+        t.apply_input(world, &handle, tick.input);
     }
     for impulse in tick.impulses {
         apply_predicted_impulse(world, replay_handles, our_net_id, our_rb, impulse);

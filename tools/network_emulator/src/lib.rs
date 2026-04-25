@@ -263,7 +263,10 @@ pub fn run(config: Config) -> io::Result<()> {
         )?;
 
         let now = Instant::now();
-        let mut uplink = client.uplink.lock().expect("uplink mutex poisoned");
+        let mut uplink = client
+            .uplink
+            .lock()
+            .map_err(|_| io::Error::other("uplink mutex poisoned"))?;
         uplink.schedule(
             &buf[..count],
             now,
@@ -284,8 +287,11 @@ fn get_or_create_client(
     config: &Config,
     client_seed: &AtomicU64,
 ) -> io::Result<Arc<ClientLink>> {
-    if let Some(existing) =
-        clients.lock().expect("clients mutex poisoned").get(&client_addr).cloned()
+    if let Some(existing) = clients
+        .lock()
+        .map_err(|_| io::Error::other("clients mutex poisoned"))?
+        .get(&client_addr)
+        .cloned()
     {
         return Ok(existing);
     }
@@ -298,7 +304,9 @@ fn get_or_create_client(
         uplink: Mutex::new(LinkState::new(seed, config.uplink.clone())),
     });
 
-    let mut guard = clients.lock().expect("clients mutex poisoned");
+    let mut guard = clients
+        .lock()
+        .map_err(|_| io::Error::other("clients mutex poisoned"))?;
     let entry = guard.entry(client_addr).or_insert_with(|| {
         spawn_downlink_thread(
             Arc::clone(&server_socket),
@@ -318,8 +326,8 @@ fn get_or_create_client(
 
 fn local_bind_addr(server_addr: SocketAddr) -> SocketAddr {
     match server_addr {
-        SocketAddr::V4(_) => "127.0.0.1:0".parse().expect("hardcoded ipv4 bind addr"),
-        SocketAddr::V6(_) => "[::1]:0".parse().expect("hardcoded ipv6 bind addr"),
+        SocketAddr::V4(_) => SocketAddr::from(([127, 0, 0, 1], 0)),
+        SocketAddr::V6(_) => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
     }
 }
 
@@ -371,7 +379,9 @@ fn start_scheduler(rx: mpsc::Receiver<ScheduledPacket>, stats: Arc<Stats>) {
                     break;
                 }
 
-                let packet = heap.pop().expect("peeked packet must exist");
+                let Some(packet) = heap.pop() else {
+                    break;
+                };
                 let result = match packet.target {
                     PacketTarget::Connected(socket) => socket.send(&packet.payload).map(|_| ()),
                     PacketTarget::ToClient(socket, addr) => {

@@ -1,6 +1,6 @@
 // server executable
 
-use std::net::SocketAddr;
+use std::{io, net::SocketAddr};
 
 use bevy::{
     log::{Level, LogPlugin},
@@ -11,13 +11,18 @@ use master_plugin::MasterPlugin;
 use physics::physics_world::*;
 use session::ServerSessionPlugin;
 
-fn parse_args() -> (SocketAddr, String, String) {
+fn parse_args() -> io::Result<(SocketAddr, String, String)> {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
-    let mut map =
-        format!("maps/{}", first_asset_name("maps", "ron").expect("no maps found in assets/maps"));
+    let mut map = format!(
+        "maps/{}",
+        first_asset_name("maps", "ron")
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no maps found in assets/maps"))?
+    );
     let mut gametype = game_objects::level::default_asset_dir()
         .join("gametypes")
-        .join(first_asset_name("gametypes", "lua").expect("no gametypes found in assets/gametypes"))
+        .join(first_asset_name("gametypes", "lua").ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "no gametypes found in assets/gametypes")
+        })?)
         .to_string_lossy()
         .into_owned();
     let mut args = std::env::args().skip(1);
@@ -41,7 +46,13 @@ fn parse_args() -> (SocketAddr, String, String) {
             _ => {}
         }
     }
-    (addr.parse().unwrap(), map, gametype)
+    let bind_addr = addr.parse().map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid bind address '{addr}': {err}"),
+        )
+    })?;
+    Ok((bind_addr, map, gametype))
 }
 
 fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
@@ -80,7 +91,13 @@ fn start_lan_discovery(quic_port: u16) {
 }
 
 fn main() {
-    let (bind_addr, map_path, gametype_path) = parse_args();
+    let (bind_addr, map_path, gametype_path) = match parse_args() {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
     println!("binding to {bind_addr}\nmap={map_path}\ngametype={gametype_path}");
     start_lan_discovery(bind_addr.port());
 

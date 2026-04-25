@@ -2,6 +2,7 @@
 pub mod biped;
 pub mod biped_ability;
 pub mod spaceship;
+pub mod truck;
 pub mod vehicle;
 pub mod weapon_slots;
 
@@ -138,7 +139,7 @@ pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::PredictedCommands;
-pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
+pub use common::{BipedInput, PawnInputKind, SpaceshipInput, TruckInput};
 #[cfg(feature = "client")]
 use net::message::MsgType;
 use net::{
@@ -147,6 +148,7 @@ use net::{
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 pub use spaceship::SpaceshipPawnComponent;
+pub use truck::TruckPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
 pub use weapon_slots::WeaponSlots;
 
@@ -293,6 +295,7 @@ impl Plugin for PawnPlugin {
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
+        app.add_plugins(truck::TruckPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
     }
 }
@@ -350,6 +353,7 @@ pub fn apply_server_input(
     world: &mut PhysicsWorld,
     bipeds: &mut Query<&mut biped::BipedPawnComponent>,
     spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
+    trucks: &mut Query<&mut truck::TruckPawnComponent>,
 ) -> (bool, Option<biped_ability::AbilityFx>) {
     let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
         return (false, None);
@@ -378,6 +382,13 @@ pub fn apply_server_input(
                 input,
                 &mut ship,
             );
+            (true, None)
+        }
+        PawnInputKind::Truck(input) => {
+            let Ok(mut truck) = trucks.get_mut(entity) else {
+                return (false, None);
+            };
+            truck::apply_truck_movement(world, &RigidBodyHandleComponent(handle), input, &mut truck);
             (true, None)
         }
     }

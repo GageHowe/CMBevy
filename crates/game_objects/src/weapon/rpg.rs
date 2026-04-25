@@ -77,6 +77,7 @@ impl Weapon for RpgComponent {
 
 impl GameObject for RpgComponent {
     const KIND: GameObjectKind = GameObjectKind::Rpg;
+    const GC_AFTER_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(RpgComponent::default(), world);

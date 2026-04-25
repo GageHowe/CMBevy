@@ -1,4 +1,4 @@
-//! for authoring niceness
+//! This lets us author levels with human-readable names instead of bevy names. Might also have more use cases in the future
 
 #[rustfmt::skip]
 const KEY_EXPANSIONS: &[(&str, &str)] = &[

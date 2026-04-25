@@ -509,6 +509,7 @@ fn apply_inputs(
     mut quic: ResMut<QuicManager>,
     mut bipeds: Query<&mut game_objects::pawn::biped::BipedPawnComponent>,
     mut spaceships: Query<&mut game_objects::pawn::spaceship::SpaceshipPawnComponent>,
+    mut trucks: Query<&mut game_objects::pawn::truck::TruckPawnComponent>,
 ) {
     for (&conn_id, (input_seq, kind)) in pending_inputs.0.iter() {
         let Some((entity, net_id)) = registry.controlled_pawn(conn_id) else {
@@ -520,6 +521,7 @@ fn apply_inputs(
             &mut world,
             &mut bipeds,
             &mut spaceships,
+            &mut trucks,
         );
         if applied {
             last_input_seq.0.insert(conn_id, *input_seq);

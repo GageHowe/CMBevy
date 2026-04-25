@@ -127,6 +127,7 @@ pub fn apply_biped_movement(
 
     biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
+    // if grounded and not sliding
     if grounded && !input.slide && desired.length_squared() > 1e-6 {
         let rel_vel = capsule_linvel - ground_linvel;
         let rel_vel_planar = rel_vel - planet_up * rel_vel.dot(planet_up);
@@ -155,6 +156,7 @@ pub fn apply_biped_movement(
         }
     }
 
+    // air control
     if !grounded {
         let down = input.slide as i8 as f32;
         let impulse = (desired * AIR_CONTROL - planet_up * down * AIR_CONTROL) * capsule_mass;

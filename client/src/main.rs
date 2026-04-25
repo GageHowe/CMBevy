@@ -167,17 +167,6 @@ fn main() {
     app.run();
 }
 
-/// handles messages coming in from the server
-/// called by quic on FixedPostUpdate
-// /// Draws a point gizmo at each body position from the latest server state.
-// fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
-//     let Some(state) = &last.0 else { return };
-//     for body in state.bodies.values() {
-//         let pos: Vec3 = body.position.into();
-//         gizmos.sphere(pos, 0.15, Color::srgb(1.0, 0.2, 0.2));
-//     }
-// }
-
 fn debug_render_on(s: Res<Settings>) -> bool {
     s.debug_render
 }

@@ -68,6 +68,7 @@ impl Weapon for PistolComponent {
 
 impl GameObject for PistolComponent {
     const KIND: GameObjectKind = GameObjectKind::Pistol;
+    const GC_AFTER_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(PistolComponent::default(), world);

@@ -4,7 +4,6 @@ use bevy::{
     prelude::*,
     scene::{DynamicSceneRoot, serde::SceneDeserializer},
 };
-use common::slow_update::SlowUpdate;
 use physics::{
     collider_shape::ColliderShape,
     convex_hull_asset::ConvexHullAsset,
@@ -17,7 +16,10 @@ use rapier3d::prelude::*;
 use serde::de::DeserializeSeed;
 use sha2::{Digest, Sha256};
 
-use crate::{lifecycle::spawn_game_object, pawn::Possessed};
+use crate::{
+    gc::{SpawnerGc, WorldObjectGc},
+    lifecycle::spawn_game_object,
+};
 
 mod preprocess;
 
@@ -101,24 +103,14 @@ impl Default for Spawner {
 }
 
 #[derive(Component)]
-struct SpawnerRuntime {
-    kind: common::GameObjectKind,
-    starting_velocity: Vec3,
-    respawn_delay_secs: f32,
-    gc_after_secs: Option<f32>,
-    respawn_timer_secs: f32,
-    active_entity: Option<Entity>,
+pub(crate) struct SpawnerRuntime {
+    pub(crate) kind: common::GameObjectKind,
+    pub(crate) starting_velocity: Vec3,
+    pub(crate) respawn_delay_secs: f32,
+    pub(crate) gc_after_secs: Option<f32>,
+    pub(crate) respawn_timer_secs: f32,
+    pub(crate) active_entity: Option<Entity>,
 }
-
-#[derive(Component)]
-struct SpawnerGc {
-    spawner: Entity,
-    remaining_secs: f32,
-    reset_secs: f32,
-}
-
-const SCENE_SPAWN_GC_RELEVANT_RADIUS_SQ: f32 = 90.0 * 90.0;
-const SLOW_UPDATE_DT_SECS: f32 = 1.0;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LevelAuthoritySet;
@@ -397,7 +389,6 @@ impl Plugin for LevelPlugin {
         // through the existing imperative GameObject spawn path.
         app.add_systems(Update, init_spawners);
         app.add_systems(FixedUpdate, tick_spawners.in_set(LevelAuthoritySet));
-        app.add_systems(SlowUpdate, cleanup_scene_spawned_entities.in_set(LevelAuthoritySet));
     }
 }
 
@@ -515,11 +506,9 @@ fn tick_spawners(
             &mut net_id_res,
         );
         if let Some(gc_after_secs) = spawner.gc_after_secs {
-            commands.entity(spawn_entity).insert(SpawnerGc {
-                spawner: _spawner_entity,
-                remaining_secs: gc_after_secs,
-                reset_secs: gc_after_secs,
-            });
+            commands
+                .entity(spawn_entity)
+                .insert((SpawnerGc { spawner: _spawner_entity }, WorldObjectGc::new(gc_after_secs)));
         }
         spawner.active_entity = Some(spawn_entity);
 
@@ -535,53 +524,6 @@ fn tick_spawners(
                 );
             }
         }
-    }
-}
-
-fn cleanup_scene_spawned_entities(
-    physics: Res<PhysicsWorld>,
-    players: Query<&RigidBodyHandleComponent, With<Possessed>>,
-    mut gc_q: Query<(Entity, &RigidBodyHandleComponent, &mut SpawnerGc)>,
-    mut spawners: Query<&mut SpawnerRuntime>,
-    mut commands: Commands,
-) {
-    let player_positions: Vec<Vec3> =
-        players.iter().filter_map(|body| physics.rigid_body_set.get(body.0).map(rb_pos)).collect();
-
-    for (entity, body, mut gc) in &mut gc_q {
-        let Some(rb) = physics.rigid_body_set.get(body.0) else {
-            continue;
-        };
-
-        // Disabled bodies are not world-relevant right now (held weapon, etc.). Reset so
-        // dropping them later always starts from a full grace period.
-        if !rb.is_enabled() {
-            gc.remaining_secs = gc.reset_secs;
-            continue;
-        }
-
-        let pos = rb_pos(rb);
-        let near_player = player_positions
-            .iter()
-            .any(|player| player.distance_squared(pos) <= SCENE_SPAWN_GC_RELEVANT_RADIUS_SQ);
-        if near_player {
-            gc.remaining_secs = gc.reset_secs;
-            continue;
-        }
-
-        gc.remaining_secs = (gc.remaining_secs - SLOW_UPDATE_DT_SECS).max(0.0);
-        if gc.remaining_secs > 0.0 {
-            continue;
-        }
-
-        if let Ok(mut spawner) = spawners.get_mut(gc.spawner)
-            && spawner.active_entity == Some(entity)
-        {
-            spawner.active_entity = None;
-            spawner.respawn_timer_secs = spawner.respawn_delay_secs;
-        }
-        info!("gc despawned scene-spawned entity {entity}");
-        commands.entity(entity).despawn();
     }
 }
 
