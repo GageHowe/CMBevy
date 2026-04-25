@@ -19,6 +19,7 @@ pub mod pawn;
 pub mod projectile;
 pub mod sound;
 mod spawn;
+pub mod spring_arm;
 pub mod weapon;
 pub use components::{atmosphere, planet};
 pub use generic::{GenericShape, spawn_generic};
@@ -57,6 +58,7 @@ impl Plugin for GameObjectsPlugin {
                 ),
             );
         app.add_plugins(gc::WorldGcPlugin);
+        app.add_plugins(spring_arm::SpringArmPlugin);
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(weapon::WeaponPlugin);

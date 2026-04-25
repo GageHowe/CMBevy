@@ -75,16 +75,25 @@ fn replace_capsule_collider(
     friction: f32,
     feet_planted: bool,
 ) -> ColliderHandle {
-    if let Some(old_ch) = old_ch {
-        let PhysicsWorld { collider_set, island_manager, rigid_body_set, .. } = &mut *world;
-        collider_set.remove(old_ch, island_manager, rigid_body_set, false);
+    let prototype = make_biped_capsule_collider(half_height, friction, feet_planted);
+    // Mutate the existing collider in-place when possible: avoids the remove→insert cycle
+    // which can leave the island manager with a stale active_island_id and panic in step_physics.
+    if let Some(ch) = old_ch
+        && let Some(col) = world.collider_set.get_mut(ch)
+    {
+        let y_offset = if feet_planted {
+            (half_height + CAPSULE_RADIUS) - CAPSULE_BOTTOM
+        } else {
+            CAPSULE_HALF_HEIGHT - half_height
+        };
+        col.set_shape(prototype.shared_shape().clone());
+        col.set_friction(prototype.friction());
+        col.set_friction_combine_rule(prototype.friction_combine_rule());
+        col.set_translation_wrt_parent(Vector3::new(0.0, y_offset, 0.0));
+        return ch;
     }
     let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
-    collider_set.insert_with_parent(
-        make_biped_capsule_collider(half_height, friction, feet_planted),
-        rb_handle,
-        rigid_body_set,
-    )
+    collider_set.insert_with_parent(prototype, rb_handle, rigid_body_set)
 }
 
 pub fn apply_biped_movement(
@@ -107,6 +116,16 @@ pub fn apply_biped_movement(
     let (grounded, ground_linvel, support_entity) =
         ground_state(world, body_handle.0, capsule_pos, planet_up, biped.is_sliding);
 
+    // Air control: small directional force while airborne
+    if !grounded {
+        let impulse = (desired + planet_up * (input.jump as i8 as f32 - input.slide as i8 as f32)) * AIR_CONTROL * capsule_mass;
+        if impulse.length_squared() > 1e-6
+            && let Some(rb) = world.rigid_body_set.get_mut(body_handle.0)
+        {
+            rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+        }
+    }
+
     // Swap collider when slide state changes. The crouched capsule is always top-aligned:
     // its top stays at the same height as the standing capsule so the camera never moves
     // due to a collider change. In mid-air this means the body is unchanged; on the ground
@@ -124,7 +143,7 @@ pub fn apply_biped_movement(
             friction,
             false, // always top-aligned
         ));
-        // Snap the body down immediately when crouching on the ground instead of waiting for gravity.
+        // push the body down immediately when crouching on the ground instead of waiting for gravity.
         if just_crouched && grounded {
             let impulse = -planet_up * CROUCH_DOWN_IMPULSE * capsule_mass;
             if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
@@ -154,7 +173,7 @@ pub fn apply_biped_movement(
     }
 
     // Jump: apply an upward impulse and push the support body down to conserve momentum.
-    // Crouching compresses the legs further, giving a higher jump.
+    // Crouching gives a higher jump.
     if input.jump && grounded && biped.jump_cooldown == 0 {
         biped.jump_cooldown = JUMP_COOLDOWN;
         let jump_strength = if biped.is_sliding { JUMP_IMPULSE_CROUCHED } else { JUMP_IMPULSE };
@@ -172,16 +191,7 @@ pub fn apply_biped_movement(
         }
     }
 
-    // Air control: small directional nudge while airborne; slide key also pulls downward.
-    if !grounded {
-        let down = input.slide as i8 as f32;
-        let impulse = (desired * AIR_CONTROL - planet_up * down * AIR_CONTROL) * capsule_mass;
-        if impulse.length_squared() > 1e-6
-            && let Some(rb) = world.rigid_body_set.get_mut(body_handle.0)
-        {
-            rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
-        }
-    }
+
 }
 
 pub fn apply_biped_input(

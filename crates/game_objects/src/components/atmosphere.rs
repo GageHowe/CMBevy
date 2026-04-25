@@ -16,8 +16,8 @@ pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<AtmosphericDragComponent>()
-            .register_type::<AreaReverbComponent>()
-            .add_systems(FixedUpdate, apply_wind_resistance.before(step_physics));
+            .register_type::<AreaReverbComponent>();
+        // apply_wind_resistance disabled: perf drain, not needed for demo
     }
 }
 

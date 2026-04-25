@@ -118,14 +118,18 @@ fn record_biped_state(
     history.0.retain(|&old_seq, _| old_seq + 128 >= seq);
 }
 
-/// Exponentially drains per-body physics errors by applying a fraction each tick.
-/// Alpha = 0.1 → ~90% corrected after ~22 ticks (~0.37 s at 60 Hz).
+/// Drains per-body physics errors each tick.
+/// Position/rotation lerp smoothly to avoid visible snapping.
+/// Velocity/angular velocity are corrected instantly so subsequent physics steps
+/// simulate on the right trajectory rather than compounding drift.
 pub fn apply_physics_corrections(
     mut errors: ResMut<PhysicsErrors>,
     mut world: ResMut<PhysicsWorld>,
     networked: Res<NetworkEntityMap>,
 ) {
-    const ALPHA: f32 = 0.2;
+    // ~90% corrected after ~10 ticks at 64Hz ≈ 0.16s
+    const POS_ALPHA: f32 = 0.2;
+
     if errors.0.is_empty() {
         return;
     }
@@ -140,31 +144,30 @@ pub fn apply_physics_corrections(
             return false;
         };
 
-        let dp = error.pos * ALPHA;
-        let dv = error.linvel * ALPHA;
-        let dav = error.angvel * ALPHA;
-        let dr = error.rot * ALPHA;
-
+        // Smooth positional correction.
+        let dp = error.pos * POS_ALPHA;
         let t = rb_pos(rb) + dp;
         rb.set_translation(Vector::new(t.x, t.y, t.z), true);
 
+        let dr = error.rot * POS_ALPHA;
         let ang = dr.length();
         if ang > 1e-6 {
             let cur = rb_rot(rb);
             let delta = Quat::from_axis_angle(dr / ang, ang);
             rb.set_rotation(delta * cur, true);
         }
-        let av = rb_angvel(rb) + dav;
+
+        // Velocity is corrected instantly: a wrong velocity compounds into position error on
+        // every subsequent tick, so lerping it just makes the position correction larger.
+        let v = rb_vel(rb) + error.linvel;
+        rb.set_linvel(Vector::new(v.x, v.y, v.z), true);
+        let av = rb_angvel(rb) + error.angvel;
         rb.set_angvel(Vector::new(av.x, av.y, av.z), true);
 
-        let v = rb_vel(rb) + dv;
-        rb.set_linvel(Vector::new(v.x, v.y, v.z), true);
-
-        let keep = 1.0 - ALPHA;
-        error.pos *= keep;
-        error.rot *= keep;
-        error.linvel *= keep;
-        error.angvel *= keep;
+        error.pos *= 1.0 - POS_ALPHA;
+        error.rot *= 1.0 - POS_ALPHA;
+        error.linvel = Vec3::ZERO;
+        error.angvel = Vec3::ZERO;
 
         true
     });

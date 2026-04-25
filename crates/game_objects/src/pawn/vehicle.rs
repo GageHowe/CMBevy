@@ -439,6 +439,7 @@ pub fn attach_camera_on_possess_vehicle(
             current_fov: base_fov,
             ..default()
         },
+        crate::spring_arm::SpringArm::new(vehicle.camera_offset, 0.2, 5.0),
     ));
     commands.entity(vehicle_entity).add_child(cam);
 }
