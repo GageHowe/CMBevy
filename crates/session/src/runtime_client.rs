@@ -11,8 +11,7 @@ use game_objects::{
     lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
     mode::MatchState,
     pawn::{
-        HeldWeaponMap, InteractionGate, Possessed, WeaponSlots, biped::BipedPawnComponent,
-        spaceship::SpaceshipPawnComponent, truck::TruckPawnComponent,
+        HeldWeaponMap, InteractionGate, PawnInputParams, Possessed, WeaponSlots,
     },
     weapon::{WeaponConfig, WeaponState},
 };
@@ -206,9 +205,7 @@ fn run_singleplayer_bots(
     actors: Query<(Entity, &Team, &Health)>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
-    mut bipeds: Query<&mut BipedPawnComponent>,
-    mut spaceships: Query<&mut SpaceshipPawnComponent>,
-    mut trucks: Query<&mut TruckPawnComponent>,
+    mut pawns: PawnInputParams,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -222,14 +219,7 @@ fn run_singleplayer_bots(
         };
         ctx.visible = actors.clone();
         let output = bot.brain.think(&ctx);
-        let _ = game_objects::pawn::apply_server_input(
-            entity,
-            output.input,
-            &mut world,
-            &mut bipeds,
-            &mut spaceships,
-            &mut trucks,
-        );
+        let _ = pawns.apply_server_input(entity, output.input, &mut world);
         if output.fire {
             fire_singleplayer_bot_weapon(
                 entity,

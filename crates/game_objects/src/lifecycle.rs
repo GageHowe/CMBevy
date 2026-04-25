@@ -7,6 +7,8 @@ use crate::{
     SpawnGameObjectCommand,
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
 };
+#[cfg(feature = "client")]
+use crate::NetworkEntityMap;
 
 pub fn spawn_game_object(
     kind: GameObjectKind,
@@ -42,6 +44,101 @@ pub fn queue_spawn_command(cmd: SpawnCommand, commands: &mut Commands) -> (Entit
 
 pub fn queue_spawn_command_on(entity: Entity, cmd: SpawnCommand, commands: &mut Commands) {
     commands.queue(SpawnGameObjectCommand { entity, cmd });
+}
+
+#[cfg(feature = "client")]
+pub fn apply_spawn_command(
+    commands: &mut Commands,
+    networked: &NetworkEntityMap,
+    just_spawned: &mut std::collections::HashMap<NetworkID, (Entity, u64)>,
+    mut cmd: SpawnCommand,
+    rtt_secs: f32,
+) {
+    cmd.position += cmd.starting_velocity * (rtt_secs / 2.0);
+    let net_id = cmd.net_id.clone();
+    let server_tick = cmd.server_tick;
+    let entity = if let Some(entity) = networked.get(&net_id) {
+        queue_spawn_command_on(entity, cmd, commands);
+        entity
+    } else {
+        let (entity, _, _) = queue_spawn_command(cmd, commands);
+        entity
+    };
+    just_spawned.insert(net_id, (entity, server_tick));
+}
+
+#[cfg(feature = "client")]
+pub fn apply_possess(
+    net_id: NetworkID,
+    local_net_id: &mut Option<NetworkID>,
+    just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
+    networked: &NetworkEntityMap,
+    possessed_q: &Query<(Entity, &NetworkID), With<crate::pawn::Possessed>>,
+    commands: &mut Commands,
+    ticker: &mut common::tick::Ticker,
+) {
+    *local_net_id = Some(net_id.clone());
+    let result = just_spawned
+        .get(&net_id)
+        .copied()
+        .or_else(|| networked.get(&net_id).map(|entity| (entity, ticker.tick)));
+    let Some((entity, server_tick)) = result else {
+        return;
+    };
+    for (old, _) in possessed_q.iter() {
+        if old != entity {
+            commands.entity(old).remove::<crate::pawn::Possessed>();
+        }
+    }
+    ticker.tick = server_tick;
+    commands.entity(entity).insert(crate::pawn::Possessed::new(128));
+}
+
+#[cfg(feature = "client")]
+pub fn apply_despawn(
+    net_id: &NetworkID,
+    local_net_id: &mut Option<NetworkID>,
+    networked: &NetworkEntityMap,
+    camera: &Query<Entity, With<Camera3d>>,
+    biped_q: &mut bevy::ecs::system::ParamSet<(
+        Query<(&mut crate::pawn::WeaponSlots, &crate::pawn::biped::BipedPawnComponent), With<crate::pawn::Possessed>>,
+        Query<&crate::pawn::biped::BipedPawnComponent>,
+        Query<&mut crate::pawn::biped::BipedPawnComponent>,
+    )>,
+    commands: &mut Commands,
+) {
+    let Some(entity) = networked.get(net_id) else {
+        return;
+    };
+    let is_local = local_net_id.as_ref() == Some(net_id);
+    if is_local {
+        if let Ok(cam) = camera.single()
+            && let Ok(mut entity) = commands.get_entity(cam)
+        {
+            entity.remove_parent_in_place();
+        }
+        if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+            let held: Vec<_> = slots.held_entities().collect();
+            for ent in held {
+                if let Ok(mut entity) = commands.get_entity(ent) {
+                    entity.queue_silenced(|entity: EntityWorldMut| {
+                        entity.despawn();
+                        Ok::<(), bevy::ecs::world::error::EntityMutableFetchError>(())
+                    });
+                }
+            }
+            slots.clear();
+        }
+        *local_net_id = None;
+    } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+        slots.remove_by_net_id(net_id);
+    }
+    if let Ok(mut entity_commands) = commands.get_entity(entity) {
+        entity_commands.queue_silenced(|entity: EntityWorldMut| {
+            entity.despawn();
+            Ok::<(), bevy::ecs::world::error::EntityMutableFetchError>(())
+        });
+    }
 }
 
 pub fn pick_spawn_point(

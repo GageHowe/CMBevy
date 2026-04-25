@@ -88,6 +88,20 @@ pub struct PhysicsWorld {
 }
 
 impl PhysicsWorld {
+    pub fn body(&self, entity: Entity) -> Option<&RigidBody> {
+        self.entity_to_handle.get(&entity).and_then(|&handle| self.rigid_body_set.get(handle))
+    }
+
+    pub fn body_pos(&self, entity: Entity) -> Option<Vec3> {
+        self.body(entity).map(rb_pos)
+    }
+
+    pub fn entities_within_range(&self, a: Entity, b: Entity, range: f32) -> bool {
+        matches!((self.body_pos(a), self.body_pos(b)), (Some(a), Some(b)) if {
+            a.distance_squared(b) <= range * range
+        })
+    }
+
     /// Create new PhysicsWorld with reasonable defaults, subject to tweaking
     pub fn new(gravity: Vector3) -> Self {
         Self {
@@ -202,11 +216,16 @@ impl PhysicsWorld {
     ) {
         if let Some(&handle) = self.entity_to_handle.get(&entity) {
             if let Some(rb) = self.rigid_body_set.get_mut(handle) {
-                rb.set_translation(Vector3::new(pos.x, pos.y, pos.z), true);
-                rb.set_rotation(rot, true);
-                rb.set_linvel(Vector3::new(linvel.x, linvel.y, linvel.z), true);
-                rb.set_angvel(Vector3::new(angvel.x, angvel.y, angvel.z), true);
-                rb.wake_up(true);
+                // Don't wake disabled bodies — waking a body that isn't in any island
+                // corrupts Rapier's island manager (active_island_id becomes usize::MAX).
+                let wake = rb.is_enabled();
+                rb.set_translation(Vector3::new(pos.x, pos.y, pos.z), wake);
+                rb.set_rotation(rot, wake);
+                rb.set_linvel(Vector3::new(linvel.x, linvel.y, linvel.z), wake);
+                rb.set_angvel(Vector3::new(angvel.x, angvel.y, angvel.z), wake);
+                if wake {
+                    rb.wake_up(true);
+                }
             }
         }
     }

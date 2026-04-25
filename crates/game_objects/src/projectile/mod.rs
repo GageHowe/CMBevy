@@ -246,6 +246,32 @@ pub fn tick_projectiles<P: Projectile>(
 }
 
 #[cfg(feature = "client")]
+pub fn confirm_projectile(
+    temp_id: u32,
+    net_id: NetworkID,
+    predicted_projectiles: &mut PredictedProjectileMap,
+    projectile_q: &Query<(Entity, &ProjectileState)>,
+    commands: &mut Commands,
+) {
+    if let Some(projectile_entity) = predicted_projectiles.get(temp_id) {
+        predicted_projectiles.remove_temp_id(temp_id);
+        if let Ok(mut entity_commands) = commands.get_entity(projectile_entity) {
+            entity_commands.insert(net_id);
+        }
+        return;
+    }
+    for (projectile_entity, state) in projectile_q.iter() {
+        if state.temp_id == temp_id {
+            predicted_projectiles.remove_temp_id(temp_id);
+            if let Ok(mut entity_commands) = commands.get_entity(projectile_entity) {
+                entity_commands.insert(net_id.clone());
+            }
+            break;
+        }
+    }
+}
+
+#[cfg(feature = "client")]
 pub fn draw_projectile_raycast_debug(
     segments: Query<(Entity, &ProjectileRaycastDebug)>,
     mut gizmos: Gizmos,

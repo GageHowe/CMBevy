@@ -1,17 +1,10 @@
 use bevy::{ecs::system::Commands, prelude::*};
-use game_objects::{NetworkEntityMap, pawn::HeldWeaponMap, pawn::WeaponSlots, weapon};
+use game_objects::{pawn::HeldWeaponMap, pawn::WeaponSlots, weapon};
 use net::{
     message::{GameObjectKind, NetworkID, NetworkIDResource, WeaponState},
     quic::{Channel, ConnectionId, InboundMessage, QuicManager, SendTarget},
 };
 use physics::physics_world::PhysicsWorld;
-
-pub(crate) fn find_networked_entity(
-    all_networked: &NetworkEntityMap,
-    net_id: &NetworkID,
-) -> Option<bevy::prelude::Entity> {
-    all_networked.get(net_id)
-}
 
 pub(crate) fn drain_inbound(
     quic: &mut QuicManager,

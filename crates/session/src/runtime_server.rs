@@ -8,7 +8,7 @@ use game_objects::{
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
-    pawn::{PendingRespawns, PlayerRegistry, SeatedInVehicle},
+    pawn::{PawnInputParams, PendingRespawns, PlayerRegistry, SeatedInVehicle},
 };
 use net::{message::*, quic::*};
 use physics::physics_world::*;
@@ -507,22 +507,13 @@ fn apply_inputs(
     registry: Res<PlayerRegistry>,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
-    mut bipeds: Query<&mut game_objects::pawn::biped::BipedPawnComponent>,
-    mut spaceships: Query<&mut game_objects::pawn::spaceship::SpaceshipPawnComponent>,
-    mut trucks: Query<&mut game_objects::pawn::truck::TruckPawnComponent>,
+    mut pawns: PawnInputParams,
 ) {
     for (&conn_id, (input_seq, kind)) in pending_inputs.0.iter() {
         let Some((entity, net_id)) = registry.controlled_pawn(conn_id) else {
             continue;
         };
-        let (applied, fx) = game_objects::pawn::apply_server_input(
-            entity,
-            kind.clone(),
-            &mut world,
-            &mut bipeds,
-            &mut spaceships,
-            &mut trucks,
-        );
+        let (applied, fx) = pawns.apply_server_input(entity, kind.clone(), &mut world);
         if applied {
             last_input_seq.0.insert(conn_id, *input_seq);
         }

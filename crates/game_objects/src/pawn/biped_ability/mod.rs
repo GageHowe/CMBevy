@@ -8,6 +8,8 @@ use net::{
     message::{NetworkID, SpawnCommand},
     quic::{Channel, QuicManager, SendTarget},
 };
+#[cfg(feature = "client")]
+use net::message::NetworkID;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
@@ -252,6 +254,69 @@ pub fn swap_ability_kind(
 
 pub fn drop_ability_on_death(owner: Entity, world: &mut World) {
     drop_owned_ability(owner, Vec3::ZERO, world);
+}
+
+pub fn interact_pickup(
+    conn_id: net::quic::ConnectionId,
+    character: Entity,
+    character_net_id: NetworkID,
+    target: Entity,
+    target_net_id: NetworkID,
+    world: &PhysicsWorld,
+    interactables: &Query<&crate::interaction::Interactable>,
+    on_pickup_q: &Query<&OnPickup>,
+    commands: &mut Commands,
+    quic: &mut QuicManager,
+    aim_dir: Vec3,
+) -> bool {
+    let Ok(&OnPickup(f)) = on_pickup_q.get(target) else {
+        return false;
+    };
+    let Ok(interactable) = interactables.get(target) else {
+        return true;
+    };
+    if !world.entities_within_range(character, target, interactable.range) {
+        return true;
+    }
+    f(character, target, aim_dir, commands);
+    quic.send(
+        net::quic::SendTarget::One(conn_id),
+        Channel::Ordered,
+        &net::message::MsgType::AbilityPickup(character_net_id, target_net_id.clone()),
+    );
+    quic.send(
+        net::quic::SendTarget::All,
+        Channel::Ordered,
+        &net::message::MsgType::DespawnCommand(target_net_id),
+    );
+    true
+}
+
+#[cfg(feature = "client")]
+pub fn apply_pickup_message(
+    carrier_net_id: &NetworkID,
+    pickup_net_id: &NetworkID,
+    local_net_id: Option<&NetworkID>,
+    networked: &crate::NetworkEntityMap,
+    object_kinds: &Query<&GameObjectKind>,
+    commands: &mut Commands,
+) {
+    if local_net_id != Some(carrier_net_id) {
+        return;
+    }
+    let Some(carrier) = networked.get_entity(carrier_net_id) else {
+        return;
+    };
+    let Some(pickup) = networked.get_entity(pickup_net_id) else {
+        return;
+    };
+    let Ok(kind) = object_kinds.get(pickup) else {
+        return;
+    };
+    let kind = kind.clone();
+    commands.queue(move |world: &mut World| {
+        let _ = set_ability_kind(carrier, kind, world);
+    });
 }
 
 pub trait BipedAbility: Default {

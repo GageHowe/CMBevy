@@ -4,7 +4,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use bevy_egui::input::EguiWantsInput;
-use physics::physics_world::{PhysicsWorld, rb_pos};
+use physics::physics_world::PhysicsWorld;
 
 use super::{
     BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
@@ -455,13 +455,7 @@ fn interactable_in_range(
     target_entity: Entity,
     range: f32,
 ) -> bool {
-    matches!(
-        (
-            world.entity_to_handle.get(&pawn_entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos),
-            world.entity_to_handle.get(&target_entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos),
-        ),
-        (Some(pawn_pos), Some(target_pos)) if pawn_pos.distance_squared(target_pos) <= range * range
-    )
+    world.entities_within_range(pawn_entity, target_entity, range)
 }
 
 fn update_interaction_hint(
@@ -640,45 +634,23 @@ fn interact(
                     let Ok(mut slots) = possessed_q.single_mut() else {
                         return;
                     };
-                    if slots.is_full()
-                        && let Some((_drop_id, drop_entity)) = slots.remove_active()
-                    {
-                        let drop_velocity = forward * 8.0
-                            + crate::projectile::helpers::shooter_velocity(
-                                &world,
-                                Some(pawn_entity),
-                            );
-                        crate::weapon::helpers::drop_or_despawn_weapon(
-                            &mut commands,
-                            &mut world,
-                            drop_entity,
-                            weapon_states.get_mut(drop_entity).ok(),
-                            origin + forward,
-                            drop_velocity,
-                        );
-                    }
-                    let Some((is_primary, _prev_to_hide)) =
-                        slots.assign_pickup(interact_net_id.clone(), hit_entity)
-                    else {
-                        return;
-                    };
-                    crate::weapon::helpers::pickup_world_weapon(&mut world, hit_entity);
-                    crate::weapon::helpers::attach_local_viewmodel(
-                        &mut commands,
+                    let drop_velocity =
+                        forward * 8.0 + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
+                    if !crate::weapon::helpers::pickup_local_world_weapon(
+                        pawn_entity,
                         hit_entity,
+                        &interact_net_id,
                         pitch_e,
-                        is_primary,
-                    );
-                    crate::weapon::helpers::sync_local_active_weapon(
+                        &mut slots,
+                        origin + forward,
+                        drop_velocity,
+                        &mut weapon_states,
                         &mut commands,
-                        &slots,
+                        &mut world,
                         &mut camera_fx,
-                    );
-                    if let Ok(kind) = object_kinds.get(hit_entity) {
-                        crate::messages::push(
-                            &mut commands,
-                            format!("Picked up {}", kind.interaction_name()),
-                        );
+                        &object_kinds,
+                    ) {
+                        return;
                     }
                 }
                 GameState::Multiplayer => {
@@ -744,9 +716,6 @@ fn drop_active_weapon(
             let Ok(mut slots) = slots_q.single_mut() else {
                 return;
             };
-            let Some((_weapon_id, weapon_entity)) = slots.remove_active() else {
-                return;
-            };
             let Some(pitch_e) = biped.pitch_pivot else {
                 return;
             };
@@ -757,15 +726,15 @@ fn drop_active_weapon(
             let forward = rot * Vec3::NEG_Z;
             let drop_velocity =
                 forward * 8.0 + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
-            crate::weapon::helpers::drop_or_despawn_weapon(
-                &mut commands,
-                &mut world,
-                weapon_entity,
-                weapon_states.get_mut(weapon_entity).ok(),
+            crate::weapon::helpers::drop_local_active_weapon(
+                &mut slots,
                 origin + forward,
                 drop_velocity,
+                &mut weapon_states,
+                &mut commands,
+                &mut world,
+                &mut camera_fx,
             );
-            crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
         }
         _ => {}
     }

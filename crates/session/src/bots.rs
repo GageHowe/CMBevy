@@ -4,10 +4,7 @@ use game_objects::{
     Team,
     bot::{BotController, collect_contexts},
     health::Health,
-    pawn::{
-        WeaponSlots, biped::BipedPawnComponent, spaceship::SpaceshipPawnComponent,
-        truck::TruckPawnComponent,
-    },
+    pawn::{PawnInputParams, WeaponSlots},
     weapon::{WeaponConfig, WeaponState},
 };
 use net::{message::*, quic::*};
@@ -20,9 +17,7 @@ pub(super) fn run_bots(
     actors: Query<(Entity, &Team, &Health)>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
-    mut bipeds: Query<&mut BipedPawnComponent>,
-    mut spaceships: Query<&mut SpaceshipPawnComponent>,
-    mut trucks: Query<&mut TruckPawnComponent>,
+    mut pawns: PawnInputParams,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -37,14 +32,7 @@ pub(super) fn run_bots(
         };
         ctx.visible = actors.clone();
         let output = bot.brain.think(&ctx);
-        let _ = game_objects::pawn::apply_server_input(
-            entity,
-            output.input,
-            &mut world,
-            &mut bipeds,
-            &mut spaceships,
-            &mut trucks,
-        );
+        let _ = pawns.apply_server_input(entity, output.input, &mut world);
         if output.fire {
             fire_active_weapon(
                 entity,

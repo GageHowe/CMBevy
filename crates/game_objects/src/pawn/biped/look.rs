@@ -125,22 +125,18 @@ pub fn draw_biped_debug(
 }
 
 pub(super) fn update_slide_camera(
-    world: Res<PhysicsWorld>,
-    bipeds: Query<(&BipedPawnComponent, &RigidBodyHandleComponent)>,
+    bipeds: Query<&BipedPawnComponent>,
     mut pivots: Query<&mut Transform, With<YawPivot>>,
 ) {
-    for (biped, body) in bipeds.iter() {
+    for biped in bipeds.iter() {
         let Some(yaw_e) = biped.yaw_pivot else {
             continue;
         };
         let Ok(mut t) = pivots.get_mut(yaw_e) else {
             continue;
         };
-        let Some(rb) = world.rigid_body_set.get(body.0) else {
-            continue;
-        };
-        let planet_up = rb_rot(rb) * Vec3::Y;
-        let grounded = movement::ground_state(&world, body.0, rb_pos(rb), planet_up).0;
-        t.translation.y = if biped.is_sliding && grounded { -0.1 } else { 0.4 };
+        // Fixed eye-level offset from the body origin. The crouched capsule is top-aligned
+        // so the body physically falls on the ground rather than the camera being animated.
+        t.translation.y = 0.4;
     }
 }

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+#[cfg(feature = "client")]
+use net::message::NetworkID;
 use physics::physics_world::{PhysicsWorld, step_physics};
 
 use crate::dispatch_game_object_on_death;
@@ -182,6 +184,22 @@ pub fn apply_collision_damage(
             health.apply_damage(damage);
         }
     }
+}
+
+#[cfg(feature = "client")]
+pub fn apply_health_update(
+    net_id: &NetworkID,
+    current: f32,
+    networked: &crate::NetworkEntityMap,
+    health_q: &mut Query<&mut Health>,
+) {
+    let Some(entity) = networked.get(net_id) else {
+        return;
+    };
+    let Ok(mut health) = health_q.get_mut(entity) else {
+        return;
+    };
+    health.current = current;
 }
 
 fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageSource>) {

@@ -24,16 +24,21 @@ pub const CAPSULE_RADIUS: f32 = 0.3;
 pub const CAPSULE_HALF_HEIGHT: f32 = 0.5;
 pub(super) const SLIDE_HALF_HEIGHT: f32 = 0.1;
 pub(super) const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
-pub(super) const GROUND_ACCEL: f32 = 0.7;
-pub(super) const GROUND_SPEED_FALLOFF: f32 = 10.0;
+// Crouched capsule is top-aligned with standing: bottom = (CAPSULE_HALF_HEIGHT - SLIDE_HALF_HEIGHT) - SLIDE_HALF_HEIGHT - CAPSULE_RADIUS = 0.0
+pub(super) const SLIDE_CAPSULE_BOTTOM: f32 = 0.0;
+pub(super) const GROUND_ACCEL: f32 = 1.0;
+/// m/s; impulse tapers to zero as speed approaches this
+pub(super) const MAX_GROUND_SPEED: f32 = 8.0;
 pub(super) const JUMP_IMPULSE: f32 = 8.0;
-pub(super) const AIR_CONTROL: f32 = 0.15;
+pub(super) const JUMP_IMPULSE_CROUCHED: f32 = 12.0;
+pub(super) const CROUCH_DOWN_IMPULSE: f32 = 5.0;
+pub(super) const AIR_CONTROL: f32 = 0.1;
 pub(super) const GROUND_DIST: f32 = 0.05;
 pub(super) const JUMP_COOLDOWN: u8 = 20;
 pub(super) const MAIN_RESTITUTION: f32 = 0.0;
-pub(super) const MAIN_FRICTION: f32 = 3.0;
+pub(super) const MAIN_FRICTION: f32 = 2.0;
 pub(super) const SLIDE_FRICTION: f32 = 0.1;
-pub(super) const BIPED_HEALTH_REGEN_PER_SEC: f32 = 4.0;
+pub(super) const BIPED_HEALTH_REGEN_PER_SEC: f32 = 5.0;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {
@@ -52,7 +57,6 @@ pub struct BipedPawnComponent {
     #[reflect(ignore)]
     pub jetpack_fx_entity: Option<Entity>,
     pub is_sliding: bool,
-    pub slide_feet_planted: bool,
     pub snap_target: Option<Entity>,
     pub last_look_frame_body_rot: Option<Quat>,
 }

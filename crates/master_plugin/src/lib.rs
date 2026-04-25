@@ -24,13 +24,12 @@ impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(common::config::FIXED_TICK_RATE));
         app.insert_resource(Ticker { tick: 0 });
-        // step executes on FixedUpdate
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(ConvexHullPlugin);
         app.add_plugins(PlanetPlugin);
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
-        app.add_plugins(GameObjectsPlugin);
+        app.add_plugins(GameObjectsPlugin); // includes pawns, etc
         app.add_plugins(HealthPlugin);
         app.add_plugins(LevelPlugin);
         app.init_resource::<HeldWeaponMap>();

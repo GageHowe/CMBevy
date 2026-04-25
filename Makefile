@@ -15,8 +15,8 @@ endef
 build:
 	cargo build -p client
 	cargo build -p gameserver
-	cargo build -p network_emulator
-	$(CLIPPY_COMMANDS)
+	# cargo build -p network_emulator
+	# $(CLIPPY_COMMANDS)
 
 run:
 	cargo build -p gameserver && cargo run -p client

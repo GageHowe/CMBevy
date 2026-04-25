@@ -9,8 +9,11 @@ pub(super) fn ground_state(
     body_handle: RigidBodyHandle,
     capsule_pos: Vec3,
     planet_up: Vec3,
+    is_sliding: bool,
 ) -> (bool, Vec3, Option<Entity>) {
-    let ray_origin = capsule_pos - planet_up * CAPSULE_BOTTOM;
+    // The crouched capsule is top-aligned, so its bottom is at the body origin (SLIDE_CAPSULE_BOTTOM = 0).
+    let bottom_offset = if is_sliding { SLIDE_CAPSULE_BOTTOM } else { CAPSULE_BOTTOM };
+    let ray_origin = capsule_pos - planet_up * bottom_offset;
     let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
         !col.is_sensor() && col.parent().map_or(true, |rb| rb != body_handle)
     };
@@ -102,51 +105,64 @@ pub fn apply_biped_movement(
     let planet_up = body_rot * Vec3::Y;
     let desired = biped_move_direction(body_rot, input);
     let (grounded, ground_linvel, support_entity) =
-        ground_state(world, body_handle.0, capsule_pos, planet_up);
+        ground_state(world, body_handle.0, capsule_pos, planet_up, biped.is_sliding);
 
-    let slide_feet_planted = grounded;
-    if input.slide != biped.is_sliding
-        || (input.slide && slide_feet_planted != biped.slide_feet_planted)
-    {
+    // Swap collider when slide state changes. The crouched capsule is always top-aligned:
+    // its top stays at the same height as the standing capsule so the camera never moves
+    // due to a collider change. In mid-air this means the body is unchanged; on the ground
+    // physics lets the body sink until the shorter capsule rests on the surface.
+    if input.slide != biped.is_sliding {
+        let just_crouched = input.slide && !biped.is_sliding;
         biped.is_sliding = input.slide;
-        biped.slide_feet_planted = slide_feet_planted;
-        let (half_height, friction, feet_planted) = if input.slide {
-            (SLIDE_HALF_HEIGHT, SLIDE_FRICTION, slide_feet_planted)
-        } else {
-            (CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true)
-        };
+        let (half_height, friction) =
+            if input.slide { (SLIDE_HALF_HEIGHT, SLIDE_FRICTION) } else { (CAPSULE_HALF_HEIGHT, MAIN_FRICTION) };
         biped.collider = Some(replace_capsule_collider(
             world,
             body_handle.0,
             biped.collider,
             half_height,
             friction,
-            feet_planted,
+            false, // always top-aligned
         ));
+        // Snap the body down immediately when crouching on the ground instead of waiting for gravity.
+        if just_crouched && grounded {
+            let impulse = -planet_up * CROUCH_DOWN_IMPULSE * capsule_mass;
+            if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
+                rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
+            }
+        }
     }
 
     biped.jump_cooldown = biped.jump_cooldown.saturating_sub(1);
 
-    // if grounded and not sliding
+    // Grounded movement: apply an impulse that tapers to zero as the player approaches max speed.
+    // We only consider the velocity component in the direction of desired motion so that
+    // strafing or reversing direction always feels responsive.
     if grounded && !input.slide && desired.length_squared() > 1e-6 {
+        // Velocity relative to the surface we're standing on (handles moving platforms).
         let rel_vel = capsule_linvel - ground_linvel;
-        let rel_vel_planar = rel_vel - planet_up * rel_vel.dot(planet_up);
-        let forward_speed = rel_vel_planar.dot(desired).max(0.0);
-        let impulse = desired
-            * (1.0 - (forward_speed * GROUND_SPEED_FALLOFF).tanh())
-            * GROUND_ACCEL
-            * capsule_mass;
+        // Strip the vertical component so we only look at planar speed.
+        let planar_vel = rel_vel - planet_up * rel_vel.dot(planet_up);
+        let forward_speed = planar_vel.dot(desired).max(0.0);
+        // tanh maps [0, MAX_GROUND_SPEED] → [0, ~1], so the impulse smoothly falls to zero
+        // at max speed rather than cutting off abruptly.
+        let speed_t = forward_speed / MAX_GROUND_SPEED;
+        let impulse = desired * (1.0 - speed_t.tanh()) * GROUND_ACCEL * capsule_mass;
         if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
             rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
         }
     }
 
+    // Jump: apply an upward impulse and push the support body down to conserve momentum.
+    // Crouching compresses the legs further, giving a higher jump.
     if input.jump && grounded && biped.jump_cooldown == 0 {
         biped.jump_cooldown = JUMP_COOLDOWN;
-        let impulse = planet_up * JUMP_IMPULSE * capsule_mass;
+        let jump_strength = if biped.is_sliding { JUMP_IMPULSE_CROUCHED } else { JUMP_IMPULSE };
+        let impulse = planet_up * jump_strength * capsule_mass;
         if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
             rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
         }
+        // Push the surface we jumped off (e.g. a vehicle) in the opposite direction.
         if let Some(support_entity) = support_entity
             && let Some(&support_handle) = world.entity_to_handle.get(&support_entity)
             && let Some(rb) = world.rigid_body_set.get_mut(support_handle)
@@ -156,7 +172,7 @@ pub fn apply_biped_movement(
         }
     }
 
-    // air control
+    // Air control: small directional nudge while airborne; slide key also pulls downward.
     if !grounded {
         let down = input.slide as i8 as f32;
         let impulse = (desired * AIR_CONTROL - planet_up * down * AIR_CONTROL) * capsule_mass;

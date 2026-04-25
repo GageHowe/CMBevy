@@ -134,6 +134,7 @@ struct ActiveCameraShake {
 
 use std::collections::HashMap;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 use common::GameObjectKind;
@@ -146,7 +147,7 @@ use net::{
     message::NetworkID,
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
 pub use spaceship::SpaceshipPawnComponent;
 pub use truck::TruckPawnComponent;
 pub use vehicle::{SeatedInVehicle, VehicleComponent};
@@ -347,50 +348,76 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
     );
 }
 
-pub fn apply_server_input(
-    entity: Entity,
-    input: PawnInputKind,
-    world: &mut PhysicsWorld,
-    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
-    spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
-    trucks: &mut Query<&mut truck::TruckPawnComponent>,
-) -> (bool, Option<biped_ability::AbilityFx>) {
-    let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
-        return (false, None);
-    };
-    match input {
+#[derive(SystemParam)]
+pub struct PawnInputParams<'w, 's> {
+    bipeds: Query<'w, 's, &'static mut biped::BipedPawnComponent>,
+    spaceships: Query<'w, 's, &'static mut spaceship::SpaceshipPawnComponent>,
+    trucks: Query<'w, 's, &'static mut truck::TruckPawnComponent>,
+}
+
+impl<'w, 's> PawnInputParams<'w, 's> {
+    pub fn apply_server_input(
+        &mut self,
+        entity: Entity,
+        input: PawnInputKind,
+        world: &mut PhysicsWorld,
+    ) -> (bool, Option<biped_ability::AbilityFx>) {
+        let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
+            return (false, None);
+        };
+        match input {
+            PawnInputKind::Biped(input) => {
+                let Ok(mut biped) = self.bipeds.get_mut(entity) else {
+                    return (false, None);
+                };
+                let fx = biped::apply_biped_input(
+                    world,
+                    entity,
+                    input,
+                    &RigidBodyHandleComponent(handle),
+                    &mut biped,
+                );
+                (true, fx)
+            }
+            PawnInputKind::Spaceship(input) => {
+                let Ok(mut ship) = self.spaceships.get_mut(entity) else {
+                    return (false, None);
+                };
+                spaceship::apply_spaceship_movement(
+                    world,
+                    &RigidBodyHandleComponent(handle),
+                    input,
+                    &mut ship,
+                );
+                (true, None)
+            }
+            PawnInputKind::Truck(input) => {
+                let Ok(mut truck) = self.trucks.get_mut(entity) else {
+                    return (false, None);
+                };
+                truck::apply_truck_movement(
+                    world,
+                    &RigidBodyHandleComponent(handle),
+                    input,
+                    &mut truck,
+                );
+                (true, None)
+            }
+        }
+    }
+}
+
+pub fn aim_dir(world: &PhysicsWorld, entity: Entity, input: Option<&PawnInputKind>) -> Option<Vec3> {
+    match input? {
         PawnInputKind::Biped(input) => {
-            let Ok(mut biped) = bipeds.get_mut(entity) else {
-                return (false, None);
-            };
-            let fx = biped::apply_biped_input(
-                world,
-                entity,
-                input,
-                &RigidBodyHandleComponent(handle),
-                &mut biped,
-            );
-            (true, fx)
+            world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| {
+                rb_rot(rb)
+                    * Quat::from_rotation_y(input.look_yaw)
+                    * Quat::from_rotation_x(input.look_pitch)
+                    * Vec3::NEG_Z
+            })
         }
-        PawnInputKind::Spaceship(input) => {
-            let Ok(mut ship) = spaceships.get_mut(entity) else {
-                return (false, None);
-            };
-            spaceship::apply_spaceship_movement(
-                world,
-                &RigidBodyHandleComponent(handle),
-                input,
-                &mut ship,
-            );
-            (true, None)
-        }
-        PawnInputKind::Truck(input) => {
-            let Ok(mut truck) = trucks.get_mut(entity) else {
-                return (false, None);
-            };
-            truck::apply_truck_movement(world, &RigidBodyHandleComponent(handle), input, &mut truck);
-            (true, None)
-        }
+        _ => None,
     }
 }
 

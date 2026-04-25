@@ -3,6 +3,8 @@ use bevy::ecs::system::{In, SystemId};
 use bevy::prelude::*;
 pub use common::WeaponState;
 use net::message::NetworkID;
+#[cfg(feature = "client")]
+use net::message::WeaponState as NetWeaponState;
 use physics::physics_world::PhysicsWorld;
 
 use crate::{
@@ -368,4 +370,20 @@ pub fn is_weapon_kind(kind: &common::GameObjectKind) -> bool {
             | common::GameObjectKind::HailMary
             | common::GameObjectKind::Rpg
     )
+}
+
+#[cfg(feature = "client")]
+pub fn apply_weapon_state(
+    net_id: &NetworkID,
+    state: NetWeaponState,
+    networked: &crate::NetworkEntityMap,
+    weapon_states: &mut Query<&mut WeaponState>,
+) {
+    let Some(entity) = networked.get(net_id) else {
+        return;
+    };
+    let Ok(mut weapon_state) = weapon_states.get_mut(entity) else {
+        return;
+    };
+    *weapon_state = state;
 }

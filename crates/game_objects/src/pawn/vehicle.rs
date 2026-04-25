@@ -13,6 +13,8 @@ use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, st
 
 #[cfg(feature = "client")]
 use super::*;
+#[cfg(feature = "client")]
+use crate::{GameObjectKind, NetworkEntityMap};
 use super::{Pawn, PlayerRegistry};
 
 /// Marks an entity as a driveable vehicle.
@@ -197,6 +199,140 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
                 &MsgType::Possess(biped_net_id.clone()),
             );
             super::broadcast_seat_state(&mut quic, &biped_net_id, None);
+        }
+    }
+}
+
+pub fn handle_server_interact(
+    conn_id: net::quic::ConnectionId,
+    controlled: Entity,
+    character: Entity,
+    character_net_id: &NetworkID,
+    target: Entity,
+    target_net_id: &NetworkID,
+    registry: &mut PlayerRegistry,
+    quic: &mut QuicManager,
+    world: &mut PhysicsWorld,
+    net_ids: &Query<&NetworkID>,
+    vehicles: &Query<&VehicleComponent>,
+    driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
+    commands: &mut Commands,
+) {
+    let Ok(vehicle) = vehicles.get(target) else {
+        return;
+    };
+    let Ok((mut cockpit, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
+        return;
+    };
+
+    if cockpit.occupant.is_some() && controlled == target {
+        let Some(biped_entity) = exit_vehicle(world, target, &mut cockpit, seat_transform) else {
+            return;
+        };
+        let Ok(biped_net_id) = net_ids.get(biped_entity) else {
+            return;
+        };
+        commands.entity(biped_entity).remove::<SeatedInVehicle>();
+        super::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
+        super::broadcast_seat_state(quic, biped_net_id, None);
+        return;
+    }
+
+    if cockpit.occupant.is_some() || !vehicle_in_range(world, character, target, &cockpit, seat_transform) {
+        return;
+    }
+
+    if enter_vehicle(world, character, target, &mut cockpit, seat_transform) {
+        commands.entity(character).insert(SeatedInVehicle(target));
+        super::possess_pawn(conn_id, target, target_net_id, registry, quic);
+        super::broadcast_seat_state(quic, character_net_id, Some(target_net_id));
+    }
+}
+
+fn vehicle_in_range(
+    world: &PhysicsWorld,
+    player_entity: Entity,
+    target_entity: Entity,
+    cockpit: &DriverSeat,
+    seat_transform: &Transform,
+) -> bool {
+    let player_pos = world
+        .entity_to_handle
+        .get(&player_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(rb_pos);
+    let seat_pos = world
+        .entity_to_handle
+        .get(&target_entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(|rb| seat_world_point(rb_pos(rb), rb_rot(rb), seat_transform.translation));
+    matches!((player_pos, seat_pos), (Some(a), Some(b)) if {
+        let d = a - b;
+        d.x * d.x + d.y * d.y + d.z * d.z
+            < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
+    })
+}
+
+#[cfg(feature = "client")]
+pub fn apply_seat_state(
+    biped_net_id: &NetworkID,
+    vehicle_net_id: Option<&NetworkID>,
+    local_net_id: Option<&NetworkID>,
+    just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
+    networked: &NetworkEntityMap,
+    object_kinds: &Query<&GameObjectKind>,
+    seated: &Query<&SeatedInVehicle>,
+    vehicles: &Query<&VehicleComponent>,
+    driver_seats: &Query<(&DriverSeat, &Transform)>,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+) {
+    let biped_entity =
+        just_spawned.get(biped_net_id).map(|(entity, _)| *entity).or_else(|| networked.get_entity(biped_net_id));
+    let Some(biped_entity) = biped_entity else {
+        return;
+    };
+    match vehicle_net_id.and_then(|id| networked.get_entity(id)) {
+        Some(vehicle_entity) => {
+            world.set_body_enabled(biped_entity, false);
+            commands.entity(biped_entity).insert(SeatedInVehicle(vehicle_entity));
+            if local_net_id == Some(biped_net_id)
+                && let Ok(kind) = object_kinds.get(vehicle_entity)
+            {
+                crate::messages::push(commands, format!("Entered {}", kind.interaction_name()));
+            }
+        }
+        None => {
+            let old_vehicle = seated.get(biped_entity).ok().map(|seat| seat.0);
+            let predicted_exit = old_vehicle
+                .and_then(|vehicle_entity| {
+                    vehicles.get(vehicle_entity).ok().map(|vehicle| (vehicle_entity, vehicle))
+                })
+                .and_then(|(vehicle_entity, vehicle)| {
+                    driver_seats.get(vehicle.driver_seat).ok().and_then(|(seat, seat_transform)| {
+                        let exit_offset =
+                            seat_transform.rotation * seat.exit_offset + seat_transform.translation;
+                        world.predicted_body_point_after(vehicle_entity, exit_offset, 0.0)
+                    })
+                });
+            if let Some((pos, rot, vel, _)) = predicted_exit {
+                world.set_body_enabled(biped_entity, true);
+                world.set_body_pose(biped_entity, pos, rot, vel, Vec3::ZERO);
+            } else {
+                world.set_body_enabled(biped_entity, true);
+            }
+            if let Some(&handle) = world.entity_to_handle.get(&biped_entity)
+                && let Some(rb) = world.rigid_body_set.get_mut(handle)
+            {
+                rb.set_angvel(physics::physics_world::Vector3::ZERO, true);
+            }
+            commands.entity(biped_entity).remove::<SeatedInVehicle>();
+            if local_net_id == Some(biped_net_id)
+                && let Some(vehicle_entity) = old_vehicle
+                && let Ok(kind) = object_kinds.get(vehicle_entity)
+            {
+                crate::messages::push(commands, format!("Exited {}", kind.interaction_name()));
+            }
         }
     }
 }

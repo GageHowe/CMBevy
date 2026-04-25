@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use game_objects::{
     pawn::{
-        HeldWeaponMap, PawnInputKind, PlayerRegistry, SeatedInVehicle, WeaponSlots,
+        HeldWeaponMap, PawnInputKind, PlayerRegistry, WeaponSlots,
         biped_ability::{DropActiveAbility, OnPickup},
         vehicle::*,
     },
@@ -11,7 +11,7 @@ use game_objects::{
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 
-use crate::{helpers::find_networked_entity, resources::*};
+use crate::resources::*;
 
 pub(super) fn handle_input(
     conn_id: ConnectionId,
@@ -50,18 +50,18 @@ pub(super) fn handle_interact(
         return;
     };
     let character_net_id = character_net_id.clone();
-    let Some(target) = find_networked_entity(all_networked, &target_net_id) else {
+    let Some(target) = all_networked.get(&target_net_id) else {
         return;
     };
     let aim_dir = pending_inputs
         .0
         .get(&conn_id)
         .map(|(_, input)| input)
-        .and_then(|input| biped_aim_dir(world, character, Some(input)))
+        .and_then(|input| game_objects::pawn::aim_dir(world, character, Some(input)))
         .unwrap_or_else(|| body_forward(world, character));
 
     if vehicles.contains(target) {
-        handle_vehicle_interact(
+        game_objects::pawn::vehicle::handle_server_interact(
             conn_id,
             controlled,
             character,
@@ -79,7 +79,7 @@ pub(super) fn handle_interact(
         return;
     }
 
-    if handle_ability_pickup_interact(
+    if game_objects::pawn::biped_ability::interact_pickup(
         conn_id,
         character,
         character_net_id.clone(),
@@ -95,7 +95,7 @@ pub(super) fn handle_interact(
         return;
     }
 
-    try_weapon_interact(
+    game_objects::weapon::helpers::interact_pickup(
         character,
         character_net_id,
         target,
@@ -112,68 +112,7 @@ pub(super) fn handle_interact(
 }
 
 fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
-    world
-        .entity_to_handle
-        .get(&entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(|rb| rb_rot(rb) * Vec3::NEG_Z)
-        .unwrap_or(Vec3::NEG_Z)
-}
-
-fn body_position(world: &PhysicsWorld, entity: Entity) -> Option<Vec3> {
-    world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(rb_pos)
-}
-
-fn biped_aim_dir(
-    world: &PhysicsWorld,
-    entity: Entity,
-    input: Option<&PawnInputKind>,
-) -> Option<Vec3> {
-    let PawnInputKind::Biped(input) = input? else {
-        return None;
-    };
-    world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| {
-        rb_rot(rb)
-            * Quat::from_rotation_y(input.look_yaw)
-            * Quat::from_rotation_x(input.look_pitch)
-            * Vec3::NEG_Z
-    })
-}
-
-fn drop_weapon(
-    weapon_id: NetworkID,
-    owner_id: NetworkID,
-    weapon_entity: Entity,
-    owner_entity: Entity,
-    drop_dir: Vec3,
-    world: &mut PhysicsWorld,
-    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    held_weapons: &mut HeldWeaponMap,
-    commands: &mut Commands,
-    quic: &mut QuicManager,
-) {
-    held_weapons.0.remove(&weapon_id);
-    let (drop_pos, drop_velocity) =
-        game_objects::weapon::helpers::drop_pose(world, owner_entity, drop_dir);
-    let despawned = {
-        let weapon_state = weapon_runtime.get_mut(weapon_entity).ok().map(|(state, _)| state);
-        game_objects::weapon::helpers::drop_or_despawn_weapon(
-            commands,
-            world,
-            weapon_entity,
-            weapon_state,
-            drop_pos,
-            drop_velocity,
-        )
-    };
-    if despawned {
-        return;
-    }
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::WeaponDrop(weapon_id, owner_id, drop_pos),
-    );
+    world.body(entity).map(|rb| rb_rot(rb) * Vec3::NEG_Z).unwrap_or(Vec3::NEG_Z)
 }
 
 pub(super) fn handle_set_active_weapon_slot(
@@ -214,179 +153,6 @@ pub(super) fn handle_set_active_weapon_slot(
     );
 }
 
-fn handle_vehicle_interact(
-    conn_id: ConnectionId,
-    controlled: Entity,
-    character: Entity,
-    character_net_id: &NetworkID,
-    target: Entity,
-    target_net_id: &NetworkID,
-    registry: &mut PlayerRegistry,
-    quic: &mut QuicManager,
-    world: &mut PhysicsWorld,
-    net_ids: &Query<&NetworkID>,
-    vehicles: &Query<&VehicleComponent>,
-    driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
-    commands: &mut Commands,
-) {
-    let Ok(vehicle) = vehicles.get(target) else {
-        return;
-    };
-    let Ok((mut cockpit, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
-        return;
-    };
-
-    if cockpit.occupant.is_some() && controlled == target {
-        let Some(biped_entity) = exit_vehicle(world, target, &mut cockpit, seat_transform) else {
-            return;
-        };
-        let Ok(biped_net_id) = net_ids.get(biped_entity) else {
-            return;
-        };
-        commands.entity(biped_entity).remove::<SeatedInVehicle>();
-        game_objects::pawn::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
-        game_objects::pawn::broadcast_seat_state(quic, biped_net_id, None);
-        return;
-    }
-
-    if cockpit.occupant.is_some()
-        || !vehicle_in_range(world, character, target, &cockpit, seat_transform)
-    {
-        return;
-    }
-
-    if enter_vehicle(world, character, target, &mut cockpit, seat_transform) {
-        commands.entity(character).insert(SeatedInVehicle(target));
-        game_objects::pawn::possess_pawn(conn_id, target, target_net_id, registry, quic);
-        game_objects::pawn::broadcast_seat_state(quic, character_net_id, Some(target_net_id));
-    }
-}
-
-fn handle_ability_pickup_interact(
-    conn_id: ConnectionId,
-    character: Entity,
-    character_net_id: NetworkID,
-    target: Entity,
-    target_net_id: NetworkID,
-    world: &PhysicsWorld,
-    interactables: &Query<&game_objects::interaction::Interactable>,
-    on_pickup_q: &Query<&OnPickup>,
-    commands: &mut Commands,
-    quic: &mut QuicManager,
-    aim_dir: Vec3,
-) -> bool {
-    let Ok(&OnPickup(f)) = on_pickup_q.get(target) else {
-        return false;
-    };
-    let Ok(interactable) = interactables.get(target) else {
-        return true;
-    };
-    if !interactable_in_range(world, character, target, interactable.range) {
-        return true;
-    }
-    f(character, target, aim_dir, commands);
-    quic.send(
-        SendTarget::One(conn_id),
-        Channel::Ordered,
-        &MsgType::AbilityPickup(character_net_id, target_net_id.clone()),
-    );
-    quic.send(SendTarget::All, Channel::Ordered, &MsgType::DespawnCommand(target_net_id));
-    true
-}
-
-fn vehicle_in_range(
-    world: &PhysicsWorld,
-    player_entity: Entity,
-    target_entity: Entity,
-    cockpit: &DriverSeat,
-    seat_transform: &Transform,
-) -> bool {
-    let player_pos = body_position(world, player_entity);
-    let seat_pos = world
-        .entity_to_handle
-        .get(&target_entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(|rb| seat_world_point(rb_pos(rb), rb_rot(rb), seat_transform.translation));
-    matches!((player_pos, seat_pos), (Some(a), Some(b)) if {
-        let d = a - b;
-        d.x * d.x + d.y * d.y + d.z * d.z
-            < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
-    })
-}
-
-fn try_weapon_interact(
-    player_entity: Entity,
-    player_net_id: NetworkID,
-    target_entity: Entity,
-    target_net_id: NetworkID,
-    quic: &mut QuicManager,
-    world: &mut PhysicsWorld,
-    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    held_weapons: &mut HeldWeaponMap,
-    pawn_slots: &mut Query<&mut WeaponSlots>,
-    commands: &mut Commands,
-    interactables: &Query<&game_objects::interaction::Interactable>,
-    drop_dir: Vec3,
-) {
-    if held_weapons.0.contains_key(&target_net_id) {
-        return;
-    }
-    let Ok(interactable) = interactables.get(target_entity) else {
-        return;
-    };
-    if !interactable_in_range(world, player_entity, target_entity, interactable.range) {
-        return;
-    }
-    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
-        return;
-    };
-    let dropped = if slots.is_full() {
-        let Some(dropped) = slots.remove_active() else {
-            return;
-        };
-        Some(dropped)
-    } else {
-        None
-    };
-    drop(slots);
-    if let Some((drop_id, drop_entity)) = dropped {
-        drop_weapon(
-            drop_id,
-            player_net_id.clone(),
-            drop_entity,
-            player_entity,
-            drop_dir,
-            world,
-            weapon_runtime,
-            held_weapons,
-            commands,
-            quic,
-        );
-    }
-    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
-        return;
-    };
-    let _ = slots.assign_pickup(target_net_id.clone(), target_entity);
-    held_weapons.0.insert(target_net_id.clone(), player_entity);
-    game_objects::weapon::helpers::pickup_world_weapon(world, target_entity);
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::WeaponPickup(target_net_id, player_net_id),
-    );
-}
-
-fn interactable_in_range(
-    world: &PhysicsWorld,
-    player_entity: Entity,
-    target_entity: Entity,
-    range: f32,
-) -> bool {
-    matches!(
-        (body_position(world, player_entity), body_position(world, target_entity)),
-        (Some(player_pos), Some(target_pos)) if player_pos.distance_squared(target_pos) <= range * range
-    )
-}
 
 pub(super) fn handle_drop_weapon(
     conn_id: ConnectionId,
@@ -409,7 +175,7 @@ pub(super) fn handle_drop_weapon(
         return;
     };
     drop(slots);
-    drop_weapon(
+    game_objects::weapon::helpers::drop_from_owner(
         weapon_id,
         player_net_id.clone(),
         weapon_entity,
@@ -461,7 +227,7 @@ pub(super) fn handle_fire_request(
     if !shooter_holds {
         return;
     }
-    let Some(weapon_entity) = find_networked_entity(all_networked, &weapon_net_id) else {
+    let Some(weapon_entity) = all_networked.get(&weapon_net_id) else {
         return;
     };
     if !fire_weapon_authoritative(
@@ -547,7 +313,7 @@ pub(super) fn handle_reload_weapon(
     if !shooter_holds {
         return;
     }
-    let Some(weapon_entity) = find_networked_entity(all_networked, &weapon_net_id) else {
+    let Some(weapon_entity) = all_networked.get(&weapon_net_id) else {
         return;
     };
     let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {

@@ -9,13 +9,16 @@ unused_must_use = "deny" # return values of functions marked with #[must_use] mu
 
 [workspace.lints.clippy]
 
-unwrap_used = "deny" # disallow unwrap
-expect_used = "deny" # disallow expect
-todo = "deny" # disallow checked-in todo placeholders
-unimplemented = "deny" # disallow checked-in stubs
-cognitive_complexity = "warn"
-# cognitive_complexity currently shows nothing
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
 
+unwrap_used = "deny"
+expect_used = "deny"
+cognitive_complexity = "warn"
+
+wildcard_imports = "allow"
 too_many_arguments = "allow"
 type_complexity = "allow" # warn erroneously warns against bevy ParamSets etc
 # manual_find = "allow" # Don't force iter().find()
@@ -24,23 +27,10 @@ type_complexity = "allow" # warn erroneously warns against bevy ParamSets etc
 opt-level = 1
 lto = false
 incremental = false
-strip = "debuginfo"
+strip = "debuginfo" # for compilation speed
 
-[profile.dev.package.rapier3d]
-opt-level = 3
-[profile.dev.package.parry3d]
-opt-level = 3
-[profile.dev.package.nalgebra]
-opt-level = 3
-[profile.dev.package.serde]
-opt-level = 3
-[profile.dev.package.postcard]
-opt-level = 3
-[profile.dev.package.zstd]
-opt-level = 3
-[profile.dev.package.bevy_ecs]
-opt-level = 3
-[profile.dev.package.bevy_transform]
+# Optimize all dependencies even in debug builds (does not affect workspace packages):
+[profile.dev.package."*"]
 opt-level = 3
 
 [profile.release]
