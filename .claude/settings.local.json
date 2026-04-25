@@ -78,7 +78,9 @@
       "Bash(objdump -x target/debug/client)",
       "Bash(ldd /home/zenith/github/CMBevy/target/distribution/client)",
       "Bash(ldd /home/zenith/github/CMBevy/target/debug/client)",
-      "Bash(ln:*)"
+      "Bash(ln:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(gh api *)"
     ],
     "deny": []
   },
