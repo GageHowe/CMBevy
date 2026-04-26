@@ -12,12 +12,12 @@ server = []
 
 [dependencies]
 common = { path = "../common" }
-bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
-bytes = "1"
-postcard = { version = "1", features = ["alloc"] }
-quinn = "0.11"
-rcgen = "0.13"
-rustls = "0.23"
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
-zstd = "0.13"
+bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
+bytes = { workspace = true }
+postcard = { workspace = true }
+quinn = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+zstd = { workspace = true }

@@ -13,17 +13,17 @@ workspace = true
 common = { path = "../common" }
 physics = { path = "../physics" }
 net = { path = "../net" }
-bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded", "https"] }
-rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
-bevy_egui = { version = "0.39.1", optional = true }
+bevy = { workspace = true, features = ["serialize", "std", "multi_threaded", "https"] }
+rapier3d = { workspace = true }
+bevy_egui = { workspace = true, optional = true }
 bevy_hanabi_plugin = { path = "../bevy_hanabi", optional = true }
-postcard = { version = "1", features = ["alloc"] }
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-ron = "0.12.0"
-zstd = "0.13.3"
-fastrand = "2"
-ureq = "2"
-sha2 = "0.10.9"
-noise-functions = { version = "0.8.2", optional = true }
+postcard = { workspace = true }
+mlua = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+zstd = { workspace = true }
+fastrand = { workspace = true }
+ureq = { workspace = true }
+sha2 = { workspace = true }
+noise-functions = { workspace = true, optional = true }

@@ -23,6 +23,26 @@ too_many_arguments = "allow"
 type_complexity = "allow" # warn erroneously warns against bevy ParamSets etc
 # manual_find = "allow" # Don't force iter().find()
 
+[workspace.dependencies]
+bevy = { version = "0.18" }
+rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["alloc"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+ron = "0.12.0"
+zstd = "0.13.3"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+quinn = "0.11"
+rcgen = "0.13"
+rustls = "0.23"
+sha2 = "0.10.9"
+fastrand = "2"
+bytes = "1"
+ureq = { version = "2", features = ["json"] }
+bevy_egui = "0.39.1"
+noise-functions = "0.8.2"
+
 [profile.dev]
 opt-level = 1
 lto = false

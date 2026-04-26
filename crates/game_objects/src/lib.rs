@@ -19,6 +19,7 @@ pub mod pawn;
 pub mod projectile;
 pub mod sound;
 mod spawn;
+#[cfg(feature = "client")]
 pub mod spring_arm;
 pub mod weapon;
 pub use components::{atmosphere, gravity, snap};
@@ -58,6 +59,7 @@ impl Plugin for GameObjectsPlugin {
                 ),
             );
         app.add_plugins(gc::WorldGcPlugin);
+        #[cfg(feature = "client")]
         app.add_plugins(spring_arm::SpringArmPlugin);
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);

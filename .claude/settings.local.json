@@ -80,7 +80,9 @@
       "Bash(ldd /home/zenith/github/CMBevy/target/debug/client)",
       "Bash(ln:*)",
       "Bash(cargo fmt:*)",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(./target/release/coacd *)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}')"
     ],
     "deny": []
   },

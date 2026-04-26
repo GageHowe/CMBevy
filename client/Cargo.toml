@@ -7,19 +7,18 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bevy = { version = "0.18", default-features = false, features = ["jpeg", "std", "multi_threaded", "tga"] }
-bevy_egui = "0.39.1"
-zstd = "0.13.3"
-rapier3d = { version = "0.32.0", features = ["simd-stable", "parallel"] }
+bevy = { workspace = true, features = ["jpeg", "std", "multi_threaded", "tga"] }
+bevy_egui = { workspace = true }
+zstd = { workspace = true }
+rapier3d = { workspace = true }
 steamworks = "0.13.0"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 dirs = "6.0.0"
 toml = { version = "1.0.6", features = ["preserve_order"] }
 fmod = { package = "libfmod", git = "https://github.com/GageHowe/libfmod", rev = "1b8cb56" }
-ureq = { version = "2", features = ["json"] }
+ureq = { workspace = true }
 
 # custom crates
-
 common = { path = "../crates/common" }
 http_common = { path = "../crates/http_common" }
 physics = { path = "../crates/physics" }

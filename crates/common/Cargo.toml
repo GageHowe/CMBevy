@@ -8,5 +8,5 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
-serde = { version = "1", features = ["derive"] }
+bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
+serde = { workspace = true }

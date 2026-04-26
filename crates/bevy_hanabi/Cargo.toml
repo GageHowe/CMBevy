@@ -7,5 +7,5 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bevy = { version = "0.18", features = ["std", "multi_threaded"] }
+bevy = { workspace = true, features = ["std", "multi_threaded"] }
 hanabi = { package = "bevy_hanabi", version = "0.18.0", default-features = false, features = ["3d", "serde"] }

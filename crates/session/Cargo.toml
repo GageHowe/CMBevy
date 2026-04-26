@@ -10,12 +10,12 @@ client = ["dep:http_common", "dep:zstd", "dep:ureq"]
 workspace = true
 
 [dependencies]
-bevy = { version = "0.18", features = ["serialize", "std", "multi_threaded"] }
+bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
 common = { path = "../common" }
 game_objects = { path = "../game_objects" }
 net = { path = "../net" }
 physics = { path = "../physics" }
 scripting = { path = "../scripting" }
 http_common = { path = "../http_common", optional = true }
-zstd = { version = "0.13.3", optional = true }
-ureq = { version = "2", optional = true }
+zstd = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }

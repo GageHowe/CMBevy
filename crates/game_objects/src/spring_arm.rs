@@ -4,7 +4,6 @@ use physics::physics_world::{PhysicsWorld, sync_physics_visual};
 pub struct SpringArmPlugin;
 impl Plugin for SpringArmPlugin {
     fn build(&self, app: &mut App) {
-        #[cfg(feature = "client")]
         app.add_systems(
             PostUpdate,
             update_spring_arms

@@ -16,4 +16,4 @@ scripting = { path = "../scripting" }
 common = { path = "../common" }
 physics = { path = "../physics" }
 net = { path = "../net" }
-bevy = { version = "0.18", features = ["std", "multi_threaded"] }
+bevy = { workspace = true, features = ["std", "multi_threaded"] }
