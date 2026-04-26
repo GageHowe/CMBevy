@@ -9,9 +9,8 @@ use game_objects::{
     NetworkEntityMap,
     components::{
         atmosphere::{AtmosphericDragComponent, apply_wind_resistance_impulses},
-        planet::{
-            GravitySource, SnapSource, apply_gravity_impulses, orient_bipeds_to_planets_impulses,
-        },
+        gravity::{GravitySource, apply_gravity_impulses},
+        snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
     pawn::{GatherInputSet, Pawn, Possessed, SeatedInVehicle, biped::BipedPawnComponent},
 };
@@ -264,7 +263,7 @@ fn maybe_reconcile(
         }
         apply_wind_resistance_impulses(&mut world, &env.atmospheres, &seated);
         apply_gravity_impulses(&mut world, &env.gravity_sources, &env.gravity_scales, &seated);
-        orient_bipeds_to_planets_impulses(&mut world, &bipeds, &env.snap_sources);
+        orient_bipeds_to_snap_sources_impulses(&mut world, &bipeds, &env.snap_sources);
         step_world(&mut world);
     }
 

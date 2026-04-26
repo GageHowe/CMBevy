@@ -431,17 +431,24 @@ pub fn attach_camera_on_possess_vehicle(
         return;
     };
     let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
-    commands.entity(cam).insert((
-        Transform::from_translation(vehicle.camera_offset),
-        CameraEffector {
-            base_translation: vehicle.camera_offset,
-            base_fov,
-            current_fov: base_fov,
-            ..default()
-        },
+
+    // Spawn a dedicated spring arm pivot as a child of the vehicle. The camera is then
+    // parented to the pivot so Bevy's transform hierarchy composes vehicle + arm + shake
+    // without SpringArm needing any knowledge of CameraEffector.
+    let pivot = commands.spawn((
+        Transform::default(),
+        Visibility::Inherited,
         crate::spring_arm::SpringArm::new(vehicle.camera_offset, 0.2, 5.0),
+        crate::spring_arm::SpringArmPivot,
+    )).id();
+    commands.entity(vehicle_entity).add_child(pivot);
+
+    // Camera sits at the pivot origin; CameraEffector handles shake/recoil from there.
+    commands.entity(cam).insert((
+        Transform::default(),
+        CameraEffector { base_translation: Vec3::ZERO, base_fov, current_fov: base_fov, ..default() },
     ));
-    commands.entity(vehicle_entity).add_child(cam);
+    commands.entity(pivot).add_child(cam);
 }
 
 /// While driving, pressing F exits the vehicle.

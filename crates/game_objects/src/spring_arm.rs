@@ -1,24 +1,36 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, transform::TransformSystems};
 use physics::physics_world::{PhysicsWorld, sync_physics_visual};
 
 pub struct SpringArmPlugin;
 impl Plugin for SpringArmPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "client")]
-        app.add_systems(PostUpdate, update_spring_arms.after(sync_physics_visual));
+        app.add_systems(
+            PostUpdate,
+            update_spring_arms
+                .after(sync_physics_visual)
+                .before(TransformSystems::Propagate),
+        );
     }
 }
 
-/// Attach to a camera entity (as a child of a pawn) to prevent it from clipping into geometry.
-/// Each frame it sphere-casts from the parent toward the desired offset; if geometry is in the
-/// way the camera is pulled in, and it smoothly recovers to the full length when clear.
+/// Marker placed on the intermediate spring arm entity so it can be found and despawned
+/// when the camera detaches from a vehicle.
+#[derive(Component)]
+pub struct SpringArmPivot;
+
+/// Attach this component to an intermediate entity (child of a pawn, parent of the camera).
+/// Each frame the entity's local translation is set to the arm direction × current length,
+/// keeping the camera clear of geometry without any coupling to CameraEffector.
+///
+/// Hierarchy: vehicle → [SpringArm entity] → camera (CameraEffector.base_translation = ZERO)
 #[derive(Component)]
 pub struct SpringArm {
     /// Desired local offset from the parent (direction × length).
     pub offset: Vec3,
-    /// Sphere probe radius — keeps the camera surface clear of geometry surfaces.
+    /// Gap kept between the camera and any surface it collides with.
     pub probe_radius: f32,
-    /// How fast the arm extends back to full length after clearing geometry (lerp t/sec).
+    /// How fast the arm recovers to full length after clearing geometry (lerp t/sec).
     pub recover_speed: f32,
     #[cfg(feature = "client")]
     current_length: f32,
@@ -57,21 +69,13 @@ fn update_spring_arms(
 
         let arm_dir_local = arm.offset / max_length;
         let arm_dir_world = parent_rot * arm_dir_local;
-        let desired_pos = parent_pos + arm_dir_world * max_length;
 
-        // Cast from the desired camera position back toward the vehicle, not forward from the
-        // vehicle. Casting forward hits the ground when the vehicle is upside-down; casting
-        // backward only shortens the arm when something is actually between the camera and body.
-        let new_length = match world.cast_sphere(
-            desired_pos,
-            -arm_dir_world,
-            arm.probe_radius,
-            max_length,
-            &[parent_entity],
-        ) {
-            // Hit at distance d from the desired end: pull the camera in by that amount.
-            Some((_entity, hit_t, _normal)) => (max_length - hit_t).max(0.0),
-            // Clear: smoothly recover toward the full arm length.
+        // Ray cast from the parent toward the desired camera position. A ray avoids the
+        // sphere-cast initial-overlap problem (starting inside geometry returns toi=0),
+        // which caused the camera to collapse to the body origin when inverted near the floor.
+        // probe_radius is subtracted from the hit distance to keep the camera off surfaces.
+        let new_length = match world.cast_ray(parent_pos, arm_dir_world, max_length, &[parent_entity]) {
+            Some((_entity, hit_t)) => (hit_t - arm.probe_radius).max(0.0),
             None => {
                 let t = (arm.recover_speed * time.delta_secs()).min(1.0);
                 arm.current_length + (max_length - arm.current_length) * t
@@ -79,6 +83,8 @@ fn update_spring_arms(
         };
 
         arm.current_length = new_length;
+        // Update this entity's local translation; Bevy's transform propagation carries it
+        // through to the camera child, so CameraEffector needs no knowledge of the spring arm.
         local_t.translation = arm_dir_local * new_length;
     }
 }

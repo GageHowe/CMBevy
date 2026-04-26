@@ -52,12 +52,19 @@ pub struct GravityScale(pub f32);
 #[reflect(Component, Default)]
 pub struct InitialVelocity(pub Vec3);
 
+/// Scene-authored initial angular velocity for objects that spawn through map data.
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct InitialAngularVelocity(pub Vec3);
+
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
 pub enum SceneRigidBody {
     #[default]
     Fixed,
     Dynamic,
+    /// Kinematic velocity-based: moves physics objects but is unaffected by forces.
+    Kinematic,
 }
 
 /// a way for entities to refer to their rigidbody
@@ -463,6 +470,7 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
             .register_type::<InitialVelocity>()
+            .register_type::<InitialAngularVelocity>()
             .register_type::<SceneRigidBody>()
             .init_resource::<PhysicsInterpMode>()
             .add_observer(on_remove_physics_body);

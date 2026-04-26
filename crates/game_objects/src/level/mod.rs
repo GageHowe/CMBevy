@@ -8,8 +8,8 @@ use physics::{
     collider_shape::ColliderShape,
     convex_hull_asset::ConvexHullAsset,
     physics_world::{
-        InitialVelocity, PhysicsWorld, RigidBodyHandleComponent, SceneRigidBody, rb_angvel, rb_pos,
-        rb_rot, rb_vel,
+        InitialAngularVelocity, InitialVelocity, PhysicsWorld, RigidBodyHandleComponent,
+        SceneRigidBody, rb_angvel, rb_pos, rb_rot, rb_vel,
     },
 };
 use rapier3d::prelude::*;
@@ -209,7 +209,7 @@ pub fn parent_body_handle(
 
 /// Pending convex-hull colliders for static level geometry, waiting for the mesh asset to load.
 #[derive(Resource, Default)]
-pub struct PendingHullColliders(pub Vec<(Entity, Vec3, Quat, Handle<ConvexHullAsset>)>);
+pub struct PendingHullColliders(pub Vec<(Entity, Vec3, Quat, Handle<ConvexHullAsset>, SceneRigidBody, Vec3, Vec3)>);
 
 // ── network transfer helper ───────────────────────────────────────────────────
 
@@ -538,6 +538,7 @@ pub fn spawn_static_colliders(
             Option<&RigidBodyHandleComponent>,
             Option<&SceneRigidBody>,
             Option<&InitialVelocity>,
+            Option<&InitialAngularVelocity>,
         ),
         Added<StaticCollider>,
     >,
@@ -546,42 +547,32 @@ pub fn spawn_static_colliders(
     mut pending: ResMut<PendingHullColliders>,
     asset_server: Res<AssetServer>,
 ) {
-    for (entity, sc, transform, body_handle, scene_body, initial_velocity) in new_colliders.iter() {
+    for (entity, sc, transform, body_handle, scene_body, initial_velocity, initial_angvel) in new_colliders.iter() {
         let s = sc.scale;
         let pos = transform.translation;
         let rot = transform.rotation;
+        let linvel = initial_velocity.map_or(Vec3::ZERO, |v| v.0);
+        let angvel = initial_angvel.map_or(Vec3::ZERO, |v| v.0);
+        let body_type = scene_body.copied().unwrap_or_default();
         if let ColliderShape::ConvexHulls(path) = &sc.shape {
             if body_handle.is_none() {
-                ensure_body(
-                    entity,
-                    pos,
-                    rot,
-                    scene_body.copied().unwrap_or_default(),
-                    initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-                    &mut commands,
-                    &mut world,
-                );
+                ensure_body(entity, pos, rot, body_type, linvel, angvel, &mut commands, &mut world);
             }
             // Hash refs download into a persistent local cache, so Bevy still loads a normal file path.
             let path = crate::asset_path::resolve_asset_path(path);
             let handle =
                 asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
-            pending.0.push((entity, pos, rot, handle));
+            pending.0.push((entity, pos, rot, handle, body_type, linvel, angvel));
             continue;
         }
         let Some(collider) = sc.shape.build_primitive_collider(s) else {
             continue;
         };
         attach_collider_to_body(
-            entity,
-            pos,
-            rot,
-            collider,
+            entity, pos, rot, collider,
             body_handle.map(|h| h.0),
-            scene_body.copied().unwrap_or_default(),
-            initial_velocity.map_or(Vec3::ZERO, |v| v.0),
-            &mut commands,
-            &mut world,
+            body_type, linvel, angvel,
+            &mut commands, &mut world,
         );
     }
 }
@@ -595,23 +586,17 @@ pub fn spawn_hull_colliders(
     let ready: Vec<_> = pending
         .0
         .iter()
-        .filter_map(|(entity, pos, rot, h)| {
-            hull_assets.get(h).map(|a| (*entity, *pos, *rot, a.0.clone()))
+        .filter_map(|(entity, pos, rot, h, body_type, linvel, angvel)| {
+            hull_assets.get(h).map(|a| (*entity, *pos, *rot, a.0.clone(), *body_type, *linvel, *angvel))
         })
         .collect();
-    pending.0.retain(|(_, _, _, h)| hull_assets.get(h).is_none());
-    for (entity, pos, rot, collider) in ready {
+    pending.0.retain(|(_, _, _, h, _, _, _)| hull_assets.get(h).is_none());
+    for (entity, pos, rot, collider, body_type, linvel, angvel) in ready {
         let existing = world.entity_to_handle.get(&entity).copied();
         attach_collider_to_body(
-            entity,
-            pos,
-            rot,
-            collider,
-            existing,
-            SceneRigidBody::Fixed,
-            Vec3::ZERO,
-            &mut commands,
-            &mut world,
+            entity, pos, rot, collider, existing,
+            body_type, linvel, angvel,
+            &mut commands, &mut world,
         );
     }
 }
@@ -672,11 +657,12 @@ fn attach_collider_to_body(
     existing_handle: Option<RigidBodyHandle>,
     scene_body: SceneRigidBody,
     initial_velocity: Vec3,
+    initial_angvel: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
     let handle = existing_handle.unwrap_or_else(|| {
-        ensure_body(entity, position, rotation, scene_body, initial_velocity, commands, world)
+        ensure_body(entity, position, rotation, scene_body, initial_velocity, initial_angvel, commands, world)
     });
     if let Some(rb) = world.rigid_body_set.get_mut(handle) {
         rb.set_rotation(rotation, true);
@@ -692,6 +678,7 @@ fn ensure_body(
     rotation: Quat,
     scene_body: SceneRigidBody,
     initial_velocity: Vec3,
+    initial_angvel: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) -> RigidBodyHandle {
@@ -701,10 +688,12 @@ fn ensure_body(
     let builder = match scene_body {
         SceneRigidBody::Fixed => RigidBodyBuilder::fixed(),
         SceneRigidBody::Dynamic => RigidBodyBuilder::dynamic(),
+        SceneRigidBody::Kinematic => RigidBodyBuilder::kinematic_velocity_based(),
     };
     let rb = builder
         .translation(Vector3::new(position.x, position.y, position.z))
         .linvel(Vector3::new(initial_velocity.x, initial_velocity.y, initial_velocity.z))
+        .angvel(Vector3::new(initial_angvel.x, initial_angvel.y, initial_angvel.z))
         .build();
     let handle = world.insert_body(entity, rb);
     if let Some(rb) = world.rigid_body_set.get_mut(handle) {

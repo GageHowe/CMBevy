@@ -26,7 +26,7 @@ mod reconciliation;
 mod tick_sync;
 mod ui;
 use game_objects::{
-    components::planet::draw_planet_radii,
+    components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
     level::{MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene},
 };
 use master_plugin::MasterPlugin;
@@ -144,7 +144,8 @@ fn main() {
 
     app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
     app.add_systems(Update, apply_pending_map_scene);
-    app.add_systems(Update, draw_planet_radii.run_if(gameplay_overlay_on));
+    app.add_systems(Update, draw_gravity_radii.run_if(gameplay_overlay_on));
+    app.add_systems(Update, draw_snap_radii.run_if(gameplay_overlay_on));
     app.add_systems(Update, draw_driver_seat_debug.run_if(debug_render_on));
     app.add_systems(
         Update,

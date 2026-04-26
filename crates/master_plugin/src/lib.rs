@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
 use game_objects::{
     GameObjectsPlugin,
-    components::{atmosphere::AtmospherePlugin, planet::PlanetPlugin},
+    components::{atmosphere::AtmospherePlugin, gravity::GravityPlugin, snap::SnapPlugin},
     generic::swap_hull_colliders,
     health::HealthPlugin,
     level::LevelPlugin,
@@ -26,7 +26,8 @@ impl Plugin for MasterPlugin {
         app.insert_resource(Ticker { tick: 0 });
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(ConvexHullPlugin);
-        app.add_plugins(PlanetPlugin);
+        app.add_plugins(GravityPlugin);
+        app.add_plugins(SnapPlugin);
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
         app.add_plugins(GameObjectsPlugin); // includes pawns, etc

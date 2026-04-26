@@ -271,10 +271,24 @@ pub fn detach_local_camera(world: &mut World) {
     let Some(camera) = camera_q.single(world).ok() else {
         return;
     };
+
+    // If the camera's direct parent is a SpringArmPivot (intermediate entity), despawn it.
+    // The pivot is a transient entity owned by the vehicle session; it must not outlive it.
+    let pivot = world
+        .get::<ChildOf>(camera)
+        .map(|co| co.parent())
+        .filter(|&p| world.get::<crate::spring_arm::SpringArmPivot>(p).is_some());
+
     let Ok(mut entity) = world.get_entity_mut(camera) else {
         return;
     };
     entity.remove_parent_in_place();
+
+    if let Some(pivot_entity) = pivot {
+        if let Ok(e) = world.get_entity_mut(pivot_entity) {
+            e.despawn();
+        }
+    }
 }
 
 /// Pending respawns: conn_id -> (seconds_remaining, kind).

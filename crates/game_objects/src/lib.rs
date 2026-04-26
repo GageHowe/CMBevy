@@ -21,7 +21,7 @@ pub mod sound;
 mod spawn;
 pub mod spring_arm;
 pub mod weapon;
-pub use components::{atmosphere, planet};
+pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers};
 pub use network_index::NetworkEntityMap;
