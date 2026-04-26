@@ -25,11 +25,14 @@ pub(super) fn ground_state(
         filter,
     );
     let ray = Ray::new(ray_origin, -planet_up);
-    if let Some((ch, _)) = qp.cast_ray(&ray, GROUND_DIST, true) {
+    if let Some((ch, toi)) = qp.cast_ray(&ray, GROUND_DIST, true) {
         let support_body = world.collider_set.get(ch).and_then(|col| col.parent());
         let vel = support_body
             .and_then(|rb_h| world.rigid_body_set.get(rb_h))
-            .map(rb_vel)
+            .map(|rb| {
+                let contact = Vec3::from(ray_origin) + Vec3::from(-planet_up) * toi;
+                rb_vel(rb) + rb_angvel(rb).cross(contact - rb_pos(rb))
+            })
             .unwrap_or(Vec3::ZERO);
         let support_entity =
             support_body.and_then(|rb_h| world.handle_to_entity.get(&rb_h).copied());
