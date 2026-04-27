@@ -103,8 +103,21 @@ pub fn sync_dynamic_graphics_settings(
 fn apply_camera_graphics(
     camera: &mut EntityCommands,
     settings: &Settings,
-    _window_size: Option<UVec2>,
+    window_size: Option<UVec2>,
 ) {
+    // TODO: re-enable render scale when stable
+    // if settings.render_scale > 0.0 && settings.render_scale < 1.0 {
+    //     if let Some(size) = window_size {
+    //         let scaled = UVec2::new(
+    //             (size.x as f32 * settings.render_scale) as u32,
+    //             (size.y as f32 * settings.render_scale) as u32,
+    //         );
+    //         camera.insert(MainPassResolutionOverride(scaled));
+    //     }
+    // } else {
+    //     camera.remove::<MainPassResolutionOverride>();
+    // }
+
     if settings.anti_aliasing {
         camera.insert(bevy::anti_alias::smaa::Smaa::default());
     } else {

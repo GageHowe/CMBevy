@@ -26,8 +26,6 @@ use bevy::{
     },
 };
 
-use crate::outline::OutlineLabel;
-
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
 pub struct ColorCompressionSettings {
     pub color_steps: f32,
@@ -58,7 +56,7 @@ impl Plugin for ColorCompressionPlugin {
             )
             .add_render_graph_edges(
                 Core3d,
-                (Node3d::Smaa, ColorCompressionLabel, OutlineLabel),
+                (Node3d::Smaa, ColorCompressionLabel, Node3d::EndMainPassPostProcessing),
             );
     }
 
@@ -120,9 +118,7 @@ impl FromWorld for ColorCompressionPipeline {
     }
 }
 
-#[derive(Default)]
-struct ColorCompressionNode;
-
+#[derive(Default)] struct ColorCompressionNode;
 impl ViewNode for ColorCompressionNode {
     type ViewQuery = (&'static ViewTarget, &'static DynamicUniformIndex<ColorCompressionSettings>);
 
@@ -145,6 +141,7 @@ impl ViewNode for ColorCompressionNode {
         };
 
         let post_process = view_target.post_process_write();
+
         let bind_group = render_context.render_device().create_bind_group(
             Some("color_compression_bind_group"),
             &pipeline_cache.get_bind_group_layout(&pipeline.layout),
