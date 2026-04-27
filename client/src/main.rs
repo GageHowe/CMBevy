@@ -27,7 +27,7 @@ mod tick_sync;
 mod ui;
 use game_objects::{
     components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
-    level::{MapMeta, apply_pending_map_scene, cleanup_level, load_level_scene},
+    level::{cleanup_level, draw_script_zone_debug},
 };
 use master_plugin::MasterPlugin;
 use menu::MenuPlugin;
@@ -142,10 +142,9 @@ fn main() {
             .run_if(in_state(GameState::Multiplayer)),
     );
 
-    app.add_systems(Update, load_level_scene.run_if(resource_added::<MapMeta>));
-    app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(Update, draw_gravity_radii.run_if(gameplay_overlay_on));
     app.add_systems(Update, draw_snap_radii.run_if(gameplay_overlay_on));
+    app.add_systems(Update, draw_script_zone_debug.run_if(debug_render_on));
     app.add_systems(Update, draw_driver_seat_debug.run_if(debug_render_on));
     app.add_systems(
         Update,

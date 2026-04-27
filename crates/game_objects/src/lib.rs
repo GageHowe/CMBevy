@@ -5,6 +5,7 @@ pub use common::GameObjectKind;
 
 pub mod asset_path;
 pub mod bot;
+pub mod collision;
 pub mod components;
 pub mod generic;
 pub mod gc;
@@ -61,6 +62,8 @@ impl Plugin for GameObjectsPlugin {
         app.add_plugins(gc::WorldGcPlugin);
         #[cfg(feature = "client")]
         app.add_plugins(spring_arm::SpringArmPlugin);
+        #[cfg(feature = "client")]
+        sound::configure_collision_sound_system(app);
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(weapon::WeaponPlugin);

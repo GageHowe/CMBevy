@@ -6,7 +6,6 @@ use bevy::{
     log::{Level, LogPlugin},
     prelude::*,
 };
-use game_objects::level::apply_pending_map_scene;
 use master_plugin::MasterPlugin;
 use physics::physics_world::*;
 use session::ServerSessionPlugin;
@@ -111,7 +110,6 @@ fn main() {
         .add_plugins(LogPlugin { level: Level::ERROR, ..default() });
 
     app.add_plugins(MasterPlugin);
-    app.add_systems(Update, apply_pending_map_scene);
     app.add_systems(FixedPreUpdate, session::on_message);
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
     app.add_plugins(ServerSessionPlugin { bind_addr, map_path, gametype_path });

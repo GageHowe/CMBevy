@@ -225,6 +225,7 @@ mod fmod_impl {
             if let Some(pos) = req.position {
                 let _ = instance.set_3d_attributes(attrs(pos, req.velocity, Quat::IDENTITY));
             }
+            let _ = instance.set_volume(req.gain);
             let _ = instance.start();
             disable_volume_ramp(&instance);
             let _ = instance.release();

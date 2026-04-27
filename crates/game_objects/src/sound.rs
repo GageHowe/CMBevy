@@ -1,6 +1,12 @@
 use bevy::prelude::*;
 use physics::physics_world::{PhysicsWorld, rb_vel};
 
+#[cfg(feature = "client")]
+use crate::{
+    GameObjectKind, GameObjectRegistry,
+    collision::{CollisionImpactSet, CollisionImpacts},
+};
+
 /// Push to SoundQueue for positional one-shots (fire, impact, etc).
 /// FMOD creates, starts, and releases the instance immediately — no ownership needed.
 pub struct SoundRequest {
@@ -8,6 +14,7 @@ pub struct SoundRequest {
     /// None = 2D (no spatialization). Use for local player sounds like own weapon fire.
     pub position: Option<Vec3>,
     pub velocity: Vec3,
+    pub gain: f32,
 }
 
 /// One-shot sound queue. Push requests; the sound system drains and plays them each PostUpdate.
@@ -16,11 +23,21 @@ pub struct SoundQueue(pub Vec<SoundRequest>);
 
 impl SoundQueue {
     pub fn play_2d(&mut self, event: &'static str) {
-        self.0.push(SoundRequest { event, position: None, velocity: Vec3::ZERO });
+        self.0.push(SoundRequest { event, position: None, velocity: Vec3::ZERO, gain: 1.0 });
     }
 
     pub fn play_3d(&mut self, event: &'static str, position: Vec3, velocity: Vec3) {
-        self.0.push(SoundRequest { event, position: Some(position), velocity });
+        self.play_3d_with_gain(event, position, velocity, 1.0);
+    }
+
+    pub fn play_3d_with_gain(
+        &mut self,
+        event: &'static str,
+        position: Vec3,
+        velocity: Vec3,
+        gain: f32,
+    ) {
+        self.0.push(SoundRequest { event, position: Some(position), velocity, gain });
     }
 }
 
@@ -38,4 +55,55 @@ pub fn entity_velocity(world: &PhysicsWorld, entity: Option<Entity>) -> Vec3 {
 #[derive(Component)]
 pub struct SoundEmitter {
     pub event: &'static str,
+}
+
+#[cfg(feature = "client")]
+pub fn play_collision_sounds(
+    impacts: Res<CollisionImpacts>,
+    kinds: Query<&GameObjectKind>,
+    registry: Res<GameObjectRegistry>,
+    world: Res<PhysicsWorld>,
+    mut sound_queue: Option<ResMut<SoundQueue>>,
+) {
+    let Some(sound_queue) = sound_queue.as_mut() else {
+        warn!("play_collision_sounds: Sound queue is None!");
+        return;
+    };
+    for impact in &impacts.0 {
+        if !impact.is_new {
+            continue;
+        }
+        let Ok(kind) = kinds.get(impact.entity) else {
+            continue;
+        };
+        let Some(event) = registry.collision_sound(kind.clone()) else {
+            continue;
+        };
+        let gain = collision_sound_gain(impact.impulse);
+        if gain <= 0.0 {
+            continue;
+        }
+        sound_queue.play_3d_with_gain(
+            event,
+            impact.position,
+            entity_velocity(&world, Some(impact.entity)),
+            gain,
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+pub fn configure_collision_sound_system(app: &mut App) {
+    app.add_systems(FixedUpdate, play_collision_sounds.after(CollisionImpactSet));
+}
+
+#[cfg(feature = "client")]
+fn collision_sound_gain(impulse: f32) -> f32 {
+    const MIN_IMPULSE: f32 = 20.0;
+    const FULL_VOLUME_IMPULSE: f32 = 250.0;
+
+    if impulse <= MIN_IMPULSE {
+        return 0.0;
+    }
+    ((impulse - MIN_IMPULSE) / (FULL_VOLUME_IMPULSE - MIN_IMPULSE)).clamp(0.0, 1.0)
 }

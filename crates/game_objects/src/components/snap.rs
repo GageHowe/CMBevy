@@ -170,7 +170,5 @@ impl Plugin for SnapPlugin {
         app.register_type::<SnapKind>()
             .register_type::<SnapSource>()
             .add_systems(FixedUpdate, orient_bipeds_to_snap_sources.before(step_physics));
-        #[cfg(feature = "client")]
-        app.add_systems(Update, draw_snap_radii);
     }
 }

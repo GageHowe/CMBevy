@@ -20,7 +20,7 @@ cognitive_complexity = "warn"
 
 wildcard_imports = "allow"
 too_many_arguments = "allow"
-type_complexity = "allow" # warn erroneously warns against bevy ParamSets etc
+type_complexity = "allow" # erroneously warns against bevy ParamSets etc
 # manual_find = "allow" # Don't force iter().find()
 
 [workspace.dependencies]

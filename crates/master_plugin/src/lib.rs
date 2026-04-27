@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
 use game_objects::{
     GameObjectsPlugin,
+    collision::CollisionPlugin,
     components::{atmosphere::AtmospherePlugin, gravity::GravityPlugin, snap::SnapPlugin},
     generic::swap_hull_colliders,
     health::HealthPlugin,
@@ -31,6 +32,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(AtmospherePlugin);
         app.add_plugins(ScriptingPlugin);
         app.add_plugins(GameObjectsPlugin); // includes pawns, etc
+        app.add_plugins(CollisionPlugin);
         app.add_plugins(HealthPlugin);
         app.add_plugins(LevelPlugin);
         app.init_resource::<HeldWeaponMap>();

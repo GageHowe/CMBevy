@@ -14,11 +14,17 @@ struct GameObjectRegistration {
     spawn: SpawnGameObjectFn,
     on_death: GameObjectDeathFn,
     gc_after_secs: Option<f32>,
+    collision_sound: Option<&'static str>,
 }
 
 impl GameObjectRegistration {
     fn of<T: GameObject>() -> Self {
-        Self { spawn: T::spawn, on_death: T::on_death, gc_after_secs: T::GC_AFTER_SECS }
+        Self {
+            spawn: T::spawn,
+            on_death: T::on_death,
+            gc_after_secs: T::GC_AFTER_SECS,
+            collision_sound: T::COLLISION_SOUND,
+        }
     }
 }
 
@@ -41,6 +47,10 @@ impl GameObjectRegistry {
             .map(|(_, registration)| registration)
             .unwrap_or_else(|| panic!("GameObjectKind::{kind:?} is not registered"))
     }
+
+    pub fn collision_sound(&self, kind: GameObjectKind) -> Option<&'static str> {
+        self.get(kind).collision_sound
+    }
 }
 
 pub trait AppGameObjectExt {
@@ -55,11 +65,13 @@ impl AppGameObjectExt for App {
     }
 }
 
-/// Runtime constructor for a spawnable game object.
 pub trait GameObject: Default + Reflect {
     const KIND: GameObjectKind;
     const GC_AFTER_SECS: Option<f32> = None;
-    /// responsible for enacting all side effects that spawn this entity
+
+    /// the sound this plays when colliing with things.
+    const COLLISION_SOUND: Option<&'static str> = None;
+    /// responsible for enacting all side effects that spawn this entity.
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
     /// callback that is called when entities' health drops to 0, before they are despawned.
     /// responsible for particle effects, debris, cleanup, etc.

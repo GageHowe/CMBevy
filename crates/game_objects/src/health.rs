@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use net::message::NetworkID;
-use physics::physics_world::{PhysicsWorld, step_physics};
+use physics::physics_world::PhysicsWorld;
 
-use crate::dispatch_game_object_on_death;
+use crate::{
+    collision::{CollisionImpactSet, CollisionImpacts},
+    dispatch_game_object_on_death,
+};
 
 const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
 
@@ -18,15 +21,12 @@ impl Plugin for HealthPlugin {
         app.init_resource::<PendingDeathDespawns>();
         app.add_systems(
             FixedUpdate,
-            (
-                apply_collision_damage.after(step_physics),
-                regenerate_health,
-                age_last_damage_sources,
-            )
+            (apply_collision_damage, regenerate_health, age_last_damage_sources)
                 .chain()
+                .after(CollisionImpactSet)
                 .in_set(HealthAuthoritySet),
         );
-        app.add_systems(FixedUpdate, handle_deaths.after(step_physics).in_set(HealthAuthoritySet));
+        app.add_systems(FixedUpdate, handle_deaths.in_set(HealthAuthoritySet));
         app.add_systems(FixedLast, flush_pending_death_despawns);
     }
 }
@@ -129,49 +129,35 @@ impl CollisionDamageConfig {
     }
 }
 
-/// Applies damage to any entity with Health + a rigidbody based on collision impulse.
-/// Rapier's contact impulse already reflects the force imparted by the collision, so
-/// damage only needs one path regardless of what the body hit.
-/// Must run after step_physics.
+/// Applies collision damage from the generic impact queue.
 pub fn apply_collision_damage(
-    world: Res<PhysicsWorld>,
+    impacts: Res<CollisionImpacts>,
     has_health_q: Query<Option<&CollisionDamageConfig>, With<Health>>,
+    world: Res<PhysicsWorld>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
 ) {
     let mut damage_map: HashMap<Entity, f32> = HashMap::new();
-    for pair in world.narrow_phase.contact_pairs() {
-        if !pair.has_any_active_contact() {
+    for impact in &impacts.0 {
+        let Ok(config) = has_health_q.get(impact.entity) else {
+            continue;
+        };
+        let Some(mass) = world
+            .entity_to_handle
+            .get(&impact.entity)
+            .and_then(|&handle| world.rigid_body_set.get(handle))
+            .filter(|rb| rb.is_dynamic())
+            .map(|rb| rb.mass())
+        else {
+            continue;
+        };
+        let damage =
+            config.copied().unwrap_or_default().damage_from_impulse(impact.impulse, mass);
+        if damage <= 0.0 {
             continue;
         }
-        let impulse: f32 =
-            pair.manifolds.iter().flat_map(|m| m.points.iter()).map(|p| p.data.impulse).sum();
-        if impulse <= 0.0 {
-            continue;
-        }
-        for rb_h in [pair.collider1, pair.collider2]
-            .into_iter()
-            .filter_map(|collider| world.collider_set.get(collider).and_then(|c| c.parent()))
-        {
-            let Some(rb) = world.rigid_body_set.get(rb_h) else {
-                continue;
-            };
-            if !rb.is_dynamic() {
-                continue;
-            }
-            if let Some(&entity) = world.handle_to_entity.get(&rb_h) {
-                let Ok(config) = has_health_q.get(entity) else {
-                    continue;
-                };
-                let damage =
-                    config.copied().unwrap_or_default().damage_from_impulse(impulse, rb.mass());
-                if damage <= 0.0 {
-                    continue;
-                }
-                info!("collision impulse: {impulse:.2}  damage: {damage:.1}");
-                *damage_map.entry(entity).or_default() += damage;
-            }
-        }
+        info!("collision impulse: {:.2}  damage: {:.1}", impact.impulse, damage);
+        *damage_map.entry(impact.entity).or_default() += damage;
     }
 
     for (entity, damage) in damage_map {

@@ -374,15 +374,18 @@ impl Plugin for LevelPlugin {
         app.register_type::<Spawner>();
         app.register_type::<MapMeta>();
         app.init_resource::<PendingHullColliders>();
+        app.add_systems(Update, apply_pending_map_scene);
         // react to scene-spawned components — works on both client and server
         app.add_systems(
             Update,
             (spawn_static_colliders, spawn_hull_colliders, assign_scene_network_ids),
         );
-        app.add_systems(FixedPreUpdate, assign_scene_network_ids);
         #[cfg(feature = "client")]
         {
-            app.add_systems(Update, (spawn_scene_models, draw_script_zone_debug));
+            app.add_systems(
+                Update,
+                (spawn_scene_models, load_level_scene.run_if(resource_added::<MapMeta>)),
+            );
         }
 
         // Keep authored scene data as small marker components and route all runtime setup
@@ -416,7 +419,7 @@ fn init_spawners(
 fn assign_scene_network_ids(
     query: Query<
         (Entity, &SceneRigidBody, &Transform, Option<&net::message::NetworkID>),
-        With<RigidBodyHandleComponent>,
+        Added<RigidBodyHandleComponent>,
     >,
     mut commands: Commands,
     mut net_ids: ResMut<net::message::NetworkIDResource>,
