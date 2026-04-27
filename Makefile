@@ -16,6 +16,8 @@ build:
 	cargo build -p client
 	cargo build -p gameserver
 	# cargo build -p network_emulator
+
+dummy:
 	# $(CLIPPY_COMMANDS)
 
 run:

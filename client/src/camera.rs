@@ -16,6 +16,7 @@ use bevy::{
     },
     prelude::*,
 };
+use crate::color_compression::ColorCompressionSettings;
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
 // use bevy::post_process::effect_stack::ChromaticAberration;
 
@@ -85,6 +86,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
                 // ChromaticAberration::default(),
             ),
         ))
+        .insert(ColorCompressionSettings::default())
         .insert(crate::outline::OutlineSettings {
             threshold: 0.10,
             color: Vec4::new(0.5, 0.5, 0.5, 0.03),

@@ -5,8 +5,7 @@ max_width = 100
 imports_granularity = "Crate" # group crate imports
 group_imports = "StdExternalCrate" # separate std and custom crates
 wrap_comments = false
-use_small_heuristics = "Max" # aggressively keep things one line
+# use_small_heuristics = "Max" # aggressively keep things one line
 use_field_init_shorthand = true
 # cargo fmt --all
-imports_granularity = "Crate"  # groups imports, won't explode globs into specifics
 group_imports = "StdExternalCrate"

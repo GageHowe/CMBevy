@@ -13,6 +13,7 @@ use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity}
 use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
 
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
+use crate::color_compression::ColorCompressionSettings;
 use crate::outline::OutlineSettings;
 
 pub fn apply_settings(
@@ -143,6 +144,15 @@ fn apply_camera_graphics(
     } else {
         camera.remove::<MotionBlur>();
         camera.remove::<MotionVectorPrepass>();
+    }
+
+    if settings.color_compression {
+        camera.insert(ColorCompressionSettings {
+            color_steps: settings.color_compression_steps.clamp(2.0, 64.0),
+            dither_strength: settings.color_compression_dither.clamp(0.0, 1.5),
+        });
+    } else {
+        camera.remove::<ColorCompressionSettings>();
     }
 
     match settings.ssao_quality {

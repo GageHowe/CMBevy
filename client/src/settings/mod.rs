@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use common::{ActiveKeyBindings, KeyBindings};
 pub use controls::ControlsCapture;
 pub use data::{
-    DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, SettingsSection, ShadowQuality,
-    SsaoQuality, VsyncMode,
+    DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, SettingsSection, ShadowQuality, SsaoQuality,
+    VsyncMode,
 };
 pub use ui::show_settings_ui;
 

@@ -10,6 +10,7 @@ use bevy::{
 };
 use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
 use camera::spawn_camera;
+use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
 use game_objects::{
     pawn::{self, vehicle::draw_driver_seat_debug, *},
@@ -20,6 +21,7 @@ use tick_sync::TickSyncPlugin;
 use ui::{UIPlugin, window::WindowSettingsPlugin};
 
 mod camera;
+mod color_compression;
 mod menu;
 mod outline;
 mod reconciliation;
@@ -94,7 +96,7 @@ fn main() {
             }),
     );
 
-    app.add_plugins(OutlinePlugin)
+    app.add_plugins((OutlinePlugin, ColorCompressionPlugin))
         .init_state::<GameState>()
         .init_state::<UiState>()
         .add_plugins(MasterPlugin)
