@@ -22,6 +22,7 @@ use ui::{UIPlugin, window::WindowSettingsPlugin};
 
 mod camera;
 mod color_compression;
+mod fullscreen_post_process;
 mod menu;
 mod outline;
 mod reconciliation;

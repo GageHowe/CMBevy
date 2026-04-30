@@ -1,6 +1,5 @@
 use bevy::{
     core_pipeline::{
-        FullscreenShader,
         core_3d::graph::{Core3d, Node3d},
     },
     ecs::query::QueryItem,
@@ -16,14 +15,16 @@ use bevy::{
         },
         render_resource::{
             BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, MultisampleState,
-            Operations, PipelineCache, PrimitiveState, RenderPassColorAttachment,
-            RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerDescriptor,
-            ShaderStages, ShaderType, TextureSampleType, binding_types::*,
+            CachedRenderPipelineId, PipelineCache, Sampler, ShaderStages, ShaderType,
+            TextureSampleType, binding_types::*,
         },
-        renderer::{RenderContext, RenderDevice},
-        view::ViewTarget,
+        renderer::RenderContext,
+        view::{ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
+};
+
+use crate::fullscreen_post_process::{
+    draw_fullscreen_post_process, init_fullscreen_post_process,
 };
 
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
@@ -80,63 +81,53 @@ struct ColorCompressionPipeline {
 
 impl FromWorld for ColorCompressionPipeline {
     fn from_world(world: &mut World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
         let entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
+                uniform_buffer::<ViewUniform>(true),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(bevy::render::render_resource::SamplerBindingType::Filtering),
                 uniform_buffer::<ColorCompressionSettings>(true),
             ),
         );
         let layout = BindGroupLayoutDescriptor::new("color_compression_layout", &entries);
-        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
-        let shader = world.load_asset("shaders/color_compression.wgsl");
-        let fullscreen = world.resource::<FullscreenShader>().clone();
-        let pipeline_id =
-            world.resource::<PipelineCache>().queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some("color_compression_pipeline".into()),
-                layout: vec![layout.clone()],
-                vertex: fullscreen.to_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader,
-                    shader_defs: vec![],
-                    targets: vec![Some(ColorTargetState {
-                        format: ViewTarget::TEXTURE_FORMAT_HDR,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                primitive: PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
-                zero_initialize_workgroup_memory: false,
-            });
+        let (sampler, pipeline_id) = init_fullscreen_post_process(
+            world,
+            &layout,
+            "shaders/color_compression.wgsl",
+            "color_compression_pipeline",
+        );
         Self { layout, sampler, pipeline_id }
     }
 }
 
 #[derive(Default)] struct ColorCompressionNode;
 impl ViewNode for ColorCompressionNode {
-    type ViewQuery = (&'static ViewTarget, &'static DynamicUniformIndex<ColorCompressionSettings>);
+    type ViewQuery = (
+        &'static ViewTarget,
+        &'static ViewUniformOffset,
+        &'static DynamicUniformIndex<ColorCompressionSettings>,
+    );
 
     fn run(
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, settings_index): QueryItem<Self::ViewQuery>,
+        (view_target, view_uniform, settings_index): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let pipeline = world.resource::<ColorCompressionPipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
         let settings_uniforms = world.resource::<ComponentUniforms<ColorCompressionSettings>>();
+        let view_uniforms = world.resource::<ViewUniforms>();
 
         let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id) else {
             return Ok(());
         };
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
+            return Ok(());
+        };
+        let Some(view_binding) = view_uniforms.uniforms.binding() else {
             return Ok(());
         };
 
@@ -146,28 +137,21 @@ impl ViewNode for ColorCompressionNode {
             Some("color_compression_bind_group"),
             &pipeline_cache.get_bind_group_layout(&pipeline.layout),
             &BindGroupEntries::sequential((
+                view_binding,
                 post_process.source,
                 &pipeline.sampler,
                 settings_binding.clone(),
             )),
         );
 
-        let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("color_compression_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post_process.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_render_pipeline(render_pipeline);
-        render_pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
-        render_pass.draw(0..3, 0..1);
+        draw_fullscreen_post_process(
+            render_context,
+            render_pipeline,
+            &bind_group,
+            &[view_uniform.offset, settings_index.index()],
+            post_process.destination,
+            "color_compression_pass",
+        );
         Ok(())
     }
 }

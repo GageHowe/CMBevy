@@ -1,10 +1,15 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
+    camera::MainPassResolutionOverride,
     core_pipeline::prepass::MotionVectorPrepass,
     post_process::motion_blur::MotionBlur,
     prelude::*,
-    render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
+    render::{
+        Extract, ExtractSchedule, RenderApp,
+        sync_world::RenderEntity,
+        view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
+    },
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
@@ -15,6 +20,13 @@ use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
 use crate::color_compression::ColorCompressionSettings;
 use crate::outline::OutlineSettings;
+
+pub fn build_render(app: &mut App) {
+    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+        return;
+    };
+    render_app.add_systems(ExtractSchedule, extract_main_pass_resolution_override);
+}
 
 pub fn apply_settings(
     mut commands: Commands,
@@ -105,18 +117,17 @@ fn apply_camera_graphics(
     settings: &Settings,
     window_size: Option<UVec2>,
 ) {
-    // TODO: re-enable render scale when stable
-    // if settings.render_scale > 0.0 && settings.render_scale < 1.0 {
-    //     if let Some(size) = window_size {
-    //         let scaled = UVec2::new(
-    //             (size.x as f32 * settings.render_scale) as u32,
-    //             (size.y as f32 * settings.render_scale) as u32,
-    //         );
-    //         camera.insert(MainPassResolutionOverride(scaled));
-    //     }
-    // } else {
-    //     camera.remove::<MainPassResolutionOverride>();
-    // }
+    if settings.render_scale < 1.0 {
+        if let Some(size) = window_size {
+            let scaled = UVec2::new(
+                (size.x as f32 * settings.render_scale).max(1.0) as u32,
+                (size.y as f32 * settings.render_scale).max(1.0) as u32,
+            );
+            camera.insert(MainPassResolutionOverride(scaled));
+        }
+    } else {
+        camera.remove::<MainPassResolutionOverride>();
+    }
 
     if settings.anti_aliasing {
         camera.insert(bevy::anti_alias::smaa::Smaa::default());
@@ -238,4 +249,18 @@ pub fn apply_fps_cap(settings: Option<Res<Settings>>, mut last_frame_end: Local<
 
 pub fn sync_active_keybindings(settings: Res<Settings>, mut active: ResMut<ActiveKeyBindings>) {
     active.sync_from(&settings.keybindings);
+}
+
+fn extract_main_pass_resolution_override(
+    mut commands: Commands,
+    query: Extract<Query<(RenderEntity, Option<&'static MainPassResolutionOverride>), With<Camera3d>>>,
+) {
+    for (render_entity, resolution_override) in &query {
+        let mut entity = commands.entity(render_entity);
+        if let Some(resolution_override) = resolution_override {
+            entity.insert(MainPassResolutionOverride(resolution_override.0));
+        } else {
+            entity.remove::<MainPassResolutionOverride>();
+        }
+    }
 }

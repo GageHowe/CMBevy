@@ -1,6 +1,5 @@
 use bevy::{
     core_pipeline::{
-        FullscreenShader,
         core_3d::graph::{Core3d, Node3d},
         prepass::ViewPrepassTextures,
     },
@@ -17,14 +16,16 @@ use bevy::{
         },
         render_resource::{
             BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, MultisampleState,
-            Operations, PipelineCache, PrimitiveState, RenderPassColorAttachment,
-            RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerDescriptor,
-            ShaderStages, ShaderType, TextureSampleType, binding_types::*,
+            CachedRenderPipelineId, PipelineCache, Sampler, ShaderStages, ShaderType,
+            TextureSampleType, binding_types::*,
         },
-        renderer::{RenderContext, RenderDevice},
-        view::ViewTarget,
+        renderer::RenderContext,
+        view::{ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
+};
+
+use crate::fullscreen_post_process::{
+    draw_fullscreen_post_process, init_fullscreen_post_process,
 };
 
 /// Add to a camera entity to enable screen-space edge outlines.
@@ -81,10 +82,10 @@ struct OutlinePipeline {
 
 impl FromWorld for OutlinePipeline {
     fn from_world(world: &mut World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
         let entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
+                uniform_buffer::<ViewUniform>(true),
                 texture_2d(TextureSampleType::Float { filterable: true }), // screen color
                 sampler(bevy::render::render_resource::SamplerBindingType::Filtering),
                 texture_depth_2d(),                                        // depth
@@ -93,30 +94,8 @@ impl FromWorld for OutlinePipeline {
             ),
         );
         let layout = BindGroupLayoutDescriptor::new("outline_layout", &entries);
-        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
-        let shader = world.load_asset("shaders/outline.wgsl");
-        let fullscreen = world.resource::<FullscreenShader>().clone();
-        let pipeline_id =
-            world.resource::<PipelineCache>().queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some("outline_pipeline".into()),
-                layout: vec![layout.clone()],
-                vertex: fullscreen.to_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader,
-                    shader_defs: vec![],
-                    targets: vec![Some(ColorTargetState {
-                        format: ViewTarget::TEXTURE_FORMAT_HDR,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                primitive: PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
-                zero_initialize_workgroup_memory: false,
-            });
+        let (sampler, pipeline_id) =
+            init_fullscreen_post_process(world, &layout, "shaders/outline.wgsl", "outline_pipeline");
         Self { layout, sampler, pipeline_id }
     }
 }
@@ -127,6 +106,7 @@ struct OutlineNode;
 impl ViewNode for OutlineNode {
     type ViewQuery = (
         &'static ViewTarget,
+        &'static ViewUniformOffset,
         &'static DynamicUniformIndex<OutlineSettings>,
         &'static ViewPrepassTextures,
     );
@@ -135,17 +115,21 @@ impl ViewNode for OutlineNode {
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, settings_index, prepass_textures): QueryItem<Self::ViewQuery>,
+        (view_target, view_uniform, settings_index, prepass_textures): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let pipeline = world.resource::<OutlinePipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
         let settings_uniforms = world.resource::<ComponentUniforms<OutlineSettings>>();
+        let view_uniforms = world.resource::<ViewUniforms>();
 
         let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id) else {
             return Ok(());
         };
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
+            return Ok(());
+        };
+        let Some(view_binding) = view_uniforms.uniforms.binding() else {
             return Ok(());
         };
         let Some(depth) = prepass_textures.depth.as_ref() else {
@@ -160,6 +144,7 @@ impl ViewNode for OutlineNode {
             Some("outline_bind_group"),
             &pipeline_cache.get_bind_group_layout(&pipeline.layout),
             &BindGroupEntries::sequential((
+                view_binding,
                 post_process.source,
                 &pipeline.sampler,
                 &depth.texture.default_view,
@@ -168,22 +153,14 @@ impl ViewNode for OutlineNode {
             )),
         );
 
-        let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("outline_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post_process.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_render_pipeline(render_pipeline);
-        render_pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
-        render_pass.draw(0..3, 0..1);
+        draw_fullscreen_post_process(
+            render_context,
+            render_pipeline,
+            &bind_group,
+            &[view_uniform.offset, settings_index.index()],
+            post_process.destination,
+            "outline_pass",
+        );
         Ok(())
     }
 }
