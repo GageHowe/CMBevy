@@ -58,6 +58,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             )
             .init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
+            .init_resource::<LocalCharacterNetId>()
             .init_resource::<PendingWorldReady>()
             .init_resource::<PendingReconciliation>()
             .init_resource::<PendingWeaponPickups>()
@@ -385,11 +386,15 @@ fn disconnect(
     mut quic: ResMut<QuicManager>,
     mut pending: ResMut<PendingReconciliation>,
     mut last_acked: ResMut<LastAckedInputSeq>,
+    mut local_character: ResMut<LocalCharacterNetId>,
     mut pending_world_ready: ResMut<PendingWorldReady>,
+    mut gui: ResMut<GuiState>,
     mut hosted: ResMut<HostedServer>,
 ) {
     last_acked.0 = 0;
+    local_character.0 = None;
     pending_world_ready.0 = false;
+    gui.scoreboard = None;
     shutdown_session(Some(&mut quic), Some(&mut pending), &mut hosted);
 }
 

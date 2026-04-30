@@ -39,6 +39,19 @@ pub struct TruckInput {
     pub brake: f32,
 }
 
+/// Per-tick input for a mounted rocket turret pawn.
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub struct RocketTurretInput {
+    /// Yaw delta for this tick in local turret space.
+    pub yaw: f32,
+    /// Pitch delta for this tick in local turret space.
+    pub pitch: f32,
+    /// Fire button held state.
+    pub fire: bool,
+    /// Rising-edge fire input for one-shot weapons.
+    pub fire_pressed: bool,
+}
+
 /// Discriminated union of all pawn input types.
 /// Serialized directly into MsgType::Input; net layer is transport-only.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -46,4 +59,5 @@ pub enum PawnInputKind {
     Biped(BipedInput),
     Spaceship(SpaceshipInput),
     Truck(TruckInput),
+    RocketTurret(RocketTurretInput),
 }

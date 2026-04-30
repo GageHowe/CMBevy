@@ -7,7 +7,8 @@ use physics::physics_world::*;
 use rapier3d::prelude::*;
 
 use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_seat},
+    rocket_turret,
+    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
     *,
 };
 use crate::{
@@ -87,7 +88,7 @@ impl Pawn for TruckPawnComponent {
 
 impl VehiclePawn for TruckPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 4.0, 8.0);
-    const DRIVER_SEAT_OFFSET: Vec3 = Vec3::new(-0.45, 0.75, 0.2);
+    const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(-0.45, 0.75, 0.2);
     const DRIVER_INTERACT_RADIUS: f32 = 1.2;
     const EXIT_OFFSET: Vec3 = Vec3::new(-1.4, 0.0, 0.0);
 }
@@ -102,7 +103,7 @@ impl GameObject for TruckPawnComponent {
             rotation: cmd.rotation.into(),
             ..default()
         };
-        let driver_seat = spawn_driver_seat::<TruckPawnComponent>(entity, world);
+        spawn_driver_mount::<TruckPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             TruckPawnComponent,
             Health::new(TRUCK_MAX_HEALTH),
@@ -113,7 +114,7 @@ impl GameObject for TruckPawnComponent {
                 max_damage_per_hit: Some(90.0),
             },
             LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<TruckPawnComponent>(driver_seat),
+            VehicleComponent::for_vehicle::<TruckPawnComponent>(),
             GameObjectKind::Truck,
             Transform::from(transform),
             cmd.net_id.clone(),
@@ -142,6 +143,7 @@ impl GameObject for TruckPawnComponent {
             rb_handle
         };
         world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        rocket_turret::spawn_attached_to_truck(entity, Vec3::new(0.0, 1.1, -2.2), world);
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);

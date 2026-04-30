@@ -51,10 +51,15 @@ pub struct SimulationState {
     Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Component, Reflect, Default,
 )]
 #[reflect(Component, Default)]
+/// Replicated weapon state shared by client prediction, authority, and HUD.
 pub struct WeaponState {
+    /// Ammo currently loaded and ready to fire.
     pub ammo_in_mag: u16,
+    /// Spare ammo available for reloads.
     pub reserve_ammo: u16,
+    /// Remaining reload time in fixed ticks.
     pub reload_ticks: u16,
+    /// Remaining fire cooldown in fixed ticks.
     pub cooldown_ticks: u16,
 }
 
@@ -89,11 +94,13 @@ impl Default for LeaderboardScope {
 /// this needs to stay in common since both net and game_objects access it
 #[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
+/// Enumerates all spawnable replicated gameplay objects shared across binaries.
 pub enum GameObjectKind {
     #[default]
     Biped,
     Spaceship,
     Truck,
+    RocketTurret,
     Planet,
     Pistol,
     Rifle,
@@ -114,6 +121,7 @@ impl GameObjectKind {
             "biped" => Self::Biped,
             "spaceship" => Self::Spaceship,
             "truck" => Self::Truck,
+            "rocket_turret" => Self::RocketTurret,
             "planet" => Self::Planet,
             "pistol" => Self::Pistol,
             "rifle" => Self::Rifle,

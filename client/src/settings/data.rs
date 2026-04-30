@@ -3,6 +3,7 @@ use common::KeyBindings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
+/// Fixed-step substep count used by the local physics simulation.
 pub enum PhysicsSubsteps {
     #[default]
     One,
@@ -21,6 +22,7 @@ impl PhysicsSubsteps {
 }
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+/// Visual smoothing mode applied between fixed physics ticks.
 pub enum PhysicsInterp {
     Off,
     Interpolate,
@@ -30,6 +32,7 @@ pub enum PhysicsInterp {
 }
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+/// Frontend-facing present mode choice mapped to Bevy window settings.
 pub enum VsyncMode {
     AutoVsync,
     #[default]
@@ -41,6 +44,7 @@ pub enum VsyncMode {
 }
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+/// Window/display mode exposed in the settings UI.
 pub enum DisplayMode {
     Windowed,
     #[default]
@@ -48,6 +52,7 @@ pub enum DisplayMode {
 }
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+/// SSAO quality preset exposed by the graphics menu.
 pub enum SsaoQuality {
     Off,
     #[default]
@@ -57,6 +62,7 @@ pub enum SsaoQuality {
 }
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+/// Shadow quality preset exposed by the graphics menu.
 pub enum ShadowQuality {
     Off,
     Low,
@@ -66,6 +72,7 @@ pub enum ShadowQuality {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
+/// Top-level settings tab currently selected in the pause/settings UI.
 pub enum SettingsSection {
     #[default]
     Graphics,
@@ -78,6 +85,7 @@ pub enum SettingsSection {
 #[derive(Resource, Serialize, Deserialize, Clone, Reflect)]
 #[serde(default)]
 #[reflect(Resource)]
+/// Persistent user settings shared across graphics, audio, controls, and debug options.
 pub struct Settings {
     pub keybindings: KeyBindings,
     pub mouse_sensitivity: f32,

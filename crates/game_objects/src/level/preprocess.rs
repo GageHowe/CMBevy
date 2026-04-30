@@ -23,6 +23,8 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
 ];
 
 pub fn preprocess_level_text(text: &str) -> String {
+    // TODO: Replace this naive string substitution with a real scene-authoring preprocess step.
+    // It is easy to break accidentally if a quoted string happens to match one of these keys.
     let mut out = text.to_owned();
     for (key, value) in KEY_EXPANSIONS {
         let from = format!("\"{key}\"");

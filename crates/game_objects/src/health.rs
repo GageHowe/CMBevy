@@ -13,8 +13,10 @@ use crate::{
 const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+/// Orders authoritative health systems relative to other gameplay systems.
 pub struct HealthAuthoritySet;
 
+/// Registers shared health, regen, damage, and death handling systems.
 pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
@@ -32,17 +34,20 @@ impl Plugin for HealthPlugin {
 }
 
 #[derive(Component, Clone, Copy)]
+/// Current and maximum hit points for a damageable entity.
 pub struct Health {
     pub current: f32,
     pub max: f32,
 }
 
 #[derive(Component, Clone, Copy)]
+/// Passive health regeneration rate in hit points per second.
 pub struct HealthRegen {
     pub per_sec: f32,
 }
 
 #[derive(Clone, Copy, Default, Reflect)]
+/// High-level reason a damaging event occurred.
 pub enum DamageCause {
     #[default]
     Unknown,
@@ -76,6 +81,7 @@ pub struct PendingPlayerKills(pub Vec<(Entity, Option<Entity>)>);
 pub struct PendingPlayerRemovals(pub Vec<Entity>);
 
 #[derive(Resource, Default)]
+/// Deferred despawn queue used to avoid despawning mid-death-processing.
 pub struct PendingDeathDespawns(pub Vec<Entity>);
 
 impl Health {
@@ -98,10 +104,15 @@ impl Health {
 }
 
 #[derive(Component, Clone, Copy)]
+/// Tuning for converting collision impulses into gameplay damage.
 pub struct CollisionDamageConfig {
+    /// Per-mass impulse threshold before damage starts applying.
     pub threshold_per_mass: f32,
+    /// Absolute minimum impulse threshold regardless of mass.
     pub min_threshold: f32,
+    /// Scale factor from post-threshold impulse to damage.
     pub damage_scale: f32,
+    /// Optional cap applied per impact event.
     pub max_damage_per_hit: Option<f32>,
 }
 

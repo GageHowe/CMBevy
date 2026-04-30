@@ -9,15 +9,15 @@ use physics::physics_world::*;
 use rapier3d::prelude::*;
 
 use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_seat},
+    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
     *,
 };
 use crate::{
     GameObject, GameObjectKind,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
+    reticle::AimReticle,
     spawn::AppGameObjectExt,
-    weapon::AimReticle,
 };
 
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
@@ -67,7 +67,7 @@ impl Pawn for SpaceshipPawnComponent {
 
 impl VehiclePawn for SpaceshipPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
-    const DRIVER_SEAT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
+    const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
     const DRIVER_INTERACT_RADIUS: f32 = 0.8;
 }
 
@@ -81,7 +81,7 @@ impl GameObject for SpaceshipPawnComponent {
             rotation: cmd.rotation.into(),
             ..default()
         };
-        let driver_seat = spawn_driver_seat::<SpaceshipPawnComponent>(entity, world);
+        spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
             Health::new(SPACESHIP_MAX_HEALTH),
@@ -92,7 +92,7 @@ impl GameObject for SpaceshipPawnComponent {
                 max_damage_per_hit: Some(60.0),
             },
             LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(driver_seat),
+            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
             AimReticle("textures/crosshairs/crosshair001.png", None),
             GameObjectKind::Spaceship,
             Transform::from(transform),

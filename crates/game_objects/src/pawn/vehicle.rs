@@ -1,189 +1,74 @@
-/// VehicleComponent is a shared marker inserted by every vehicle-type pawn (spaceship, car, etc.).
-/// It does NOT implement Pawn — each vehicle type has its own component for that.
-/// VehiclePlugin provides the enter/exit lifecycle and camera attachment that work
-/// across all vehicle types.
 use bevy::prelude::*;
 use net::{
     message::{MsgType, NetworkID},
     quic::{Channel, QuicManager, SendTarget},
 };
-#[cfg(feature = "client")]
-use physics::physics_world::sync_physics_visual;
-use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
 
 #[cfg(feature = "client")]
 use super::*;
 #[cfg(feature = "client")]
-use crate::{GameObjectKind, NetworkEntityMap};
-use super::{Pawn, PlayerRegistry};
+use crate::GameObjectKind;
+use super::{Pawn, PlayerRegistry, mount};
 
-/// Marks an entity as a driveable vehicle.
+/// Marker shared by drivable vehicles.
 #[derive(Component, Reflect)]
 pub struct VehicleComponent {
-    /// Camera position relative to the vehicle when occupied.
+    /// Third-person camera offset used while this vehicle is possessed.
     pub camera_offset: Vec3,
-    pub driver_seat: Entity,
 }
 
 impl VehicleComponent {
-    pub fn for_vehicle<T: VehiclePawn>(driver_seat: Entity) -> Self {
-        Self { camera_offset: T::CAMERA_OFFSET, driver_seat }
+    pub fn for_vehicle<T: VehiclePawn>() -> Self {
+        Self { camera_offset: T::CAMERA_OFFSET }
     }
 }
 
-#[derive(Component, Clone, Copy, Reflect)]
-pub struct SeatedInVehicle(pub Entity);
-
+/// Vehicle-specific tuning required by the generic driver-mount helper.
 pub trait VehiclePawn: Pawn {
     const CAMERA_OFFSET: Vec3;
-    const DRIVER_SEAT_OFFSET: Vec3;
+    const DRIVER_MOUNT_OFFSET: Vec3;
     const DRIVER_INTERACT_RADIUS: f32 = 1.0;
     const EXIT_OFFSET: Vec3 = Vec3::ZERO;
 }
 
-/// A vehicle seat child entity. The child transform defines the driver anchor.
-#[derive(Component, Reflect)]
-pub struct DriverSeat {
-    pub occupant: Option<Entity>,
-    pub interact_radius: f32,
-    pub exit_offset: Vec3,
-}
-
-impl Default for DriverSeat {
-    fn default() -> Self {
-        Self { occupant: None, interact_radius: 1.0, exit_offset: Vec3::ZERO }
-    }
-}
-
+/// Shared plugin for generic vehicle driver-mount behavior.
 pub struct VehiclePlugin;
 impl Plugin for VehiclePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<VehicleComponent>();
-        app.register_type::<DriverSeat>();
-        app.add_systems(FixedUpdate, sync_seated_bipeds.before(step_physics));
         #[cfg(feature = "client")]
         {
-            app.add_systems(Update, sync_seated_biped_visuals.after(sync_physics_visual));
             app.add_systems(FixedPreUpdate, attach_camera_on_possess_vehicle);
             app.add_systems(FixedPreUpdate, vehicle_exit_interact);
         }
     }
 }
 
-pub fn seat_world_point(vehicle_pos: Vec3, vehicle_rot: Quat, seat_local: Vec3) -> Vec3 {
-    vehicle_pos + vehicle_rot * seat_local
-}
-
-pub fn ray_hits_cockpit(
-    origin: Vec3,
-    dir: Vec3,
-    max_distance: f32,
-    seat_center: Vec3,
-    cockpit_radius: f32,
-) -> Option<f32> {
-    let offset = seat_center - origin;
-    let along = offset.dot(dir);
-    if along < 0.0 || along > max_distance {
-        return None;
-    }
-    let closest = origin + dir * along;
-    let dist_sq = seat_center.distance_squared(closest);
-    if dist_sq <= cockpit_radius * cockpit_radius { Some(along) } else { None }
-}
-
-pub fn spawn_driver_seat<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
-    let seat = world
-        .spawn((
-            DriverSeat {
-                interact_radius: T::DRIVER_INTERACT_RADIUS,
-                exit_offset: T::EXIT_OFFSET,
-                ..default()
-            },
-            Transform::from_translation(T::DRIVER_SEAT_OFFSET),
-            Visibility::default(),
-        ))
-        .id();
-    world.entity_mut(vehicle_entity).add_child(seat);
-    seat
-}
-
-pub fn enter_vehicle(
-    world: &mut PhysicsWorld,
-    biped_entity: Entity,
-    vehicle_entity: Entity,
-    seat: &mut DriverSeat,
-    seat_transform: &Transform,
-) -> bool {
-    if seat.occupant.is_some() {
-        return false;
-    }
-
-    let Some(&vehicle_handle) = world.entity_to_handle.get(&vehicle_entity) else {
-        return false;
-    };
-    let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else {
-        return false;
-    };
-    let vehicle_pos = rb_pos(vehicle_body);
-    let vehicle_rot = rb_rot(vehicle_body);
-    let vehicle_vel = rb_vel(vehicle_body);
-    let vehicle_angvel = rb_angvel(vehicle_body);
-    let seat_pos = seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation);
-    let seat_rot = vehicle_rot * seat_transform.rotation;
-    world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
-    world.set_body_enabled(biped_entity, false);
-
-    seat.occupant = Some(biped_entity);
-    true
-}
-
-pub fn exit_vehicle(
-    world: &mut PhysicsWorld,
-    vehicle_entity: Entity,
-    seat: &mut DriverSeat,
-    seat_transform: &Transform,
-) -> Option<Entity> {
-    let biped_entity = seat.occupant.take()?;
-
-    let exit_offset = seat_transform.rotation * seat.exit_offset + seat_transform.translation;
-    let (exit_pos, vehicle_rot, exit_vel, _) =
-        world.predicted_body_point_after(vehicle_entity, exit_offset, 0.0)?;
-    world.set_body_enabled(biped_entity, true);
-    world.set_body_pose(biped_entity, exit_pos, vehicle_rot, exit_vel, Vec3::ZERO);
-    Some(biped_entity)
+pub fn spawn_driver_mount<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
+    let anchor = mount::spawn_mount_anchor(vehicle_entity, T::DRIVER_MOUNT_OFFSET, world);
+    world.entity_mut(vehicle_entity).insert(mount::CharacterMount {
+        occupant: None,
+        anchor,
+        interact_radius: T::DRIVER_INTERACT_RADIUS,
+        exit_offset: T::EXIT_OFFSET,
+    });
+    anchor
 }
 
 pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
-    let Some(driver_seat) =
-        world.get::<VehicleComponent>(vehicle_entity).map(|vehicle| vehicle.driver_seat)
-    else {
-        return;
-    };
-    let Some(seat_transform) = world.get::<Transform>(driver_seat).cloned() else {
-        return;
-    };
     let biped_net_id = world
-        .get::<DriverSeat>(driver_seat)
-        .and_then(|seat| seat.occupant)
+        .get::<mount::CharacterMount>(vehicle_entity)
+        .and_then(|mount| mount.occupant)
         .and_then(|biped_entity| world.get::<NetworkID>(biped_entity).cloned());
-    let Some(biped_entity) = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
-        let Some(mut seat) = world.get_mut::<DriverSeat>(driver_seat) else {
-            return None;
-        };
-        exit_vehicle(&mut physics, vehicle_entity, &mut seat, &seat_transform)
-    }) else {
+    let Some(biped_entity) = mount::handle_mount_parent_death(vehicle_entity, world) else {
         return;
     };
 
-    world.entity_mut(biped_entity).remove::<SeatedInVehicle>();
+    world.entity_mut(biped_entity).remove::<mount::Mounted>();
     crate::health::copy_last_damage_source(world, vehicle_entity, biped_entity);
 
     #[cfg(feature = "client")]
-    if world.get::<Possessed>(vehicle_entity).is_some() {
-        super::detach_local_camera(world);
-        world.entity_mut(vehicle_entity).remove::<Possessed>();
-        world.entity_mut(biped_entity).insert(Possessed::new(128));
-    }
+    mount::clear_mount_possession(vehicle_entity, biped_entity, world);
 
     let conn_id = world
         .get_resource::<PlayerRegistry>()
@@ -198,7 +83,7 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
                 Channel::Ordered,
                 &MsgType::Possess(biped_net_id.clone()),
             );
-            super::broadcast_seat_state(&mut quic, &biped_net_id, None);
+            super::broadcast_mount_state(&mut quic, &biped_net_id, None);
         }
     }
 }
@@ -212,212 +97,47 @@ pub fn handle_server_interact(
     target_net_id: &NetworkID,
     registry: &mut PlayerRegistry,
     quic: &mut QuicManager,
-    world: &mut PhysicsWorld,
+    world: &mut physics::physics_world::PhysicsWorld,
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
-    driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
+    mounts: &mut Query<(&mut mount::CharacterMount, &Transform)>,
     commands: &mut Commands,
 ) {
-    let Ok(vehicle) = vehicles.get(target) else {
+    if !vehicles.contains(target) {
         return;
-    };
-    let Ok((mut cockpit, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
+    }
+    let Ok((mut driver_mount, anchor_transform)) = mounts.get_mut(target) else {
         return;
     };
 
-    if cockpit.occupant.is_some() && controlled == target {
-        let Some(biped_entity) = exit_vehicle(world, target, &mut cockpit, seat_transform) else {
+    if driver_mount.occupant.is_some() && controlled == target {
+        let Some(biped_entity) =
+            mount::unmount_character(world, target, &mut driver_mount, anchor_transform)
+        else {
             return;
         };
         let Ok(biped_net_id) = net_ids.get(biped_entity) else {
             return;
         };
-        commands.entity(biped_entity).remove::<SeatedInVehicle>();
+        commands.entity(biped_entity).remove::<mount::Mounted>();
         super::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
-        super::broadcast_seat_state(quic, biped_net_id, None);
+        super::broadcast_mount_state(quic, biped_net_id, None);
         return;
     }
 
-    if cockpit.occupant.is_some() || !vehicle_in_range(world, character, target, &cockpit, seat_transform) {
+    if driver_mount.occupant.is_some()
+        || !mount::mount_in_range(world, character, target, &driver_mount, anchor_transform)
+    {
         return;
     }
 
-    if enter_vehicle(world, character, target, &mut cockpit, seat_transform) {
-        commands.entity(character).insert(SeatedInVehicle(target));
+    if mount::mount_character(world, character, target, &mut driver_mount, anchor_transform) {
+        commands.entity(character).insert(mount::Mounted(target));
         super::possess_pawn(conn_id, target, target_net_id, registry, quic);
-        super::broadcast_seat_state(quic, character_net_id, Some(target_net_id));
+        super::broadcast_mount_state(quic, character_net_id, Some(target_net_id));
     }
 }
 
-fn vehicle_in_range(
-    world: &PhysicsWorld,
-    player_entity: Entity,
-    target_entity: Entity,
-    cockpit: &DriverSeat,
-    seat_transform: &Transform,
-) -> bool {
-    let player_pos = world
-        .entity_to_handle
-        .get(&player_entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(rb_pos);
-    let seat_pos = world
-        .entity_to_handle
-        .get(&target_entity)
-        .and_then(|&h| world.rigid_body_set.get(h))
-        .map(|rb| seat_world_point(rb_pos(rb), rb_rot(rb), seat_transform.translation));
-    matches!((player_pos, seat_pos), (Some(a), Some(b)) if {
-        let d = a - b;
-        d.x * d.x + d.y * d.y + d.z * d.z
-            < (cockpit.interact_radius + 4.0) * (cockpit.interact_radius + 4.0)
-    })
-}
-
-#[cfg(feature = "client")]
-pub fn apply_seat_state(
-    biped_net_id: &NetworkID,
-    vehicle_net_id: Option<&NetworkID>,
-    local_net_id: Option<&NetworkID>,
-    just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
-    networked: &NetworkEntityMap,
-    object_kinds: &Query<&GameObjectKind>,
-    seated: &Query<&SeatedInVehicle>,
-    vehicles: &Query<&VehicleComponent>,
-    driver_seats: &Query<(&DriverSeat, &Transform)>,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) {
-    let biped_entity =
-        just_spawned.get(biped_net_id).map(|(entity, _)| *entity).or_else(|| networked.get_entity(biped_net_id));
-    let Some(biped_entity) = biped_entity else {
-        return;
-    };
-    match vehicle_net_id.and_then(|id| networked.get_entity(id)) {
-        Some(vehicle_entity) => {
-            world.set_body_enabled(biped_entity, false);
-            commands.entity(biped_entity).insert(SeatedInVehicle(vehicle_entity));
-            if local_net_id == Some(biped_net_id)
-                && let Ok(kind) = object_kinds.get(vehicle_entity)
-            {
-                crate::messages::push(commands, format!("Entered {}", kind.interaction_name()));
-            }
-        }
-        None => {
-            let old_vehicle = seated.get(biped_entity).ok().map(|seat| seat.0);
-            let predicted_exit = old_vehicle
-                .and_then(|vehicle_entity| {
-                    vehicles.get(vehicle_entity).ok().map(|vehicle| (vehicle_entity, vehicle))
-                })
-                .and_then(|(vehicle_entity, vehicle)| {
-                    driver_seats.get(vehicle.driver_seat).ok().and_then(|(seat, seat_transform)| {
-                        let exit_offset =
-                            seat_transform.rotation * seat.exit_offset + seat_transform.translation;
-                        world.predicted_body_point_after(vehicle_entity, exit_offset, 0.0)
-                    })
-                });
-            if let Some((pos, rot, vel, _)) = predicted_exit {
-                world.set_body_enabled(biped_entity, true);
-                world.set_body_pose(biped_entity, pos, rot, vel, Vec3::ZERO);
-            } else {
-                world.set_body_enabled(biped_entity, true);
-            }
-            if let Some(&handle) = world.entity_to_handle.get(&biped_entity)
-                && let Some(rb) = world.rigid_body_set.get_mut(handle)
-            {
-                rb.set_angvel(physics::physics_world::Vector3::ZERO, true);
-            }
-            commands.entity(biped_entity).remove::<SeatedInVehicle>();
-            if local_net_id == Some(biped_net_id)
-                && let Some(vehicle_entity) = old_vehicle
-                && let Ok(kind) = object_kinds.get(vehicle_entity)
-            {
-                crate::messages::push(commands, format!("Exited {}", kind.interaction_name()));
-            }
-        }
-    }
-}
-
-fn sync_seated_bipeds(
-    mut world: ResMut<PhysicsWorld>,
-    seated: Query<(Entity, &SeatedInVehicle)>,
-    vehicles: Query<&VehicleComponent>,
-    driver_seats: Query<&Transform, With<DriverSeat>>,
-) {
-    for (biped_entity, seated_in) in seated.iter() {
-        let Some(vehicle_handle) = world.entity_to_handle.get(&seated_in.0).copied() else {
-            continue;
-        };
-        let Some(vehicle_body) = world.rigid_body_set.get(vehicle_handle) else {
-            continue;
-        };
-        let Ok(vehicle) = vehicles.get(seated_in.0) else {
-            continue;
-        };
-        let Ok(seat_transform) = driver_seats.get(vehicle.driver_seat) else {
-            continue;
-        };
-        let vehicle_pos = rb_pos(vehicle_body);
-        let vehicle_rot = rb_rot(vehicle_body);
-        let seat_pos = seat_world_point(vehicle_pos, vehicle_rot, seat_transform.translation);
-        let seat_rot = vehicle_rot * seat_transform.rotation;
-        let vehicle_vel = rb_vel(vehicle_body);
-        let vehicle_angvel = rb_angvel(vehicle_body);
-        world.set_body_pose(biped_entity, seat_pos, seat_rot, vehicle_vel, vehicle_angvel);
-    }
-}
-
-#[cfg(feature = "client")]
-fn sync_seated_biped_visuals(
-    seated: Query<(Entity, &SeatedInVehicle)>,
-    mut transforms: ParamSet<(
-        Query<(&Transform, &VehicleComponent)>,
-        Query<&Transform, With<DriverSeat>>,
-        Query<&mut Transform>,
-    )>,
-) {
-    for (biped_entity, seated_in) in seated.iter() {
-        let (vehicle_translation, vehicle_rotation, driver_seat) = {
-            let vehicles = transforms.p0();
-            let Ok((vehicle_transform, vehicle)) = vehicles.get(seated_in.0) else {
-                continue;
-            };
-            (vehicle_transform.translation, vehicle_transform.rotation, vehicle.driver_seat)
-        };
-        let (seat_translation, seat_rotation) = {
-            let seats = transforms.p1();
-            let Ok(seat_transform) = seats.get(driver_seat) else {
-                continue;
-            };
-            (seat_transform.translation, seat_transform.rotation)
-        };
-        let mut bipeds = transforms.p2();
-        let Ok(mut biped_transform) = bipeds.get_mut(biped_entity) else {
-            continue;
-        };
-        // Seated riders are rendered from the vehicle's visual frame so interpolation keeps
-        // them attached to the cockpit instead of drifting from their disabled rigid body.
-        biped_transform.translation = vehicle_translation + vehicle_rotation * seat_translation;
-        biped_transform.rotation = vehicle_rotation * seat_rotation;
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn draw_driver_seat_debug(seats: Query<(&DriverSeat, &GlobalTransform)>, mut gizmos: Gizmos) {
-    for (seat, gt) in seats.iter() {
-        let (_, rot, center) = gt.to_scale_rotation_translation();
-        let color = if seat.occupant.is_some() {
-            Color::srgba(1.0, 0.2, 0.2, 0.9)
-        } else {
-            Color::srgba(0.2, 1.0, 0.8, 0.9)
-        };
-        gizmos.sphere(center, seat.interact_radius, color);
-        let exit_tip = center + rot * seat.exit_offset;
-        gizmos.line(center, exit_tip, Color::srgba(1.0, 0.8, 0.2, 0.9));
-    }
-}
-
-/// Re-parents the camera into the vehicle when any vehicle type gains Possessed.
-/// The offset should eventually be defined per vehicle type; a sensible default is used here.
 #[cfg(feature = "client")]
 pub fn attach_camera_on_possess_vehicle(
     vehicles: Query<(&VehicleComponent, Entity), Added<Possessed>>,
@@ -431,10 +151,6 @@ pub fn attach_camera_on_possess_vehicle(
         return;
     };
     let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
-
-    // Spawn a dedicated spring arm pivot as a child of the vehicle. The camera is then
-    // parented to the pivot so Bevy's transform hierarchy composes vehicle + arm + shake
-    // without SpringArm needing any knowledge of CameraEffector.
     let pivot = commands.spawn((
         Transform::default(),
         Visibility::Inherited,
@@ -442,8 +158,6 @@ pub fn attach_camera_on_possess_vehicle(
         crate::spring_arm::SpringArmPivot,
     )).id();
     commands.entity(vehicle_entity).add_child(pivot);
-
-    // Camera sits at the pivot origin; CameraEffector handles shake/recoil from there.
     commands.entity(cam).insert((
         Transform::default(),
         CameraEffector { base_translation: Vec3::ZERO, base_fov, current_fov: base_fov, ..default() },
@@ -451,8 +165,6 @@ pub fn attach_camera_on_possess_vehicle(
     commands.entity(pivot).add_child(cam);
 }
 
-/// While driving, pressing F exits the vehicle.
-/// In multiplayer the server handles the exit; in singleplayer it's handled locally.
 #[cfg(feature = "client")]
 fn vehicle_exit_interact(
     state: Res<State<common::game_state::GameState>>,
@@ -461,20 +173,20 @@ fn vehicle_exit_interact(
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     bindings: Res<common::ActiveKeyBindings>,
     vehicle: Query<
-        (Entity, &VehicleComponent, Option<&net::message::NetworkID>),
+        (Entity, Option<&net::message::NetworkID>),
         (With<VehicleComponent>, With<Possessed>),
     >,
-    mut driver_seats: Query<(&mut DriverSeat, &Transform)>,
-    mut world: ResMut<PhysicsWorld>,
+    mut mounts: Query<(&mut mount::CharacterMount, &Transform)>,
+    mut world: ResMut<physics::physics_world::PhysicsWorld>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
     mut interaction: ResMut<InteractionGate>,
     ticker: Res<common::tick::Ticker>,
-    object_kinds: Query<&crate::GameObjectKind>,
+    object_kinds: Query<&GameObjectKind>,
 ) {
     use common::game_state::GameState;
     let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
-    let Ok((vehicle_entity, vehicle, net_id)) = vehicle.single() else {
+    let Ok((vehicle_entity, net_id)) = vehicle.single() else {
         return;
     };
     if !interaction.consume_press(
@@ -492,16 +204,16 @@ fn vehicle_exit_interact(
             );
         }
         GameState::SinglePlayer => {
-            let Ok((mut seat, seat_transform)) = driver_seats.get_mut(vehicle.driver_seat) else {
+            let Ok((mut driver_mount, anchor_transform)) = mounts.get_mut(vehicle_entity) else {
                 return;
             };
             let Some(biped_entity) =
-                exit_vehicle(&mut world, vehicle_entity, &mut seat, seat_transform)
+                mount::unmount_character(&mut world, vehicle_entity, &mut driver_mount, anchor_transform)
             else {
                 return;
             };
             commands.entity(vehicle_entity).remove::<Possessed>();
-            commands.entity(biped_entity).remove::<SeatedInVehicle>().insert(Possessed::new(128));
+            commands.entity(biped_entity).remove::<mount::Mounted>().insert(Possessed::new(128));
             if let Ok(kind) = object_kinds.get(vehicle_entity) {
                 crate::messages::push(&mut commands, format!("Exited {}", kind.interaction_name()));
             }

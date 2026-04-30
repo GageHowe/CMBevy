@@ -8,8 +8,10 @@ use physics::physics_world::PhysicsWorld;
 
 use super::{
     BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
-    PITCH_MAX, PitchPivot, Possessed, SeatedInVehicle, WeaponSlots, YawPivot, apply_biped_input,
-    vehicle::{DriverSeat, VehicleComponent, enter_vehicle, ray_hits_cockpit},
+    PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
+    mount::{CharacterMount, Mounted, mount_character, ray_hits_mount},
+    rocket_turret::RocketTurretPawnComponent,
+    vehicle::VehicleComponent,
 };
 use crate::{
     GameObjectKind,
@@ -249,7 +251,7 @@ fn reset_look_on_possess(
 }
 
 fn hide_weapons_while_seated(
-    seated: Query<&WeaponSlots, Added<SeatedInVehicle>>,
+    seated: Query<&WeaponSlots, Added<Mounted>>,
     mut commands: Commands,
 ) {
     for slots in seated.iter() {
@@ -397,7 +399,7 @@ struct InteractInputParams<'w> {
 }
 
 enum InteractTarget {
-    Vehicle { cockpit_entity: Entity, vehicle_entity: Entity },
+    Mount(Entity),
     Entity { hit_entity: Entity, net_id: Option<net::message::NetworkID> },
 }
 
@@ -414,31 +416,30 @@ fn current_interact_target(
         (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
         With<crate::interaction::Interactable>,
     >,
-    cockpits: &Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
+    mounts: &Query<(Entity, &CharacterMount, &GlobalTransform)>,
 ) -> Option<InteractTarget> {
-    let mut cockpit_target = None;
-    for (cockpit_entity, cockpit, cockpit_gt, child_of) in cockpits.iter() {
-        let (_, _, seat_center) = cockpit_gt.to_scale_rotation_translation();
-        let Some(distance) = ray_hits_cockpit(
+    let mut mount_target = None;
+    for (parent_entity, mount, anchor_gt) in mounts.iter() {
+        let (_, _, mount_center) = anchor_gt.to_scale_rotation_translation();
+        let Some(distance) = ray_hits_mount(
             origin,
             forward,
-            cockpit.interact_radius + 4.0,
-            seat_center,
-            cockpit.interact_radius,
+            mount.interact_radius + 4.0,
+            mount_center,
+            mount.interact_radius,
         ) else {
             continue;
         };
-        if cockpit.occupant.is_some() {
+        if mount.occupant.is_some() {
             continue;
         }
-        let vehicle_entity = child_of.parent();
-        let target = (distance, cockpit_entity, vehicle_entity);
-        if cockpit_target.is_none_or(|best: (f32, Entity, Entity)| distance < best.0) {
-            cockpit_target = Some(target);
+        let target = (distance, parent_entity);
+        if mount_target.is_none_or(|best: (f32, Entity)| distance < best.0) {
+            mount_target = Some(target);
         }
     }
-    if let Some((_, cockpit_entity, vehicle_entity)) = cockpit_target {
-        return Some(InteractTarget::Vehicle { cockpit_entity, vehicle_entity });
+    if let Some((_, parent_entity)) = mount_target {
+        return Some(InteractTarget::Mount(parent_entity));
     }
 
     let (hit_entity, _distance) = world.cast_ray(origin, forward, 4.0, &[pawn_entity])?;
@@ -471,7 +472,7 @@ fn update_interaction_hint(
     object_kinds: Query<&GameObjectKind>,
     weapon_q: Query<(), With<crate::weapon::WeaponComponent>>,
     pickup_q: Query<(), With<crate::pawn::biped_ability::OnPickup>>,
-    cockpit_q: Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
+    mount_q: Query<(Entity, &CharacterMount, &GlobalTransform)>,
     mut hint: ResMut<InteractionHint>,
 ) {
     if egui_wants.as_ref().is_some_and(|e| e.wants_any_input()) {
@@ -493,15 +494,15 @@ fn update_interaction_hint(
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
     let Some(target) =
-        current_interact_target(pawn_entity, origin, forward, &world, &interactables, &cockpit_q)
+        current_interact_target(pawn_entity, origin, forward, &world, &interactables, &mount_q)
     else {
         hint.0 = None;
         return;
     };
     let key = bindings.binding(common::InputAction::Interact).prompt_label();
     hint.0 = match target {
-        InteractTarget::Vehicle { vehicle_entity, .. } => object_kinds
-            .get(vehicle_entity)
+        InteractTarget::Mount(parent_entity) => object_kinds
+            .get(parent_entity)
             .ok()
             .map(|kind| format_interaction_prompt(&key, "enter", kind.clone())),
         InteractTarget::Entity { hit_entity, .. } if weapon_q.contains(hit_entity) => object_kinds
@@ -531,13 +532,14 @@ fn interact(
     mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
-    vehicle_net_ids: Query<&net::message::NetworkID, With<VehicleComponent>>,
+    mount_net_ids: Query<
+        &net::message::NetworkID,
+        Or<(With<VehicleComponent>, With<RocketTurretPawnComponent>)>,
+    >,
     object_kinds: Query<&GameObjectKind>,
     pickup_fns: Query<&crate::pawn::biped_ability::OnPickup>,
-    mut cockpit_q: ParamSet<(
-        Query<(Entity, &DriverSeat, &GlobalTransform, &ChildOf)>,
-        Query<(&mut DriverSeat, &Transform, &ChildOf)>,
-    )>,
+    mount_q: Query<(Entity, &CharacterMount, &GlobalTransform)>,
+    mut mounts: Query<(&mut CharacterMount, &Transform)>,
 ) {
     use common::game_state::GameState;
     let blocked = input.egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
@@ -552,14 +554,9 @@ fn interact(
     };
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
-    let Some(target) = current_interact_target(
-        pawn_entity,
-        origin,
-        forward,
-        &world,
-        &interactables,
-        &cockpit_q.p0(),
-    ) else {
+    let Some(target) =
+        current_interact_target(pawn_entity, origin, forward, &world, &interactables, &mount_q)
+    else {
         return;
     };
     if !input.interaction.consume_press(
@@ -570,29 +567,18 @@ fn interact(
         return;
     }
     match target {
-        InteractTarget::Vehicle { cockpit_entity, vehicle_entity } => match state.get() {
+        InteractTarget::Mount(parent_entity) => match state.get() {
             GameState::SinglePlayer => {
-                let mut cockpits = cockpit_q.p1();
-                let Ok((mut cockpit, seat_transform, child_of)) = cockpits.get_mut(cockpit_entity)
-                else {
+                let Ok((mut mount, anchor_transform)) = mounts.get_mut(parent_entity) else {
                     return;
                 };
-                if child_of.parent() != vehicle_entity {
+                if !mount_character(&mut world, pawn_entity, parent_entity, &mut mount, anchor_transform) {
                     return;
                 }
-                if !enter_vehicle(
-                    &mut world,
-                    pawn_entity,
-                    vehicle_entity,
-                    &mut cockpit,
-                    seat_transform,
-                ) {
-                    return;
-                }
-                commands.entity(pawn_entity).insert(SeatedInVehicle(vehicle_entity));
+                commands.entity(pawn_entity).insert(Mounted(parent_entity));
                 commands.entity(pawn_entity).remove::<Possessed>();
-                commands.entity(vehicle_entity).insert(Possessed::new(128));
-                if let Ok(kind) = object_kinds.get(vehicle_entity) {
+                commands.entity(parent_entity).insert(Possessed::new(128));
+                if let Ok(kind) = object_kinds.get(parent_entity) {
                     crate::messages::push(
                         &mut commands,
                         format!("Entered {}", kind.interaction_name()),
@@ -600,12 +586,12 @@ fn interact(
                 }
             }
             GameState::Multiplayer => {
-                let Ok(vehicle_net_id) = vehicle_net_ids.get(vehicle_entity) else {
+                let Ok(parent_net_id) = mount_net_ids.get(parent_entity) else {
                     return;
                 };
                 quic.send_to_server(
                     net::quic::Channel::Ordered,
-                    &net::message::MsgType::Interact(vehicle_net_id.clone()),
+                    &net::message::MsgType::Interact(parent_net_id.clone()),
                 );
             }
             _ => {}

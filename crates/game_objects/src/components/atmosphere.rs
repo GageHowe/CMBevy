@@ -10,7 +10,7 @@ use physics::physics_world::*;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::pawn::SeatedInVehicle;
+use crate::pawn::Mounted;
 
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
@@ -43,7 +43,7 @@ pub struct AreaReverbComponent {
 pub fn apply_wind_resistance_impulses(
     world: &mut PhysicsWorld,
     atmospheres: &Query<(&AtmosphericDragComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
-    seated: &Query<&SeatedInVehicle>,
+    seated: &Query<&Mounted>,
 ) {
     let dt = world.integration_parameters.dt;
 
@@ -112,7 +112,7 @@ pub fn apply_wind_resistance_impulses(
 pub fn apply_wind_resistance(
     mut world: ResMut<PhysicsWorld>,
     atmospheres: Query<(&AtmosphericDragComponent, &Transform, Option<&RigidBodyHandleComponent>)>,
-    seated: Query<&SeatedInVehicle>,
+    seated: Query<&Mounted>,
 ) {
     apply_wind_resistance_impulses(&mut world, &atmospheres, &seated);
 }

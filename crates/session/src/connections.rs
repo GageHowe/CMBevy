@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use game_objects::{
     level::{LevelBytes, SpawnPoint},
-    pawn::{HeldWeaponMap, PendingRespawns, PlayerRegistry, SeatedInVehicle, WeaponSlots},
+    pawn::{HeldWeaponMap, Mounted, PendingRespawns, PlayerRegistry, WeaponSlots},
     weapon::{WeaponConfig, WeaponState},
 };
 use net::{message::*, quic::*};
@@ -29,7 +29,7 @@ pub(super) fn handle_connected(
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     pawn_slots: &Query<&mut WeaponSlots>,
     entity_net_ids: &Query<&NetworkID>,
-    seated_bipeds: &Query<(&NetworkID, &SeatedInVehicle)>,
+    mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
 ) -> bool {
     let mut teams = spawn_points.iter().map(|(_, sp, _, _)| sp.team).collect::<Vec<_>>();
     teams.sort();
@@ -83,14 +83,14 @@ pub(super) fn handle_connected(
             );
         }
     }
-    for (biped_net_id, seated_in) in seated_bipeds.iter() {
-        let Ok(vehicle_net_id) = entity_net_ids.get(seated_in.0) else {
+    for (biped_net_id, mounted) in mounted_bipeds.iter() {
+        let Ok(parent_net_id) = entity_net_ids.get(mounted.0) else {
             continue;
         };
         quic.send(
             SendTarget::One(conn_id),
             Channel::Ordered,
-            &MsgType::SeatState(biped_net_id.clone(), Some(vehicle_net_id.clone())),
+            &MsgType::MountState(biped_net_id.clone(), Some(parent_net_id.clone())),
         );
     }
     spawn_player(
@@ -191,7 +191,7 @@ pub(super) fn flush_pending_connections(
             &mut sp.weapon_runtime,
             &sp.pawn_slots,
             &sp.net_ids,
-            &sp.seated_bipeds,
+            &sp.mounted_bipeds,
         ) {
             pending_connections.0.remove(&conn_id);
         }

@@ -85,6 +85,7 @@ pub(super) fn kill_player(
     let _ = net_id;
 }
 
+/// Broadcasts authoritative health changes for any networked entity whose health changed this frame.
 pub fn broadcast_health_updates(
     mut quic: ResMut<QuicManager>,
     health_q: Query<(&Health, &NetworkID), Changed<Health>>,
@@ -98,12 +99,15 @@ pub fn broadcast_health_updates(
     }
 }
 
+/// Broadcasts the authoritative physics snapshot and any dirty pawn look state for the current tick.
 pub fn broadcast_tick(
     mut quic: ResMut<QuicManager>,
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
     mut biped_looks: Query<(&NetworkID, &mut game_objects::pawn::biped::BipedPawnComponent)>,
+    mut rocket_turret_looks:
+        Query<(&NetworkID, &mut game_objects::pawn::RocketTurretPawnComponent)>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,
@@ -116,19 +120,14 @@ pub fn broadcast_tick(
         state_for_client.last_input_seq = *last_input_seq.0.get(&conn_id).unwrap_or(&0);
         quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::State(state_for_client));
     }
-    for (net_id, mut biped) in &mut biped_looks {
-        if !biped.look_sync_dirty {
-            continue;
-        }
-        biped.look_sync_dirty = false;
-        quic.send(
-            SendTarget::All,
-            Channel::Unreliable,
-            &MsgType::BipedLook(net_id.clone(), biped.look_yaw, biped.look_pitch),
-        );
-    }
+    game_objects::pawn::broadcast_dirty_look_updates(
+        &mut quic,
+        &mut biped_looks,
+        &mut rocket_turret_looks,
+    );
 }
 
+/// Broadcasts a compact scoreboard snapshot at a lower frequency than the main physics tick.
 pub fn broadcast_scoreboard(
     mut quic: ResMut<QuicManager>,
     tick: Res<Ticker>,
@@ -143,7 +142,7 @@ pub fn broadcast_scoreboard(
     }
     let mode = mode.map_or_else(ModeConfig::default, |value| value.clone());
     let mut players = registry
-        .controlled_entries()
+        .character_entries()
         .map(|(conn_id, (entity, net_id))| ScoreboardEntry {
             net_id: net_id.clone(),
             label: format!("Player {conn_id}"),

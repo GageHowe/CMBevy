@@ -12,12 +12,15 @@ const ZSTD_LEVEL: i32 = 3;
 const ZSTD_FILE_LEVEL: i32 = 9;
 const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 
+/// Opaque transport-level connection identifier assigned by the net layer.
 pub type ConnectionId = u64;
+/// Synthetic connection id used by the client for the one authoritative server.
 pub const SERVER_CONN_ID: ConnectionId = 0;
 
 static RUSTLS_PROVIDER_INIT: Once = Once::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Reliability/ordering mode for a network packet.
 pub enum Channel {
     Ordered,
     Unordered,
@@ -25,6 +28,7 @@ pub enum Channel {
 }
 
 #[derive(Debug, Clone)]
+/// A decoded message delivered by the transport into the game layer.
 pub struct InboundMessage {
     pub conn_id: ConnectionId,
     pub channel: Channel,
@@ -33,6 +37,7 @@ pub struct InboundMessage {
 }
 
 #[derive(Debug, Clone)]
+/// Destination set for an outgoing message.
 pub enum SendTarget {
     One(ConnectionId),
     All,
@@ -40,6 +45,7 @@ pub enum SendTarget {
 }
 
 #[derive(Resource, Default)]
+/// Shared QUIC transport resource used by both client and server runtimes.
 pub struct QuicManager {
     pub inbound: VecDeque<InboundMessage>,
     pub notices: VecDeque<String>,

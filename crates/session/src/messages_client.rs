@@ -34,6 +34,7 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
     mut pending: ResMut<PendingReconciliation>,
     mut net_stats: ResMut<NetworkStats>,
     mut last_acked_input_seq: ResMut<LastAckedInputSeq>,
+    mut local_character: ResMut<LocalCharacterNetId>,
     time: Res<Time>,
     possessed_q: Query<(Entity, &NetworkID), With<Possessed>>,
     mut next_state: ResMut<NextState<S>>,
@@ -55,6 +56,7 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
             &mut pending,
             &mut net_stats,
             &mut last_acked_input_seq,
+            &mut local_character,
             &time,
             &possessed_q,
             &mut next_state,
@@ -74,6 +76,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
     pending: &mut PendingReconciliation,
     net_stats: &mut NetworkStats,
     last_acked_input_seq: &mut LastAckedInputSeq,
+    local_character: &mut LocalCharacterNetId,
     time: &Time,
     possessed_q: &Query<(Entity, &NetworkID), With<Possessed>>,
     next_state: &mut ResMut<NextState<S>>,
@@ -91,25 +94,34 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             cmd,
             net_stats.rtt_secs,
         ),
-        MsgType::Possess(net_id) => game_objects::lifecycle::apply_possess(
-            net_id,
-            local_net_id,
-            just_spawned,
-            &mp.networked,
-            possessed_q,
-            &mut mp.spawn.commands,
-            ticker,
-        ),
-        MsgType::SeatState(biped_net_id, vehicle_net_id) => game_objects::pawn::vehicle::apply_seat_state(
+        MsgType::Possess(net_id) => {
+            if let Some(entity) = just_spawned
+                .get(&net_id)
+                .map(|(entity, _)| *entity)
+                .or_else(|| mp.networked.get(&net_id))
+                && mp.object_kinds.get(entity).ok() == Some(&GameObjectKind::Biped)
+            {
+                local_character.0 = Some(net_id.clone());
+            }
+            game_objects::lifecycle::apply_possess(
+                net_id,
+                local_net_id,
+                just_spawned,
+                &mp.networked,
+                possessed_q,
+                &mut mp.spawn.commands,
+                ticker,
+            );
+        }
+        MsgType::MountState(biped_net_id, parent_net_id) => game_objects::pawn::mount::apply_mount_state(
             &biped_net_id,
-            vehicle_net_id.as_ref(),
+            parent_net_id.as_ref(),
             local_net_id.as_ref(),
             just_spawned,
             &mp.networked,
             &mp.object_kinds,
-            &mp.seated,
-            &mp.vehicles,
-            &mp.driver_seats,
+            &mp.mounted,
+            &mp.mounts,
             &mut mp.spawn.commands,
             &mut mp.world,
         ),
@@ -140,15 +152,15 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 mp.pending_weapon_pickups.0.push((weapon_id, carrier_net_id));
             }
         }
-        MsgType::BipedLook(net_id, yaw, pitch) => {
-            if local_net_id.as_ref() != Some(&net_id)
-                && let Some(entity) = mp.networked.get(&net_id)
-                && let Ok(mut biped) = mp.biped_q.p2().get_mut(entity)
-            {
-                biped.look_yaw = yaw;
-                biped.look_pitch = pitch;
-            }
-        }
+        MsgType::PawnLook(net_id, yaw, pitch) => game_objects::pawn::apply_remote_pawn_look(
+            &net_id,
+            yaw,
+            pitch,
+            local_net_id.as_ref(),
+            &mp.networked,
+            &mut mp.biped_q.p2(),
+            &mut mp.rocket_turrets,
+        ),
         MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => {
             game_objects::pawn::biped_ability::apply_pickup_message(
                 &carrier_net_id,

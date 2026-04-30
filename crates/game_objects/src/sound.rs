@@ -9,6 +9,7 @@ use crate::{
 
 /// Push to SoundQueue for positional one-shots (fire, impact, etc).
 /// FMOD creates, starts, and releases the instance immediately — no ownership needed.
+#[derive(Clone, Copy)]
 pub struct SoundRequest {
     pub event: &'static str,
     /// None = 2D (no spatialization). Use for local player sounds like own weapon fire.
@@ -53,6 +54,7 @@ pub fn entity_velocity(world: &PhysicsWorld, entity: Option<Entity>) -> Vec3 {
 /// The instance plays until the component or entity is removed. Velocity is sourced from the
 /// entity's RigidBodyHandleComponenet if present, otherwise zero.
 #[derive(Component)]
+/// Marker for a looping/persistent spatial sound source attached to an entity.
 pub struct SoundEmitter {
     pub event: &'static str,
 }

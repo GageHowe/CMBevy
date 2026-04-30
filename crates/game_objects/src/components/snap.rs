@@ -5,7 +5,7 @@ use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_
 use rapier3d::prelude::{RigidBody, RigidBodyHandle};
 use serde::{Deserialize, Serialize};
 
-use crate::pawn::{BipedPawnComponent, SeatedInVehicle};
+use crate::pawn::{BipedPawnComponent, Mounted};
 use super::{in_spherical_zone, in_ring_zone};
 
 #[derive(Serialize, Deserialize, Clone, Reflect, Default)]
@@ -63,7 +63,7 @@ fn orient_body_to_up(rb: &mut RigidBody, current_rot: Quat, desired_up: Vec3, dt
 
 pub fn orient_bipeds_to_snap_sources(
     mut world: ResMut<PhysicsWorld>,
-    mut bipeds: Query<(&RigidBodyHandleComponent, &mut BipedPawnComponent), Without<SeatedInVehicle>>,
+    mut bipeds: Query<(&RigidBodyHandleComponent, &mut BipedPawnComponent), Without<Mounted>>,
     sources: Query<(Entity, &SnapSource, &RigidBodyHandleComponent)>,
 ) {
     let dt = world.integration_parameters.dt;
@@ -104,7 +104,7 @@ pub fn orient_bipeds_to_snap_sources(
 
 pub fn orient_bipeds_to_snap_sources_impulses(
     world: &mut PhysicsWorld,
-    bipeds: &Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
+    bipeds: &Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<Mounted>)>,
     sources: &Query<(&SnapSource, &RigidBodyHandleComponent)>,
 ) {
     let dt = world.integration_parameters.dt;

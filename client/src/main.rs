@@ -13,7 +13,7 @@ use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
 use game_objects::{
-    pawn::{self, vehicle::draw_driver_seat_debug, *},
+    pawn::{self, mount::draw_mount_debug, *},
     projectile::{hail_mary::HailMaryProjectile, rifle::*, rpg::RpgProjectile, *},
 };
 use reconciliation::*;
@@ -148,7 +148,7 @@ fn main() {
     app.add_systems(Update, draw_gravity_radii.run_if(gameplay_overlay_on));
     app.add_systems(Update, draw_snap_radii.run_if(gameplay_overlay_on));
     app.add_systems(Update, draw_script_zone_debug.run_if(debug_render_on));
-    app.add_systems(Update, draw_driver_seat_debug.run_if(debug_render_on));
+    app.add_systems(Update, draw_mount_debug.run_if(debug_render_on));
     app.add_systems(
         Update,
         draw_server_state.run_if(debug_render_on).run_if(in_state(GameState::Multiplayer)),

@@ -2,9 +2,11 @@ use bevy::prelude::*;
 use physics::physics_world::{PhysicsWorld, step_physics};
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+/// Orders collision-impact collection after the Rapier step.
 pub struct CollisionImpactSet;
 
 #[derive(Clone, Copy)]
+/// One gameplay-facing collision observation derived from the Rapier contact graph.
 pub struct CollisionImpact {
     pub entity: Entity,
     pub other: Option<Entity>,
@@ -14,8 +16,10 @@ pub struct CollisionImpact {
 }
 
 #[derive(Resource, Default)]
+/// Per-tick collision impact buffer consumed by health, sound, and other gameplay systems.
 pub struct CollisionImpacts(pub Vec<CollisionImpact>);
 
+/// Registers the shared collision-impact collection pass.
 pub struct CollisionPlugin;
 impl Plugin for CollisionPlugin {
     fn build(&self, app: &mut App) {

@@ -18,6 +18,7 @@ pub mod mode;
 mod network_index;
 pub mod pawn;
 pub mod projectile;
+pub mod reticle;
 pub mod sound;
 mod spawn;
 #[cfg(feature = "client")]

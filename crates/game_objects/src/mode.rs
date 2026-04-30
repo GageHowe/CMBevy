@@ -7,6 +7,7 @@ use common::{LeaderboardScope, ScoringOption};
 use net::quic::ConnectionId;
 
 #[derive(Component, Clone, Copy, Reflect)]
+/// Team assignment marker replicated on team-based actors.
 pub struct Team(pub u8);
 
 /// Script-defined presentation and rules metadata for the active mode.
@@ -41,6 +42,7 @@ impl Default for ModeConfig {
 
 /// Per-connection number vectors owned by the authoritative match/session.
 #[derive(Resource, Default)]
+/// Script-owned per-player counters used for scoreboard/objective presentation.
 pub struct PlayerNumbers(pub HashMap<ConnectionId, Vec<i32>>);
 
 /// Per-team number vectors owned by the authoritative match/session.
@@ -57,6 +59,7 @@ pub enum MatchPhase {
 /// Minimal server-owned round state. Scripts decide when a game ends; Rust only tracks
 /// the current phase and applies restart requests authoritatively.
 #[derive(Resource)]
+/// Minimal authoritative round state mirrored into scripts and HUD replication.
 pub struct MatchState {
     pub phase: MatchPhase,
     pub phase_elapsed_secs: f32,

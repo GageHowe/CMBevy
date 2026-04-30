@@ -8,14 +8,22 @@ pub use common::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Type-erased spawn payload used for all replicated game objects.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
+    /// Network id the spawned object should own once it exists on the receiver.
     pub net_id: NetworkID,
+    /// Initial world-space translation.
     pub position: Vec3,
+    /// Initial world-space linear velocity of the spawned object itself.
     pub starting_velocity: Vec3,
+    /// Inherited platform/shooter velocity used by some projectile logic.
     pub shooter_velocity: Vec3,
+    /// Initial world-space rotation.
     pub rotation: Quat,
+    /// Authoritative server tick the spawn occurred on.
     pub server_tick: u64,
+    /// Concrete game object type to instantiate.
     pub kind: GameObjectKind,
 }
 
@@ -42,6 +50,7 @@ pub struct ScoreboardSnapshot {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+/// Transport-level message enum shared by client and server.
 pub enum MsgType {
     Connected,
     ClientReady,
@@ -51,22 +60,25 @@ pub enum MsgType {
     Ping(String),
     Pong(String),
     Input(u64, PawnInputKind),
+    /// map of NetworkID to rigidbody state
     State(SimulationState),
     SpawnCommand(SpawnCommand),
     DespawnCommand(NetworkID),
     Possess(NetworkID),
-    SeatState(NetworkID, Option<NetworkID>),
+    MountState(NetworkID, Option<NetworkID>),
     Interact(NetworkID),
     DropWeapon(Vec3),
     DropAbility(Vec3),
     SetActiveWeaponSlot(bool),
     WeaponPickup(NetworkID, NetworkID),
     WeaponDrop(NetworkID, NetworkID, Vec3),
-    BipedLook(NetworkID, f32, f32),
+    /// client-authoritative: "I am looking with this yaw and pitch"
+    PawnLook(NetworkID, f32, f32),
     ReloadWeapon(NetworkID),
     FireRequest { weapon: NetworkID, kind: GameObjectKind, temp_id: u32, origin: Vec3, dir: Vec3 },
     ProjectileConfirm { temp_id: u32, net_id: NetworkID },
     HitResult(Vec3, Vec3, Option<NetworkID>),
+    /// server -> client: "this entity has this health"
     HealthUpdate(NetworkID, f32),
     TimePing(u64),
     TimePong(u64),

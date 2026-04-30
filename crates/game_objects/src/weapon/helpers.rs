@@ -12,8 +12,9 @@ use crate::pawn::biped::BipedPawnComponent;
 use crate::{
     generic::attach_hull_collider,
     pawn::WeaponSlots,
+    reticle::AimReticle,
     sound::SoundQueue,
-    weapon::{AimReticle, FireCtx, WeaponComponent, WeaponState},
+    weapon::{FireCtx, WeaponComponent, WeaponState},
 };
 
 pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {

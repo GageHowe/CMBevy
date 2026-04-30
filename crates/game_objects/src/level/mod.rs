@@ -209,7 +209,18 @@ pub fn parent_body_handle(
 
 /// Pending convex-hull colliders for static level geometry, waiting for the mesh asset to load.
 #[derive(Resource, Default)]
-pub struct PendingHullColliders(pub Vec<(Entity, Vec3, Quat, Handle<ConvexHullAsset>, SceneRigidBody, Vec3, Vec3)>);
+pub struct PendingHullColliders(pub Vec<PendingHullCollider>);
+
+/// Deferred convex-hull collider attachment waiting for the asset loader to finish parsing OBJ data.
+pub struct PendingHullCollider {
+    pub entity: Entity,
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub hull: Handle<ConvexHullAsset>,
+    pub body_type: SceneRigidBody,
+    pub initial_velocity: Vec3,
+    pub initial_angvel: Vec3,
+}
 
 // ── network transfer helper ───────────────────────────────────────────────────
 
@@ -217,7 +228,9 @@ pub struct PendingHullColliders(pub Vec<(Entity, Vec3, Quat, Handle<ConvexHullAs
 /// Server-only; set in the level-load startup system.
 #[derive(Resource, Clone)]
 pub struct LevelBytes {
+    /// Content hash of the uncompressed scene bytes.
     pub hash: String,
+    /// Zstd-compressed scene bytes transferred over the network.
     pub compressed: Vec<u8>,
 }
 
@@ -424,6 +437,8 @@ fn assign_scene_network_ids(
     mut commands: Commands,
     mut net_ids: ResMut<net::message::NetworkIDResource>,
 ) {
+    // TODO: Replace this transform-order derived id assignment with explicit authored ids or a
+    // deterministic scene hashing scheme. Sorting by translation is a fragile hidden contract.
     let mut bodies: Vec<_> = query
         .iter()
         .filter(|(_, scene_body, _, _)| matches!(scene_body, SceneRigidBody::Dynamic))
@@ -565,7 +580,15 @@ pub fn spawn_static_colliders(
             let path = crate::asset_path::resolve_asset_path(path);
             let handle =
                 asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
-            pending.0.push((entity, pos, rot, handle, body_type, linvel, angvel));
+            pending.0.push(PendingHullCollider {
+                entity,
+                position: pos,
+                rotation: rot,
+                hull: handle,
+                body_type,
+                initial_velocity: linvel,
+                initial_angvel: angvel,
+            });
             continue;
         }
         let Some(collider) = sc.shape.build_primitive_collider(s) else {
@@ -589,11 +612,21 @@ pub fn spawn_hull_colliders(
     let ready: Vec<_> = pending
         .0
         .iter()
-        .filter_map(|(entity, pos, rot, h, body_type, linvel, angvel)| {
-            hull_assets.get(h).map(|a| (*entity, *pos, *rot, a.0.clone(), *body_type, *linvel, *angvel))
+        .filter_map(|pending| {
+            hull_assets.get(&pending.hull).map(|asset| {
+                (
+                    pending.entity,
+                    pending.position,
+                    pending.rotation,
+                    asset.0.clone(),
+                    pending.body_type,
+                    pending.initial_velocity,
+                    pending.initial_angvel,
+                )
+            })
         })
         .collect();
-    pending.0.retain(|(_, _, _, h, _, _, _)| hull_assets.get(h).is_none());
+    pending.0.retain(|pending| hull_assets.get(&pending.hull).is_none());
     for (entity, pos, rot, collider, body_type, linvel, angvel) in ready {
         let existing = world.entity_to_handle.get(&entity).copied();
         attach_collider_to_body(

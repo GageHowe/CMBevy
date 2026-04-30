@@ -8,7 +8,7 @@ use game_objects::{
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
-    pawn::{PawnInputParams, PendingRespawns, PlayerRegistry, SeatedInVehicle},
+    pawn::{Mounted, PawnInputParams, PendingRespawns, PlayerRegistry},
 };
 use net::{message::*, quic::*};
 use physics::physics_world::*;
@@ -406,27 +406,10 @@ fn reset_existing_player(
     spawn_rot: Quat,
     spawn_vel: Vec3,
 ) {
-    if let Some(seated_in) = world.get::<SeatedInVehicle>(character_entity).copied() {
-        let driver_seat = world
-            .get::<game_objects::pawn::vehicle::VehicleComponent>(seated_in.0)
-            .map(|vehicle| vehicle.driver_seat);
-        if let Some(driver_seat) = driver_seat {
-            world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
-                if let Some(seat_transform) = world.get::<Transform>(driver_seat).cloned()
-                    && let Some(mut seat) =
-                        world.get_mut::<game_objects::pawn::vehicle::DriverSeat>(driver_seat)
-                {
-                    let _ = game_objects::pawn::vehicle::exit_vehicle(
-                        &mut physics,
-                        seated_in.0,
-                        &mut seat,
-                        &seat_transform,
-                    );
-                }
-            });
-        }
-        world.entity_mut(character_entity).remove::<SeatedInVehicle>();
-        game_objects::pawn::broadcast_seat_state(
+    if let Some(mounted) = world.get::<Mounted>(character_entity).copied() {
+        let _ = game_objects::pawn::mount::handle_mount_parent_death(mounted.0, world);
+        world.entity_mut(character_entity).remove::<Mounted>();
+        game_objects::pawn::broadcast_mount_state(
             &mut world.resource_mut::<QuicManager>(),
             &character_net_id,
             None,

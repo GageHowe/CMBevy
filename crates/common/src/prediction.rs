@@ -4,19 +4,27 @@ use bevy::prelude::*;
 
 use crate::{NetworkID, PawnInputKind};
 
+/// A locally predicted impulse that must be replayed during rollback.
 #[derive(Clone)]
 pub struct PredictedImpulse {
+    /// Networked body that received the impulse.
     pub target: NetworkID,
+    /// World-space impulse applied to the target.
     pub impulse: Vec3,
+    /// Optional world-space contact point for point impulses.
     pub point: Option<Vec3>,
 }
 
+/// All locally predicted commands recorded for one input sequence.
 #[derive(Clone)]
 pub struct PredictedTick {
+    /// Input sent to the server for this tick.
     pub input: PawnInputKind,
+    /// Extra side effects predicted locally on top of the raw input.
     pub impulses: Vec<PredictedImpulse>,
 }
 
+/// Ring-buffer style history used by client reconciliation.
 #[derive(Resource, Default)]
 pub struct PredictedCommands {
     next_seq: u64,

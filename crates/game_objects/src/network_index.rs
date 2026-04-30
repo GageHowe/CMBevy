@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use physics::physics_world::{RigidBodyHandle, RigidBodyHandleComponent};
 
 #[derive(Resource, Default)]
+/// Bidirectional lookup table between replicated ids, ECS entities, and physics bodies.
 pub struct NetworkEntityMap {
     netid_to_entity: HashMap<net::message::NetworkID, Entity>,
     entity_to_netid: HashMap<Entity, net::message::NetworkID>,

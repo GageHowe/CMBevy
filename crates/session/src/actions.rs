@@ -38,8 +38,9 @@ pub(super) fn handle_interact(
     pawn_slots: &mut Query<&mut WeaponSlots>,
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
+    rocket_turrets: &Query<&game_objects::pawn::RocketTurretPawnComponent>,
     interactables: &Query<&game_objects::interaction::Interactable>,
-    driver_seats: &mut Query<(&mut DriverSeat, &Transform)>,
+    mounts: &mut Query<(&mut game_objects::pawn::CharacterMount, &Transform)>,
     commands: &mut Commands,
     on_pickup_q: &Query<&OnPickup>,
 ) {
@@ -73,9 +74,46 @@ pub(super) fn handle_interact(
             world,
             net_ids,
             vehicles,
-            driver_seats,
+            mounts,
             commands,
         );
+        return;
+    }
+
+    if rocket_turrets.contains(target) {
+        let Ok((mut mount, anchor_transform)) = mounts.get_mut(target) else {
+            return;
+        };
+        if mount.occupant.is_some() && controlled == target {
+            let Some(biped_entity) =
+                game_objects::pawn::mount::unmount_character(world, target, &mut mount, anchor_transform)
+            else {
+                return;
+            };
+            let Ok(biped_net_id) = net_ids.get(biped_entity) else {
+                return;
+            };
+            commands.entity(biped_entity).remove::<game_objects::pawn::Mounted>();
+            game_objects::pawn::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
+            game_objects::pawn::broadcast_mount_state(quic, biped_net_id, None);
+            return;
+        }
+        if mount.occupant.is_some()
+            || !game_objects::pawn::mount::mount_in_range(
+                world,
+                character,
+                target,
+                &mount,
+                anchor_transform,
+            )
+        {
+            return;
+        }
+        if game_objects::pawn::mount::mount_character(world, character, target, &mut mount, anchor_transform) {
+            commands.entity(character).insert(game_objects::pawn::Mounted(target));
+            game_objects::pawn::possess_pawn(conn_id, target, &target_net_id, registry, quic);
+            game_objects::pawn::broadcast_mount_state(quic, &character_net_id, Some(&target_net_id));
+        }
         return;
     }
 

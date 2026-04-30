@@ -44,7 +44,7 @@ struct WorldGcState<'w, 's> {
     >,
     gc_count: Query<'w, 's, &'static RigidBodyHandleComponent, With<WorldObjectGc>>,
     vehicles: Query<'w, 's, &'static crate::pawn::VehicleComponent>,
-    driver_seats: Query<'w, 's, &'static crate::pawn::vehicle::DriverSeat>,
+    mounts: Query<'w, 's, &'static crate::pawn::CharacterMount>,
     spawners: Query<'w, 's, &'static mut crate::level::SpawnerRuntime>,
 }
 
@@ -67,8 +67,8 @@ impl WorldGcState<'_, '_> {
         self.vehicles
             .get(entity)
             .ok()
-            .and_then(|vehicle| self.driver_seats.get(vehicle.driver_seat).ok())
-            .is_some_and(|seat| seat.occupant.is_some())
+            .and_then(|_| self.mounts.get(entity).ok())
+            .is_some_and(|mount| mount.occupant.is_some())
     }
 
     fn notify_spawner_despawn(&mut self, spawner_gc: Option<&SpawnerGc>, entity: Entity) {

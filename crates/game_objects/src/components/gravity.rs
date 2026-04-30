@@ -3,7 +3,7 @@ use physics::physics_world::{self, PhysicsWorld, RigidBodyHandleComponent, rb_po
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::pawn::SeatedInVehicle;
+use crate::pawn::Mounted;
 use super::{in_spherical_zone, in_ring_zone};
 
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
@@ -48,7 +48,7 @@ pub fn apply_gravity_impulses(
     world: &mut PhysicsWorld,
     sources: &Query<(&GravitySource, &RigidBodyHandleComponent)>,
     gravity_scales: &Query<&physics_world::GravityScale>,
-    seated: &Query<&SeatedInVehicle>,
+    seated: &Query<&Mounted>,
 ) {
     let dt = world.integration_parameters.dt;
 
@@ -168,7 +168,7 @@ pub fn apply_gravity(
     mut world: ResMut<PhysicsWorld>,
     sources: Query<(&GravitySource, &RigidBodyHandleComponent)>,
     gravity_scales: Query<&physics_world::GravityScale>,
-    seated: Query<&SeatedInVehicle>,
+    seated: Query<&Mounted>,
 ) {
     apply_gravity_impulses(&mut world, &sources, &gravity_scales, &seated);
 }

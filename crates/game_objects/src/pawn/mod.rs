@@ -1,6 +1,8 @@
 // pub mod kinds;
 pub mod biped;
 pub mod biped_ability;
+pub mod mount;
+pub mod rocket_turret;
 pub mod spaceship;
 pub mod truck;
 pub mod vehicle;
@@ -140,17 +142,18 @@ pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::PredictedCommands;
-pub use common::{BipedInput, PawnInputKind, SpaceshipInput, TruckInput};
-#[cfg(feature = "client")]
+pub use common::{BipedInput, PawnInputKind, RocketTurretInput, SpaceshipInput, TruckInput};
 use net::message::MsgType;
+use net::message::NetworkID;
 use net::{
-    message::NetworkID,
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
 pub use spaceship::SpaceshipPawnComponent;
 pub use truck::TruckPawnComponent;
-pub use vehicle::{SeatedInVehicle, VehicleComponent};
+pub use mount::{CharacterMount, Mounted};
+pub use rocket_turret::RocketTurretPawnComponent;
+pub use vehicle::VehicleComponent;
 pub use weapon_slots::WeaponSlots;
 
 use crate::GameObject;
@@ -163,6 +166,7 @@ use crate::GameObject;
 /// `character_by_conn` is the player's persistent biped character.
 /// Interactions, inventory, respawns, and other character-owned state should use this.
 #[derive(Resource, Default)]
+/// Maps connection ids to both their persistent character and their currently controlled pawn.
 pub struct PlayerRegistry {
     controlled_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
     character_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
@@ -231,6 +235,12 @@ impl PlayerRegistry {
         self.controlled_by_conn.iter()
     }
 
+    pub fn character_entries(
+        &self,
+    ) -> impl Iterator<Item = (&ConnectionId, &(Entity, NetworkID))> + '_ {
+        self.character_by_conn.iter()
+    }
+
     pub fn character_entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.character_by_conn.values().map(|(entity, _)| *entity)
     }
@@ -252,17 +262,73 @@ pub fn possess_pawn(
     );
 }
 
-/// Broadcasts whether a character is seated in a vehicle.
-pub fn broadcast_seat_state(
+/// Broadcasts whether a character is mounted to a controllable parent.
+pub fn broadcast_mount_state(
     quic: &mut QuicManager,
     biped_net_id: &NetworkID,
-    vehicle_net_id: Option<&NetworkID>,
+    parent_net_id: Option<&NetworkID>,
 ) {
     quic.send(
         SendTarget::All,
         Channel::Ordered,
-        &net::message::MsgType::SeatState(biped_net_id.clone(), vehicle_net_id.cloned()),
+        &net::message::MsgType::MountState(biped_net_id.clone(), parent_net_id.cloned()),
     );
+}
+
+/// Broadcasts all dirty replicated look state owned by free-look pawns.
+pub fn broadcast_dirty_look_updates(
+    quic: &mut QuicManager,
+    biped_looks: &mut Query<(&NetworkID, &mut biped::BipedPawnComponent)>,
+    rocket_turret_looks: &mut Query<(&NetworkID, &mut rocket_turret::RocketTurretPawnComponent)>,
+) {
+    for (net_id, mut biped) in biped_looks.iter_mut() {
+        if !biped.look_sync_dirty {
+            continue;
+        }
+        biped.look_sync_dirty = false;
+        quic.send(
+            SendTarget::All,
+            Channel::Unreliable,
+            &MsgType::PawnLook(net_id.clone(), biped.look_yaw, biped.look_pitch),
+        );
+    }
+    for (net_id, mut turret) in rocket_turret_looks.iter_mut() {
+        if !turret.look_sync_dirty {
+            continue;
+        }
+        turret.look_sync_dirty = false;
+        quic.send(
+            SendTarget::All,
+            Channel::Unreliable,
+            &MsgType::PawnLook(net_id.clone(), turret.yaw, turret.pitch),
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+/// Applies a replicated look update to a remote pawn.
+pub fn apply_remote_pawn_look(
+    net_id: &NetworkID,
+    yaw: f32,
+    pitch: f32,
+    local_net_id: Option<&NetworkID>,
+    networked: &crate::NetworkEntityMap,
+    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
+    rocket_turrets: &mut Query<&mut rocket_turret::RocketTurretPawnComponent>,
+) {
+    if local_net_id == Some(net_id) {
+        return;
+    }
+    let Some(entity) = networked.get(net_id) else {
+        return;
+    };
+    if let Ok(mut biped) = bipeds.get_mut(entity) {
+        biped.look_yaw = yaw;
+        biped.look_pitch = pitch;
+    } else if let Ok(mut turret) = rocket_turrets.get_mut(entity) {
+        turret.yaw = yaw;
+        turret.pitch = pitch;
+    }
 }
 
 #[cfg(feature = "client")]
@@ -293,11 +359,14 @@ pub fn detach_local_camera(world: &mut World) {
 
 /// Pending respawns: conn_id -> (seconds_remaining, kind).
 #[derive(Resource, Default)]
+/// Respawn timers keyed by connection id.
 pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, GameObjectKind, crate::Team)>);
 
 #[derive(Resource, Default)]
+/// Reverse lookup from held weapon ids to the entity currently carrying them.
 pub struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
 
+/// Top-level plugin that registers all pawn submodules and shared pawn systems.
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
@@ -309,6 +378,8 @@ impl Plugin for PawnPlugin {
         );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
+        app.add_plugins(mount::MountPlugin);
+        app.add_plugins(rocket_turret::RocketTurretPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(truck::TruckPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
@@ -316,6 +387,7 @@ impl Plugin for PawnPlugin {
 }
 
 #[derive(Resource, Clone, Copy)]
+/// Enables compensation that preserves aim direction when a possessed biped body rotates abruptly.
 pub struct LookSnapCompensation(pub bool);
 impl Default for LookSnapCompensation {
     fn default() -> Self {
@@ -325,6 +397,7 @@ impl Default for LookSnapCompensation {
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
+/// Small debounce gate for client interaction input.
 pub struct InteractionGate {
     pressed: bool,
     next_tick: u64,
@@ -350,9 +423,10 @@ impl InteractionGate {
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
+/// UI-facing interaction prompt text for the locally controlled player.
 pub struct InteractionHint(pub Option<String>);
 
-/// all pawns implement this; defines input and movement
+/// Common interface implemented by all possessable controllable objects.
 pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
     fn apply_input(
         &mut self,
@@ -363,10 +437,12 @@ pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObje
 }
 
 #[derive(SystemParam)]
+/// Server-side helper that dispatches serialized pawn inputs to the right pawn component type.
 pub struct PawnInputParams<'w, 's> {
     bipeds: Query<'w, 's, &'static mut biped::BipedPawnComponent>,
     spaceships: Query<'w, 's, &'static mut spaceship::SpaceshipPawnComponent>,
     trucks: Query<'w, 's, &'static mut truck::TruckPawnComponent>,
+    rocket_turrets: Query<'w, 's, &'static mut rocket_turret::RocketTurretPawnComponent>,
 }
 
 impl<'w, 's> PawnInputParams<'w, 's> {
@@ -417,6 +493,13 @@ impl<'w, 's> PawnInputParams<'w, 's> {
                 );
                 (true, None)
             }
+            PawnInputKind::RocketTurret(input) => {
+                let Ok(mut turret) = self.rocket_turrets.get_mut(entity) else {
+                    return (false, None);
+                };
+                rocket_turret::apply_rocket_turret_input(&mut turret, input);
+                (true, None)
+            }
         }
     }
 }
@@ -439,6 +522,7 @@ pub fn aim_dir(world: &PhysicsWorld, entity: Entity, input: Option<&PawnInputKin
 
 /// runtime mouse sensitivity, set from the Settings resource by SettingsPlugin. Only needed by client.
 #[derive(Resource)]
+/// Runtime mouse/input sensitivity values applied by client control systems.
 pub struct MouseSensitivity {
     pub base: f32,
     pub zoom_blend: f32,
@@ -501,6 +585,7 @@ impl Default for MouseSensitivity {
 /// - Server: not used (server applies inputs directly from network messages)
 #[derive(Component)]
 #[component(storage = "SparseSet")]
+/// Marker for the single locally controlled pawn and its latest buffered input.
 pub struct Possessed {
     pending_input: Option<PawnInputKind>,
 }
@@ -524,6 +609,7 @@ impl Possessed {
 
 /// System set covering all gather-input systems. Reconciliation runs before this.
 #[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+/// System set covering local input gathering for pawns.
 pub struct GatherInputSet;
 
 /// System set covering all `move_pawns` systems. Use for ordering against pawn movement.

@@ -20,6 +20,7 @@ pub mod pistol;
 pub mod rifle;
 pub mod rpg;
 
+/// Type-erased authoritative projectile spawn function used by weapon configs.
 pub type FireProjectileFn = fn(
     Vec3,
     Vec3,
@@ -52,11 +53,17 @@ impl Plugin for WeaponPlugin {
 pub struct WeaponComponent;
 
 #[derive(Component, Clone)]
+/// Static weapon tuning shared by client prediction and server authority.
 pub struct WeaponConfig {
+    /// Magazine capacity used by reload and depletion logic.
     pub magazine_size: u16,
+    /// Reload duration in fixed ticks.
     pub reload_ticks: u16,
+    /// Time between shots in fixed ticks.
     pub fire_cooldown_ticks: u16,
+    /// Projectile type this weapon is expected to spawn.
     pub projectile_kind: net::message::GameObjectKind,
+    /// Type-erased authoritative projectile spawn hook.
     pub fire_projectile: FireProjectileFn,
 }
 
@@ -69,6 +76,7 @@ pub struct WeaponDriver {
 
 #[cfg(feature = "client")]
 #[derive(Clone, Copy)]
+/// Per-tick fire request forwarded from a possessed pawn to its active weapon.
 pub struct WeaponFireInput {
     pub weapon: Entity,
     pub want_fire: bool,
@@ -80,19 +88,17 @@ pub struct WeaponFireInput {
     pub tick: u64,
 }
 
+/// Result of firing a held weapon, including both weapon-state mutation and projectile spawn data.
 pub struct FiredHeldWeapon {
     pub weapon_net_id: NetworkID,
     pub weapon_state: WeaponState,
     pub fired: FiredProjectile,
 }
 
-/// UI reads this from the active controllable object so reticle selection stays gameplay-owned.
-#[derive(Component, Clone, Copy)]
-pub struct AimReticle(pub &'static str, pub Option<f32>);
-
 /// All context a weapon's fixed_update may need: input buttons and output channels.
 /// Fields are optional so weapons compile and behave correctly on the server (no sound/camera).
 pub struct FireCtx<'a> {
+    /// Weapon entity currently executing its fire/update logic.
     pub weapon: Entity,
     pub want_fire: bool,
     pub want_alt_fire: bool,
@@ -115,7 +121,9 @@ pub struct FireCtx<'a> {
     pub id_counter: Option<&'a mut u32>,
     /// Local predicted command history so weapons can replay non-input impulses during reconciliation.
     pub predicted: Option<&'a mut common::PredictedCommands>,
+    /// Mutable authoritative/predicted state for this weapon instance.
     pub weapon_state: &'a mut WeaponState,
+    /// Static weapon config copied in so fire code can use it without extra queries.
     pub weapon_config: WeaponConfig,
 }
 
@@ -270,10 +278,6 @@ pub fn fire_held_weapon(
         weapon_state: weapon_state_after_fire,
         fired,
     })
-}
-
-pub fn default_crosshair_path() -> &'static str {
-    "textures/crosshairs/crosshair001.png"
 }
 
 pub fn apply_zoom<W: Weapon>(ctx: &mut FireCtx) -> f32 {

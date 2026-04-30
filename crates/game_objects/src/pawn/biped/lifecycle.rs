@@ -195,6 +195,7 @@ fn spawn_visuals(entity: Entity, world: &mut World) {
         .id();
     world.entity_mut(yaw_pivot).add_child(pitch_pivot);
     world.entity_mut(entity).add_child(yaw_pivot);
+    world.entity_mut(entity).insert(crate::reticle::AimOrigin(pitch_pivot));
     if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
         biped.yaw_pivot = Some(yaw_pivot);
         biped.pitch_pivot = Some(pitch_pivot);

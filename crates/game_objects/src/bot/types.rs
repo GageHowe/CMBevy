@@ -4,6 +4,7 @@ use physics::physics_world::{PhysicsWorld, rb_pos, rb_rot, rb_vel};
 
 use crate::{Team, health::Health};
 
+/// Snapshot of one actor used as input to a bot brain for a single think step.
 pub struct BotContext {
     pub entity: Entity,
     pub team: Team,
@@ -28,6 +29,7 @@ impl Clone for BotContext {
     }
 }
 
+/// Decision output emitted by a bot brain for the current think step.
 pub struct BotOutput {
     pub input: PawnInputKind,
     pub fire: bool,
@@ -36,14 +38,17 @@ pub struct BotOutput {
     pub aim_dir: Vec3,
 }
 
+/// Behaviour interface implemented by server-side bot brains.
 pub trait BotBrain: Send + Sync + 'static {
     fn think(&mut self, ctx: &BotContext) -> BotOutput;
 }
 
 #[derive(Component)]
+/// Runtime bot controller component attached to a pawn entity.
 pub struct BotController {
     pub team: Team,
     pub brain: Box<dyn BotBrain>,
+    /// Temporary projectile id counter for locally generated authoritative bot shots.
     pub temp_id: u32,
 }
 

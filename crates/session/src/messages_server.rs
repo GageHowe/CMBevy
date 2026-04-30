@@ -105,8 +105,9 @@ fn process_server_message(
                 &mut sp.pawn_slots,
                 &sp.net_ids,
                 &sp.vehicles,
+                &sp.rocket_turrets,
                 &sp.interactables,
-                &mut sp.driver_seats,
+                &mut sp.mounts,
                 &mut sp.commands,
                 &sp.on_pickup_q,
             );

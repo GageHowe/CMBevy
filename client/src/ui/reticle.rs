@@ -1,11 +1,8 @@
 use bevy::prelude::*;
 use game_objects::{
     health::Health,
-    pawn::{
-        Possessed, VehicleComponent, WeaponSlots,
-        biped::{BipedPawnComponent, PitchPivot},
-    },
-    weapon::{AimReticle, default_crosshair_path},
+    pawn::{Possessed, WeaponSlots},
+    reticle::{AimOrigin, AimReticle, default_crosshair_path},
 };
 use physics::physics_world::{PhysicsWorld, rb_vel};
 
@@ -35,8 +32,8 @@ pub fn spawn_prediction_reticle(mut commands: Commands, asset_server: Res<AssetS
 }
 
 pub fn update_prediction_reticle(
-    pawn: Query<(Entity, &WeaponSlots, &BipedPawnComponent), With<Possessed>>,
-    pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
+    pawn: Query<(Entity, Option<&AimReticle>, Option<&AimOrigin>, Option<&WeaponSlots>), With<Possessed>>,
+    transforms: Query<&GlobalTransform>,
     weapons: Query<&AimReticle>,
     targets: Query<(Entity, &GlobalTransform, &Health), Without<Possessed>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
@@ -47,11 +44,10 @@ pub fn update_prediction_reticle(
         return;
     };
     let show = (|| -> Option<Vec2> {
-        let (pawn_entity, slots, biped) = pawn.single().ok()?;
-        let weapon_entity = slots.active().1?;
-        let projectile_speed = weapons.get(weapon_entity).ok()?.1?;
-        let pitch_pivot = biped.pitch_pivot?;
-        let origin = pitch_pivots.get(pitch_pivot).ok()?.translation();
+        let (pawn_entity, possessed_reticle, aim_origin, slots) = pawn.single().ok()?;
+        let projectile_speed = reticle_for_possessed(possessed_reticle, slots, &weapons)?.1?;
+        let origin_entity = aim_origin.map_or(pawn_entity, |aim_origin| aim_origin.0);
+        let origin = transforms.get(origin_entity).ok()?.translation();
         let (camera, camera_gt) = camera.single().ok()?;
         let viewport_size = camera.logical_viewport_size()?;
         let viewport_center = viewport_size * 0.5;
@@ -149,22 +145,17 @@ fn solve_intercept_time(
 }
 
 pub fn update_reticle(
-    biped: Query<&WeaponSlots, With<Possessed>>,
-    vehicle: Query<&AimReticle, (With<Possessed>, With<VehicleComponent>)>,
+    possessed: Query<(Option<&AimReticle>, Option<&WeaponSlots>), With<Possessed>>,
     reticles: Query<&AimReticle>,
     mut crosshair: Query<&mut ImageNode, With<Crosshair>>,
     asset_server: Res<AssetServer>,
     mut current: Local<Option<&'static str>>,
 ) {
-    let path = vehicle
+    let path = possessed
         .single()
         .ok()
+        .and_then(|(possessed_reticle, slots)| reticle_for_possessed(possessed_reticle, slots, &reticles))
         .map(|reticle| reticle.0)
-        .or_else(|| {
-            let slots = biped.single().ok()?;
-            let weapon_entity = slots.active().1?;
-            reticles.get(weapon_entity).ok().map(|reticle| reticle.0)
-        })
         .unwrap_or(default_crosshair_path());
     if *current == Some(path) {
         return;
@@ -189,4 +180,15 @@ pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
     ));
+}
+
+fn reticle_for_possessed<'a>(
+    possessed_reticle: Option<&'a AimReticle>,
+    slots: Option<&WeaponSlots>,
+    reticles: &'a Query<&AimReticle>,
+) -> Option<&'a AimReticle> {
+    possessed_reticle.or_else(|| {
+        let weapon_entity = slots?.active().1?;
+        reticles.get(weapon_entity).ok()
+    })
 }

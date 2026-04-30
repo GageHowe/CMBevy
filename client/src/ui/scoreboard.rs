@@ -1,14 +1,13 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use common::{LeaderboardScope, ScoringOption};
-use game_objects::pawn::Possessed;
-use net::message::{NetworkID, ScoreboardEntry};
-use session::GuiState;
+use net::message::ScoreboardEntry;
+use session::{GuiState, LocalCharacterNetId};
 
 pub fn gui_scoreboard(
     mut contexts: EguiContexts,
     gui: Res<GuiState>,
-    possessed: Query<&NetworkID, With<Possessed>>,
+    local_character: Res<LocalCharacterNetId>,
 ) {
     let Some(snapshot) = gui.scoreboard.as_ref() else {
         return;
@@ -16,7 +15,7 @@ pub fn gui_scoreboard(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let local_net_id = possessed.single().ok().cloned();
+    let local_net_id = local_character.0.as_ref();
     egui::Window::new("scoreboard")
         .title_bar(false)
         .movable(false)
@@ -38,10 +37,8 @@ pub fn gui_scoreboard(
                 LeaderboardScope::Team => &snapshot.teams,
             };
             for entry in sorted_rows(rows) {
-                let is_local = local_net_id.as_ref().is_some_and(|net_id| {
-                    snapshot.leaderboard_scope == LeaderboardScope::Player
-                        && entry.net_id == *net_id
-                });
+                let is_local = snapshot.leaderboard_scope == LeaderboardScope::Player
+                    && local_net_id.is_some_and(|net_id| entry.net_id == *net_id);
                 let text = format!("{}  {}", entry.label, entry.value);
                 if is_local {
                     ui.colored_label(egui::Color32::from_rgb(255, 220, 120), text);

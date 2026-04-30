@@ -12,7 +12,7 @@ use game_objects::{
         gravity::{GravitySource, apply_gravity_impulses},
         snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
-    pawn::{GatherInputSet, Pawn, Possessed, SeatedInVehicle, biped::BipedPawnComponent},
+    pawn::{GatherInputSet, Mounted, Pawn, Possessed, biped::BipedPawnComponent},
 };
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
@@ -179,8 +179,8 @@ fn maybe_reconcile(
     _net_stats: Res<NetworkStats>,
     networked: Res<NetworkEntityMap>,
     possessed: Query<&NetworkID, With<Possessed>>,
-    bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<SeatedInVehicle>)>,
-    seated: Query<&SeatedInVehicle>,
+    bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<Mounted>)>,
+    seated: Query<&Mounted>,
     env: ReplayPhysicsEnv,
     predicted: Res<PredictedCommands>,
     history: Res<ReplayStateHistory>,
