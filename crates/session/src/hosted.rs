@@ -56,6 +56,8 @@ pub fn fetch_remote_lobbies() -> Result<Vec<http_common::LobbyInfo>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Starts a hosted dedicated server locally by clearing the requested UDP port,
+/// launching the server in a detached terminal, and waiting for it to bind.
 pub fn start_hosted_server(
     _hosted: &mut HostedServer,
     port: u16,
@@ -66,14 +68,14 @@ pub fn start_hosted_server(
     let preflight = match std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
         Ok(sock) => sock,
         Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
-            free_local_port(port);
+            kill_local_port_owners(port);
             std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port))?
         }
         Err(err) => return Err(err),
     };
     drop(preflight);
     spawn_gameserver_terminal(port, map, gametype, advertise)?;
-    wait_for_gameserver_bind(port)
+    wait_for_port_bind(port)
 }
 
 pub fn cleanup_before_app_exit(
@@ -183,7 +185,7 @@ fn spawn_gameserver_terminal(
     spawn_detached_terminal(&exe, &args)
 }
 
-fn wait_for_gameserver_bind(port: u16) -> std::io::Result<()> {
+fn wait_for_port_bind(port: u16) -> std::io::Result<()> {
     use std::time::{Duration, Instant};
 
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -203,7 +205,7 @@ fn wait_for_gameserver_bind(port: u16) -> std::io::Result<()> {
     ))
 }
 
-fn free_local_port(port: u16) {
+fn kill_local_port_owners(port: u16) {
     for pid in local_port_pids(port) {
         kill_pid(pid);
     }
@@ -269,6 +271,8 @@ fn kill_pid(pid: u32) {
 fn kill_pid(_pid: u32) {}
 
 #[cfg(target_os = "linux")]
+// Linux needs an actual terminal launcher here. `xdg-open` follows file associations and may
+// open editors instead of terminals, so use `xdg-terminal-exec` for the default terminal path.
 fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
     let cwd = workspace_root().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     std::process::Command::new("xdg-terminal-exec")
