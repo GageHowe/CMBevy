@@ -1,6 +1,3 @@
-#[cfg(target_os = "linux")]
-use std::os::unix::process::CommandExt;
-
 use bevy::{app::AppExit, prelude::*};
 use net::quic::QuicManager;
 
@@ -60,19 +57,23 @@ pub fn fetch_remote_lobbies() -> Result<Vec<http_common::LobbyInfo>, String> {
 }
 
 pub fn start_hosted_server(
-    hosted: &mut HostedServer,
+    _hosted: &mut HostedServer,
     port: u16,
     map: &str,
     gametype: &str,
     advertise: Option<http_common::RegisterRequest>,
 ) -> std::io::Result<()> {
-    let mut child = spawn_gameserver(port, map, gametype)?;
-    hosted.stdin = child.stdin.take().map(std::io::BufWriter::new);
-    hosted.child = Some(child);
-    if let Some(req) = advertise {
-        beacon_register(req, std::sync::Arc::clone(&hosted.beacon_id));
-    }
-    Ok(())
+    let preflight = match std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
+        Ok(sock) => sock,
+        Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
+            free_local_port(port);
+            std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port))?
+        }
+        Err(err) => return Err(err),
+    };
+    drop(preflight);
+    spawn_gameserver_terminal(port, map, gametype, advertise)?;
+    wait_for_gameserver_bind(port)
 }
 
 pub fn cleanup_before_app_exit(
@@ -99,7 +100,7 @@ pub fn exit_after_returning_to_menu(
 pub fn shutdown_session(
     quic: Option<&mut QuicManager>,
     pending: Option<&mut PendingReconciliation>,
-    hosted: &mut HostedServer,
+    _hosted: &mut HostedServer,
 ) {
     if let Some(quic) = quic {
         quic.disconnect();
@@ -108,31 +109,6 @@ pub fn shutdown_session(
     if let Some(pending) = pending {
         pending.0 = None;
     }
-    hosted.stdin = None;
-    if let Some(mut child) = hosted.child.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    if let Some(id) = hosted.beacon_id.lock().unwrap().take() {
-        std::thread::spawn(move || {
-            let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL)).call();
-        });
-    }
-}
-
-fn beacon_register(
-    req: http_common::RegisterRequest,
-    id_slot: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-) {
-    std::thread::spawn(move || {
-        if let Ok(resp) =
-            ureq::post(&format!("{}/lobbies/register", common::config::BEACON_URL)).send_json(&req)
-        {
-            if let Ok(r) = resp.into_json::<http_common::RegisterResponse>() {
-                *id_slot.lock().unwrap() = Some(r.id);
-            }
-        }
-    });
 }
 
 fn scan_dir(dir: impl AsRef<std::path::Path>, ext: &str) -> Vec<String> {
@@ -149,45 +125,209 @@ fn scan_dir(dir: impl AsRef<std::path::Path>, ext: &str) -> Vec<String> {
 }
 
 fn gameserver_exe() -> std::path::PathBuf {
-    let exe = std::env::current_exe().unwrap_or_default();
-    let dir = exe.parent().unwrap_or(std::path::Path::new("."));
-    dir.join(if cfg!(windows) { "gameserver.exe" } else { "gameserver" })
+    let bin = if cfg!(windows) { "gameserver.exe" } else { "gameserver" };
+    let mut candidates = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join(bin));
+        if dir.file_name().is_some_and(|name| name == "deps")
+            && let Some(parent) = dir.parent()
+        {
+            candidates.push(parent.join(bin));
+        }
+    }
+
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    if let Some(workspace_root) = manifest_dir.parent().and_then(|dir| dir.parent()) {
+        let profile = option_env!("PROFILE")
+            .unwrap_or(if cfg!(debug_assertions) { "debug" } else { "release" });
+        candidates.push(workspace_root.join("target").join(profile).join(bin));
+        candidates.push(workspace_root.join("target").join("debug").join(bin));
+        candidates.push(workspace_root.join("target").join("release").join(bin));
+        candidates.push(workspace_root.join("target").join("profiling").join(bin));
+    }
+
+    candidates.into_iter().find(|path| path.is_file()).unwrap_or_else(|| {
+        std::path::PathBuf::from(if cfg!(windows) { "gameserver.exe" } else { "gameserver" })
+    })
 }
 
-fn spawn_gameserver(port: u16, map: &str, gametype: &str) -> std::io::Result<std::process::Child> {
-    let port = port.to_string();
-    let mut command = std::process::Command::new(gameserver_exe());
-    command
-        .args(["--port", &port, "--map", map, "--gametype", gametype])
-        .stdin(std::process::Stdio::piped());
-    #[cfg(target_os = "linux")]
-    unsafe {
-        command.pre_exec(|| linux::set_parent_death_signal());
-    }
-    command.spawn()
+fn workspace_root() -> Option<std::path::PathBuf> {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir.parent().and_then(|dir| dir.parent()).map(std::path::Path::to_path_buf)
 }
+
+fn spawn_gameserver_terminal(
+    port: u16,
+    map: &str,
+    gametype: &str,
+    advertise: Option<http_common::RegisterRequest>,
+) -> std::io::Result<()> {
+    let exe = gameserver_exe();
+    let mut args = vec![
+        "--port".to_string(),
+        port.to_string(),
+        "--map".to_string(),
+        map.to_string(),
+        "--gametype".to_string(),
+        gametype.to_string(),
+    ];
+    if let Some(req) = advertise {
+        args.push("--advertise-name".to_string());
+        args.push(req.name);
+        args.push("--advertise-max-players".to_string());
+        args.push(req.max_players.to_string());
+    }
+    spawn_detached_terminal(&exe, &args)
+}
+
+fn wait_for_gameserver_bind(port: u16) -> std::io::Result<()> {
+    use std::time::{Duration, Instant};
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
+            Ok(sock) => {
+                drop(sock);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => return Ok(()),
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "gameserver did not bind its port",
+    ))
+}
+
+fn free_local_port(port: u16) {
+    for pid in local_port_pids(port) {
+        kill_pid(pid);
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn local_port_pids(port: u16) -> Vec<u32> {
+    let Ok(output) = std::process::Command::new("lsof")
+        .args(["-t", &format!("-iUDP:{port}")])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn local_port_pids(port: u16) -> Vec<u32> {
+    let Ok(output) = std::process::Command::new("netstat").args(["-ano", "-p", "udp"]).output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let cols: Vec<_> = line.split_whitespace().collect();
+            if cols.len() < 4 {
+                return None;
+            }
+            let local = cols[1];
+            let pid = cols[3];
+            local.rsplit(':')
+                .next()
+                .filter(|p| *p == port.to_string())
+                .and_then(|_| pid.parse::<u32>().ok())
+        })
+        .collect()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn local_port_pids(_port: u16) -> Vec<u32> {
+    Vec::new()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn kill_pid(pid: u32) {
+    let _ = std::process::Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let _ = std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+}
+
+#[cfg(target_os = "windows")]
+fn kill_pid(pid: u32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status();
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn kill_pid(_pid: u32) {}
 
 #[cfg(target_os = "linux")]
-mod linux {
-    use std::io;
-
-    const PR_SET_PDEATHSIG: i32 = 1;
-    const SIGTERM: i32 = 15;
-
-    unsafe extern "C" {
-        fn prctl(option: i32, arg2: i32, arg3: usize, arg4: usize, arg5: usize) -> i32;
-        fn getppid() -> i32;
-    }
-
-    pub(super) fn set_parent_death_signal() -> io::Result<()> {
-        unsafe {
-            if prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0) != 0 {
-                return Err(io::Error::last_os_error());
+fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
+    let cwd = workspace_root().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    std::process::Command::new("xdg-terminal-exec")
+        .current_dir(cwd)
+        .arg(exe)
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "xdg-terminal-exec not found; install it to launch the system default terminal",
+                )
+            } else {
+                err
             }
-            if getppid() == 1 {
-                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
-            }
-        }
-        Ok(())
-    }
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
+    let mut command = std::process::Command::new("cmd");
+    command.arg("/C").arg("start").arg("Hosted Server").arg(exe);
+    command.args(args);
+    command.spawn().map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
+    let script = format!(
+        "tell application \"Terminal\" to do script {}",
+        apple_script_string(&shell_command_line(exe, args))
+    );
+    std::process::Command::new("osascript").arg("-e").arg(script).spawn().map(|_| ())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+fn spawn_detached_terminal(_exe: &std::path::Path, _args: &[String]) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "hosted server terminal launch is unsupported on this platform",
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn shell_command_line(exe: &std::path::Path, args: &[String]) -> String {
+    let mut parts = Vec::with_capacity(args.len() + 1);
+    parts.push(shell_quote(&exe.to_string_lossy()));
+    parts.extend(args.iter().map(|arg| shell_quote(arg)));
+    parts.join(" ")
+}
+
+#[cfg(target_os = "macos")]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(target_os = "macos")]
+fn apple_script_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }

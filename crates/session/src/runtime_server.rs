@@ -3,6 +3,7 @@ use bevy::{
     prelude::*,
 };
 use common::{LeaderboardScope, ScoringOption};
+use http_common::{RegisterRequest, RegisterResponse};
 use game_objects::{
     SpawnGameObjectCommand,
     health::Health,
@@ -23,7 +24,14 @@ pub struct ServerSessionPlugin {
     pub bind_addr: std::net::SocketAddr,
     pub map_path: String,
     pub gametype_path: String,
+    pub advertise: Option<RegisterRequest>,
 }
+
+#[derive(Resource, Clone)]
+struct HostedLobbyAdvertise(RegisterRequest);
+
+#[derive(Resource, Default)]
+struct HostedLobbyId(Option<String>);
 
 impl Plugin for ServerSessionPlugin {
     fn build(&self, app: &mut App) {
@@ -84,11 +92,31 @@ impl Plugin for ServerSessionPlugin {
             )
             .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
             .add_systems(FixedUpdate, broadcast_tick.after(game_objects::health::handle_deaths));
+        if let Some(advertise) = &self.advertise {
+            app.insert_resource(HostedLobbyAdvertise(advertise.clone()))
+                .init_resource::<HostedLobbyId>()
+                .add_systems(Startup, register_hosted_lobby.after(start_server));
+        }
     }
 }
 
 fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
     quic.start_server(addr.0);
+}
+
+fn register_hosted_lobby(world: &mut World) {
+    let Some(req) = world
+        .get_resource::<HostedLobbyAdvertise>()
+        .map(|advertise| advertise.0.clone())
+    else {
+        return;
+    };
+    let id = ureq::post(&format!("{}/lobbies/register", common::config::BEACON_URL))
+        .send_json(&req)
+        .ok()
+        .and_then(|resp| resp.into_json::<RegisterResponse>().ok())
+        .map(|resp| resp.id);
+    world.insert_resource(HostedLobbyId(id));
 }
 
 fn advance_match_state_time(mut match_state: ResMut<MatchState>, time: Res<Time<Fixed>>) {
@@ -213,6 +241,7 @@ fn tick_respawns(
 fn process_console_commands(
     cmds: Res<ConsoleCommands>,
     mut quic: ResMut<QuicManager>,
+    lobby_id: Option<Res<HostedLobbyId>>,
     registry: Res<PlayerRegistry>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
@@ -227,6 +256,10 @@ fn process_console_commands(
         let mut parts = line.trim().splitn(2, ' ');
         match parts.next().unwrap_or("") {
             "shutdown" | "quit" => {
+                if let Some(id) = lobby_id.as_ref().and_then(|id| id.0.as_ref()) {
+                    let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL))
+                        .call();
+                }
                 quic.send(SendTarget::All, Channel::Ordered, &MsgType::Disconnected);
                 std::process::exit(0);
             }

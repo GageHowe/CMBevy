@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-client = ["dep:http_common", "dep:zstd", "dep:ureq"]
+client = ["dep:zstd"]
 
 [lints]
 workspace = true
@@ -16,6 +16,6 @@ game_objects = { path = "../game_objects" }
 net = { path = "../net" }
 physics = { path = "../physics" }
 scripting = { path = "../scripting" }
-http_common = { path = "../http_common", optional = true }
+http_common = { path = "../http_common" }
 zstd = { workspace = true, optional = true }
-ureq = { workspace = true, optional = true }
+ureq = { workspace = true }

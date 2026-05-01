@@ -6,11 +6,12 @@ use bevy::{
     log::{Level, LogPlugin},
     prelude::*,
 };
+use http_common::RegisterRequest;
 use master_plugin::MasterPlugin;
 use physics::physics_world::*;
 use session::ServerSessionPlugin;
 
-fn parse_args() -> io::Result<(SocketAddr, String, String)> {
+fn parse_args() -> io::Result<(SocketAddr, String, String, Option<RegisterRequest>)> {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
     let mut map = format!(
         "maps/{}",
@@ -24,6 +25,8 @@ fn parse_args() -> io::Result<(SocketAddr, String, String)> {
         })?)
         .to_string_lossy()
         .into_owned();
+    let mut advertise_name = None;
+    let mut advertise_max_players = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -42,16 +45,25 @@ fn parse_args() -> io::Result<(SocketAddr, String, String)> {
                     gametype = v;
                 }
             }
+            "--advertise-name" => advertise_name = args.next(),
+            "--advertise-max-players" => {
+                advertise_max_players = args.next().and_then(|v| v.parse::<u8>().ok())
+            }
             _ => {}
         }
     }
-    let bind_addr = addr.parse().map_err(|err| {
+    let bind_addr: SocketAddr = addr.parse().map_err(|err| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("invalid bind address '{addr}': {err}"),
         )
     })?;
-    Ok((bind_addr, map, gametype))
+    let advertise = advertise_name.map(|name| RegisterRequest {
+        quic_port: bind_addr.port(),
+        name,
+        max_players: advertise_max_players.unwrap_or(8),
+    });
+    Ok((bind_addr, map, gametype, advertise))
 }
 
 fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
@@ -90,7 +102,7 @@ fn start_lan_discovery(quic_port: u16) {
 }
 
 fn main() {
-    let (bind_addr, map_path, gametype_path) = match parse_args() {
+    let (bind_addr, map_path, gametype_path, advertise) = match parse_args() {
         Ok(args) => args,
         Err(err) => {
             eprintln!("{err}");
@@ -112,7 +124,7 @@ fn main() {
     app.add_plugins(MasterPlugin);
     app.add_systems(FixedPreUpdate, session::on_message);
     app.add_systems(FixedUpdate, (step_physics, sync_physics_to_transforms).chain());
-    app.add_plugins(ServerSessionPlugin { bind_addr, map_path, gametype_path });
+    app.add_plugins(ServerSessionPlugin { bind_addr, map_path, gametype_path, advertise });
     println!("starting server...\n");
     app.run();
 }

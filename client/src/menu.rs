@@ -714,8 +714,6 @@ fn pause_menu(
     mouse: Res<ButtonInput<MouseButton>>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_ui: ResMut<NextState<UiState>>,
-    mut hosted: ResMut<HostedServer>,
-    mut console_input: Local<String>,
     active_bindings: Res<common::ActiveBindings>,
     gamepads: Query<&Gamepad>,
     mut capture: ResMut<ControlsCapture>,
@@ -748,15 +746,6 @@ fn pause_menu(
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_game.set(GameState::MainMenu);
             next_ui.set(UiState::Playing);
-        }
-        if hosted.child.is_some() {
-            ui.separator();
-            ui.label("Server console");
-            let response = ui.text_edit_singleline(&mut *console_input);
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                hosted.send_command(&console_input.clone());
-                console_input.clear();
-            }
         }
     });
 }

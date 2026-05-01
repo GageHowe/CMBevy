@@ -87,23 +87,8 @@ impl GuiState {
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
-/// Handle to the locally hosted dedicated server process, when running one.
-pub struct HostedServer {
-    pub child: Option<std::process::Child>,
-    pub stdin: Option<std::io::BufWriter<std::process::ChildStdin>>,
-    pub beacon_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-}
-
-#[cfg(feature = "client")]
-impl HostedServer {
-    pub fn send_command(&mut self, cmd: &str) {
-        use std::io::Write;
-        if let Some(w) = &mut self.stdin {
-            let _ = writeln!(w, "{cmd}");
-            let _ = w.flush();
-        }
-    }
-}
+/// Marker resource for menu/runtime hosted-server actions.
+pub struct HostedServer;
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
