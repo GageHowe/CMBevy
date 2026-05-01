@@ -291,6 +291,7 @@ fn hide_weapons_while_seated(
 #[derive(Resource, Default)]
 struct FixedPressQueue {
     reload: bool,
+    alt_fire: bool,
     ability1: bool,
 }
 
@@ -298,11 +299,17 @@ impl FixedPressQueue {
     fn queue_reload(&mut self) {
         self.reload = true;
     }
+    fn queue_alt_fire(&mut self) {
+        self.alt_fire = true;
+    }
     fn queue_ability1(&mut self) {
         self.ability1 = true;
     }
     fn consume_reload(&mut self) -> bool {
         std::mem::take(&mut self.reload)
+    }
+    fn consume_alt_fire(&mut self) -> bool {
+        std::mem::take(&mut self.alt_fire)
     }
     fn consume_ability1(&mut self) -> bool {
         std::mem::take(&mut self.ability1)
@@ -324,6 +331,11 @@ fn queue_fixed_inputs(
     let gamepad = common::active_gamepad(gamepads.iter());
     if !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse, gamepad) {
         fixed_presses.queue_reload();
+    }
+    if !blocked
+        && bindings.just_pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad)
+    {
+        fixed_presses.queue_alt_fire();
     }
     if !blocked
         && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse, gamepad)
@@ -387,6 +399,7 @@ fn biped_fire(
         .map(|gt| gt.to_scale_rotation_translation().1 * Vec3::NEG_Z)
         .unwrap_or(fallback_aim_dir);
     let reload_pressed = !blocked && fixed_presses.consume_reload();
+    let alt_fire_pressed = !blocked && fixed_presses.consume_alt_fire();
     if reload_pressed
         && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())
         && quic.client_connected
@@ -403,6 +416,7 @@ fn biped_fire(
             want_fire,
             want_alt_fire: !blocked
                 && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
+            alt_fire_pressed,
             reload_pressed,
             origin,
             aim_dir,

@@ -113,7 +113,7 @@ fn process_server_message(
                 &sp.on_pickup_q,
             );
         }
-        MsgType::DropWeapon(drop_dir) => handle_drop_weapon(
+        MsgType::DropWeapon(drop_dir) => game_objects::weapon::handle_drop_request(
             conn_id,
             registry,
             &mut sp.pawn_slots,
@@ -127,7 +127,7 @@ fn process_server_message(
         MsgType::DropAbility(drop_dir) => {
             handle_drop_ability(conn_id, registry, &mut sp.commands, drop_dir);
         }
-        MsgType::SetActiveWeaponSlot(active_primary) => handle_set_active_weapon_slot(
+        MsgType::SetActiveWeaponSlot(active_primary) => game_objects::weapon::handle_set_active_slot_request(
             conn_id,
             active_primary,
             registry,
@@ -135,7 +135,7 @@ fn process_server_message(
             &mut sp.weapon_runtime,
             quic,
         ),
-        MsgType::ReloadWeapon(weapon_net_id) => handle_reload_weapon(
+        MsgType::ReloadWeapon(weapon_net_id) => game_objects::weapon::handle_reload_request(
             conn_id,
             weapon_net_id,
             registry,
@@ -145,7 +145,7 @@ fn process_server_message(
             quic,
         ),
         MsgType::FireRequest { weapon: weapon_net_id, kind, temp_id, origin, dir } => {
-            handle_fire_request(
+            game_objects::weapon::handle_fire_request(
                 conn_id,
                 weapon_net_id,
                 kind,
@@ -162,6 +162,16 @@ fn process_server_message(
                 net_ids,
                 quic,
                 tick,
+            )
+        }
+        MsgType::DetonateGrenadeRequest(weapon_net_id) => {
+            game_objects::weapon::grenade_launcher::handle_detonate_grenade_request(
+                conn_id,
+                weapon_net_id,
+                registry,
+                &sp.all_networked,
+                &sp.pawn_slots,
+                &mut sp.commands,
             )
         }
         MsgType::TimePing(bits) => {

@@ -12,6 +12,7 @@ pub mod hail_mary;
 pub mod helpers;
 pub mod rifle;
 pub mod fighter_rocket;
+pub mod grenade_launcher;
 pub mod rpg;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -37,6 +38,7 @@ impl Plugin for ProjectilePlugin {
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
             fighter_rocket::FighterRocketProjectilePlugin,
+            grenade_launcher::GrenadeLauncherProjectilePlugin,
             rpg::RpgProjectilePlugin,
         ));
     }

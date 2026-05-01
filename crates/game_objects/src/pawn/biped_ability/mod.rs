@@ -294,6 +294,18 @@ pub fn interact_pickup(
     true
 }
 
+pub fn handle_drop_request(
+    conn_id: net::quic::ConnectionId,
+    registry: &crate::pawn::PlayerRegistry,
+    commands: &mut Commands,
+    drop_dir: Vec3,
+) {
+    let Some((player_entity, _)) = registry.character(conn_id) else {
+        return;
+    };
+    commands.queue(DropActiveAbility { owner: player_entity, aim_dir: drop_dir });
+}
+
 #[cfg(feature = "client")]
 pub fn apply_pickup_message(
     carrier_net_id: &NetworkID,

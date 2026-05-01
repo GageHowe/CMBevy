@@ -10,8 +10,6 @@ use game_objects::{
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 
-use crate::actions::fire_weapon_authoritative;
-
 pub(super) fn run_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
@@ -81,7 +79,7 @@ pub(super) fn fire_active_weapon(
         return;
     };
     let kind = config.projectile_kind.clone();
-    fire_weapon_authoritative(
+    game_objects::weapon::fire_authoritative_with_replication(
         shooter,
         weapon_entity,
         &weapon_net_id,
@@ -95,7 +93,7 @@ pub(super) fn fire_active_weapon(
         commands,
         world,
         net_ids,
-        quic,
+        Some(quic),
         tick,
         None,
     );

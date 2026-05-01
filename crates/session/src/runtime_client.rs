@@ -264,7 +264,7 @@ fn fire_singleplayer_bot_weapon(
     let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
         return;
     };
-    let _ = crate::helpers::fire_weapon_authoritative(
+    let _ = game_objects::weapon::fire_authoritative_with_replication(
         shooter,
         weapon_entity,
         &weapon_net_id,

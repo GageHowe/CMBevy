@@ -5,16 +5,18 @@ pub use common::WeaponState;
 use net::message::NetworkID;
 #[cfg(feature = "client")]
 use net::message::WeaponState as NetWeaponState;
+use net::quic::{Channel, ConnectionId, QuicManager, SendTarget};
 use physics::physics_world::PhysicsWorld;
 
 use crate::{
     GameObjectKind,
-    pawn::{CameraEffector, HeldWeaponMap, WeaponSlots},
+    pawn::{CameraEffector, HeldWeaponMap, PlayerRegistry, WeaponSlots},
     projectile::FiredProjectile,
     sound::SoundQueue,
 };
 
 pub mod hail_mary;
+pub mod grenade_launcher;
 pub mod helpers;
 pub mod pistol;
 pub mod rifle;
@@ -43,6 +45,7 @@ impl Plugin for WeaponPlugin {
             pistol::PistolPlugin,
             hail_mary::HailMaryPlugin,
             rpg::RpgPlugin,
+            grenade_launcher::GrenadeLauncherPlugin,
         ))
         .add_systems(FixedUpdate, tick_weapon_state);
     }
@@ -81,6 +84,7 @@ pub struct WeaponFireInput {
     pub weapon: Entity,
     pub want_fire: bool,
     pub want_alt_fire: bool,
+    pub alt_fire_pressed: bool,
     pub reload_pressed: bool,
     pub origin: Vec3,
     pub aim_dir: Vec3,
@@ -102,6 +106,7 @@ pub struct FireCtx<'a> {
     pub weapon: Entity,
     pub want_fire: bool,
     pub want_alt_fire: bool,
+    pub alt_fire_pressed: bool,
     pub reload_pressed: bool,
     pub origin: Vec3,
     pub aim_dir: Vec3,
@@ -204,6 +209,7 @@ pub fn fire_weapon<W: Weapon>(
         weapon: input.weapon,
         want_fire: input.want_fire,
         want_alt_fire: input.want_alt_fire,
+        alt_fire_pressed: input.alt_fire_pressed,
         reload_pressed: input.reload_pressed,
         origin: input.origin,
         aim_dir: input.aim_dir,
@@ -278,6 +284,264 @@ pub fn fire_held_weapon(
         weapon_state: weapon_state_after_fire,
         fired,
     })
+}
+
+pub fn handle_fire_request(
+    conn_id: ConnectionId,
+    weapon_net_id: NetworkID,
+    kind: GameObjectKind,
+    temp_id: u32,
+    origin: Vec3,
+    dir: Vec3,
+    registry: &PlayerRegistry,
+    all_networked: &crate::NetworkEntityMap,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    net_ids: &mut net::message::NetworkIDResource,
+    quic: &mut QuicManager,
+    tick: u64,
+) {
+    let Some((shooter_entity, _)) = registry.character(conn_id) else {
+        return;
+    };
+    let shooter_holds =
+        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
+    if !shooter_holds {
+        return;
+    }
+    let Some(weapon_entity) = all_networked.get(&weapon_net_id) else {
+        return;
+    };
+    if !fire_authoritative_with_replication(
+        shooter_entity,
+        weapon_entity,
+        &weapon_net_id,
+        kind,
+        temp_id,
+        origin,
+        dir,
+        pawn_slots,
+        weapon_runtime,
+        held_weapons,
+        commands,
+        world,
+        net_ids,
+        Some(quic),
+        tick,
+        Some(conn_id),
+    ) {
+        if let Ok((weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &net::message::MsgType::WeaponState(weapon_net_id, *weapon_state),
+            );
+        }
+    }
+}
+
+pub fn fire_authoritative_with_replication(
+    shooter_entity: Entity,
+    weapon_entity: Entity,
+    weapon_net_id: &NetworkID,
+    kind: GameObjectKind,
+    temp_id: u32,
+    origin: Vec3,
+    dir: Vec3,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    net_ids: &mut net::message::NetworkIDResource,
+    quic: Option<&mut QuicManager>,
+    tick: u64,
+    owner_conn: Option<ConnectionId>,
+) -> bool {
+    let Some(fired) = fire_held_weapon(
+        shooter_entity,
+        weapon_entity,
+        weapon_net_id,
+        Some(kind),
+        temp_id,
+        origin,
+        dir,
+        pawn_slots,
+        weapon_runtime,
+        held_weapons,
+        commands,
+        world,
+        net_ids,
+        tick,
+    ) else {
+        return false;
+    };
+
+    let Some(quic) = quic else {
+        return true;
+    };
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &net::message::MsgType::WeaponState(fired.weapon_net_id.clone(), fired.weapon_state),
+    );
+    match owner_conn {
+        Some(conn_id) => {
+            quic.send(
+                SendTarget::AllExcept(conn_id),
+                Channel::Unordered,
+                &net::message::MsgType::SpawnCommand(fired.fired.spawn_cmd),
+            );
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &net::message::MsgType::ProjectileConfirm { temp_id, net_id: fired.fired.net_id },
+            );
+        }
+        None => quic.send(
+            SendTarget::All,
+            Channel::Unordered,
+            &net::message::MsgType::SpawnCommand(fired.fired.spawn_cmd),
+        ),
+    }
+    true
+}
+
+pub fn handle_reload_request(
+    conn_id: ConnectionId,
+    weapon_net_id: NetworkID,
+    registry: &PlayerRegistry,
+    all_networked: &crate::NetworkEntityMap,
+    pawn_slots: &Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    quic: &mut QuicManager,
+) {
+    let Some((shooter_entity, _)) = registry.character(conn_id) else {
+        return;
+    };
+    let shooter_holds =
+        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
+    if !shooter_holds {
+        return;
+    }
+    let Some(weapon_entity) = all_networked.get(&weapon_net_id) else {
+        return;
+    };
+    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
+        return;
+    };
+    let started = start_reload(&mut weapon_state, weapon_config);
+    quic.send(
+        if started { SendTarget::All } else { SendTarget::One(conn_id) },
+        Channel::Ordered,
+        &net::message::MsgType::WeaponState(weapon_net_id, *weapon_state),
+    );
+}
+
+pub fn handle_set_active_slot_request(
+    conn_id: ConnectionId,
+    active_primary: bool,
+    registry: &PlayerRegistry,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    quic: &mut QuicManager,
+) {
+    let Some((player_entity, _)) = registry.controlled_pawn(conn_id) else {
+        return;
+    };
+    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+        return;
+    };
+    let old_active = slots.active().0.clone();
+    let old_active_entity = slots.active().1;
+    slots.set_active_primary(active_primary);
+    let new_active = slots.active().0.clone();
+    if old_active == new_active {
+        return;
+    }
+    let Some(old_weapon_entity) = old_active_entity else {
+        return;
+    };
+    let Some(old_weapon_id) = old_active else {
+        return;
+    };
+    let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(old_weapon_entity) else {
+        return;
+    };
+    cancel_reload(&mut weapon_state);
+    quic.send(
+        SendTarget::All,
+        Channel::Ordered,
+        &net::message::MsgType::WeaponState(old_weapon_id, *weapon_state),
+    );
+}
+
+pub fn handle_drop_request(
+    conn_id: ConnectionId,
+    registry: &PlayerRegistry,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    held_weapons: &mut HeldWeaponMap,
+    world: &mut PhysicsWorld,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    commands: &mut Commands,
+    quic: &mut QuicManager,
+    drop_dir: Vec3,
+) {
+    let Some((player_entity, player_net_id)) = registry.character(conn_id) else {
+        return;
+    };
+    let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
+        return;
+    };
+    let Some((weapon_id, weapon_entity)) = slots.remove_active() else {
+        return;
+    };
+    drop(slots);
+    helpers::drop_from_owner(
+        weapon_id,
+        player_net_id.clone(),
+        weapon_entity,
+        player_entity,
+        drop_dir,
+        world,
+        weapon_runtime,
+        held_weapons,
+        commands,
+        quic,
+    );
+}
+
+pub fn handle_interact_pickup_request(
+    player_entity: Entity,
+    player_net_id: NetworkID,
+    target_entity: Entity,
+    target_net_id: NetworkID,
+    quic: &mut QuicManager,
+    world: &mut PhysicsWorld,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    held_weapons: &mut HeldWeaponMap,
+    pawn_slots: &mut Query<&mut WeaponSlots>,
+    commands: &mut Commands,
+    interactables: &Query<&crate::interaction::Interactable>,
+    drop_dir: Vec3,
+) {
+    helpers::interact_pickup(
+        player_entity,
+        player_net_id,
+        target_entity,
+        target_net_id,
+        quic,
+        world,
+        weapon_runtime,
+        held_weapons,
+        pawn_slots,
+        commands,
+        interactables,
+        drop_dir,
+    );
 }
 
 pub fn apply_zoom<W: Weapon>(ctx: &mut FireCtx) -> f32 {
@@ -373,6 +637,7 @@ pub fn is_weapon_kind(kind: &common::GameObjectKind) -> bool {
             | common::GameObjectKind::Rifle
             | common::GameObjectKind::HailMary
             | common::GameObjectKind::Rpg
+            | common::GameObjectKind::GrenadeLauncher
     )
 }
 

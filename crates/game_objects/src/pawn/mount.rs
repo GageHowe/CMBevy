@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use net::{message::NetworkID, quic::{ConnectionId, QuicManager}};
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
 use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
@@ -198,6 +199,43 @@ pub fn handle_mount_interact(
     }
     try_mount_character(world, character, parent, mount, anchor_transforms)
         .then_some(MountInteractResult::Mounted)
+}
+
+pub fn handle_server_interact(
+    conn_id: ConnectionId,
+    controlled: Entity,
+    character: Entity,
+    character_net_id: &NetworkID,
+    target: Entity,
+    target_net_id: &NetworkID,
+    registry: &mut crate::pawn::PlayerRegistry,
+    quic: &mut QuicManager,
+    world: &mut PhysicsWorld,
+    net_ids: &Query<&NetworkID>,
+    mounts: &mut Query<&mut CharacterMount>,
+    anchor_transforms: &Query<&Transform>,
+    commands: &mut Commands,
+) {
+    let Ok(mut mount) = mounts.get_mut(target) else {
+        return;
+    };
+    match handle_mount_interact(controlled, character, target, world, &mut mount, anchor_transforms)
+    {
+        Some(MountInteractResult::Unmounted(biped_entity)) => {
+            let Ok(biped_net_id) = net_ids.get(biped_entity) else {
+                return;
+            };
+            commands.entity(biped_entity).remove::<Mounted>();
+            crate::pawn::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
+            crate::pawn::broadcast_mount_state(quic, biped_net_id, None);
+        }
+        Some(MountInteractResult::Mounted) => {
+            commands.entity(character).insert(Mounted(target));
+            crate::pawn::possess_pawn(conn_id, target, target_net_id, registry, quic);
+            crate::pawn::broadcast_mount_state(quic, character_net_id, Some(target_net_id));
+        }
+        None => {}
+    }
 }
 
 #[cfg(feature = "client")]

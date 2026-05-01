@@ -76,6 +76,7 @@ pub enum MsgType {
     PawnLook(NetworkID, f32, f32),
     ReloadWeapon(NetworkID),
     FireRequest { weapon: NetworkID, kind: GameObjectKind, temp_id: u32, origin: Vec3, dir: Vec3 },
+    DetonateGrenadeRequest(NetworkID),
     ProjectileConfirm { temp_id: u32, net_id: NetworkID },
     HitResult(Vec3, Vec3, Option<NetworkID>),
     /// server -> client: "this entity has this health"
