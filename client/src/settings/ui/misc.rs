@@ -10,11 +10,11 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                 ui.label("Physics substeps")
                     .on_hover_text("Run multiple physics steps per tick. Improves accuracy at the cost of CPU time. Ignored during reconciliation.");
                 ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::One, "Off")
-                    .on_hover_text("One physics step per tick.");
+                    .on_hover_text("One physics step per tick. Usually the best option");
                 ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::Two, "2x")
-                    .on_hover_text("Two physics steps per tick.");
+                    .on_hover_text("Two physics steps per tick; not recommended");
                 ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::Four, "4x")
-                    .on_hover_text("Four physics steps per tick.");
+                    .on_hover_text("Do you have a supercomputer??");
             });
         });
 

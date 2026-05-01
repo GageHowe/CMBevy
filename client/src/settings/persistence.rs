@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, process::Command};
 
 use bevy::prelude::*;
-use common::ActiveKeyBindings;
+use common::ActiveBindings;
 
 use super::data::Settings;
 
@@ -60,7 +60,10 @@ pub fn load_settings(mut commands: Commands) {
         default
     };
 
-    commands.insert_resource(ActiveKeyBindings::from_settings(&settings.keybindings));
+    commands.insert_resource(ActiveBindings::from_settings(
+        &settings.keybindings,
+        &settings.gamepad_bindings,
+    ));
     commands.insert_resource(settings);
 }
 

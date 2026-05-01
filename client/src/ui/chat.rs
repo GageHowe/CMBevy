@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use common::{ActiveKeyBindings, InputAction};
+use common::{ActiveBindings, InputAction, active_gamepad};
 use net::{
     message::MsgType,
     quic::{Channel, QuicManager},
@@ -16,7 +16,8 @@ pub fn gui_chat(
     steam: Option<Res<SteamClient>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    bindings: Res<ActiveKeyBindings>,
+    bindings: Res<ActiveBindings>,
+    gamepads: Query<&Gamepad>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -46,7 +47,12 @@ pub fn gui_chat(
                     .desired_width(f32::INFINITY),
             );
 
-            if bindings.just_pressed(InputAction::Chat, &keys, &mouse)
+            if bindings.just_pressed(
+                InputAction::Chat,
+                &keys,
+                &mouse,
+                active_gamepad(gamepads.iter()),
+            )
                 && !ctx.wants_keyboard_input()
             {
                 resp.request_focus();

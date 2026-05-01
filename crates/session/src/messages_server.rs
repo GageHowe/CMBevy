@@ -108,6 +108,7 @@ fn process_server_message(
                 &sp.rocket_turrets,
                 &sp.interactables,
                 &mut sp.mounts,
+                &sp.mount_anchor_transforms,
                 &mut sp.commands,
                 &sp.on_pickup_q,
             );

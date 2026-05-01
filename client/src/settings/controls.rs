@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
-use common::{ActionBinding, BindingButton, BindingSlot, InputAction, KeyBindings};
+use common::{
+    ActionBinding, BindingButton, BindingSlot, GamepadActionBinding, GamepadBindingButton,
+    InputAction, KeyBindings, active_gamepad,
+};
 
 use super::data::Settings;
 
@@ -8,7 +11,15 @@ use super::data::Settings;
 pub struct ControlsCapture {
     pub action: Option<InputAction>,
     pub slot: BindingSlot,
+    pub device: CaptureDevice,
     skip_frame: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum CaptureDevice {
+    #[default]
+    KeyboardMouse,
+    Gamepad,
 }
 
 impl ControlsCapture {
@@ -16,9 +27,10 @@ impl ControlsCapture {
         self.action.is_some()
     }
 
-    pub fn begin(&mut self, action: InputAction, slot: BindingSlot) {
+    pub fn begin(&mut self, action: InputAction, slot: BindingSlot, device: CaptureDevice) {
         self.action = Some(action);
         self.slot = slot;
+        self.device = device;
         self.skip_frame = true;
     }
 
@@ -33,19 +45,24 @@ pub fn show_controls_settings(
     settings: &mut Settings,
     keyboard: &ButtonInput<KeyCode>,
     mouse: &ButtonInput<MouseButton>,
+    gamepads: &Query<&Gamepad>,
     capture: &mut ControlsCapture,
 ) {
-    poll_binding_capture(settings, keyboard, mouse, capture);
+    poll_binding_capture(settings, keyboard, mouse, gamepads, capture);
 
     ui.horizontal(|ui| {
         if ui.button("Reset to defaults").clicked() {
             settings.keybindings = KeyBindings::default();
+            settings.gamepad_bindings = common::GamepadBindings::default();
             capture.cancel();
         }
         if capture.is_active() {
-            ui.label("Press a key or mouse button. Esc cancels.");
+            ui.label(match capture.device {
+                CaptureDevice::KeyboardMouse => "Press a key or mouse button. Esc cancels.",
+                CaptureDevice::Gamepad => "Press a gamepad button. Esc cancels.",
+            });
         } else {
-            ui.label("Two binds per action.");
+            ui.label("Two binds per action per device.");
         }
     });
 
@@ -84,16 +101,48 @@ fn show_binding_row(
     action: InputAction,
     label: &str,
 ) {
-    let binding = settings.keybindings.binding(action);
+    let keybinding = settings.keybindings.binding(action);
+    let gamepad_binding = settings.gamepad_bindings.binding(action);
 
     ui.horizontal(|ui| {
         ui.set_min_width(180.0);
         ui.label(label);
-        binding_slot_button(ui, capture, action, BindingSlot::Primary, binding.primary);
-        binding_slot_button(ui, capture, action, BindingSlot::Secondary, binding.secondary);
+        binding_slot_button(
+            ui,
+            capture,
+            action,
+            BindingSlot::Primary,
+            CaptureDevice::KeyboardMouse,
+            button_label(keybinding.primary),
+        );
+        binding_slot_button(
+            ui,
+            capture,
+            action,
+            BindingSlot::Secondary,
+            CaptureDevice::KeyboardMouse,
+            button_label(keybinding.secondary),
+        );
+        binding_slot_button(
+            ui,
+            capture,
+            action,
+            BindingSlot::Primary,
+            CaptureDevice::Gamepad,
+            gamepad_button_label(gamepad_binding.primary),
+        );
+        binding_slot_button(
+            ui,
+            capture,
+            action,
+            BindingSlot::Secondary,
+            CaptureDevice::Gamepad,
+            gamepad_button_label(gamepad_binding.secondary),
+        );
 
         if ui.small_button("Clear").clicked() {
             *settings.keybindings.binding_mut(action) = ActionBinding::default();
+            *settings.gamepad_bindings.binding_mut(action) = GamepadActionBinding::default();
             if capture.action == Some(action) {
                 capture.cancel();
             }
@@ -106,12 +155,14 @@ fn binding_slot_button(
     capture: &mut ControlsCapture,
     action: InputAction,
     slot: BindingSlot,
-    button: Option<BindingButton>,
+    device: CaptureDevice,
+    label: String,
 ) {
-    let waiting = capture.action == Some(action) && capture.slot == slot;
-    let label = if waiting { "Press input...".to_string() } else { button_label(button) };
+    let waiting =
+        capture.action == Some(action) && capture.slot == slot && capture.device == device;
+    let label = if waiting { "Press input...".to_string() } else { label };
     if ui.button(label).clicked() {
-        capture.begin(action, slot);
+        capture.begin(action, slot, device);
     }
 }
 
@@ -119,6 +170,7 @@ fn poll_binding_capture(
     settings: &mut Settings,
     keyboard: &ButtonInput<KeyCode>,
     mouse: &ButtonInput<MouseButton>,
+    gamepads: &Query<&Gamepad>,
     capture: &mut ControlsCapture,
 ) {
     let Some(action) = capture.action else {
@@ -134,26 +186,44 @@ fn poll_binding_capture(
         return;
     }
 
-    let button =
-        keyboard.get_just_pressed().next().copied().map(BindingButton::Key).or_else(|| {
-            mouse.get_just_pressed().find_map(|button| match button {
-                MouseButton::Left | MouseButton::Right | MouseButton::Middle => {
-                    Some(BindingButton::Mouse(*button))
-                }
-                MouseButton::Back | MouseButton::Forward => Some(BindingButton::Mouse(*button)),
-                MouseButton::Other(_) => None,
-            })
-        });
-
-    let Some(button) = button else {
-        return;
-    };
-
-    let binding = settings.keybindings.binding_mut(action);
-    if binding.button(other_slot(capture.slot)) == Some(button) {
-        binding.set_button(other_slot(capture.slot), None);
+    match capture.device {
+        CaptureDevice::KeyboardMouse => {
+            let button =
+                keyboard.get_just_pressed().next().copied().map(BindingButton::Key).or_else(|| {
+                    mouse.get_just_pressed().find_map(|button| match button {
+                        MouseButton::Left | MouseButton::Right | MouseButton::Middle => {
+                            Some(BindingButton::Mouse(*button))
+                        }
+                        MouseButton::Back | MouseButton::Forward => Some(BindingButton::Mouse(*button)),
+                        MouseButton::Other(_) => None,
+                    })
+                });
+            let Some(button) = button else {
+                return;
+            };
+            let binding = settings.keybindings.binding_mut(action);
+            if binding.button(other_slot(capture.slot)) == Some(button) {
+                binding.set_button(other_slot(capture.slot), None);
+            }
+            binding.set_button(capture.slot, Some(button));
+        }
+        CaptureDevice::Gamepad => {
+            let Some(gamepad) = active_gamepad(gamepads.iter()) else {
+                return;
+            };
+            let button = gamepad
+                .get_just_pressed()
+                .find_map(|button| from_bevy_gamepad_button(*button));
+            let Some(button) = button else {
+                return;
+            };
+            let binding = settings.gamepad_bindings.binding_mut(action);
+            if binding.button(other_slot(capture.slot)) == Some(button) {
+                binding.set_button(other_slot(capture.slot), None);
+            }
+            binding.set_button(capture.slot, Some(button));
+        }
     }
-    binding.set_button(capture.slot, Some(button));
     capture.cancel();
 }
 
@@ -171,6 +241,10 @@ fn button_label(button: Option<BindingButton>) -> String {
     }
 }
 
+fn gamepad_button_label(button: Option<GamepadBindingButton>) -> String {
+    button.map(|button| button.label().to_string()).unwrap_or_else(|| "Unbound".to_string())
+}
+
 fn binding_button_name(button: BindingButton) -> String {
     match button {
         BindingButton::Key(key) => format!("{key:?}"),
@@ -182,5 +256,28 @@ fn binding_button_name(button: BindingButton) -> String {
             MouseButton::Forward => "Mouse Forward".to_string(),
             MouseButton::Other(id) => format!("Mouse {id}"),
         },
+    }
+}
+
+fn from_bevy_gamepad_button(button: GamepadButton) -> Option<GamepadBindingButton> {
+    match button {
+        GamepadButton::South => Some(GamepadBindingButton::South),
+        GamepadButton::East => Some(GamepadBindingButton::East),
+        GamepadButton::North => Some(GamepadBindingButton::North),
+        GamepadButton::West => Some(GamepadBindingButton::West),
+        GamepadButton::LeftTrigger => Some(GamepadBindingButton::LeftTrigger),
+        GamepadButton::LeftTrigger2 => Some(GamepadBindingButton::LeftTrigger2),
+        GamepadButton::RightTrigger => Some(GamepadBindingButton::RightTrigger),
+        GamepadButton::RightTrigger2 => Some(GamepadBindingButton::RightTrigger2),
+        GamepadButton::Select => Some(GamepadBindingButton::Select),
+        GamepadButton::Start => Some(GamepadBindingButton::Start),
+        GamepadButton::Mode => Some(GamepadBindingButton::Mode),
+        GamepadButton::LeftThumb => Some(GamepadBindingButton::LeftThumb),
+        GamepadButton::RightThumb => Some(GamepadBindingButton::RightThumb),
+        GamepadButton::DPadUp => Some(GamepadBindingButton::DPadUp),
+        GamepadButton::DPadDown => Some(GamepadBindingButton::DPadDown),
+        GamepadButton::DPadLeft => Some(GamepadBindingButton::DPadLeft),
+        GamepadButton::DPadRight => Some(GamepadBindingButton::DPadRight),
+        GamepadButton::C | GamepadButton::Z | GamepadButton::Other(_) => None,
     }
 }

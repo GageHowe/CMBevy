@@ -527,6 +527,10 @@ pub struct MouseSensitivity {
     pub base: f32,
     pub zoom_blend: f32,
     pub vehicle_pitch_yaw: f32,
+    pub gamepad_look: f32,
+    pub gamepad_move_deadzone: f32,
+    pub gamepad_look_deadzone: f32,
+    pub gamepad_invert_y: bool,
 }
 
 #[cfg(feature = "client")]
@@ -575,7 +579,15 @@ fn perlin_1d(x: f32, seed: i32, channel: f32) -> f32 {
 }
 impl Default for MouseSensitivity {
     fn default() -> Self {
-        Self { base: 0.002, zoom_blend: 1.0, vehicle_pitch_yaw: 0.002 }
+        Self {
+            base: 0.002,
+            zoom_blend: 1.0,
+            vehicle_pitch_yaw: 0.002,
+            gamepad_look: 3.0,
+            gamepad_move_deadzone: 0.2,
+            gamepad_look_deadzone: 0.15,
+            gamepad_invert_y: false,
+        }
     }
 }
 

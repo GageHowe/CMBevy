@@ -1,6 +1,6 @@
-#[cfg(feature = "client")]
-use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+#[cfg(feature = "client")]
+use bevy::input::{gamepad::Gamepad, mouse::AccumulatedMouseMotion};
 #[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
@@ -139,13 +139,15 @@ impl GameObject for SpaceshipPawnComponent {
 
 #[cfg(feature = "client")]
 fn gather_spaceship_input(
+    time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
+    gamepads: Query<&Gamepad>,
     sensitivity: Res<MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     mut pawns: Query<&mut Possessed, With<SpaceshipPawnComponent>>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
@@ -157,36 +159,50 @@ fn gather_spaceship_input(
     let Ok(mut possessed) = pawns.single_mut() else {
         return;
     };
+    let gamepad = common::active_gamepad(gamepads.iter());
+    let move_stick = gamepad
+        .map(|gamepad| common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone))
+        .unwrap_or(Vec2::ZERO);
+    let look_stick = gamepad
+        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .unwrap_or(Vec2::ZERO);
 
     let mut input = common::SpaceshipInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
         input.forward += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
         input.forward -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
         input.right += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
         input.right -= 1.0;
     }
-    if bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons) {
+    input.forward = (input.forward + move_stick.y).clamp(-1.0, 1.0);
+    input.right = (input.right + move_stick.x).clamp(-1.0, 1.0);
+    if bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons, gamepad) {
         input.up += 1.0;
     }
-    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad) {
         input.up -= 1.0;
     }
-    if bindings.pressed(common::InputAction::RollLeft, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::RollLeft, &keyboard, &mouse_buttons, gamepad) {
         input.roll -= 1.0;
     }
-    if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons, gamepad) {
         input.roll += 1.0;
     }
-    input.ability1 = bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
+    input.ability1 =
+        bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons, gamepad);
     let s = sensitivity.vehicle_pitch_yaw;
-    input.yaw = -mouse.delta.x * s;
-    input.pitch = -mouse.delta.y * s;
+    input.yaw = -mouse.delta.x * s + look_stick.x * sensitivity.gamepad_look * time.delta_secs();
+    input.pitch = -mouse.delta.y * s
+        + look_stick.y
+            * sensitivity.gamepad_look
+            * time.delta_secs()
+            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 };
 
     possessed.push(PawnInputKind::Spaceship(input));
 }

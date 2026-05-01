@@ -27,11 +27,12 @@ impl Plugin for MenuPlugin {
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
-struct MenuInputParams<'w> {
+struct MenuInputParams<'w, 's> {
     keys: Res<'w, ButtonInput<KeyCode>>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
+    gamepads: Query<'w, 's, &'static Gamepad>,
     time: Res<'w, Time>,
-    active_bindings: Res<'w, common::ActiveKeyBindings>,
+    active_bindings: Res<'w, common::ActiveBindings>,
     capture: ResMut<'w, ControlsCapture>,
 }
 
@@ -156,6 +157,7 @@ fn main_menu(
         InputAction::Pause,
         &menu_input.keys,
         &menu_input.mouse,
+        common::active_gamepad(menu_input.gamepads.iter()),
     ) {
         back_screen(&mut screen, &mut credits, &mut browser, &mut sound_queue);
     }
@@ -192,6 +194,7 @@ fn main_menu(
                 &audio_outputs,
                 &menu_input.keys,
                 &menu_input.mouse,
+                &menu_input.gamepads,
                 &mut menu_input.capture,
                 &mut screen,
                 &mut credits,
@@ -392,13 +395,23 @@ fn show_settings_screen(
     audio_outputs: &AudioOutputDevices,
     keyboard: &ButtonInput<KeyCode>,
     mouse: &ButtonInput<MouseButton>,
+    gamepads: &Query<&Gamepad>,
     capture: &mut ControlsCapture,
     screen: &mut Screen,
     credits: &mut CreditsState,
     browser: &mut LobbyBrowser,
     sound_queue: &mut SoundQueue,
 ) {
-    show_settings_ui(ui, settings, settings_section, audio_outputs, keyboard, mouse, capture);
+    show_settings_ui(
+        ui,
+        settings,
+        settings_section,
+        audio_outputs,
+        keyboard,
+        mouse,
+        gamepads,
+        capture,
+    );
     if ui.button("Back").clicked() {
         back_screen(screen, credits, browser, sound_queue);
     }
@@ -703,14 +716,20 @@ fn pause_menu(
     mut next_ui: ResMut<NextState<UiState>>,
     mut hosted: ResMut<HostedServer>,
     mut console_input: Local<String>,
-    active_bindings: Res<common::ActiveKeyBindings>,
+    active_bindings: Res<common::ActiveBindings>,
+    gamepads: Query<&Gamepad>,
     mut capture: ResMut<ControlsCapture>,
     mut sound_queue: ResMut<SoundQueue>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     if capture.is_active() && keys.just_pressed(KeyCode::Escape) {
         capture.cancel();
-    } else if active_bindings.just_pressed(InputAction::Pause, &keys, &mouse) {
+    } else if active_bindings.just_pressed(
+        InputAction::Pause,
+        &keys,
+        &mouse,
+        common::active_gamepad(gamepads.iter()),
+    ) {
         queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
         next_ui.set(UiState::Playing);
     }
@@ -748,7 +767,8 @@ fn settings_menu(
     mouse: Res<ButtonInput<MouseButton>>,
     mut next_ui: ResMut<NextState<UiState>>,
     mut settings: ResMut<Settings>,
-    active_bindings: Res<common::ActiveKeyBindings>,
+    active_bindings: Res<common::ActiveBindings>,
+    gamepads: Query<&Gamepad>,
     mut capture: ResMut<ControlsCapture>,
     mut settings_section: Local<SettingsSection>,
     mut sound_queue: ResMut<SoundQueue>,
@@ -757,7 +777,12 @@ fn settings_menu(
     let Ok(ctx) = contexts.ctx_mut() else { return };
     if capture.is_active() && keys.just_pressed(KeyCode::Escape) {
         capture.cancel();
-    } else if active_bindings.just_pressed(InputAction::Pause, &keys, &mouse) {
+    } else if active_bindings.just_pressed(
+        InputAction::Pause,
+        &keys,
+        &mouse,
+        common::active_gamepad(gamepads.iter()),
+    ) {
         queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
         next_ui.set(UiState::Paused);
     }
@@ -771,6 +796,7 @@ fn settings_menu(
             &audio_outputs,
             &keys,
             &mouse,
+            &gamepads,
             &mut capture,
         );
         if ui.button("Back").clicked() {

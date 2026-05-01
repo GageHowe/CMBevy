@@ -5,7 +5,7 @@ mod runtime;
 mod ui;
 
 use bevy::prelude::*;
-use common::{ActiveKeyBindings, KeyBindings};
+use common::{ActiveBindings, GamepadBindings, KeyBindings};
 pub use controls::ControlsCapture;
 pub use data::{
     DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, SettingsSection, ShadowQuality, SsaoQuality,
@@ -19,8 +19,9 @@ impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Settings>()
             .register_type::<KeyBindings>()
+            .register_type::<GamepadBindings>()
             .insert_resource(ControlsCapture::default())
-            .init_resource::<ActiveKeyBindings>()
+            .init_resource::<ActiveBindings>()
             .add_systems(Startup, persistence::load_settings)
             .add_systems(PostUpdate, runtime::apply_settings.run_if(resource_changed::<Settings>))
             .add_systems(

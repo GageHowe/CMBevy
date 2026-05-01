@@ -1,4 +1,6 @@
 #[cfg(feature = "client")]
+use bevy::input::gamepad::Gamepad;
+#[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::ecs::system::Command;
 use bevy::prelude::*;
@@ -337,12 +339,15 @@ fn fire_queued_rocket_turrets(
 
 #[cfg(feature = "client")]
 fn gather_rocket_turret_input(
+    time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
+    gamepads: Query<&Gamepad>,
+    sensitivity: Res<super::MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     mut turrets: Query<&mut Possessed, With<RocketTurretPawnComponent>>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
@@ -354,12 +359,22 @@ fn gather_rocket_turret_input(
     let Ok(mut possessed) = turrets.single_mut() else {
         return;
     };
+    let gamepad = common::active_gamepad(gamepads.iter());
+    let look_stick = gamepad
+        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .unwrap_or(Vec2::ZERO);
     let mut input = RocketTurretInput::default();
-    input.yaw = -mouse.delta.x * YAW_SPEED;
-    input.pitch = -mouse.delta.y * YAW_SPEED;
-    input.fire = bindings.pressed(common::InputAction::Fire, &keyboard, &mouse_buttons);
+    input.yaw =
+        -mouse.delta.x * YAW_SPEED + look_stick.x * sensitivity.gamepad_look * time.delta_secs();
+    input.pitch = -mouse.delta.y * YAW_SPEED
+        + look_stick.y
+            * sensitivity.gamepad_look
+            * time.delta_secs()
+            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 };
+    input.fire =
+        bindings.pressed(common::InputAction::Fire, &keyboard, &mouse_buttons, gamepad);
     input.fire_pressed =
-        bindings.just_pressed(common::InputAction::Fire, &keyboard, &mouse_buttons);
+        bindings.just_pressed(common::InputAction::Fire, &keyboard, &mouse_buttons, gamepad);
     possessed.push(PawnInputKind::RocketTurret(input));
 }
 

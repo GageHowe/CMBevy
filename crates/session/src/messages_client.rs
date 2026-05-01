@@ -122,6 +122,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mp.object_kinds,
             &mp.mounted,
             &mp.mounts,
+            &mp.mount_anchor_transforms,
             &mut mp.spawn.commands,
             &mut mp.world,
         ),

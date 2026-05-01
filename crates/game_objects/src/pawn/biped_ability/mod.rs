@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use bevy::prelude::*;
 #[cfg(feature = "client")]
+use bevy::input::gamepad::Gamepad;
+#[cfg(feature = "client")]
 use net::quic::{Channel, QuicManager};
 #[cfg(not(feature = "client"))]
 use net::{
@@ -429,8 +431,9 @@ pub fn apply_input(
 fn drop_active_ability_input(
     keyboard: Res<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>,
     mouse: Res<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>,
+    gamepads: Query<&Gamepad>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     state: Res<State<common::game_state::GameState>>,
     possessed: Query<Entity, With<super::Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<super::PitchPivot>>,
@@ -454,7 +457,12 @@ fn drop_active_ability_input(
         .unwrap_or(pivot_rot * Vec3::NEG_Z);
     let drop_pressed = !blocked
         && consume_fixed_press(
-            bindings.pressed(common::InputAction::DropAbility, &keyboard, &mouse),
+            bindings.pressed(
+                common::InputAction::DropAbility,
+                &keyboard,
+                &mouse,
+                common::active_gamepad(gamepads.iter()),
+            ),
             &mut drop_pressed_latched,
         );
 

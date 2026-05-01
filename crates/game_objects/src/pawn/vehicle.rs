@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+#[cfg(feature = "client")]
+use bevy::input::gamepad::Gamepad;
 use net::{
     message::{MsgType, NetworkID},
     quic::{Channel, QuicManager, SendTarget},
@@ -100,41 +102,39 @@ pub fn handle_server_interact(
     world: &mut physics::physics_world::PhysicsWorld,
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
-    mounts: &mut Query<(&mut mount::CharacterMount, &Transform)>,
+    mounts: &mut Query<&mut mount::CharacterMount>,
+    anchor_transforms: &Query<&Transform>,
     commands: &mut Commands,
 ) {
     if !vehicles.contains(target) {
         return;
     }
-    let Ok((mut driver_mount, anchor_transform)) = mounts.get_mut(target) else {
+    let Ok(mut driver_mount) = mounts.get_mut(target) else {
         return;
     };
 
-    if driver_mount.occupant.is_some() && controlled == target {
-        let Some(biped_entity) =
-            mount::unmount_character(world, target, &mut driver_mount, anchor_transform)
-        else {
-            return;
-        };
-        let Ok(biped_net_id) = net_ids.get(biped_entity) else {
-            return;
-        };
-        commands.entity(biped_entity).remove::<mount::Mounted>();
-        super::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
-        super::broadcast_mount_state(quic, biped_net_id, None);
-        return;
-    }
-
-    if driver_mount.occupant.is_some()
-        || !mount::mount_in_range(world, character, target, &driver_mount, anchor_transform)
-    {
-        return;
-    }
-
-    if mount::mount_character(world, character, target, &mut driver_mount, anchor_transform) {
-        commands.entity(character).insert(mount::Mounted(target));
-        super::possess_pawn(conn_id, target, target_net_id, registry, quic);
-        super::broadcast_mount_state(quic, character_net_id, Some(target_net_id));
+    match mount::handle_mount_interact(
+        controlled,
+        character,
+        target,
+        world,
+        &mut driver_mount,
+        anchor_transforms,
+    ) {
+        Some(mount::MountInteractResult::Unmounted(biped_entity)) => {
+            let Ok(biped_net_id) = net_ids.get(biped_entity) else {
+                return;
+            };
+            commands.entity(biped_entity).remove::<mount::Mounted>();
+            super::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
+            super::broadcast_mount_state(quic, biped_net_id, None);
+        }
+        Some(mount::MountInteractResult::Mounted) => {
+            commands.entity(character).insert(mount::Mounted(target));
+            super::possess_pawn(conn_id, target, target_net_id, registry, quic);
+            super::broadcast_mount_state(quic, character_net_id, Some(target_net_id));
+        }
+        None => {}
     }
 }
 
@@ -170,13 +170,15 @@ fn vehicle_exit_interact(
     state: Res<State<common::game_state::GameState>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     vehicle: Query<
         (Entity, Option<&net::message::NetworkID>),
         (With<VehicleComponent>, With<Possessed>),
     >,
-    mut mounts: Query<(&mut mount::CharacterMount, &Transform)>,
+    mut mounts: Query<&mut mount::CharacterMount>,
+    anchor_transforms: Query<&Transform>,
     mut world: ResMut<physics::physics_world::PhysicsWorld>,
     mut commands: Commands,
     mut quic: ResMut<net::quic::QuicManager>,
@@ -190,7 +192,13 @@ fn vehicle_exit_interact(
         return;
     };
     if !interaction.consume_press(
-        !blocked && bindings.pressed(common::InputAction::Interact, &keyboard, &mouse),
+        !blocked
+            && bindings.pressed(
+                common::InputAction::Interact,
+                &keyboard,
+                &mouse,
+                common::active_gamepad(gamepads.iter()),
+            ),
         ticker.tick,
     ) {
         return;
@@ -204,11 +212,11 @@ fn vehicle_exit_interact(
             );
         }
         GameState::SinglePlayer => {
-            let Ok((mut driver_mount, anchor_transform)) = mounts.get_mut(vehicle_entity) else {
+            let Ok(mut driver_mount) = mounts.get_mut(vehicle_entity) else {
                 return;
             };
             let Some(biped_entity) =
-                mount::unmount_character(&mut world, vehicle_entity, &mut driver_mount, anchor_transform)
+                mount::try_unmount_character(&mut world, vehicle_entity, &mut driver_mount, &anchor_transforms)
             else {
                 return;
             };

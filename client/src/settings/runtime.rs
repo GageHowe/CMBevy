@@ -13,7 +13,7 @@ use bevy::{
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
-use common::ActiveKeyBindings;
+use common::ActiveBindings;
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
 
@@ -44,6 +44,10 @@ pub fn apply_settings(
     sensitivity.base = settings.mouse_sensitivity;
     sensitivity.zoom_blend = settings.zoom_sensitivity_blend;
     sensitivity.vehicle_pitch_yaw = settings.vehicle_pitch_yaw_sensitivity;
+    sensitivity.gamepad_look = settings.gamepad_look_sensitivity;
+    sensitivity.gamepad_move_deadzone = settings.gamepad_move_deadzone;
+    sensitivity.gamepad_look_deadzone = settings.gamepad_look_deadzone;
+    sensitivity.gamepad_invert_y = settings.gamepad_invert_y;
     snap_comp.0 = settings.preserve_look_across_planet_snap;
 
     let mut window_size = None;
@@ -247,8 +251,8 @@ pub fn apply_fps_cap(settings: Option<Res<Settings>>, mut last_frame_end: Local<
     *last_frame_end = Some(Instant::now());
 }
 
-pub fn sync_active_keybindings(settings: Res<Settings>, mut active: ResMut<ActiveKeyBindings>) {
-    active.sync_from(&settings.keybindings);
+pub fn sync_active_keybindings(settings: Res<Settings>, mut active: ResMut<ActiveBindings>) {
+    active.sync_from(&settings.keybindings, &settings.gamepad_bindings);
 }
 
 fn extract_main_pass_resolution_override(

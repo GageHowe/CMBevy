@@ -20,6 +20,7 @@ pub fn show_settings_ui(
     audio_outputs: &AudioOutputDevices,
     keyboard: &ButtonInput<KeyCode>,
     mouse: &ButtonInput<MouseButton>,
+    gamepads: &Query<&Gamepad>,
     capture: &mut ControlsCapture,
 ) {
     ui.horizontal(|ui| {
@@ -35,7 +36,9 @@ pub fn show_settings_ui(
         SettingsSection::Graphics => graphics::show(ui, settings),
         SettingsSection::Audio => audio::show(ui, settings, audio_outputs),
         SettingsSection::Input => input::show(ui, settings),
-        SettingsSection::Controls => show_controls_settings(ui, settings, keyboard, mouse, capture),
+        SettingsSection::Controls => {
+            show_controls_settings(ui, settings, keyboard, mouse, gamepads, capture)
+        }
         SettingsSection::Misc => misc::show(ui, settings),
     }
 

@@ -143,7 +143,8 @@ pub(crate) struct ClientMessageParams<'w, 's> {
     pub predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
     pub object_kinds: Query<'w, 's, &'static GameObjectKind>,
     pub mounted: Query<'w, 's, &'static Mounted>,
-    pub mounts: Query<'w, 's, (&'static CharacterMount, &'static Transform)>,
+    pub mounts: Query<'w, 's, &'static CharacterMount>,
+    pub mount_anchor_transforms: Query<'w, 's, &'static Transform>,
     pub weapon_states: Query<'w, 's, &'static mut WeaponState>,
     pub pending_weapon_pickups: ResMut<'w, PendingWeaponPickups>,
 }
@@ -220,7 +221,8 @@ pub struct ServerMessageParams<'w, 's> {
     pub interactables: Query<'w, 's, &'static game_objects::interaction::Interactable>,
     pub net_ids: Query<'w, 's, &'static NetworkID>,
     pub mounted_bipeds: Query<'w, 's, (&'static NetworkID, &'static Mounted)>,
-    pub mounts: Query<'w, 's, (&'static mut CharacterMount, &'static Transform)>,
+    pub mounts: Query<'w, 's, &'static mut CharacterMount>,
+    pub mount_anchor_transforms: Query<'w, 's, &'static Transform>,
     pub weapon_runtime: Query<'w, 's, (&'static mut WeaponState, &'static WeaponConfig)>,
     pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
 }

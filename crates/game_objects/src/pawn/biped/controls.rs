@@ -1,4 +1,5 @@
 use bevy::{
+    input::gamepad::Gamepad,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
@@ -9,7 +10,7 @@ use physics::physics_world::PhysicsWorld;
 use super::{
     BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
     PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
-    mount::{CharacterMount, Mounted, mount_character, ray_hits_mount},
+    mount::{CharacterMount, Mounted, ray_hits_mount},
     rocket_turret::RocketTurretPawnComponent,
     vehicle::VehicleComponent,
 };
@@ -60,8 +61,10 @@ pub(super) fn configure(app: &mut App) {
 fn gather_biped_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
+    sensitivity: Res<MouseSensitivity>,
     mut fixed_presses: ResMut<FixedPressQueue>,
     mut pawns: Query<(&mut Possessed, &BipedPawnComponent)>,
     yaw_pivots: Query<&YawPivot>,
@@ -75,22 +78,30 @@ fn gather_biped_input(
         fixed_presses.clear_ability1();
         return;
     };
+    let gamepad = common::active_gamepad(gamepads.iter());
+    let move_stick = gamepad
+        .map(|gamepad| common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone))
+        .unwrap_or(Vec2::ZERO);
     let mut input = common::BipedInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
         input.forward += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
         input.forward -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
         input.right += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
         input.right -= 1.0;
     }
-    input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons);
-    input.slide = bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons);
-    input.ability1 = bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons);
+    input.forward = (input.forward + move_stick.y).clamp(-1.0, 1.0);
+    input.right = (input.right + move_stick.x).clamp(-1.0, 1.0);
+    input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons, gamepad);
+    input.slide =
+        bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad);
+    input.ability1 =
+        bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons, gamepad);
     input.ability1_pressed = fixed_presses.consume_ability1();
     if let Some(yaw_e) = biped.yaw_pivot
         && let Ok(yp) = yaw_pivots.get(yaw_e)
@@ -106,8 +117,10 @@ fn gather_biped_input(
 }
 
 fn mouse_look(
+    time: Res<Time>,
     mouse: Res<AccumulatedMouseMotion>,
     sensitivity: Res<MouseSensitivity>,
+    gamepads: Query<&Gamepad>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     possessed: Query<&BipedPawnComponent, With<Possessed>>,
     camera_fx: Query<&CameraEffector, With<Camera3d>>,
@@ -116,7 +129,13 @@ fn mouse_look(
         Query<(&mut Transform, &mut PitchPivot)>,
     )>,
 ) {
-    if cursor_q.grab_mode == CursorGrabMode::None || mouse.delta == Vec2::ZERO {
+    let gamepad = common::active_gamepad(gamepads.iter());
+    let look_stick = gamepad
+        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .unwrap_or(Vec2::ZERO);
+    if cursor_q.grab_mode == CursorGrabMode::None
+        || (mouse.delta == Vec2::ZERO && look_stick == Vec2::ZERO)
+    {
         return;
     }
     let Ok(biped) = possessed.single() else {
@@ -125,16 +144,24 @@ fn mouse_look(
     let zoom = camera_fx.single().map(|fx| fx.zoom_multiplier.max(1.0)).unwrap_or(1.0);
     let zoom_scale = 1.0 + (1.0 / zoom - 1.0) * sensitivity.zoom_blend;
     let s = sensitivity.base * zoom_scale;
+    let gamepad_delta = Vec2::new(
+        look_stick.x * sensitivity.gamepad_look * time.delta_secs(),
+        look_stick.y
+            * sensitivity.gamepad_look
+            * time.delta_secs()
+            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 },
+    );
+    let look_delta = Vec2::new(mouse.delta.x * s + gamepad_delta.x, mouse.delta.y * s - gamepad_delta.y);
     if let Some(yaw_e) = biped.yaw_pivot
         && let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e)
     {
-        pivot.yaw -= mouse.delta.x * s;
+        pivot.yaw -= look_delta.x;
         t.rotation = Quat::from_rotation_y(pivot.yaw);
     }
     if let Some(pitch_e) = biped.pitch_pivot
         && let Ok((mut t, mut pivot)) = pivots.p1().get_mut(pitch_e)
     {
-        pivot.pitch = (pivot.pitch - mouse.delta.y * s).clamp(-PITCH_MAX, PITCH_MAX);
+        pivot.pitch = (pivot.pitch - look_delta.y).clamp(-PITCH_MAX, PITCH_MAX);
         t.rotation = Quat::from_rotation_x(pivot.pitch);
     }
 }
@@ -288,15 +315,19 @@ impl FixedPressQueue {
 fn queue_fixed_inputs(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
     egui_wants: Option<Res<EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     mut fixed_presses: ResMut<FixedPressQueue>,
 ) {
     let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
-    if !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse) {
+    let gamepad = common::active_gamepad(gamepads.iter());
+    if !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse, gamepad) {
         fixed_presses.queue_reload();
     }
-    if !blocked && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse) {
+    if !blocked
+        && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse, gamepad)
+    {
         fixed_presses.queue_ability1();
     }
 }
@@ -304,8 +335,9 @@ fn queue_fixed_inputs(
 fn biped_fire(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
     egui_wants: Option<Res<EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     mut pawn: Query<(Entity, &mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
     pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
     camera_gt: Query<&GlobalTransform, With<Camera3d>>,
@@ -318,7 +350,9 @@ fn biped_fire(
     ticker: Res<common::tick::Ticker>,
 ) {
     let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
-    let want_fire = !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse);
+    let gamepad = common::active_gamepad(gamepads.iter());
+    let want_fire =
+        !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad);
     let Ok((pawn_entity, mut slots, biped)) = pawn.single_mut() else {
         return;
     };
@@ -365,7 +399,7 @@ fn biped_fire(
             weapon: weapon_entity,
             want_fire,
             want_alt_fire: !blocked
-                && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse),
+                && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
             reload_pressed,
             origin,
             aim_dir,
@@ -388,19 +422,42 @@ fn biped_fire(
     crate::messages::push(&mut commands, "Out of ammo");
 }
 
-#[derive(bevy::ecs::system::SystemParam)]
-struct InteractInputParams<'w> {
-    keyboard: Res<'w, ButtonInput<KeyCode>>,
-    mouse: Res<'w, ButtonInput<MouseButton>>,
-    egui_wants: Option<Res<'w, EguiWantsInput>>,
-    bindings: Res<'w, common::ActiveKeyBindings>,
-    ticker: Res<'w, common::tick::Ticker>,
-    interaction: ResMut<'w, InteractionGate>,
-}
-
 enum InteractTarget {
     Mount(Entity),
     Entity { hit_entity: Entity, net_id: Option<net::message::NetworkID> },
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct InteractWorldParams<'w, 's> {
+    interactables: Query<
+        'w,
+        's,
+        (Option<&'static net::message::NetworkID>, &'static crate::interaction::Interactable),
+        With<crate::interaction::Interactable>,
+    >,
+    pitch_pivots: Query<'w, 's, &'static GlobalTransform, With<PitchPivot>>,
+    possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Possessed>>,
+    weapon_states: Query<'w, 's, &'static mut crate::weapon::WeaponState>,
+    camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
+    mount_net_ids: Query<
+        'w,
+        's,
+        &'static net::message::NetworkID,
+        Or<(With<VehicleComponent>, With<RocketTurretPawnComponent>)>,
+    >,
+    object_kinds: Query<'w, 's, &'static GameObjectKind>,
+    pickup_fns: Query<'w, 's, &'static crate::pawn::biped_ability::OnPickup>,
+    mounts: ParamSet<
+        'w,
+        's,
+        (
+            Query<'w, 's, (Entity, &'static CharacterMount)>,
+            Query<'w, 's, &'static mut CharacterMount>,
+        ),
+    >,
+    mount_anchor_visuals: Query<'w, 's, &'static GlobalTransform>,
+    mount_anchor_transforms: Query<'w, 's, &'static Transform>,
+    commands: Commands<'w, 's>,
 }
 
 fn format_interaction_prompt(key: &str, verb: &str, kind: GameObjectKind) -> String {
@@ -416,10 +473,14 @@ fn current_interact_target(
         (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
         With<crate::interaction::Interactable>,
     >,
-    mounts: &Query<(Entity, &CharacterMount, &GlobalTransform)>,
+    mounts: &Query<(Entity, &CharacterMount)>,
+    mount_anchors: &Query<&GlobalTransform>,
 ) -> Option<InteractTarget> {
     let mut mount_target = None;
-    for (parent_entity, mount, anchor_gt) in mounts.iter() {
+    for (parent_entity, mount) in mounts.iter() {
+        let Ok(anchor_gt) = mount_anchors.get(mount.anchor) else {
+            continue;
+        };
         let (_, _, mount_center) = anchor_gt.to_scale_rotation_translation();
         let Some(distance) = ray_hits_mount(
             origin,
@@ -462,7 +523,7 @@ fn interactable_in_range(
 fn update_interaction_hint(
     egui_wants: Option<Res<EguiWantsInput>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     interactables: Query<
         (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
         With<crate::interaction::Interactable>,
@@ -472,7 +533,8 @@ fn update_interaction_hint(
     object_kinds: Query<&GameObjectKind>,
     weapon_q: Query<(), With<crate::weapon::WeaponComponent>>,
     pickup_q: Query<(), With<crate::pawn::biped_ability::OnPickup>>,
-    mount_q: Query<(Entity, &CharacterMount, &GlobalTransform)>,
+    mount_q: Query<(Entity, &CharacterMount)>,
+    mount_anchor_q: Query<&GlobalTransform>,
     mut hint: ResMut<InteractionHint>,
 ) {
     if egui_wants.as_ref().is_some_and(|e| e.wants_any_input()) {
@@ -494,12 +556,20 @@ fn update_interaction_hint(
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
     let Some(target) =
-        current_interact_target(pawn_entity, origin, forward, &world, &interactables, &mount_q)
+        current_interact_target(
+            pawn_entity,
+            origin,
+            forward,
+            &world,
+            &interactables,
+            &mount_q,
+            &mount_anchor_q,
+        )
     else {
         hint.0 = None;
         return;
     };
-    let key = bindings.binding(common::InputAction::Interact).prompt_label();
+    let key = bindings.prompt_label(common::InputAction::Interact);
     hint.0 = match target {
         InteractTarget::Mount(parent_entity) => object_kinds
             .get(parent_entity)
@@ -519,74 +589,86 @@ fn update_interaction_hint(
 
 fn interact(
     state: Res<State<common::game_state::GameState>>,
-    mut input: InteractInputParams,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
+    egui_wants: Option<Res<EguiWantsInput>>,
+    bindings: Res<common::ActiveBindings>,
+    ticker: Res<common::tick::Ticker>,
+    mut interaction: ResMut<InteractionGate>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
-    interactables: Query<
-        (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
-        With<crate::interaction::Interactable>,
-    >,
-    pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     mut world: ResMut<PhysicsWorld>,
-    mut possessed_q: Query<&mut WeaponSlots, With<Possessed>>,
-    mut weapon_states: Query<&mut crate::weapon::WeaponState>,
-    mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
-    mut commands: Commands,
+    mut sp: InteractWorldParams,
     mut quic: ResMut<net::quic::QuicManager>,
-    mount_net_ids: Query<
-        &net::message::NetworkID,
-        Or<(With<VehicleComponent>, With<RocketTurretPawnComponent>)>,
-    >,
-    object_kinds: Query<&GameObjectKind>,
-    pickup_fns: Query<&crate::pawn::biped_ability::OnPickup>,
-    mount_q: Query<(Entity, &CharacterMount, &GlobalTransform)>,
-    mut mounts: Query<(&mut CharacterMount, &Transform)>,
 ) {
     use common::game_state::GameState;
-    let blocked = input.egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
+    let blocked = egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
     let Ok((pawn_entity, biped)) = player.single() else {
         return;
     };
     let Some(pitch_e) = biped.pitch_pivot else {
         return;
     };
-    let Ok(pivot_gt) = pitch_pivots.get(pitch_e) else {
+    let Ok(pivot_gt) = sp.pitch_pivots.get(pitch_e) else {
         return;
     };
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
     let Some(target) =
-        current_interact_target(pawn_entity, origin, forward, &world, &interactables, &mount_q)
+        current_interact_target(
+            pawn_entity,
+            origin,
+            forward,
+            &world,
+            &sp.interactables,
+            &sp.mounts.p0(),
+            &sp.mount_anchor_visuals,
+        )
     else {
         return;
     };
-    if !input.interaction.consume_press(
+    if !interaction.consume_press(
         !blocked
-            && input.bindings.pressed(common::InputAction::Interact, &input.keyboard, &input.mouse),
-        input.ticker.tick,
+            && bindings.pressed(
+                common::InputAction::Interact,
+                &keyboard,
+                &mouse,
+                common::active_gamepad(gamepads.iter()),
+            ),
+        ticker.tick,
     ) {
         return;
     }
     match target {
         InteractTarget::Mount(parent_entity) => match state.get() {
             GameState::SinglePlayer => {
-                let Ok((mut mount, anchor_transform)) = mounts.get_mut(parent_entity) else {
+                let mut mount_query = sp.mounts.p1();
+                let Ok(mut mount) = mount_query.get_mut(parent_entity) else {
                     return;
                 };
-                if !mount_character(&mut world, pawn_entity, parent_entity, &mut mount, anchor_transform) {
-                    return;
-                }
-                commands.entity(pawn_entity).insert(Mounted(parent_entity));
-                commands.entity(pawn_entity).remove::<Possessed>();
-                commands.entity(parent_entity).insert(Possessed::new(128));
-                if let Ok(kind) = object_kinds.get(parent_entity) {
-                    crate::messages::push(
-                        &mut commands,
-                        format!("Entered {}", kind.interaction_name()),
-                    );
+                if let Some(crate::pawn::mount::MountInteractResult::Mounted) =
+                    crate::pawn::mount::handle_mount_interact(
+                        pawn_entity,
+                        pawn_entity,
+                        parent_entity,
+                        &mut world,
+                        &mut mount,
+                        &sp.mount_anchor_transforms,
+                    )
+                {
+                    sp.commands.entity(pawn_entity).insert(Mounted(parent_entity));
+                    sp.commands.entity(pawn_entity).remove::<Possessed>();
+                    sp.commands.entity(parent_entity).insert(Possessed::new(128));
+                    if let Ok(kind) = sp.object_kinds.get(parent_entity) {
+                        crate::messages::push(
+                            &mut sp.commands,
+                            format!("Entered {}", kind.interaction_name()),
+                        );
+                    }
                 }
             }
             GameState::Multiplayer => {
-                let Ok(parent_net_id) = mount_net_ids.get(parent_entity) else {
+                let Ok(parent_net_id) = sp.mount_net_ids.get(parent_entity) else {
                     return;
                 };
                 quic.send_to_server(
@@ -597,9 +679,11 @@ fn interact(
             _ => {}
         },
         InteractTarget::Entity { hit_entity, net_id: interact_net_id } => {
-            if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = pickup_fns.get(hit_entity) {
+            if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = sp.pickup_fns.get(hit_entity) {
                 match state.get() {
-                    GameState::SinglePlayer => f(pawn_entity, hit_entity, forward, &mut commands),
+                    GameState::SinglePlayer => {
+                        f(pawn_entity, hit_entity, forward, &mut sp.commands)
+                    }
                     GameState::Multiplayer => {
                         if let Some(interact_net_id) = interact_net_id {
                             quic.send_to_server(
@@ -617,7 +701,7 @@ fn interact(
                     let Some(interact_net_id) = interact_net_id else {
                         return;
                     };
-                    let Ok(mut slots) = possessed_q.single_mut() else {
+                    let Ok(mut slots) = sp.possessed_q.single_mut() else {
                         return;
                     };
                     let drop_velocity =
@@ -630,11 +714,11 @@ fn interact(
                         &mut slots,
                         origin + forward,
                         drop_velocity,
-                        &mut weapon_states,
-                        &mut commands,
+                        &mut sp.weapon_states,
+                        &mut sp.commands,
                         &mut world,
-                        &mut camera_fx,
-                        &object_kinds,
+                        &mut sp.camera_fx,
+                        &sp.object_kinds,
                     ) {
                         return;
                     }
@@ -656,8 +740,9 @@ fn interact(
 fn drop_active_weapon(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
     egui_wants: Res<EguiWantsInput>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     state: Res<State<common::game_state::GameState>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
@@ -672,7 +757,12 @@ fn drop_active_weapon(
     use common::game_state::GameState;
     if egui_wants.wants_any_input()
         || !consume_fixed_press(
-            bindings.pressed(common::InputAction::DropWeapon, &keyboard, &mouse),
+            bindings.pressed(
+                common::InputAction::DropWeapon,
+                &keyboard,
+                &mouse,
+                common::active_gamepad(gamepads.iter()),
+            ),
             &mut drop_pressed,
         )
     {

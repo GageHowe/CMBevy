@@ -64,6 +64,13 @@ pub fn ray_hits_mount(
     (center.distance_squared(closest) <= radius * radius).then_some(along)
 }
 
+pub fn anchor_transform<'a>(
+    mount: &CharacterMount,
+    anchor_transforms: &'a Query<&Transform>,
+) -> Option<&'a Transform> {
+    anchor_transforms.get(mount.anchor).ok()
+}
+
 pub fn mount_character(
     world: &mut PhysicsWorld,
     biped_entity: Entity,
@@ -131,6 +138,68 @@ pub fn mount_in_range(
     })
 }
 
+pub fn try_mount_character(
+    world: &mut PhysicsWorld,
+    character: Entity,
+    parent: Entity,
+    mount: &mut CharacterMount,
+    anchor_transforms: &Query<&Transform>,
+) -> bool {
+    let Some(anchor_transform) = anchor_transform(mount, anchor_transforms) else {
+        return false;
+    };
+    mount_character(world, character, parent, mount, anchor_transform)
+}
+
+pub fn try_unmount_character(
+    world: &mut PhysicsWorld,
+    parent: Entity,
+    mount: &mut CharacterMount,
+    anchor_transforms: &Query<&Transform>,
+) -> Option<Entity> {
+    let anchor_transform = anchor_transform(mount, anchor_transforms)?;
+    unmount_character(world, parent, mount, anchor_transform)
+}
+
+pub fn can_mount_character(
+    world: &PhysicsWorld,
+    character: Entity,
+    parent: Entity,
+    mount: &CharacterMount,
+    anchor_transforms: &Query<&Transform>,
+) -> bool {
+    let Some(anchor_transform) = anchor_transform(mount, anchor_transforms) else {
+        return false;
+    };
+    mount_in_range(world, character, parent, mount, anchor_transform)
+}
+
+pub enum MountInteractResult {
+    Mounted,
+    Unmounted(Entity),
+}
+
+pub fn handle_mount_interact(
+    controlled: Entity,
+    character: Entity,
+    parent: Entity,
+    world: &mut PhysicsWorld,
+    mount: &mut CharacterMount,
+    anchor_transforms: &Query<&Transform>,
+) -> Option<MountInteractResult> {
+    if mount.occupant.is_some() && controlled == parent {
+        return try_unmount_character(world, parent, mount, anchor_transforms)
+            .map(MountInteractResult::Unmounted);
+    }
+    if mount.occupant.is_some()
+        || !can_mount_character(world, character, parent, mount, anchor_transforms)
+    {
+        return None;
+    }
+    try_mount_character(world, character, parent, mount, anchor_transforms)
+        .then_some(MountInteractResult::Mounted)
+}
+
 #[cfg(feature = "client")]
 pub fn apply_mount_state(
     biped_net_id: &net::message::NetworkID,
@@ -140,7 +209,8 @@ pub fn apply_mount_state(
     networked: &NetworkEntityMap,
     object_kinds: &Query<&crate::GameObjectKind>,
     mounted: &Query<&Mounted>,
-    mounts: &Query<(&CharacterMount, &Transform)>,
+    mounts: &Query<&CharacterMount>,
+    anchor_transforms: &Query<&Transform>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
@@ -162,7 +232,8 @@ pub fn apply_mount_state(
         None => {
             let old_parent = mounted.get(biped_entity).ok().map(|mounted| mounted.0);
             let predicted_exit = old_parent.and_then(|parent_entity| {
-                mounts.get(parent_entity).ok().and_then(|(mount, anchor_transform)| {
+                mounts.get(parent_entity).ok().and_then(|mount| {
+                    let anchor_transform = anchor_transforms.get(mount.anchor).ok()?;
                     let exit_offset =
                         anchor_transform.rotation * mount.exit_offset + anchor_transform.translation;
                     world.predicted_body_point_after(parent_entity, exit_offset, 0.0)
@@ -193,7 +264,8 @@ pub fn apply_mount_state(
 fn sync_mounted_bipeds(
     mut world: ResMut<PhysicsWorld>,
     mounted: Query<(Entity, &Mounted)>,
-    mounts: Query<(&CharacterMount, &Transform)>,
+    mounts: Query<&CharacterMount>,
+    anchor_transforms: Query<&Transform>,
 ) {
     for (biped_entity, mounted) in mounted.iter() {
         let Some(parent_handle) = world.entity_to_handle.get(&mounted.0).copied() else {
@@ -202,7 +274,10 @@ fn sync_mounted_bipeds(
         let Some(parent_body) = world.rigid_body_set.get(parent_handle) else {
             continue;
         };
-        let Ok((mount, anchor_transform)) = mounts.get(mounted.0) else {
+        let Ok(mount) = mounts.get(mounted.0) else {
+            continue;
+        };
+        let Ok(anchor_transform) = anchor_transforms.get(mount.anchor) else {
             continue;
         };
         let parent_pos = rb_pos(parent_body);
@@ -211,7 +286,6 @@ fn sync_mounted_bipeds(
         let mount_rot = parent_rot * anchor_transform.rotation;
         let parent_vel = rb_vel(parent_body);
         let parent_angvel = rb_angvel(parent_body);
-        let _ = mount;
         world.set_body_pose(biped_entity, mount_pos, mount_rot, parent_vel, parent_angvel);
     }
 }
@@ -223,32 +297,46 @@ fn sync_mounted_biped_visuals(
         Query<&Transform>,
         Query<&mut Transform>,
     )>,
-    mounts: Query<(&CharacterMount, &Transform)>,
+    mounts: Query<&CharacterMount>,
 ) {
     for (biped_entity, mounted) in mounted.iter() {
-        let (parent_translation, parent_rotation) = {
+        let (parent_translation, parent_rotation, anchor_translation, anchor_rotation) = {
             let parents = transforms.p0();
             let Ok(parent_transform) = parents.get(mounted.0) else {
                 continue;
             };
-            (parent_transform.translation, parent_transform.rotation)
-        };
-        let Ok((_mount, anchor_transform)) = mounts.get(mounted.0) else {
-            continue;
+            let Ok(mount) = mounts.get(mounted.0) else {
+                continue;
+            };
+            let Ok(anchor_transform) = parents.get(mount.anchor) else {
+                continue;
+            };
+            (
+                parent_transform.translation,
+                parent_transform.rotation,
+                anchor_transform.translation,
+                anchor_transform.rotation,
+            )
         };
         let mut bipeds = transforms.p1();
         let Ok(mut biped_transform) = bipeds.get_mut(biped_entity) else {
             continue;
         };
-        biped_transform.translation =
-            parent_translation + parent_rotation * anchor_transform.translation;
-        biped_transform.rotation = parent_rotation * anchor_transform.rotation;
+        biped_transform.translation = parent_translation + parent_rotation * anchor_translation;
+        biped_transform.rotation = parent_rotation * anchor_rotation;
     }
 }
 
 #[cfg(feature = "client")]
-pub fn draw_mount_debug(mounts: Query<(&CharacterMount, &GlobalTransform)>, mut gizmos: Gizmos) {
-    for (mount, gt) in mounts.iter() {
+pub fn draw_mount_debug(
+    mounts: Query<&CharacterMount>,
+    anchors: Query<&GlobalTransform>,
+    mut gizmos: Gizmos,
+) {
+    for mount in mounts.iter() {
+        let Ok(gt) = anchors.get(mount.anchor) else {
+            continue;
+        };
         let (_, rot, center) = gt.to_scale_rotation_translation();
         let color = if mount.occupant.is_some() {
             Color::srgba(1.0, 0.2, 0.2, 0.9)

@@ -1,4 +1,6 @@
 #[cfg(feature = "client")]
+use bevy::input::gamepad::Gamepad;
+#[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use bevy::prelude::*;
 #[cfg(feature = "client")]
@@ -161,9 +163,11 @@ impl GameObject for TruckPawnComponent {
 fn gather_truck_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
+    sensitivity: Res<super::MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
-    bindings: Res<common::ActiveKeyBindings>,
+    bindings: Res<common::ActiveBindings>,
     mut pawns: Query<&mut Possessed, With<TruckPawnComponent>>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
@@ -175,21 +179,27 @@ fn gather_truck_input(
     let Ok(mut possessed) = pawns.single_mut() else {
         return;
     };
+    let gamepad = common::active_gamepad(gamepads.iter());
+    let move_stick = gamepad
+        .map(|gamepad| common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone))
+        .unwrap_or(Vec2::ZERO);
 
     let mut input = common::TruckInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
         input.throttle += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
         input.throttle -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
         input.steer += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons) {
+    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
         input.steer -= 1.0;
     }
-    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons) {
+    input.throttle = (input.throttle + move_stick.y).clamp(-1.0, 1.0);
+    input.steer = (input.steer + move_stick.x).clamp(-1.0, 1.0);
+    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad) {
         input.brake = 1.0;
     }
     possessed.push(PawnInputKind::Truck(input));

@@ -3,6 +3,7 @@ use bevy_egui::egui;
 use crate::settings::Settings;
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
+    ui.heading("Keyboard / Mouse");
     ui.horizontal(|ui| {
         ui.label("Mouse sensitivity").on_hover_text("You know what this does.");
         ui.add(
@@ -32,6 +33,35 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                 .show_value(true),
         );
     });
+
+    ui.separator();
+    ui.heading("Gamepad");
+
+    ui.horizontal(|ui| {
+        ui.label("Look sensitivity");
+        ui.add(
+            egui::Slider::new(&mut settings.gamepad_look_sensitivity, 0.5..=8.0)
+                .fixed_decimals(2),
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Move deadzone");
+        ui.add(
+            egui::Slider::new(&mut settings.gamepad_move_deadzone, 0.0..=0.5)
+                .fixed_decimals(2),
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Look deadzone");
+        ui.add(
+            egui::Slider::new(&mut settings.gamepad_look_deadzone, 0.0..=0.5)
+                .fixed_decimals(2),
+        );
+    });
+
+    ui.checkbox(&mut settings.gamepad_invert_y, "Invert gamepad Y");
 
     ui.checkbox(
         &mut settings.preserve_look_across_planet_snap,

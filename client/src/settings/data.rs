@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use common::KeyBindings;
+use common::{GamepadBindings, KeyBindings};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
@@ -88,9 +88,14 @@ pub enum SettingsSection {
 /// Persistent user settings shared across graphics, audio, controls, and debug options.
 pub struct Settings {
     pub keybindings: KeyBindings,
+    pub gamepad_bindings: GamepadBindings,
     pub mouse_sensitivity: f32,
     pub zoom_sensitivity_blend: f32,
     pub vehicle_pitch_yaw_sensitivity: f32,
+    pub gamepad_look_sensitivity: f32,
+    pub gamepad_move_deadzone: f32,
+    pub gamepad_look_deadzone: f32,
+    pub gamepad_invert_y: bool,
     pub preserve_look_across_planet_snap: bool,
     pub audio_output_device: String,
     pub fmod_buffer_size: u32,
@@ -126,9 +131,14 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             keybindings: KeyBindings::default(),
+            gamepad_bindings: GamepadBindings::default(),
             mouse_sensitivity: 0.002,
             zoom_sensitivity_blend: 1.0,
             vehicle_pitch_yaw_sensitivity: 0.002,
+            gamepad_look_sensitivity: 3.0,
+            gamepad_move_deadzone: 0.2,
+            gamepad_look_deadzone: 0.15,
+            gamepad_invert_y: false,
             preserve_look_across_planet_snap: false,
             audio_output_device: String::new(),
             fmod_buffer_size: 256,
