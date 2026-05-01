@@ -81,7 +81,7 @@ pub fn apply_settings(
         PhysicsInterp::Off => PhysicsInterpMode::Off,
         PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
         PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
-        PhysicsInterp::RotationOnly => PhysicsInterpMode::RotationOnly,
+        PhysicsInterp::Balanced => PhysicsInterpMode::Balanced,
     };
     physics_world.substeps = settings.physics_substeps.count();
 

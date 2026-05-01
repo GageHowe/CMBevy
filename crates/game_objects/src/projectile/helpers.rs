@@ -1,13 +1,20 @@
 use bevy::prelude::*;
+#[cfg(feature = "client")]
+use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
 use common::GameObjectKind;
+use common::PredictedCommands;
 use net::message::SpawnCommand;
+use net::message::NetworkID;
 use physics::physics_world::*;
 use rapier3d::prelude::{
-    ColliderBuilder, Group, InteractionGroups, InteractionTestMode, RigidBodyBuilder, Vector,
+    Ball, Collider, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
+    Pose, QueryFilter, RigidBodyBuilder, Vector,
 };
 
 use super::{Projectile, ProjectileState};
-use crate::health::{Health, LastDamageSource, attribute_damage};
+use crate::health::{DamageCause, Health, LastDamageSource, attribute_damage};
+#[cfg(feature = "client")]
+use crate::pawn::{CameraEffector, CameraShake};
 
 #[derive(Clone, Copy)]
 pub struct RayProjectileHit {
@@ -195,6 +202,268 @@ pub fn tick_raycast_projectile(
     let (hit, toi) = world.cast_ray(prev, dir, step, &exclude)?;
     commands.entity(entity).despawn();
     Some(RayProjectileHit { entity: hit, dir, point: prev + dir * toi })
+}
+
+pub struct ExplosiveProjectileConfig {
+    pub projectile_radius: f32,
+    pub damage: f32,
+    pub explosion_radius: f32,
+    pub explosion_impulse: f32,
+    pub explosion_impulse_max_effective_mass: f32,
+    pub self_damage_scale: f32,
+}
+
+#[cfg(feature = "client")]
+pub fn rocket_explosion_inherit_velocity(
+    world: &PhysicsWorld,
+    direct_hit: Option<Entity>,
+    direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
+) -> Vec3 {
+    direct_hit
+        .and_then(|entity| {
+            let hit_point = direct_hit_impulse
+                .and_then(|(hit, _, hit_point)| if hit == entity { Some(hit_point) } else { None });
+            let handle = world.entity_to_handle.get(&entity).copied()?;
+            let rb = world.rigid_body_set.get(handle)?;
+            Some(match hit_point {
+                Some(hit_point) => rb_point_vel(rb, hit_point),
+                None => rb_vel(rb),
+            })
+        })
+        .unwrap_or(Vec3::ZERO)
+}
+
+#[cfg(feature = "client")]
+pub fn add_explosion_camera_shake(
+    world: &mut World,
+    center: Vec3,
+    radius: f32,
+    scale: f32,
+) {
+    let mut camera_q = world.query_filtered::<(&GlobalTransform, &mut CameraEffector), With<Camera3d>>();
+    let Ok((camera_gt, mut camera_fx)) = camera_q.single_mut(world) else {
+        return;
+    };
+    let falloff = (1.0 - camera_gt.translation().distance(center) / radius).clamp(0.0, 1.0);
+    if falloff <= 0.0 {
+        return;
+    }
+    camera_fx.add_shake(
+        CameraShake {
+            translation: Vec3::new(0.2, 0.2, 0.3),
+            rotation: Vec2::new(0.1, 0.1),
+            roll: 0.2,
+            duration: 1.0,
+            frequency: 10.0,
+        }
+        .scaled(falloff * scale),
+    );
+}
+
+#[cfg(feature = "client")]
+pub fn queue_rocket_explosion_fx(
+    commands: &mut Commands,
+    center: Vec3,
+    inherit_velocity: Vec3,
+    shake_radius: f32,
+    shake_scale: f32,
+) {
+    commands.queue(move |world: &mut World| {
+        add_explosion_camera_shake(world, center, shake_radius, shake_scale);
+        spawn_rpg_explosion_effect(world, center, inherit_velocity);
+    });
+}
+
+pub fn tick_sphere_explosive_projectile(
+    lifetime: &mut u32,
+    shooter: Option<Entity>,
+    entity: Entity,
+    state: &mut ProjectileState,
+    body: &RigidBodyHandleComponent,
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+    health_q: &mut Query<&mut Health>,
+    last_damage_q: &mut Query<&mut LastDamageSource>,
+    net_ids: Option<&Query<&NetworkID>>,
+    predicted: Option<&mut PredictedCommands>,
+    config: &ExplosiveProjectileConfig,
+    #[cfg(feature = "client")] shake_radius: f32,
+    #[cfg(feature = "client")] shake_scale: f32,
+) {
+    *lifetime = lifetime.saturating_sub(1);
+    let Some(rb) = world.rigid_body_set.get(body.0) else {
+        return;
+    };
+    let vel = rb_vel(rb);
+    let curr = rb_pos(rb);
+    let dt = world.integration_parameters.dt;
+    let cast_vel = vel - state.shooter_velocity;
+    let step = cast_vel.length() * dt;
+    if *lifetime == 0 {
+        explode_sphere_explosive_projectile(
+            curr,
+            None,
+            entity,
+            shooter,
+            world,
+            commands,
+            health_q,
+            last_damage_q,
+            net_ids,
+            predicted,
+            None,
+            config,
+            #[cfg(feature = "client")]
+            shake_radius,
+            #[cfg(feature = "client")]
+            shake_scale,
+        );
+        return;
+    }
+    if step < 0.001 {
+        return;
+    }
+    let prev = curr - cast_vel * dt;
+    let exclude = [entity, shooter.unwrap_or(entity)];
+    let dir = cast_vel.normalize();
+    #[cfg(feature = "client")]
+    {
+        commands
+            .entity(entity)
+            .insert(super::ProjectileRaycastDebug { start: prev, end: prev + dir * step });
+    }
+    if let Some((hit, toi, normal)) =
+        world.cast_sphere(prev, dir, config.projectile_radius, step, &exclude)
+    {
+        let hit_point = prev + dir * toi;
+        explode_sphere_explosive_projectile(
+            hit_point,
+            Some(hit),
+            entity,
+            shooter,
+            world,
+            commands,
+            health_q,
+            last_damage_q,
+            net_ids,
+            predicted,
+            Some((hit, normal.normalize_or_zero(), hit_point)),
+            config,
+            #[cfg(feature = "client")]
+            shake_radius,
+            #[cfg(feature = "client")]
+            shake_scale,
+        );
+    }
+}
+
+pub fn explode_sphere_explosive_projectile(
+    center: Vec3,
+    direct_hit: Option<Entity>,
+    projectile: Entity,
+    shooter: Option<Entity>,
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+    health_q: &mut Query<&mut Health>,
+    last_damage_q: &mut Query<&mut LastDamageSource>,
+    net_ids: Option<&Query<&NetworkID>>,
+    predicted: Option<&mut PredictedCommands>,
+    direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
+    config: &ExplosiveProjectileConfig,
+    #[cfg(feature = "client")] shake_radius: f32,
+    #[cfg(feature = "client")] shake_scale: f32,
+) {
+    #[cfg(feature = "client")]
+    queue_rocket_explosion_fx(
+        commands,
+        center,
+        rocket_explosion_inherit_velocity(world, direct_hit, direct_hit_impulse),
+        shake_radius,
+        shake_scale,
+    );
+
+    let mut affected = std::collections::HashMap::<Entity, f32>::new();
+    let excluded: Vec<RigidBodyHandle> = [Some(projectile)]
+        .into_iter()
+        .flatten()
+        .filter_map(|e| world.entity_to_handle.get(&e).copied())
+        .collect();
+    let pred = |_: ColliderHandle, col: &Collider| {
+        col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+    };
+    let filter = QueryFilter::new().predicate(&pred);
+    let qp = world.broad_phase.as_query_pipeline(
+        world.narrow_phase.query_dispatcher(),
+        &world.rigid_body_set,
+        &world.collider_set,
+        filter,
+    );
+    let shape = Ball::new(config.explosion_radius);
+    let iso = Pose::translation(center.x, center.y, center.z);
+    for (_, collider) in qp.intersect_shape(iso, &shape) {
+        let Some(rb_handle) = collider.parent() else {
+            continue;
+        };
+        let Some(&entity) = world.handle_to_entity.get(&rb_handle) else {
+            continue;
+        };
+        let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+            continue;
+        };
+        let falloff = if direct_hit == Some(entity) {
+            1.0
+        } else {
+            let offset = rb_pos(rb) - center;
+            let dist = offset.length();
+            (1.0 - dist / config.explosion_radius).clamp(0.0, 1.0)
+        };
+        if falloff > affected.get(&entity).copied().unwrap_or(0.0) {
+            affected.insert(entity, falloff);
+        }
+    }
+
+    let mut predicted = predicted;
+    for (entity, falloff) in affected {
+        let Some(&rb_handle) = world.entity_to_handle.get(&entity) else {
+            continue;
+        };
+        let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+            continue;
+        };
+        let radial_dir = (rb_pos(rb) - center).normalize_or_zero();
+        let impulse_dir = if let Some((hit, dir, _)) = direct_hit_impulse
+            && hit == entity
+        {
+            dir
+        } else if radial_dir == Vec3::ZERO {
+            Vec3::Y
+        } else {
+            radial_dir
+        };
+        let effective_mass = rb.mass().min(config.explosion_impulse_max_effective_mass);
+        let impulse = impulse_dir * config.explosion_impulse * effective_mass * falloff;
+        let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
+        let point = direct_hit_impulse.and_then(
+            |(hit, _, hit_point)| {
+                if hit == entity { Some(hit_point) } else { None }
+            },
+        );
+        if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut()) {
+            if predicted.is_none() {
+                if let Ok(mut health) = health_q.get_mut(entity) {
+                    let mut damage = config.damage * falloff;
+                    if shooter == Some(entity) {
+                        damage *= config.self_damage_scale;
+                    }
+                    attribute_damage(last_damage_q, entity, shooter, DamageCause::Explosion);
+                    health.apply_damage(damage);
+                    health.apply_percent_damage(0.2 * falloff);
+                }
+            }
+        }
+    }
+
+    commands.entity(projectile).despawn();
 }
 
 pub fn apply_raycast_hit<P: Projectile>(

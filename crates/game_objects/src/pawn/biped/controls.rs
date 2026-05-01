@@ -338,8 +338,11 @@ fn biped_fire(
     gamepads: Query<&Gamepad>,
     egui_wants: Option<Res<EguiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
-    mut pawn: Query<(Entity, &mut WeaponSlots, &BipedPawnComponent), With<Possessed>>,
-    pitch_pivot: Query<&GlobalTransform, With<PitchPivot>>,
+    mut pawn: Query<
+        (Entity, &mut WeaponSlots, &BipedPawnComponent, &physics::physics_world::RigidBodyHandleComponent),
+        With<Possessed>,
+    >,
+    world: Res<PhysicsWorld>,
     camera_gt: Query<&GlobalTransform, With<Camera3d>>,
     drivers: Query<&WeaponDriver>,
     weapon_states: Query<&crate::weapon::WeaponState>,
@@ -353,7 +356,7 @@ fn biped_fire(
     let gamepad = common::active_gamepad(gamepads.iter());
     let want_fire =
         !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad);
-    let Ok((pawn_entity, mut slots, biped)) = pawn.single_mut() else {
+    let Ok((pawn_entity, mut slots, biped, body_handle)) = pawn.single_mut() else {
         return;
     };
     if !want_fire {
@@ -372,17 +375,17 @@ fn biped_fire(
         crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
         return;
     };
-    let Some(pitch_e) = biped.pitch_pivot else {
+    let Some((origin, fallback_aim_dir)) =
+        super::aim_pose(&world, body_handle, biped.look_yaw, biped.look_pitch)
+    else {
         return;
     };
-    let Ok(pivot_gt) = pitch_pivot.get(pitch_e) else {
-        return;
-    };
-    let (_, pivot_rot, origin) = pivot_gt.to_scale_rotation_translation();
+    // Keep projectile spawn anchored to Rapier, but let the local camera rotation steer aim so
+    // recoil / camera kick still affects shots. Do not derive origin from camera/pivot transforms.
     let aim_dir = camera_gt
         .single()
         .map(|gt| gt.to_scale_rotation_translation().1 * Vec3::NEG_Z)
-        .unwrap_or(pivot_rot * Vec3::NEG_Z);
+        .unwrap_or(fallback_aim_dir);
     let reload_pressed = !blocked && fixed_presses.consume_reload();
     if reload_pressed
         && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())

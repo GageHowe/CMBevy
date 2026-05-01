@@ -28,7 +28,7 @@ pub enum PhysicsInterp {
     Interpolate,
     Extrapolate,
     #[default]
-    RotationOnly,
+    Balanced,
 }
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
@@ -161,7 +161,7 @@ impl Default for Settings {
             contrast: 1.0,
             saturation: 1.2,
             fov: 90.0,
-            physics_interp: PhysicsInterp::RotationOnly,
+            physics_interp: PhysicsInterp::Balanced,
             physics_substeps: PhysicsSubsteps::One,
             cinematic_mode: false,
             debug_panel: false,

@@ -166,7 +166,7 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
                 ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Off, "Off").on_hover_text("No smoothing. Objects snap to their physics position each tick.");
                 ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Interpolate, "Interpolate").on_hover_text("Blends between the previous and current physics tick. Adds one tick of visual latency.");
                 ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Extrapolate, "Extrapolate").on_hover_text("Predicts ahead using current velocity. No added latency but can overshoot.");
-                ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::RotationOnly, "Rotation only").on_hover_text("Only smooths rotation; position is not interpolated. Good balance of responsiveness and smoothness.");
+                ui.selectable_value(&mut settings.physics_interp, PhysicsInterp::Balanced, "Balanced").on_hover_text("Extrapolates position for responsiveness, but interpolates rotation for smoother aiming and camera motion.");
             });
         });
 }

@@ -455,14 +455,14 @@ impl PhysicsWorld {
 
 /// Controls how physics body positions are mapped to Bevy Transforms each frame.
 /// Off: snap to last-tick position. Extrapolate: project forward by overstep. Interpolate: one tick behind, interpolated.
-/// RotationOnly: same as Extrapolate but skips writing translation (e.g. for bodies whose position is owned by the hierarchy).
+/// Balanced: extrapolate position for responsiveness, but interpolate rotation to avoid overshoot.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicsInterpMode {
     Off,
     Interpolate,
     Extrapolate,
     #[default]
-    RotationOnly,
+    Balanced,
 }
 
 pub struct PhysicsPlugin;
@@ -587,10 +587,17 @@ pub fn sync_physics_visual(
 ) {
     let overstep = time.overstep_fraction();
     let fixed_dt = time.delta_secs();
-    let dt_offset = match *interp {
+    let pos_dt_offset = match *interp {
         PhysicsInterpMode::Off => 0.0,
-        PhysicsInterpMode::Extrapolate | PhysicsInterpMode::RotationOnly => overstep * fixed_dt,
+        PhysicsInterpMode::Extrapolate | PhysicsInterpMode::Balanced => overstep * fixed_dt,
         PhysicsInterpMode::Interpolate => (overstep - 1.0) * fixed_dt,
+    };
+    let rot_dt_offset = match *interp {
+        PhysicsInterpMode::Off => 0.0,
+        PhysicsInterpMode::Extrapolate => overstep * fixed_dt,
+        PhysicsInterpMode::Interpolate | PhysicsInterpMode::Balanced => {
+            (overstep - 1.0) * fixed_dt
+        }
     };
     for (body_handle, mut transform) in query.iter_mut() {
         let Some(body) = world.rigid_body_set.get(body_handle.0) else {
@@ -603,15 +610,10 @@ pub fn sync_physics_visual(
         let cur_rot = rb_rot(body);
         let linvel = rb_vel(body);
         let angvel = rb_angvel(body);
-        // RotationOnly: write last-known position (no extrapolation), extrapolate rotation only
-        transform.translation = if *interp == PhysicsInterpMode::RotationOnly {
-            cur_pos
-        } else {
-            cur_pos + linvel * dt_offset
-        };
+        transform.translation = cur_pos + linvel * pos_dt_offset;
         let ang_speed = angvel.length();
         transform.rotation = if ang_speed > 1e-6 {
-            Quat::from_axis_angle(angvel / ang_speed, ang_speed * dt_offset) * cur_rot
+            Quat::from_axis_angle(angvel / ang_speed, ang_speed * rot_dt_offset) * cur_rot
         } else {
             cur_rot
         };

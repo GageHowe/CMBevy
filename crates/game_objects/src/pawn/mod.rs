@@ -1,6 +1,7 @@
 // pub mod kinds;
 pub mod biped;
 pub mod biped_ability;
+pub mod fighter;
 pub mod mount;
 pub mod rocket_turret;
 pub mod spaceship;
@@ -143,6 +144,7 @@ use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::PredictedCommands;
 pub use common::{BipedInput, PawnInputKind, RocketTurretInput, SpaceshipInput, TruckInput};
+pub use fighter::FighterPawnComponent;
 use net::message::MsgType;
 use net::message::NetworkID;
 use net::{
@@ -378,6 +380,7 @@ impl Plugin for PawnPlugin {
         );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
+        app.add_plugins(fighter::FighterPlugin);
         app.add_plugins(mount::MountPlugin);
         app.add_plugins(rocket_turret::RocketTurretPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);

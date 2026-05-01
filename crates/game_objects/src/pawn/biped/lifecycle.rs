@@ -189,7 +189,7 @@ fn spawn_visuals(entity: Entity, world: &mut World) {
     let yaw_pivot = world
         .spawn((
             YawPivot { yaw: 0.0 },
-            Transform::from_translation(Vec3::new(0.0, 0.4, 0.0)),
+            Transform::from_translation(VIEW_PIVOT_OFFSET),
             Visibility::default(),
         ))
         .id();

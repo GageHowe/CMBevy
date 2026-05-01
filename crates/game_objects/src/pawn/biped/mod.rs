@@ -15,13 +15,14 @@ pub(crate) use controls::consume_fixed_press;
 #[cfg(feature = "client")]
 pub use look::draw_biped_debug;
 pub use movement::{
-    apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset,
+    aim_pose, apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset,
 };
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
 
 pub const CAPSULE_RADIUS: f32 = 0.3;
 pub const CAPSULE_HALF_HEIGHT: f32 = 0.5;
+pub const VIEW_PIVOT_OFFSET: Vec3 = Vec3::new(0.0, 0.4, 0.0);
 pub(super) const SLIDE_HALF_HEIGHT: f32 = 0.1;
 pub(super) const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 // Crouched capsule is top-aligned with standing: bottom = (CAPSULE_HALF_HEIGHT - SLIDE_HALF_HEIGHT) - SLIDE_HALF_HEIGHT - CAPSULE_RADIUS = 0.0

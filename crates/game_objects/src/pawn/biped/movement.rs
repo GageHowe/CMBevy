@@ -222,6 +222,22 @@ pub fn biped_move_direction(body_rot: Quat, input: BipedInput) -> Vec3 {
     (forward * input.forward + right * input.right).normalize_or_zero()
 }
 
+pub fn aim_pose(
+    world: &PhysicsWorld,
+    body_handle: &RigidBodyHandleComponent,
+    look_yaw: f32,
+    look_pitch: f32,
+) -> Option<(Vec3, Vec3)> {
+    let rb = world.rigid_body_set.get(body_handle.0)?;
+    let body_rot = rb_rot(rb);
+    Some((
+        // Fire origin must come from the physics body, not the visually smoothed transform.
+        // Otherwise interpolate/extrapolate shifts projectile spawn sideways while strafing.
+        rb_pos(rb) + body_rot * VIEW_PIVOT_OFFSET,
+        body_rot * Quat::from_rotation_y(look_yaw) * Quat::from_rotation_x(look_pitch) * Vec3::NEG_Z,
+    ))
+}
+
 pub fn viewmodel_offset(_is_primary: bool) -> Transform {
     Transform::from_xyz(0.4, -0.3, 0.0)
 }

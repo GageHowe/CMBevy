@@ -287,7 +287,9 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 return Ok(None);
             }
             let kind = GameObjectKind::from_name(kind.as_deref().unwrap_or("biped"))
-                .filter(|kind| matches!(kind, GameObjectKind::Biped | GameObjectKind::Spaceship));
+                .filter(|kind| {
+                    matches!(kind, GameObjectKind::Biped | GameObjectKind::Spaceship | GameObjectKind::Fighter)
+                });
             let Some(kind) = kind else {
                 println!("script spawn_pawn failed: invalid kind {kind:?}");
                 return Ok(None);

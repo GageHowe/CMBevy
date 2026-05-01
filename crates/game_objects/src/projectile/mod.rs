@@ -11,6 +11,7 @@ use crate::{
 pub mod hail_mary;
 pub mod helpers;
 pub mod rifle;
+pub mod fighter_rocket;
 pub mod rpg;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,6 +36,7 @@ impl Plugin for ProjectilePlugin {
         app.add_plugins((
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
+            fighter_rocket::FighterRocketProjectilePlugin,
             rpg::RpgProjectilePlugin,
         ));
     }
