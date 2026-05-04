@@ -188,14 +188,14 @@ pub fn draw_gravity_radii(sources: Query<(&GravitySource, &GlobalTransform)>, mu
     for (src, gt) in sources.iter() {
         let pos = gt.translation();
         match src.kind {
-            GravityKind::Point => {
-                if src.inner_radius > 0 {
-                    gizmos.sphere(Isometry3d::from_translation(pos), src.inner_radius as f32, Color::srgba(1.0, 0.0, 0.5, 0.1));
-                }
-                if src.radius > 0 {
-                    gizmos.sphere(Isometry3d::from_translation(pos), src.radius as f32, Color::srgba(0.0, 0.8, 0.0, 0.1));
-                }
-            }
+            GravityKind::Point => crate::debug_draw::draw_radius_spheres(
+                &mut gizmos,
+                pos,
+                src.inner_radius as f32,
+                src.radius as f32,
+                Color::srgba(1.0, 0.0, 0.5, 0.1),
+                Color::srgba(0.0, 0.8, 0.0, 0.1),
+            ),
             GravityKind::Axis(dir) => {
                 let normal = gt.affine().transform_vector3(dir).normalize_or_zero();
                 if normal.length_squared() < 0.5 { continue; }

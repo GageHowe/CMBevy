@@ -3,10 +3,14 @@ use bevy::{
     prelude::*,
 };
 
-const FREQUENCY: f64 = 1.0; // x times / sec
+pub const SLOW_UPDATE_FREQUENCY: f64 = 1.0;
+pub const SEMI_SLOW_UPDATE_FREQUENCY: f64 = 4.0;
 
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SlowUpdate;
+
+#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SemiSlowUpdate;
 
 fn run_slow_update(world: &mut World) {
     let delta = world.resource::<Time<Virtual>>().delta();
@@ -22,6 +26,20 @@ fn run_slow_update(world: &mut World) {
     });
 }
 
+fn run_semi_slow_update(world: &mut World) {
+    let delta = world.resource::<Time<Virtual>>().delta();
+
+    world.resource_scope(|world, mut state: Mut<SemiSlowScheduleState>| {
+        state.accumulator += delta;
+        let timestep = state.timestep;
+
+        while state.accumulator >= timestep {
+            state.accumulator -= timestep;
+            world.run_schedule(SemiSlowUpdate);
+        }
+    });
+}
+
 #[derive(Resource)]
 struct SlowScheduleState {
     accumulator: std::time::Duration,
@@ -32,7 +50,22 @@ impl Default for SlowScheduleState {
     fn default() -> Self {
         Self {
             accumulator: std::time::Duration::ZERO,
-            timestep: std::time::Duration::from_secs_f64(1.0 / FREQUENCY),
+            timestep: std::time::Duration::from_secs_f64(1.0 / SLOW_UPDATE_FREQUENCY),
+        }
+    }
+}
+
+#[derive(Resource)]
+struct SemiSlowScheduleState {
+    accumulator: std::time::Duration,
+    timestep: std::time::Duration,
+}
+
+impl Default for SemiSlowScheduleState {
+    fn default() -> Self {
+        Self {
+            accumulator: std::time::Duration::ZERO,
+            timestep: std::time::Duration::from_secs_f64(1.0 / SEMI_SLOW_UPDATE_FREQUENCY),
         }
     }
 }
@@ -44,8 +77,12 @@ impl Plugin for SlowSchedulePlugin {
         let mut schedule = Schedule::new(SlowUpdate);
         schedule.set_executor_kind(ExecutorKind::SingleThreaded);
         app.add_schedule(schedule);
+        let mut semi_schedule = Schedule::new(SemiSlowUpdate);
+        semi_schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        app.add_schedule(semi_schedule);
 
         app.init_resource::<SlowScheduleState>();
-        app.add_systems(RunFixedMainLoop, run_slow_update);
+        app.init_resource::<SemiSlowScheduleState>();
+        app.add_systems(RunFixedMainLoop, (run_slow_update, run_semi_slow_update));
     }
 }

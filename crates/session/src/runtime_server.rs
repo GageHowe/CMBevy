@@ -64,6 +64,10 @@ impl Plugin for ServerSessionPlugin {
                 common::slow_update::SlowUpdate,
                 game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
             )
+            .configure_sets(
+                common::slow_update::SemiSlowUpdate,
+                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
+            )
             .insert_resource(LevelPath(self.map_path.clone()))
             .insert_resource(ScriptConfig {
                 path: self.gametype_path.clone(),

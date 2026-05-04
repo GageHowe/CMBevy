@@ -5,7 +5,7 @@ use bevy::{
     scene::{DynamicSceneRoot, serde::SceneDeserializer},
 };
 use physics::{
-    collider_shape::ColliderShape,
+    collider_shape::AuthoredColliderShape as Shape,
     convex_hull_asset::ConvexHullAsset,
     physics_world::{
         InitialAngularVelocity, InitialVelocity, PhysicsWorld, RigidBodyHandleComponent,
@@ -20,6 +20,10 @@ use crate::{
     gc::{SpawnerGc, WorldObjectGc},
     lifecycle::spawn_game_object,
 };
+#[cfg(feature = "client")]
+use crate::debug_draw::draw_authored_shape;
+#[cfg(feature = "client")]
+use crate::zone_effects::{ZoneEffect, ZoneEffectKind};
 
 mod preprocess;
 
@@ -29,7 +33,7 @@ mod preprocess;
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct StaticCollider {
-    pub shape: ColliderShape,
+    pub shape: Shape,
     pub scale: f32,
 }
 
@@ -61,7 +65,7 @@ pub struct ScriptTags {
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 pub struct ScriptZone {
-    pub shape: ColliderShape,
+    pub shape: Shape,
 }
 
 /// Level-wide metadata inserted as a Resource by the .scn.ron file.
@@ -378,7 +382,7 @@ fn sanitize_hash(hash: &str) -> String {
 pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<ColliderShape>();
+        app.register_type::<Shape>();
         app.register_type::<StaticCollider>();
         app.register_type::<SceneModel>();
         app.register_type::<SpawnPoint>();
@@ -572,7 +576,7 @@ pub fn spawn_static_colliders(
         let linvel = initial_velocity.map_or(Vec3::ZERO, |v| v.0);
         let angvel = initial_angvel.map_or(Vec3::ZERO, |v| v.0);
         let body_type = scene_body.copied().unwrap_or_default();
-        if let ColliderShape::ConvexHulls(path) = &sc.shape {
+        if let Shape::ConvexHulls(path) = &sc.shape {
             if body_handle.is_none() {
                 ensure_body(entity, pos, rot, body_type, linvel, angvel, &mut commands, &mut world);
             }
@@ -655,14 +659,14 @@ pub fn spawn_scene_models(
 /// Draws a lightweight debug marker for script zones so proof-of-concept objectives such as
 /// KOTH hills are visible without dedicated art.
 pub fn draw_script_zone_debug(
-    zones: Query<(&ScriptZone, &Transform, Option<&ChildOf>)>,
+    zones: Query<(&ScriptZone, Option<&ZoneEffect>, &Transform, Option<&ChildOf>)>,
     parent_transforms: Query<&Transform>,
     parent_parents: Query<&ChildOf>,
     parent_bodies: Query<&RigidBodyHandleComponent>,
     physics: Res<PhysicsWorld>,
     mut gizmos: Gizmos,
 ) {
-    for (zone, transform, child_of) in &zones {
+    for (zone, effect, transform, child_of) in &zones {
         let (center, _rotation) = parented_world_pose(
             transform,
             child_of,
@@ -671,17 +675,12 @@ pub fn draw_script_zone_debug(
             &parent_bodies,
             &physics,
         );
-        let radius = match &zone.shape {
-            ColliderShape::Ball(radius) => *radius,
-            ColliderShape::Cuboid(half_extents) => half_extents.max_element(),
-            ColliderShape::Capsule { half_height, radius } => half_height + radius,
-            ColliderShape::ConvexHulls(_) => continue,
+        let color = match effect.map(|effect| &effect.kind) {
+            Some(ZoneEffectKind::Safe) => Color::srgba(0.2, 1.0, 0.35, 0.95),
+            Some(ZoneEffectKind::OutOfBounds) => Color::srgba(1.0, 0.25, 0.2, 0.95),
+            None => Color::srgba(0.15, 0.85, 0.95, 0.95),
         };
-        gizmos.sphere(
-            Isometry3d::from_translation(center),
-            radius,
-            Color::srgba(0.15, 0.85, 0.95, 0.95),
-        );
+        draw_authored_shape(&mut gizmos, &zone.shape, center, _rotation, color);
     }
 }
 

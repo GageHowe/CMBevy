@@ -7,6 +7,7 @@ pub mod asset_path;
 pub mod bot;
 pub mod collision;
 pub mod components;
+pub mod debug_draw;
 pub mod generic;
 pub mod gc;
 pub mod health;
@@ -24,6 +25,7 @@ mod spawn;
 #[cfg(feature = "client")]
 pub mod spring_arm;
 pub mod weapon;
+pub mod zone_effects;
 pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers};
@@ -68,6 +70,7 @@ impl Plugin for GameObjectsPlugin {
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(weapon::WeaponPlugin);
+        app.add_plugins(zone_effects::ZoneEffectsPlugin);
     }
 }
 

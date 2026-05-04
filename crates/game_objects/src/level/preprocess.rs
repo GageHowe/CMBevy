@@ -4,12 +4,14 @@
 const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("Transform", "bevy_transform::components::transform::Transform"),
     ("ChildOf", "bevy_ecs::hierarchy::ChildOf"),
+    ("Shape", "physics::collider_shape::AuthoredColliderShape"),
     ("MapMeta", "game_objects::level::MapMeta"),
     ("StaticCollider", "game_objects::level::StaticCollider"),
     ("SceneModel", "game_objects::level::SceneModel"),
     ("SpawnPoint", "game_objects::level::SpawnPoint"),
     ("ScriptTags", "game_objects::level::ScriptTags"),
     ("ScriptZone", "game_objects::level::ScriptZone"),
+    ("ZoneEffect", "game_objects::zone_effects::ZoneEffect"),
     ("Spawner", "game_objects::level::Spawner"),
     ("SceneRigidBody", "physics::physics_world::SceneRigidBody"),
     ("InitialVelocity", "physics::physics_world::InitialVelocity"),
@@ -17,7 +19,6 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("CascadeShadowConfig", "bevy_light::cascade::CascadeShadowConfig"),
     ("DirectionalLight", "bevy_light::directional_light::DirectionalLight"),
     ("AreaReverbComponent", "game_objects::components::atmosphere::AreaReverbComponent"),
-    ("AtmosphericDragComponent", "game_objects::components::atmosphere::AtmosphericDragComponent"),
     ("GravitySource", "game_objects::components::gravity::GravitySource"),
     ("SnapSource", "game_objects::components::snap::SnapSource"),
 ];

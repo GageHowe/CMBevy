@@ -9,7 +9,7 @@ use rapier3d::prelude::*;
 pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
 use serde::{Deserialize, Serialize};
 
-use crate::collider_shape::ColliderShape;
+use crate::collider_shape::AuthoredColliderShape;
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
@@ -414,7 +414,7 @@ impl PhysicsWorld {
 
     pub fn entities_intersecting_shape(
         &self,
-        shape: &ColliderShape,
+        shape: &AuthoredColliderShape,
         scale: f32,
         position: Vec3,
         rotation: Quat,

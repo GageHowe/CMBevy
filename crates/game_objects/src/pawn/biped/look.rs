@@ -110,17 +110,9 @@ pub fn draw_biped_debug(
     bipeds: Query<&RigidBodyHandleComponent, With<BipedPawnComponent>>,
     mut gizmos: Gizmos,
 ) {
-    use physics::debug::{draw_collider, rb_iso};
+    use physics::debug::draw_body_colliders;
     for body_handle in bipeds.iter() {
-        let Some(rb) = world.rigid_body_set.get(body_handle.0) else {
-            continue;
-        };
-        let iso = rb_iso(rb);
-        for ch in rb.colliders() {
-            if let Some(col) = world.collider_set.get(*ch) {
-                draw_collider(col, iso, Color::srgba(0.3, 0.6, 1.0, 0.1), &mut gizmos);
-            }
-        }
+        draw_body_colliders(&world, body_handle, Color::srgba(0.3, 0.6, 1.0, 0.1), &mut gizmos);
     }
 }
 

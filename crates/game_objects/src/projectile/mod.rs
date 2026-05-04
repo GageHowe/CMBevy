@@ -212,17 +212,9 @@ pub fn draw_projectile_debug<P: Component>(
     color: Color,
 ) -> impl Fn(Res<PhysicsWorld>, Query<&RigidBodyHandleComponent, With<P>>, Gizmos) {
     move |world, projectiles, mut gizmos| {
-        use physics::debug::{draw_collider, rb_iso};
+        use physics::debug::draw_body_colliders;
         for body_handle in projectiles.iter() {
-            let Some(rb) = world.rigid_body_set.get(body_handle.0) else {
-                continue;
-            };
-            let iso = rb_iso(rb);
-            for ch in rb.colliders() {
-                if let Some(col) = world.collider_set.get(*ch) {
-                    draw_collider(col, iso, color, &mut gizmos);
-                }
-            }
+            draw_body_colliders(&world, body_handle, color, &mut gizmos);
         }
     }
 }

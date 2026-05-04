@@ -8,7 +8,6 @@ use common::{
 use game_objects::{
     NetworkEntityMap,
     components::{
-        atmosphere::{AtmosphericDragComponent, apply_wind_resistance_impulses},
         gravity::{GravitySource, apply_gravity_impulses},
         snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
@@ -82,15 +81,6 @@ struct ReplayState {
 struct ReplayPhysicsEnv<'w, 's> {
     gravity_sources: Query<'w, 's, (&'static GravitySource, &'static RigidBodyHandleComponent)>,
     snap_sources: Query<'w, 's, (&'static SnapSource, &'static RigidBodyHandleComponent)>,
-    atmospheres: Query<
-        'w,
-        's,
-        (
-            &'static AtmosphericDragComponent,
-            &'static Transform,
-            Option<&'static RigidBodyHandleComponent>,
-        ),
-    >,
     gravity_scales: Query<'w, 's, &'static GravityScale>,
 }
 
@@ -261,7 +251,6 @@ fn maybe_reconcile(
                 apply_predicted_impulse(&mut world, &replay_handles, our_net_id, our_rb, impulse);
             }
         }
-        apply_wind_resistance_impulses(&mut world, &env.atmospheres, &seated);
         apply_gravity_impulses(&mut world, &env.gravity_sources, &env.gravity_scales, &seated);
         orient_bipeds_to_snap_sources_impulses(&mut world, &bipeds, &env.snap_sources);
         step_world(&mut world);

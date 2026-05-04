@@ -3,7 +3,7 @@ use rapier3d::prelude::*;
 
 #[derive(Clone, Reflect)]
 #[reflect(Default)]
-pub enum ColliderShape {
+pub enum AuthoredColliderShape {
     Ball(f32),
     Cuboid(Vec3),
     Capsule {
@@ -14,13 +14,13 @@ pub enum ColliderShape {
     ConvexHulls(String),
 }
 
-impl Default for ColliderShape {
+impl Default for AuthoredColliderShape {
     fn default() -> Self {
         Self::Ball(1.0)
     }
 }
 
-impl ColliderShape {
+impl AuthoredColliderShape {
     pub fn build_primitive_collider(&self, scale: f32) -> Option<Collider> {
         match self {
             Self::Cuboid(he) => {

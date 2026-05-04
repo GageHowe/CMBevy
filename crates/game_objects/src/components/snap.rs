@@ -147,14 +147,14 @@ pub fn draw_snap_radii(sources: Query<(&SnapSource, &GlobalTransform)>, mut gizm
     for (src, gt) in sources.iter() {
         let pos = gt.translation();
         match src.kind {
-            SnapKind::Point => {
-                if src.inner_radius > 0 {
-                    gizmos.sphere(Isometry3d::from_translation(pos), src.inner_radius as f32, Color::srgba(1.0, 0.0, 0.5, 0.1));
-                }
-                if src.radius > 0 {
-                    gizmos.sphere(Isometry3d::from_translation(pos), src.radius as f32, Color::srgba(0.9, 0.9, 0.0, 0.1));
-                }
-            }
+            SnapKind::Point => crate::debug_draw::draw_radius_spheres(
+                &mut gizmos,
+                pos,
+                src.inner_radius as f32,
+                src.radius as f32,
+                Color::srgba(1.0, 0.0, 0.5, 0.1),
+                Color::srgba(0.9, 0.9, 0.0, 0.1),
+            ),
             SnapKind::Axis(dir) => {
                 let normal = gt.affine().transform_vector3(dir).normalize_or_zero();
                 if normal.length_squared() < 0.5 { continue; }
