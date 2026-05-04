@@ -85,6 +85,10 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(Startup, (load_server_level, start_server, init_mode_config).chain())
             .add_systems(FixedUpdate, crate::bots::run_bots.before(step_physics))
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
+            .add_systems(
+                FixedUpdate,
+                game_objects::pawn::biped::apply_melee_hits.after(apply_inputs).before(step_physics),
+            )
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,

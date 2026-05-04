@@ -77,6 +77,11 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .add_systems(FixedUpdate, run_singleplayer_bots.run_if(in_state(single_player)))
             .add_systems(
                 FixedUpdate,
+                game_objects::pawn::biped::apply_melee_hits
+                    .run_if(crate::runtime::has_authority),
+            )
+            .add_systems(
+                FixedUpdate,
                 advance_match_state_time.run_if(in_state(single_player)),
             )
             .add_systems(OnEnter(multiplayer), (reset_interaction_gate, connect).chain())

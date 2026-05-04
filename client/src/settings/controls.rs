@@ -79,6 +79,7 @@ pub fn show_controls_settings(
     });
 
     egui::CollapsingHeader::new("Actions").default_open(true).show(ui, |ui| {
+        show_binding_row(ui, settings, capture, InputAction::Melee, "Melee");
         show_binding_row(ui, settings, capture, InputAction::Interact, "Interact / use");
         show_binding_row(ui, settings, capture, InputAction::Ability2, "Ability 2");
         show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");

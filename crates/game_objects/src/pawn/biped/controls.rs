@@ -72,10 +72,12 @@ fn gather_biped_input(
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
         fixed_presses.clear_ability1();
+        fixed_presses.clear_melee();
         return;
     }
     let Ok((mut possessed, biped)) = pawns.single_mut() else {
         fixed_presses.clear_ability1();
+        fixed_presses.clear_melee();
         return;
     };
     let gamepad = common::active_gamepad(gamepads.iter());
@@ -103,6 +105,7 @@ fn gather_biped_input(
     input.ability1 =
         bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons, gamepad);
     input.ability1_pressed = fixed_presses.consume_ability1();
+    input.melee_pressed = fixed_presses.consume_melee();
     if let Some(yaw_e) = biped.yaw_pivot
         && let Ok(yp) = yaw_pivots.get(yaw_e)
     {
@@ -293,6 +296,7 @@ struct FixedPressQueue {
     reload: bool,
     alt_fire: bool,
     ability1: bool,
+    melee: bool,
 }
 
 impl FixedPressQueue {
@@ -305,6 +309,9 @@ impl FixedPressQueue {
     fn queue_ability1(&mut self) {
         self.ability1 = true;
     }
+    fn queue_melee(&mut self) {
+        self.melee = true;
+    }
     fn consume_reload(&mut self) -> bool {
         std::mem::take(&mut self.reload)
     }
@@ -314,8 +321,14 @@ impl FixedPressQueue {
     fn consume_ability1(&mut self) -> bool {
         std::mem::take(&mut self.ability1)
     }
+    fn consume_melee(&mut self) -> bool {
+        std::mem::take(&mut self.melee)
+    }
     fn clear_ability1(&mut self) {
         self.ability1 = false;
+    }
+    fn clear_melee(&mut self) {
+        self.melee = false;
     }
 }
 
@@ -341,6 +354,9 @@ fn queue_fixed_inputs(
         && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse, gamepad)
     {
         fixed_presses.queue_ability1();
+    }
+    if !blocked && bindings.just_pressed(common::InputAction::Melee, &keyboard, &mouse, gamepad) {
+        fixed_presses.queue_melee();
     }
 }
 

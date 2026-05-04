@@ -8,12 +8,16 @@ use crate::spawn::AppGameObjectExt;
 mod controls;
 mod lifecycle;
 mod look;
+mod melee;
 mod movement;
 
 #[cfg(feature = "client")]
 pub(crate) use controls::consume_fixed_press;
 #[cfg(feature = "client")]
 pub use look::draw_biped_debug;
+#[cfg(feature = "client")]
+pub use look::draw_melee_debug;
+pub use melee::apply_melee_hits;
 pub use movement::{
     aim_pose, apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset,
 };
@@ -58,6 +62,15 @@ pub struct BipedPawnComponent {
     #[reflect(ignore)]
     pub jetpack_fx_entity: Option<Entity>,
     pub is_sliding: bool,
+    pub melee_windup_ticks: u8,
+    pub melee_cooldown_ticks: u8,
+    #[reflect(ignore)]
+    pub melee_fired_this_tick: bool,
+    #[reflect(ignore)]
+    pub melee_debug_start: Vec3,
+    #[reflect(ignore)]
+    pub melee_debug_end: Vec3,
+    pub melee_debug_ticks: u8,
     pub snap_target: Option<Entity>,
     pub last_look_frame_body_rot: Option<Quat>,
 }

@@ -4,7 +4,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const INPUT_ACTION_COUNT: usize = 19;
+pub const INPUT_ACTION_COUNT: usize = 20;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug)]
@@ -16,6 +16,7 @@ pub enum InputAction {
     Jump,
     Crouch,
     Ability1,
+    Melee,
     Interact,
     Ability2,
     Reload,
@@ -38,6 +39,7 @@ pub const INPUT_ACTIONS: [InputAction; INPUT_ACTION_COUNT] = [
     InputAction::Jump,
     InputAction::Crouch,
     InputAction::Ability1,
+    InputAction::Melee,
     InputAction::Interact,
     InputAction::Ability2,
     InputAction::Reload,
@@ -371,6 +373,14 @@ impl ActiveBindings {
     }
 }
 
+fn default_melee_keybinding() -> ActionBinding {
+    ActionBinding::new(BindingButton::Key(KeyCode::KeyV), None)
+}
+
+fn default_melee_gamepad_binding() -> GamepadActionBinding {
+    GamepadActionBinding::new(GamepadBindingButton::West, None)
+}
+
 #[derive(Clone, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug)]
 pub struct KeyBindings {
     pub move_forward: ActionBinding,
@@ -381,6 +391,8 @@ pub struct KeyBindings {
     pub crouch: ActionBinding,
     #[serde(alias = "sprint")]
     pub ability1: ActionBinding,
+    #[serde(default = "default_melee_keybinding")]
+    pub melee: ActionBinding,
     pub interact: ActionBinding,
     #[serde(alias = "ability")]
     pub ability2: ActionBinding,
@@ -405,6 +417,8 @@ pub struct GamepadBindings {
     pub jump: GamepadActionBinding,
     pub crouch: GamepadActionBinding,
     pub ability1: GamepadActionBinding,
+    #[serde(default = "default_melee_gamepad_binding")]
+    pub melee: GamepadActionBinding,
     pub interact: GamepadActionBinding,
     pub ability2: GamepadActionBinding,
     pub reload: GamepadActionBinding,
@@ -429,6 +443,7 @@ impl Default for KeyBindings {
             jump: ActionBinding::new(BindingButton::Key(KeyCode::Space), None),
             crouch: ActionBinding::new(BindingButton::Key(KeyCode::ControlLeft), None),
             ability1: ActionBinding::new(BindingButton::Key(KeyCode::ShiftLeft), None),
+            melee: default_melee_keybinding(),
             interact: ActionBinding::new(BindingButton::Key(KeyCode::KeyF), None),
             ability2: ActionBinding::new(BindingButton::Key(KeyCode::KeyE), None),
             reload: ActionBinding::new(BindingButton::Key(KeyCode::KeyR), None),
@@ -455,6 +470,7 @@ impl Default for GamepadBindings {
             jump: GamepadActionBinding::new(GamepadBindingButton::South, None),
             crouch: GamepadActionBinding::new(GamepadBindingButton::East, None),
             ability1: GamepadActionBinding::new(GamepadBindingButton::LeftTrigger2, None),
+            melee: default_melee_gamepad_binding(),
             interact: GamepadActionBinding::new(GamepadBindingButton::West, None),
             ability2: GamepadActionBinding::new(GamepadBindingButton::North, None),
             reload: GamepadActionBinding::new(GamepadBindingButton::North, None),
@@ -481,6 +497,7 @@ impl KeyBindings {
             InputAction::Jump => self.jump,
             InputAction::Crouch => self.crouch,
             InputAction::Ability1 => self.ability1,
+            InputAction::Melee => self.melee,
             InputAction::Interact => self.interact,
             InputAction::Ability2 => self.ability2,
             InputAction::Reload => self.reload,
@@ -505,6 +522,7 @@ impl KeyBindings {
             InputAction::Jump => &mut self.jump,
             InputAction::Crouch => &mut self.crouch,
             InputAction::Ability1 => &mut self.ability1,
+            InputAction::Melee => &mut self.melee,
             InputAction::Interact => &mut self.interact,
             InputAction::Ability2 => &mut self.ability2,
             InputAction::Reload => &mut self.reload,
@@ -531,6 +549,7 @@ impl GamepadBindings {
             InputAction::Jump => self.jump,
             InputAction::Crouch => self.crouch,
             InputAction::Ability1 => self.ability1,
+            InputAction::Melee => self.melee,
             InputAction::Interact => self.interact,
             InputAction::Ability2 => self.ability2,
             InputAction::Reload => self.reload,
@@ -555,6 +574,7 @@ impl GamepadBindings {
             InputAction::Jump => &mut self.jump,
             InputAction::Crouch => &mut self.crouch,
             InputAction::Ability1 => &mut self.ability1,
+            InputAction::Melee => &mut self.melee,
             InputAction::Interact => &mut self.interact,
             InputAction::Ability2 => &mut self.ability2,
             InputAction::Reload => &mut self.reload,

@@ -212,6 +212,7 @@ pub fn apply_biped_input(
     biped.look_yaw = input.look_yaw;
     biped.look_pitch = input.look_pitch;
     apply_biped_movement(world, body_handle, input, biped);
+    super::melee::tick_melee(world, body_handle, input, biped);
     crate::pawn::biped_ability::apply_input(owner, input, world, biped)
 }
 

@@ -124,6 +124,26 @@ pub fn draw_biped_debug(
     }
 }
 
+#[cfg(feature = "client")]
+pub fn draw_melee_debug(bipeds: Query<&BipedPawnComponent>, mut gizmos: Gizmos) {
+    for biped in &bipeds {
+        if biped.melee_debug_ticks == 0 {
+            continue;
+        }
+        gizmos.line(biped.melee_debug_start, biped.melee_debug_end, Color::srgba(1.0, 0.2, 0.2, 0.9));
+        gizmos.sphere(
+            Isometry3d::from_translation(biped.melee_debug_start),
+            super::melee::melee_radius(),
+            Color::srgba(1.0, 0.2, 0.2, 0.25),
+        );
+        gizmos.sphere(
+            Isometry3d::from_translation(biped.melee_debug_end),
+            super::melee::melee_radius(),
+            Color::srgba(1.0, 0.2, 0.2, 0.25),
+        );
+    }
+}
+
 pub(super) fn update_slide_camera(
     bipeds: Query<&BipedPawnComponent>,
     mut pivots: Query<&mut Transform, With<YawPivot>>,
