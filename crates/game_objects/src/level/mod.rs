@@ -17,6 +17,7 @@ use serde::de::DeserializeSeed;
 use sha2::{Digest, Sha256};
 
 use crate::{
+    AuthoritySet,
     gc::{SpawnerGc, WorldObjectGc},
     lifecycle::spawn_game_object,
 };
@@ -115,9 +116,6 @@ pub(crate) struct SpawnerRuntime {
     pub(crate) respawn_timer_secs: f32,
     pub(crate) active_entity: Option<Entity>,
 }
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LevelAuthoritySet;
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct LevelReadyState<'w, 's> {
@@ -408,7 +406,7 @@ impl Plugin for LevelPlugin {
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
         app.add_systems(Update, init_spawners);
-        app.add_systems(FixedUpdate, tick_spawners.in_set(LevelAuthoritySet));
+        app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySet::Level));
     }
 }
 

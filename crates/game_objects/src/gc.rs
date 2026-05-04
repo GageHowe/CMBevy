@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use common::slow_update::SlowUpdate;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos};
 
-use crate::level::LevelAuthoritySet;
+use crate::AuthoritySet;
 
 #[derive(Component, Clone, Copy)]
 pub struct WorldObjectGc {
@@ -30,7 +30,7 @@ pub struct WorldGcPlugin;
 
 impl Plugin for WorldGcPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(SlowUpdate, cleanup_world_gc_entities.in_set(LevelAuthoritySet));
+        app.add_systems(SlowUpdate, cleanup_world_gc_entities.in_set(AuthoritySet::Level));
     }
 }
 

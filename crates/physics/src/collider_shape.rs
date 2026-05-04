@@ -33,4 +33,23 @@ impl AuthoredColliderShape {
             Self::ConvexHulls(_) => None,
         }
     }
+
+    pub fn contains_point(&self, scale: f32, position: Vec3, rotation: Quat, point: Vec3) -> bool {
+        let local = rotation.inverse() * (point - position);
+        match self {
+            Self::Ball(radius) => local.length_squared() <= (radius * scale).powi(2),
+            Self::Cuboid(half_extents) => {
+                let he = *half_extents * scale;
+                local.x.abs() <= he.x && local.y.abs() <= he.y && local.z.abs() <= he.z
+            }
+            Self::Capsule { half_height, radius } => {
+                let half_height = half_height * scale;
+                let radius = radius * scale;
+                let clamped_y = local.y.clamp(-half_height, half_height);
+                let nearest = Vec3::new(0.0, clamped_y, 0.0);
+                local.distance_squared(nearest) <= radius.powi(2)
+            }
+            Self::ConvexHulls(_) => false,
+        }
+    }
 }

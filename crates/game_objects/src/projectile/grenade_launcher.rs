@@ -309,7 +309,7 @@ impl Plugin for GrenadeLauncherProjectilePlugin {
             )
                 .chain()
                 .after(step_physics)
-                .in_set(super::ProjectileAuthoritySet),
+                .in_set(super::AuthoritySet::Projectile),
         );
         #[cfg(feature = "client")]
         app.add_systems(

@@ -169,7 +169,7 @@ impl Plugin for FighterRocketProjectilePlugin {
             FixedUpdate,
             tick_projectiles::<FighterRocketProjectile>
                 .after(step_physics)
-                .in_set(super::ProjectileAuthoritySet),
+                .in_set(super::AuthoritySet::Projectile),
         );
         #[cfg(feature = "client")]
         app.add_systems(

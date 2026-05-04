@@ -46,28 +46,8 @@ impl Plugin for ServerSessionPlugin {
             }
         });
 
+        crate::runtime::configure_authority_sets(app);
         app.insert_resource(BindAddr(self.bind_addr))
-            .configure_sets(
-                FixedUpdate,
-                game_objects::health::HealthAuthoritySet.run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                FixedUpdate,
-                game_objects::projectile::ProjectileAuthoritySet
-                    .run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                FixedUpdate,
-                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                common::slow_update::SlowUpdate,
-                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                common::slow_update::SemiSlowUpdate,
-                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
-            )
             .insert_resource(LevelPath(self.map_path.clone()))
             .insert_resource(ScriptConfig {
                 path: self.gametype_path.clone(),

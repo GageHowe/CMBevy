@@ -34,6 +34,13 @@ pub use spawn::{
     GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death,
 };
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AuthoritySet {
+    Health,
+    Projectile,
+    Level,
+}
+
 pub struct GameObjectsPlugin;
 
 impl Plugin for GameObjectsPlugin {

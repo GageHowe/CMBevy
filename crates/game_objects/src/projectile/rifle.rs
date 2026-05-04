@@ -239,7 +239,7 @@ impl Plugin for RifleProjectilePlugin {
                 FixedUpdate,
                 (tick_projectiles::<RifleProjectile>, tick_projectiles::<PistolProjectile>)
                     .after(step_physics)
-                    .in_set(super::ProjectileAuthoritySet),
+                    .in_set(super::AuthoritySet::Projectile),
             );
         #[cfg(feature = "client")]
         app.add_systems(

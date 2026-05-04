@@ -4,6 +4,7 @@ use net::message::*;
 use physics::physics_world::*;
 
 use crate::{
+    AuthoritySet,
     GameObject,
     health::{DamageCause, Health, LastDamageSource},
 };
@@ -14,9 +15,6 @@ pub mod rifle;
 pub mod fighter_rocket;
 pub mod grenade_launcher;
 pub mod rpg;
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ProjectileAuthoritySet;
 
 pub struct FiredProjectile {
     pub net_id: NetworkID,

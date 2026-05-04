@@ -38,28 +38,8 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
         let main_menu = self.main_menu;
         let single_player = self.single_player;
         let multiplayer = self.multiplayer;
+        crate::runtime::configure_authority_sets(app);
         app.insert_resource(GuiState::default())
-            .configure_sets(
-                FixedUpdate,
-                game_objects::health::HealthAuthoritySet.run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                FixedUpdate,
-                game_objects::projectile::ProjectileAuthoritySet
-                    .run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                FixedUpdate,
-                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                common::slow_update::SlowUpdate,
-                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
-            )
-            .configure_sets(
-                common::slow_update::SemiSlowUpdate,
-                game_objects::level::LevelAuthoritySet.run_if(crate::runtime::has_authority),
-            )
             .init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<LocalCharacterNetId>()

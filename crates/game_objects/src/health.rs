@@ -6,15 +6,12 @@ use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
 
 use crate::{
+    AuthoritySet,
     collision::{CollisionImpactSet, CollisionImpacts},
     dispatch_game_object_on_death,
 };
 
 const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-/// Orders authoritative health systems relative to other gameplay systems.
-pub struct HealthAuthoritySet;
 
 /// Registers shared health, regen, damage, and death handling systems.
 pub struct HealthPlugin;
@@ -26,9 +23,9 @@ impl Plugin for HealthPlugin {
             (apply_collision_damage, regenerate_health, age_last_damage_sources)
                 .chain()
                 .after(CollisionImpactSet)
-                .in_set(HealthAuthoritySet),
+                .in_set(AuthoritySet::Health),
         );
-        app.add_systems(FixedUpdate, handle_deaths.in_set(HealthAuthoritySet));
+        app.add_systems(FixedUpdate, handle_deaths.in_set(AuthoritySet::Health));
         app.add_systems(FixedLast, flush_pending_death_despawns);
     }
 }

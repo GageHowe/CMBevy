@@ -166,7 +166,7 @@ impl Plugin for HailMaryProjectilePlugin {
             FixedUpdate,
             tick_projectiles::<HailMaryProjectile>
                 .after(step_physics)
-                .in_set(super::ProjectileAuthoritySet),
+                .in_set(super::AuthoritySet::Projectile),
         );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);

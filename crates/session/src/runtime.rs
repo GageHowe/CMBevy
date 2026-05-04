@@ -10,6 +10,26 @@ pub(crate) use crate::runtime_client::{ClientSessionState, handle_file_data, han
 #[cfg(not(feature = "client"))]
 pub use crate::runtime_server::ServerSessionPlugin;
 
+pub(crate) fn configure_authority_sets(app: &mut App) {
+    app.configure_sets(
+        FixedUpdate,
+        (
+            game_objects::AuthoritySet::Health,
+            game_objects::AuthoritySet::Projectile,
+            game_objects::AuthoritySet::Level,
+        )
+            .run_if(has_authority),
+    )
+    .configure_sets(
+        common::slow_update::SlowUpdate,
+        game_objects::AuthoritySet::Level.run_if(has_authority),
+    )
+    .configure_sets(
+        common::slow_update::SemiSlowUpdate,
+        game_objects::AuthoritySet::Level.run_if(has_authority),
+    );
+}
+
 pub fn has_authority(state: Option<Res<State<GameState>>>) -> bool {
     #[cfg(feature = "client")]
     {

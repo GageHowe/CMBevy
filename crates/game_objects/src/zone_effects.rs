@@ -9,6 +9,7 @@ use net::{
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
+    AuthoritySet,
     health::Health,
     level::{ScriptZone, parented_world_pose},
     pawn::PlayerRegistry,
@@ -17,17 +18,25 @@ use crate::{
 #[cfg(feature = "client")]
 use crate::{messages, pawn::Possessed};
 
-#[derive(Clone, Reflect, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Reflect, Default, PartialEq, Eq)]
 pub enum ZoneEffectKind {
     #[default]
     Safe,
     OutOfBounds,
 }
 
+#[derive(Clone, Debug, Reflect, Default, PartialEq, Eq)]
+pub enum ZoneEffectRegion {
+    #[default]
+    Inside,
+    Outside,
+}
+
 #[derive(Component, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct ZoneEffect {
     pub kind: ZoneEffectKind,
+    pub region: ZoneEffectRegion,
     pub priority: i32,
     pub countdown_secs: f32,
     pub damage_fraction_per_sec: f32,
@@ -37,6 +46,7 @@ impl Default for ZoneEffect {
     fn default() -> Self {
         Self {
             kind: ZoneEffectKind::Safe,
+            region: ZoneEffectRegion::Inside,
             priority: 0,
             countdown_secs: 0.0,
             damage_fraction_per_sec: 0.0,
@@ -75,10 +85,11 @@ pub struct ZoneEffectsPlugin;
 impl Plugin for ZoneEffectsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<ZoneEffectKind>();
+        app.register_type::<ZoneEffectRegion>();
         app.register_type::<ZoneEffect>();
         app.init_resource::<ZoneEffectRuntime>();
-        app.add_systems(SemiSlowUpdate, tick_zone_effects);
-        app.add_systems(SlowUpdate, tick_zone_messages);
+        app.add_systems(SemiSlowUpdate, tick_zone_effects.in_set(AuthoritySet::Level));
+        app.add_systems(SlowUpdate, tick_zone_messages.in_set(AuthoritySet::Level));
     }
 }
 
@@ -114,11 +125,19 @@ fn tick_zone_effects(world: &mut World) {
                 &parent_bodies,
                 &physics,
             );
-            for entity in physics.entities_intersecting_shape(&zone.shape, 1.0, position, rotation, &[]) {
-                if !player_set.contains(&entity) {
+            for entity in &players {
+                let player_pos = physics.body_pos(*entity);
+                let inside = player_pos.is_some_and(|player_pos| {
+                    zone.shape.contains_point(1.0, position, rotation, player_pos)
+                });
+                let applies = match effect.region {
+                    ZoneEffectRegion::Inside => inside,
+                    ZoneEffectRegion::Outside => !inside,
+                };
+                if !applies {
                     continue;
                 }
-                let entry = overlaps.entry(entity).or_default();
+                let entry = overlaps.entry(*entity).or_default();
                 match effect.kind {
                     ZoneEffectKind::Safe => entry.safe = true,
                     ZoneEffectKind::OutOfBounds => {
