@@ -119,7 +119,9 @@ impl WeaponSlots {
             self.slots[self.active_index].0.take()?,
             self.slots[self.active_index].1.take()?,
         ));
-        self.next_slot();
+        if !self.next_weapon() {
+            self.next_slot();
+        }
         removed
     }
 
@@ -150,7 +152,9 @@ impl WeaponSlots {
             }
         }
         if removed_active {
-            self.next_slot();
+            if !self.next_weapon() {
+                self.next_slot();
+            }
         }
     }
 

@@ -16,6 +16,7 @@ use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
 
 use crate::{
+    actions::apply_melee_hit_requests,
     replication::{broadcast_health_updates, broadcast_scoreboard, broadcast_tick, spawn_player},
     resources::*,
 };
@@ -78,6 +79,7 @@ impl Plugin for ServerSessionPlugin {
             .init_resource::<PendingConnections>()
             .init_resource::<ActiveConnections>()
             .init_resource::<PendingInputs>()
+            .init_resource::<PendingMeleeHits>()
             .init_resource::<LastProcessedInputSeq>()
             .init_resource::<BodyHistory>()
             .add_systems(Update, (tick_respawns, process_console_commands))
@@ -85,10 +87,7 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(Startup, (load_server_level, start_server, init_mode_config).chain())
             .add_systems(FixedUpdate, crate::bots::run_bots.before(step_physics))
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
-            .add_systems(
-                FixedUpdate,
-                game_objects::pawn::biped::apply_melee_hits.after(apply_inputs).before(step_physics),
-            )
+            .add_systems(FixedUpdate, apply_melee_hit_requests.after(apply_inputs).before(step_physics))
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,

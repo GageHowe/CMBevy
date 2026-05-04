@@ -16,6 +16,7 @@ pub fn on_message(
     mut registry: ResMut<PlayerRegistry>,
     mut pending_connections: ResMut<PendingConnections>,
     mut pending_inputs: ResMut<PendingInputs>,
+    mut pending_melee_hits: ResMut<PendingMeleeHits>,
     mut pending_respawns: ResMut<PendingRespawns>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut sp: ServerMessageParams<'_, '_>,
@@ -33,6 +34,7 @@ pub fn on_message(
             &mut registry,
             &mut pending_connections,
             &mut pending_inputs,
+            &mut pending_melee_hits,
             &mut pending_respawns,
             &mut net_ids,
             &mut sp,
@@ -60,6 +62,7 @@ fn process_server_message(
     registry: &mut PlayerRegistry,
     pending_connections: &mut PendingConnections,
     pending_inputs: &mut PendingInputs,
+    pending_melee_hits: &mut PendingMeleeHits,
     pending_respawns: &mut PendingRespawns,
     net_ids: &mut NetworkIDResource,
     sp: &mut ServerMessageParams<'_, '_>,
@@ -91,6 +94,9 @@ fn process_server_message(
             pending_connections.0.remove(&conn_id);
         }
         MsgType::Input(input_seq, kind) => handle_input(conn_id, input_seq, kind, pending_inputs),
+        MsgType::MeleeHitRequest(target_net_id) => {
+            handle_melee_hit_request(conn_id, target_net_id, pending_melee_hits)
+        }
         MsgType::Interact(target_net_id) => {
             handle_interact(
                 conn_id,

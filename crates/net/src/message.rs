@@ -75,6 +75,7 @@ pub enum MsgType {
     /// client-authoritative: "I am looking with this yaw and pitch"
     PawnLook(NetworkID, f32, f32),
     ReloadWeapon(NetworkID),
+    MeleeHitRequest(NetworkID),
     FireRequest { weapon: NetworkID, kind: GameObjectKind, temp_id: u32, origin: Vec3, dir: Vec3 },
     DetonateGrenadeRequest(NetworkID),
     ProjectileConfirm { temp_id: u32, net_id: NetworkID },

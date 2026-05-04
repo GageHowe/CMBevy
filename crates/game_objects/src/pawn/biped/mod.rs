@@ -18,6 +18,7 @@ pub use look::draw_biped_debug;
 #[cfg(feature = "client")]
 pub use look::draw_melee_debug;
 pub use melee::apply_melee_hits;
+pub use melee::{MELEE_DAMAGE, melee_impulse, resolve_melee_hit, validate_melee_target};
 pub use movement::{
     aim_pose, apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset,
 };
@@ -81,7 +82,10 @@ impl Plugin for BipedPlugin {
         app.register_game_object::<BipedPawnComponent>().init_resource::<MouseSensitivity>();
         app.add_systems(FixedUpdate, look::update_slide_camera);
         #[cfg(feature = "client")]
-        controls::configure(app);
+        {
+            controls::configure(app);
+            app.add_systems(FixedUpdate, melee::send_predicted_melee_hit.before(physics::physics_world::step_physics));
+        }
         app.add_systems(
             PostUpdate,
             (look::sync_remote_look_pivots, look::preserve_look_across_body_rotation)

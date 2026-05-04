@@ -52,10 +52,26 @@ pub(super) fn configure(app: &mut App) {
             (
                 reset_look_on_possess.before(attach_camera_on_possess),
                 attach_camera_on_possess,
+                clear_zoom_without_active_weapon,
                 hide_weapons_while_seated,
                 switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
             ),
         );
+}
+
+fn clear_zoom_without_active_weapon(
+    pawn: Query<&WeaponSlots, With<Possessed>>,
+    mut camera: Query<&mut CameraEffector, With<Camera3d>>,
+) {
+    let Ok(slots) = pawn.single() else {
+        return;
+    };
+    if slots.active().1.is_some() {
+        return;
+    }
+    if let Ok(mut camera) = camera.single_mut() {
+        camera.reset_zoom();
+    }
 }
 
 fn gather_biped_input(

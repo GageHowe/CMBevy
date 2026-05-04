@@ -25,6 +25,59 @@ pub(super) fn handle_input(
     }
 }
 
+pub(super) fn handle_melee_hit_request(
+    conn_id: ConnectionId,
+    target_net_id: NetworkID,
+    pending_melee_hits: &mut PendingMeleeHits,
+) {
+    pending_melee_hits.0.insert(conn_id, target_net_id);
+}
+
+pub(super) fn apply_melee_hit_requests(
+    mut pending_melee_hits: ResMut<PendingMeleeHits>,
+    registry: Res<PlayerRegistry>,
+    networked: Res<NetworkEntityMap>,
+    mut world: ResMut<PhysicsWorld>,
+    mut bipeds: Query<&mut game_objects::pawn::BipedPawnComponent>,
+    mut health_q: Query<&mut game_objects::health::Health>,
+    mut last_damage_q: Query<&mut game_objects::health::LastDamageSource>,
+) {
+    let requests = std::mem::take(&mut pending_melee_hits.0);
+    for (conn_id, target_net_id) in requests {
+        let Some((attacker, _)) = registry.character(conn_id) else {
+            continue;
+        };
+        let Some(target) = networked.get(&target_net_id) else {
+            continue;
+        };
+        let Ok(mut biped) = bipeds.get_mut(attacker) else {
+            continue;
+        };
+        if biped.melee_debug_ticks == 0 {
+            continue;
+        }
+        let start = biped.melee_debug_start;
+        let end = biped.melee_debug_end;
+        if !game_objects::pawn::biped::validate_melee_target(&mut world, attacker, target, start, end)
+        {
+            continue;
+        }
+        let impulse = game_objects::pawn::biped::melee_impulse(start, end);
+        world.apply_game_impulse(attacker, -impulse, None, None);
+        if let Ok(mut health) = health_q.get_mut(target) {
+            game_objects::health::attribute_damage(
+                &mut last_damage_q,
+                target,
+                Some(attacker),
+                game_objects::health::DamageCause::Unknown,
+            );
+            health.apply_damage(game_objects::pawn::biped::MELEE_DAMAGE);
+        }
+        world.apply_game_impulse(target, impulse, None, None);
+        biped.melee_debug_ticks = 0;
+    }
+}
+
 pub(super) fn handle_interact(
     conn_id: ConnectionId,
     target_net_id: NetworkID,

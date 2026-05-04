@@ -131,7 +131,21 @@ pub fn apply_despawn(
         }
         *local_net_id = None;
     } else if let Ok((mut slots, _)) = biped_q.p0().single_mut() {
+        let removed_local = slots.contains_net_id(net_id);
+        let removed_active = slots.active().0.as_ref() == Some(net_id);
         slots.remove_by_net_id(net_id);
+        if removed_local {
+            crate::weapon::helpers::set_local_slot_visibility(commands, &slots);
+        }
+        if removed_active {
+            commands.queue(|world: &mut World| {
+                let mut camera =
+                    world.query_filtered::<&mut crate::pawn::CameraEffector, With<Camera3d>>();
+                if let Ok(mut camera) = camera.single_mut(world) {
+                    camera.reset_zoom();
+                }
+            });
+        }
     }
     if let Ok(mut entity_commands) = commands.get_entity(entity) {
         entity_commands.queue_silenced(|entity: EntityWorldMut| {

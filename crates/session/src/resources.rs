@@ -164,6 +164,10 @@ pub struct PendingInputs(pub HashMap<ConnectionId, (u64, PawnInputKind)>);
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource, Default)]
+pub struct PendingMeleeHits(pub HashMap<ConnectionId, NetworkID>);
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
 pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
 
 #[cfg(not(feature = "client"))]
