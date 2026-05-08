@@ -15,7 +15,6 @@ endef
 build:
 	cargo build -p client
 	cargo build -p gameserver
-	# cargo build -p network_emulator
 
 dummy:
 	# $(CLIPPY_COMMANDS)
@@ -43,12 +42,10 @@ emulator:
 build-release:
 	cargo build -p gameserver --release
 	cargo build -p client --release
-	cargo build -p network_emulator --release
 
 build-testing: # optimized, contains debug info
 	cargo build -p gameserver --profile profiling
 	cargo build -p client --profile profiling
-	cargo build -p network_emulator --profile profiling
 
 check:
 	cargo check -p gameserver

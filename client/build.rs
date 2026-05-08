@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../dev-assets/lib");
 
+    configure_windows_fmod();
     add_linux_fmod_rpath();
     stage_fmod_runtime(&target_dir);
     copy_steam_runtime(&target_dir);
@@ -25,6 +26,55 @@ fn repo_root() -> PathBuf {
 
 fn target_os() -> String {
     std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default()
+}
+
+fn configure_windows_fmod() {
+    if target_os() != "windows" {
+        return;
+    }
+
+    if std::env::var_os("FMOD_LIB_DIR").is_some() || std::env::var_os("FMOD_SDK_DIR").is_some() {
+        return;
+    }
+
+    let lib_root = repo_root().join("dev-assets/lib");
+    if let Some(path) = find_fmod_lib_dir(&lib_root, "fmod_vc.lib") {
+        println!("cargo:rustc-link-search=native={}", path.display());
+    } else {
+        panic!(
+            "FMOD import library 'fmod_vc.lib' not found. Set FMOD_SDK_DIR or FMOD_LIB_DIR, \
+or put the Windows FMOD SDK under dev-assets/lib. FMOD DLLs alone are not enough to link."
+        );
+    }
+
+    if let Some(path) = find_fmod_lib_dir(&lib_root, "fmodstudio_vc.lib") {
+        println!("cargo:rustc-link-search=native={}", path.display());
+    } else {
+        panic!(
+            "FMOD import library 'fmodstudio_vc.lib' not found. Set FMOD_SDK_DIR or FMOD_LIB_DIR, \
+or put the Windows FMOD SDK under dev-assets/lib. FMOD DLLs alone are not enough to link."
+        );
+    }
+}
+
+fn find_fmod_lib_dir(root: &std::path::Path, file_name: &str) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.file_name().is_some_and(|name| name == file_name) {
+                return path.parent().map(std::path::Path::to_path_buf);
+            }
+        }
+    }
+    None
 }
 
 fn add_linux_fmod_rpath() {
