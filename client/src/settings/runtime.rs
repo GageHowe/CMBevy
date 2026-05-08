@@ -1,15 +1,10 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
-    camera::MainPassResolutionOverride,
     core_pipeline::prepass::MotionVectorPrepass,
     post_process::motion_blur::MotionBlur,
     prelude::*,
-    render::{
-        Extract, ExtractSchedule, RenderApp,
-        sync_world::RenderEntity,
-        view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
-    },
+    render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
@@ -20,13 +15,6 @@ use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
 use crate::color_compression::ColorCompressionSettings;
 use crate::outline::OutlineSettings;
-
-pub fn build_render(app: &mut App) {
-    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-        return;
-    };
-    render_app.add_systems(ExtractSchedule, extract_main_pass_resolution_override);
-}
 
 pub fn apply_settings(
     mut commands: Commands,
@@ -50,9 +38,7 @@ pub fn apply_settings(
     sensitivity.gamepad_invert_y = settings.gamepad_invert_y;
     snap_comp.0 = settings.preserve_look_across_planet_snap;
 
-    let mut window_size = None;
     if let Ok(mut window) = window_q.single_mut() {
-        window_size = Some(window.physical_size());
         window.present_mode = match settings.vsync {
             VsyncMode::AutoVsync => PresentMode::AutoVsync,
             VsyncMode::AutoNoVsync => PresentMode::AutoNoVsync,
@@ -74,7 +60,7 @@ pub fn apply_settings(
         fx.current_fov = settings.fov;
 
         let mut camera = commands.entity(camera_entity);
-        apply_camera_graphics(&mut camera, &settings, window_size);
+        apply_camera_graphics(&mut camera, &settings);
     }
 
     *interp_mode = match settings.physics_interp {
@@ -98,8 +84,6 @@ pub fn apply_settings(
 pub fn sync_dynamic_graphics_settings(
     mut commands: Commands,
     settings: Option<Res<Settings>>,
-    primary_window_q: Query<&Window, With<PrimaryWindow>>,
-    _resized_window_q: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
     added_cameras: Query<Entity, Added<Camera3d>>,
     // mut added_directional_lights: Query<&mut DirectionalLight, Added<DirectionalLight>>,
     _directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
@@ -108,31 +92,13 @@ pub fn sync_dynamic_graphics_settings(
         return;
     };
 
-    let window_size = primary_window_q.single().ok().map(Window::physical_size);
-
     for camera_entity in &added_cameras {
         let mut camera = commands.entity(camera_entity);
-        apply_camera_graphics(&mut camera, &settings, window_size);
+        apply_camera_graphics(&mut camera, &settings);
     }
 }
 
-fn apply_camera_graphics(
-    camera: &mut EntityCommands,
-    settings: &Settings,
-    window_size: Option<UVec2>,
-) {
-    if settings.render_scale < 1.0 {
-        if let Some(size) = window_size {
-            let scaled = UVec2::new(
-                (size.x as f32 * settings.render_scale).max(1.0) as u32,
-                (size.y as f32 * settings.render_scale).max(1.0) as u32,
-            );
-            camera.insert(MainPassResolutionOverride(scaled));
-        }
-    } else {
-        camera.remove::<MainPassResolutionOverride>();
-    }
-
+fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
     if settings.anti_aliasing {
         camera.insert(bevy::anti_alias::smaa::Smaa::default());
     } else {
@@ -253,18 +219,4 @@ pub fn apply_fps_cap(settings: Option<Res<Settings>>, mut last_frame_end: Local<
 
 pub fn sync_active_keybindings(settings: Res<Settings>, mut active: ResMut<ActiveBindings>) {
     active.sync_from(&settings.keybindings, &settings.gamepad_bindings);
-}
-
-fn extract_main_pass_resolution_override(
-    mut commands: Commands,
-    query: Extract<Query<(RenderEntity, Option<&'static MainPassResolutionOverride>), With<Camera3d>>>,
-) {
-    for (render_entity, resolution_override) in &query {
-        let mut entity = commands.entity(render_entity);
-        if let Some(resolution_override) = resolution_override {
-            entity.insert(MainPassResolutionOverride(resolution_override.0));
-        } else {
-            entity.remove::<MainPassResolutionOverride>();
-        }
-    }
 }

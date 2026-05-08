@@ -20,7 +20,7 @@ use bevy::{
             TextureSampleType, binding_types::*,
         },
         renderer::RenderContext,
-        view::{ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::ViewTarget,
     },
 };
 
@@ -85,7 +85,6 @@ impl FromWorld for OutlinePipeline {
         let entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
-                uniform_buffer::<ViewUniform>(true),
                 texture_2d(TextureSampleType::Float { filterable: true }), // screen color
                 sampler(bevy::render::render_resource::SamplerBindingType::Filtering),
                 texture_depth_2d(),                                        // depth
@@ -106,7 +105,6 @@ struct OutlineNode;
 impl ViewNode for OutlineNode {
     type ViewQuery = (
         &'static ViewTarget,
-        &'static ViewUniformOffset,
         &'static DynamicUniformIndex<OutlineSettings>,
         &'static ViewPrepassTextures,
     );
@@ -115,21 +113,17 @@ impl ViewNode for OutlineNode {
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, view_uniform, settings_index, prepass_textures): QueryItem<Self::ViewQuery>,
+        (view_target, settings_index, prepass_textures): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let pipeline = world.resource::<OutlinePipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
         let settings_uniforms = world.resource::<ComponentUniforms<OutlineSettings>>();
-        let view_uniforms = world.resource::<ViewUniforms>();
 
         let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id) else {
             return Ok(());
         };
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
-            return Ok(());
-        };
-        let Some(view_binding) = view_uniforms.uniforms.binding() else {
             return Ok(());
         };
         let Some(depth) = prepass_textures.depth.as_ref() else {
@@ -144,7 +138,6 @@ impl ViewNode for OutlineNode {
             Some("outline_bind_group"),
             &pipeline_cache.get_bind_group_layout(&pipeline.layout),
             &BindGroupEntries::sequential((
-                view_binding,
                 post_process.source,
                 &pipeline.sampler,
                 &depth.texture.default_view,
@@ -157,7 +150,7 @@ impl ViewNode for OutlineNode {
             render_context,
             render_pipeline,
             &bind_group,
-            &[view_uniform.offset, settings_index.index()],
+            &[settings_index.index()],
             post_process.destination,
             "outline_pass",
         );

@@ -34,7 +34,5 @@ impl Plugin for SettingsPlugin {
                 persistence::save_settings.run_if(resource_changed::<Settings>),
             )
             .add_systems(Last, runtime::apply_fps_cap);
-
-        runtime::build_render(app);
     }
 }

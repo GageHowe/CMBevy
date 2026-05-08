@@ -19,7 +19,7 @@ use bevy::{
             TextureSampleType, binding_types::*,
         },
         renderer::RenderContext,
-        view::{ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::ViewTarget,
     },
 };
 
@@ -84,7 +84,6 @@ impl FromWorld for ColorCompressionPipeline {
         let entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
-                uniform_buffer::<ViewUniform>(true),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(bevy::render::render_resource::SamplerBindingType::Filtering),
                 uniform_buffer::<ColorCompressionSettings>(true),
@@ -105,7 +104,6 @@ impl FromWorld for ColorCompressionPipeline {
 impl ViewNode for ColorCompressionNode {
     type ViewQuery = (
         &'static ViewTarget,
-        &'static ViewUniformOffset,
         &'static DynamicUniformIndex<ColorCompressionSettings>,
     );
 
@@ -113,21 +111,17 @@ impl ViewNode for ColorCompressionNode {
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, view_uniform, settings_index): QueryItem<Self::ViewQuery>,
+        (view_target, settings_index): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let pipeline = world.resource::<ColorCompressionPipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
         let settings_uniforms = world.resource::<ComponentUniforms<ColorCompressionSettings>>();
-        let view_uniforms = world.resource::<ViewUniforms>();
 
         let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id) else {
             return Ok(());
         };
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
-            return Ok(());
-        };
-        let Some(view_binding) = view_uniforms.uniforms.binding() else {
             return Ok(());
         };
 
@@ -137,7 +131,6 @@ impl ViewNode for ColorCompressionNode {
             Some("color_compression_bind_group"),
             &pipeline_cache.get_bind_group_layout(&pipeline.layout),
             &BindGroupEntries::sequential((
-                view_binding,
                 post_process.source,
                 &pipeline.sampler,
                 settings_binding.clone(),
@@ -148,7 +141,7 @@ impl ViewNode for ColorCompressionNode {
             render_context,
             render_pipeline,
             &bind_group,
-            &[view_uniform.offset, settings_index.index()],
+            &[settings_index.index()],
             post_process.destination,
             "color_compression_pass",
         );

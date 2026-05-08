@@ -81,11 +81,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
         ui.checkbox(&mut settings.anti_aliasing, "Anti-aliasing")
             .on_hover_text("Subpixel Morphological Anti-Aliasing (SMAA). Smoothes rough pixels.");
 
-        ui.horizontal(|ui| {
-            ui.label("Render scale").on_hover_text("Renders at lower resolution then scales up. Lower = faster, worse quality.");
-            ui.add(egui::Slider::new(&mut settings.render_scale, 0.25..=1.0).fixed_decimals(2));
-        });
-
         ui.checkbox(&mut settings.auto_exposure, "Auto exposure").on_hover_text("Automatically adapts camera exposure to brightness.");
 
         ui.checkbox(&mut settings.bloom, "Bloom").on_hover_text("Adds glow around bright areas.");
