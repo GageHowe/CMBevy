@@ -32,15 +32,17 @@ pub fn show_settings_ui(
     });
     ui.separator();
 
-    match section {
-        SettingsSection::Graphics => graphics::show(ui, settings),
-        SettingsSection::Audio => audio::show(ui, settings, audio_outputs),
-        SettingsSection::Input => input::show(ui, settings),
-        SettingsSection::Controls => {
-            show_controls_settings(ui, settings, keyboard, mouse, gamepads, capture)
-        }
-        SettingsSection::Misc => misc::show(ui, settings),
-    }
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| match section {
+            SettingsSection::Graphics => graphics::show(ui, settings),
+            SettingsSection::Audio => audio::show(ui, settings, audio_outputs),
+            SettingsSection::Input => input::show(ui, settings),
+            SettingsSection::Controls => {
+                show_controls_settings(ui, settings, keyboard, mouse, gamepads, capture)
+            }
+            SettingsSection::Misc => misc::show(ui, settings),
+        });
 
     ui.separator();
     ui.horizontal(|ui| {

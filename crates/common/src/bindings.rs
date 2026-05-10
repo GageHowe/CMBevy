@@ -131,6 +131,7 @@ impl GamepadBindingButton {
         gamepad.is_some_and(|gamepad| gamepad.just_pressed(self.to_bevy()))
     }
 
+    /// TODO is there a better way? maybe reflected or something instead of hardcoded?
     pub fn label(self) -> &'static str {
         match self {
             Self::South => "Gamepad South",

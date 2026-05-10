@@ -21,13 +21,14 @@ use crate::{
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/kenney-prototypes/shape-cube-recentered.glb#Scene0";
 const HALF_EXTENTS: Vec3 = Vec3::new(1.2, 0.45, 2.0);
-#[cfg(feature = "client")]
-const MODEL_SCALE: Vec3 = Vec3::new(2.4, 0.9, 4.0);
 const TRUCK_MAX_HEALTH: f32 = 1200.0;
-const DRIVE_FORCE: f32 = 220.0;
-const BRAKE_FORCE: f32 = 320.0;
-const SIDEWAYS_GRIP: f32 = 45.0;
-const STEER_TORQUE: f32 = 28.0;
+const FORWARD_THRUST: f32 = 260.0;
+const REVERSE_THRUST: f32 = 130.0;
+const BRAKE_FORCE: f32 = 220.0;
+const COASTING_DRAG: f32 = 25.0;
+const SIDEWAYS_GRIP: f32 = 70.0;
+const STEER_TORQUE: f32 = 18.0;
+const MAX_STEER_SPEED: f32 = 10.0;
 
 pub struct TruckPlugin;
 impl Plugin for TruckPlugin {
@@ -97,64 +98,41 @@ impl GameObject for TruckPawnComponent {
             Transform::from(transform),
             cmd.net_id.clone(),
         ));
-        let rb_handle = spawn_body(entity, &transform, cmd, world);
-        world
-            .entity_mut(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
+        let rb_handle = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            let rb = RigidBodyBuilder::dynamic()
+                .translation(transform.translation)
+                .linvel(Vector3::new(
+                    cmd.starting_velocity.x,
+                    cmd.starting_velocity.y,
+                    cmd.starting_velocity.z,
+                ))
+                .linear_damping(0.2)
+                .angular_damping(2.2)
+                .build();
+            let rb_handle = physics.insert_body(entity, rb);
+            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+                rb.set_rotation(transform.rotation, true);
+            }
+            let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
+                .friction(1.0)
+                .build();
+            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+            rb_handle
+        };
+        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
-        spawn_visual(entity, world);
+        {
+            let scene = world.resource::<AssetServer>().load(MODEL_PATH);
+            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+        }
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
         super::vehicle::handle_vehicle_death(entity, world);
         true
     }
-}
-
-fn spawn_body(
-    entity: Entity,
-    transform: &Transform,
-    cmd: &net::message::SpawnCommand,
-    world: &mut World,
-) -> RigidBodyHandle {
-    let mut physics = world.resource_mut::<PhysicsWorld>();
-    let rb = RigidBodyBuilder::dynamic()
-        .translation(transform.translation)
-        .linvel(Vector3::new(
-            cmd.starting_velocity.x,
-            cmd.starting_velocity.y,
-            cmd.starting_velocity.z,
-        ))
-        .linear_damping(0.35)
-        .angular_damping(2.5)
-        .build();
-    let rb_handle = physics.insert_body(entity, rb);
-    if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
-        rb.set_rotation(transform.rotation, true);
-    }
-    let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
-        .friction(1.4)
-        .build();
-    let PhysicsWorld {
-        collider_set,
-        rigid_body_set,
-        ..
-    } = &mut *physics;
-    collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
-    rb_handle
-}
-
-#[cfg(feature = "client")]
-fn spawn_visual(entity: Entity, world: &mut World) {
-    let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-    let visual = world
-        .spawn((
-            SceneRoot(scene),
-            Transform::from_scale(MODEL_SCALE),
-            Visibility::default(),
-        ))
-        .id();
-    world.entity_mut(entity).add_child(visual);
 }
 
 #[cfg(feature = "client")]
@@ -168,9 +146,10 @@ fn gather_truck_input(
     bindings: Res<common::ActiveBindings>,
     mut pawns: Query<&mut Possessed, With<TruckPawnComponent>>,
 ) {
-    if egui_wants_input.is_some_and(|e| e.wants_any_input())
-        || cursor_q.grab_mode == CursorGrabMode::None
-    {
+    if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
+        return;
+    }
+    if cursor_q.grab_mode == CursorGrabMode::None {
         return;
     }
     let Ok(mut possessed) = pawns.single_mut() else {
@@ -178,25 +157,30 @@ fn gather_truck_input(
     };
     let gamepad = common::active_gamepad(gamepads.iter());
     let move_stick = gamepad
-        .map(|g| common::stick_with_deadzone(g.left_stick(), sensitivity.gamepad_move_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(
+                gamepad.left_stick(),
+                sensitivity.gamepad_move_deadzone,
+            )
+        })
         .unwrap_or(Vec2::ZERO);
-    let pressed = |action| bindings.pressed(action, &keyboard, &mouse_buttons, gamepad);
+
     let mut input = common::TruckInput::default();
-    if pressed(common::InputAction::MoveForward) {
+    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
         input.throttle += 1.0;
     }
-    if pressed(common::InputAction::MoveBackward) {
+    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
         input.throttle -= 1.0;
     }
-    if pressed(common::InputAction::MoveRight) {
+    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
         input.steer += 1.0;
     }
-    if pressed(common::InputAction::MoveLeft) {
+    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
         input.steer -= 1.0;
     }
     input.throttle = (input.throttle + move_stick.y).clamp(-1.0, 1.0);
     input.steer = (input.steer + move_stick.x).clamp(-1.0, 1.0);
-    if pressed(common::InputAction::Crouch) {
+    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad) {
         input.brake = 1.0;
     }
     possessed.push(PawnInputKind::Truck(input));
@@ -214,25 +198,37 @@ pub fn apply_truck_movement(
     if !body.is_enabled() {
         return;
     }
+
     let rotation = body.rotation();
-    let up = rotation * Vector3::Y;
-    let right = rotation * Vector3::X;
     let forward = rotation * -Vector3::Z;
+    let right = rotation * Vector3::X;
+    let up = rotation * Vector3::Y;
     let velocity = body.linvel();
     let forward_speed = velocity.dot(forward);
     let sideways_speed = velocity.dot(right);
-    body.apply_impulse(forward * (input.throttle * DRIVE_FORCE), true);
+
+    let thrust = if input.throttle >= 0.0 {
+        input.throttle * FORWARD_THRUST
+    } else {
+        input.throttle * REVERSE_THRUST
+    };
+    body.apply_impulse(forward * thrust, true);
+
+    let forward_drag = if input.throttle == 0.0 {
+        COASTING_DRAG
+    } else {
+        input.brake * BRAKE_FORCE
+    };
+    body.apply_impulse(-forward * (forward_speed * forward_drag), true);
     body.apply_impulse(-right * (sideways_speed * SIDEWAYS_GRIP), true);
-    body.apply_impulse(
-        -(forward * forward_speed + right * sideways_speed) * (input.brake * BRAKE_FORCE),
-        true,
-    );
-    let steer_sign = if forward_speed.abs() > 0.5 {
+
+    let steer_speed = (forward_speed.abs() / MAX_STEER_SPEED).clamp(0.2, 1.0);
+    let steer_dir = if forward_speed.abs() > 0.5 {
         forward_speed.signum()
     } else {
         input.throttle.signum()
     };
-    if steer_sign != 0.0 {
-        body.apply_torque_impulse(up * (input.steer * STEER_TORQUE * steer_sign), true);
+    if steer_dir != 0.0 {
+        body.apply_torque_impulse(up * (input.steer * STEER_TORQUE * steer_speed * steer_dir), true);
     }
 }

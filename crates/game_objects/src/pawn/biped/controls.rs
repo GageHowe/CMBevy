@@ -452,7 +452,7 @@ fn biped_fire(
     mut fixed_presses: ResMut<FixedPressQueue>,
     ticker: Res<common::tick::Ticker>,
 ) {
-    let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
+    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
     let gamepad = common::active_gamepad(gamepads.iter());
     let want_fire =
         !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad);
