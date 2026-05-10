@@ -8,5 +8,5 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
+bevy = { workspace = true, features = ["bevy_state", "gamepad", "keyboard", "mouse", "serialize", "std", "multi_threaded"] }
 serde = { workspace = true }

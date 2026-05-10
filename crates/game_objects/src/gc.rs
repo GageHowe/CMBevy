@@ -12,7 +12,10 @@ pub struct WorldObjectGc {
 
 impl WorldObjectGc {
     pub const fn new(reset_secs: f32) -> Self {
-        Self { remaining_secs: reset_secs, reset_secs }
+        Self {
+            remaining_secs: reset_secs,
+            reset_secs,
+        }
     }
 }
 
@@ -30,7 +33,10 @@ pub struct WorldGcPlugin;
 
 impl Plugin for WorldGcPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(SlowUpdate, cleanup_world_gc_entities.in_set(AuthoritySet::Level));
+        app.add_systems(
+            SlowUpdate,
+            cleanup_world_gc_entities.in_set(AuthoritySet::Level),
+        );
     }
 }
 
@@ -40,7 +46,10 @@ struct WorldGcState<'w, 's> {
         'w,
         's,
         &'static RigidBodyHandleComponent,
-        Or<(With<crate::pawn::BipedPawnComponent>, With<crate::pawn::VehicleComponent>)>,
+        Or<(
+            With<crate::pawn::BipedPawnComponent>,
+            With<crate::pawn::VehicleComponent>,
+        )>,
     >,
     gc_count: Query<'w, 's, &'static RigidBodyHandleComponent, With<WorldObjectGc>>,
     vehicles: Query<'w, 's, &'static crate::pawn::VehicleComponent>,
@@ -59,7 +68,12 @@ impl WorldGcState<'_, '_> {
     fn enabled_gc_count(&self, physics: &PhysicsWorld) -> usize {
         self.gc_count
             .iter()
-            .filter(|body| physics.rigid_body_set.get(body.0).is_some_and(|rb| rb.is_enabled()))
+            .filter(|body| {
+                physics
+                    .rigid_body_set
+                    .get(body.0)
+                    .is_some_and(|rb| rb.is_enabled())
+            })
             .count()
     }
 
@@ -90,14 +104,20 @@ fn cleanup_world_gc_entities(
     physics: Res<PhysicsWorld>,
     mut state: WorldGcState,
     mut gc_q: Query<
-        (Entity, &RigidBodyHandleComponent, Option<&SpawnerGc>, &mut WorldObjectGc),
+        (
+            Entity,
+            &RigidBodyHandleComponent,
+            Option<&SpawnerGc>,
+            &mut WorldObjectGc,
+        ),
         With<WorldObjectGc>,
     >,
     mut commands: Commands,
 ) {
     let pawn_positions = state.pawn_positions(&physics);
     let decay_scale = 1.0
-        + state.enabled_gc_count(&physics).saturating_sub(GC_SOFT_CAP) as f32 / GC_OVERFLOW_STEP as f32;
+        + state.enabled_gc_count(&physics).saturating_sub(GC_SOFT_CAP) as f32
+            / GC_OVERFLOW_STEP as f32;
 
     for (entity, body, spawner_gc, mut gc) in &mut gc_q {
         let Some(rb) = physics.rigid_body_set.get(body.0) else {
@@ -110,7 +130,10 @@ fn cleanup_world_gc_entities(
         }
 
         let pos = rb_pos(rb);
-        if pawn_positions.iter().any(|pawn| pawn.distance_squared(pos) <= GC_RELEVANT_RADIUS_SQ) {
+        if pawn_positions
+            .iter()
+            .any(|pawn| pawn.distance_squared(pos) <= GC_RELEVANT_RADIUS_SQ)
+        {
             gc.remaining_secs = gc.reset_secs;
             continue;
         }

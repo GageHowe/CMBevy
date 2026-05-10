@@ -14,7 +14,6 @@ use crate::{
     level::{ScriptZone, parented_world_pose},
     pawn::PlayerRegistry,
 };
-
 #[cfg(feature = "client")]
 use crate::{messages, pawn::Possessed};
 
@@ -88,25 +87,39 @@ impl Plugin for ZoneEffectsPlugin {
         app.register_type::<ZoneEffectRegion>();
         app.register_type::<ZoneEffect>();
         app.init_resource::<ZoneEffectRuntime>();
-        app.add_systems(SemiSlowUpdate, tick_zone_effects.in_set(AuthoritySet::Level));
+        app.add_systems(
+            SemiSlowUpdate,
+            tick_zone_effects.in_set(AuthoritySet::Level),
+        );
         app.add_systems(SlowUpdate, tick_zone_messages.in_set(AuthoritySet::Level));
     }
 }
 
 fn tick_zone_effects(world: &mut World) {
-    let mut runtime = world.remove_resource::<ZoneEffectRuntime>().unwrap_or_default();
+    let mut runtime = world
+        .remove_resource::<ZoneEffectRuntime>()
+        .unwrap_or_default();
     let players = collect_player_entities(world);
     let player_set: HashSet<Entity> = players.iter().copied().collect();
     runtime
         .players
         .retain(|entity, _| player_set.contains(entity) && world.entities().contains(*entity));
 
-    let mut overlaps: HashMap<Entity, ZoneOverlap> =
-        players.iter().copied().map(|entity| (entity, ZoneOverlap::default())).collect();
+    let mut overlaps: HashMap<Entity, ZoneOverlap> = players
+        .iter()
+        .copied()
+        .map(|entity| (entity, ZoneOverlap::default()))
+        .collect();
 
     {
         let mut state: SystemState<(
-            Query<(Entity, &ScriptZone, &ZoneEffect, &Transform, Option<&ChildOf>)>,
+            Query<(
+                Entity,
+                &ScriptZone,
+                &ZoneEffect,
+                &Transform,
+                Option<&ChildOf>,
+            )>,
             Query<&Transform>,
             Query<&ChildOf>,
             Query<&RigidBodyHandleComponent>,
@@ -128,7 +141,8 @@ fn tick_zone_effects(world: &mut World) {
             for entity in &players {
                 let player_pos = physics.body_pos(*entity);
                 let inside = player_pos.is_some_and(|player_pos| {
-                    zone.shape.contains_point(1.0, position, rotation, player_pos)
+                    zone.shape
+                        .contains_point(1.0, position, rotation, player_pos)
                 });
                 let applies = match effect.region {
                     ZoneEffectRegion::Inside => inside,
@@ -194,7 +208,9 @@ fn tick_zone_effects(world: &mut World) {
 }
 
 fn tick_zone_messages(world: &mut World) {
-    let mut runtime = world.remove_resource::<ZoneEffectRuntime>().unwrap_or_default();
+    let mut runtime = world
+        .remove_resource::<ZoneEffectRuntime>()
+        .unwrap_or_default();
     let mut outbound = Vec::new();
     runtime.players.retain(|entity, state| {
         if !world.entities().contains(*entity) {

@@ -35,7 +35,13 @@ impl PredictedCommands {
     pub fn record_input(&mut self, input: PawnInputKind) -> u64 {
         let seq = self.next_seq.max(1);
         self.next_seq = seq + 1;
-        self.history.insert(seq, PredictedTick { input, impulses: Vec::new() });
+        self.history.insert(
+            seq,
+            PredictedTick {
+                input,
+                impulses: Vec::new(),
+            },
+        );
         self.history.retain(|&old_seq, _| old_seq + 128 >= seq);
         seq
     }
@@ -60,7 +66,11 @@ impl PredictedCommands {
             existing.impulse += impulse;
             return;
         }
-        tick.impulses.push(PredictedImpulse { target, impulse, point });
+        tick.impulses.push(PredictedImpulse {
+            target,
+            impulse,
+            point,
+        });
     }
 
     pub fn get(&self, seq: u64) -> Option<&PredictedTick> {

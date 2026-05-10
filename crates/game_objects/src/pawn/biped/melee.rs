@@ -32,7 +32,9 @@ pub fn tick_melee(
     if biped.melee_windup_ticks > 0 {
         biped.melee_windup_ticks -= 1;
         if biped.melee_windup_ticks == 0 {
-            if let Some((start, end)) = melee_segment(world, body_handle, input.look_yaw, input.look_pitch) {
+            if let Some((start, end)) =
+                melee_segment(world, body_handle, input.look_yaw, input.look_pitch)
+            {
                 biped.melee_fired_this_tick = true;
                 biped.melee_debug_start = start;
                 biped.melee_debug_end = end;
@@ -68,7 +70,12 @@ pub fn apply_melee_hits(
         };
         world.apply_game_impulse(attacker, -impulse, None, None);
         if let Ok(mut health) = health_q.get_mut(victim) {
-            attribute_damage(&mut last_damage_q, victim, Some(attacker), DamageCause::Unknown);
+            attribute_damage(
+                &mut last_damage_q,
+                victim,
+                Some(attacker),
+                DamageCause::Unknown,
+            );
             health.apply_damage(MELEE_DAMAGE);
         }
         world.apply_game_impulse(victim, impulse, None, None);
@@ -98,9 +105,17 @@ pub fn send_predicted_melee_hit(
         return;
     };
     let impulse = melee_impulse(start, end);
-    world.apply_game_impulse(attacker, -impulse, Some(attacker_net_id), predicted.as_deref_mut());
+    world.apply_game_impulse(
+        attacker,
+        -impulse,
+        Some(attacker_net_id),
+        predicted.as_deref_mut(),
+    );
     if let Ok(victim_net_id) = net_ids.get(victim) {
-        quic.send_to_server(Channel::Ordered, &net::message::MsgType::MeleeHitRequest(victim_net_id.clone()));
+        quic.send_to_server(
+            Channel::Ordered,
+            &net::message::MsgType::MeleeHitRequest(victim_net_id.clone()),
+        );
     }
 }
 
@@ -138,7 +153,9 @@ pub fn resolve_melee_hit(
     if dir == Vec3::ZERO {
         return None;
     }
-    world.cast_sphere(start, dir, MELEE_RADIUS, MELEE_RANGE, &[attacker]).map(|(entity, _, _)| entity)
+    world
+        .cast_sphere(start, dir, MELEE_RADIUS, MELEE_RANGE, &[attacker])
+        .map(|(entity, _, _)| entity)
 }
 
 pub fn validate_melee_target(

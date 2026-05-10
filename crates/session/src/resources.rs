@@ -7,12 +7,12 @@ use common::GameObjectKind;
 use game_objects::NetworkEntityMap;
 #[cfg(not(feature = "client"))]
 use game_objects::level::SpawnPoint;
+#[cfg(not(feature = "client"))]
+use game_objects::pawn::VehicleComponent;
 #[cfg(feature = "client")]
 use game_objects::pawn::WeaponSlots;
 #[cfg(feature = "client")]
 use game_objects::pawn::biped::BipedPawnComponent;
-#[cfg(not(feature = "client"))]
-use game_objects::pawn::VehicleComponent;
 #[cfg(not(feature = "client"))]
 use game_objects::pawn::{BipedPawnComponent, WeaponSlots};
 #[cfg(not(feature = "client"))]
@@ -186,8 +186,16 @@ pub struct ServerMessageParams<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub world: ResMut<'w, physics::physics_world::PhysicsWorld>,
     pub held_weapons: ResMut<'w, HeldWeaponMap>,
-    pub spawn_points:
-        Query<'w, 's, (Entity, &'static SpawnPoint, &'static Transform, Option<&'static ChildOf>)>,
+    pub spawn_points: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static SpawnPoint,
+            &'static Transform,
+            Option<&'static ChildOf>,
+        ),
+    >,
     pub parent_transforms: Query<'w, 's, &'static Transform>,
     pub parent_parents: Query<'w, 's, &'static ChildOf>,
     pub parent_bodies: Query<'w, 's, &'static physics::physics_world::RigidBodyHandleComponent>,

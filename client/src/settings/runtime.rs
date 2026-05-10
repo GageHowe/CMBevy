@@ -10,11 +10,10 @@ use bevy::{
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
 use common::ActiveBindings;
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
-use physics::physics_world::{PhysicsInterpMode, PhysicsWorld};
+use physics::physics_world::PhysicsInterpMode;
 
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
-use crate::color_compression::ColorCompressionSettings;
-use crate::outline::OutlineSettings;
+use crate::{color_compression::ColorCompressionSettings, outline::OutlineSettings};
 
 pub fn apply_settings(
     mut commands: Commands,
@@ -22,7 +21,6 @@ pub fn apply_settings(
     mut sensitivity: ResMut<MouseSensitivity>,
     mut snap_comp: ResMut<LookSnapCompensation>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
-    mut physics_world: ResMut<PhysicsWorld>,
     mut cam_effects: Query<(Entity, &mut CameraEffector), With<Camera3d>>,
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
     mut directional_lights: Query<&mut DirectionalLight>,
@@ -69,8 +67,6 @@ pub fn apply_settings(
         PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
         PhysicsInterp::Balanced => PhysicsInterpMode::Balanced,
     };
-    physics_world.substeps = settings.physics_substeps.count();
-
     if let Ok(mut egui_settings) = egui_context_settings.single_mut() {
         egui_settings.scale_factor = settings.ui_scale;
     }
@@ -134,7 +130,10 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
 
     if settings.motion_blur {
         camera.insert(MotionVectorPrepass);
-        camera.insert(MotionBlur { shutter_angle: settings.motion_blur_shutter_angle, samples: 1 });
+        camera.insert(MotionBlur {
+            shutter_angle: settings.motion_blur_shutter_angle,
+            samples: 1,
+        });
     } else {
         camera.remove::<MotionBlur>();
         camera.remove::<MotionVectorPrepass>();
@@ -176,11 +175,17 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
     if settings.cinematic_mode {
         camera.remove::<OutlineSettings>();
     } else {
-        camera.insert(OutlineSettings { threshold: 0.10, color: Vec4::new(0.5, 0.5, 0.5, 0.03) });
+        camera.insert(OutlineSettings {
+            threshold: 0.10,
+            color: Vec4::new(0.5, 0.5, 0.5, 0.03),
+        });
     }
 
     camera.insert(ColorGrading::with_identical_sections(
-        ColorGradingGlobal { post_saturation: settings.saturation.clamp(0.0, 2.0), ..default() },
+        ColorGradingGlobal {
+            post_saturation: settings.saturation.clamp(0.0, 2.0),
+            ..default()
+        },
         ColorGradingSection {
             contrast: settings.contrast.clamp(0.5, 1.5),
             gamma: settings.gamma.clamp(0.5, 2.0),

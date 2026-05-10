@@ -2,10 +2,12 @@
 use bevy::ecs::system::{In, SystemId};
 use bevy::prelude::*;
 pub use common::WeaponState;
-use net::message::NetworkID;
 #[cfg(feature = "client")]
 use net::message::WeaponState as NetWeaponState;
-use net::quic::{Channel, ConnectionId, QuicManager, SendTarget};
+use net::{
+    message::NetworkID,
+    quic::{Channel, ConnectionId, QuicManager, SendTarget},
+};
 use physics::physics_world::PhysicsWorld;
 
 use crate::{
@@ -15,8 +17,8 @@ use crate::{
     sound::SoundQueue,
 };
 
-pub mod hail_mary;
 pub mod grenade_launcher;
+pub mod hail_mary;
 pub mod helpers;
 pub mod pistol;
 pub mod rifle;
@@ -167,7 +169,9 @@ pub fn weapon_bundle<W: Weapon + 'static>(weapon: W, world: &mut World) -> impl 
             reload_ticks: 0,
             cooldown_ticks: 0,
         },
-        WeaponDriver { fixed_update: world.register_system_cached(fire_weapon::<W>) },
+        WeaponDriver {
+            fixed_update: world.register_system_cached(fire_weapon::<W>),
+        },
     )
 }
 
@@ -203,8 +207,11 @@ pub fn fire_weapon<W: Weapon>(
         return;
     };
     let local_shooter = possessed.single().ok() == Some(input.shooter);
-    let mut local_camera =
-        if local_shooter { camera_fx.single_mut().ok().map(|(cam_fx, _)| cam_fx) } else { None };
+    let mut local_camera = if local_shooter {
+        camera_fx.single_mut().ok().map(|(cam_fx, _)| cam_fx)
+    } else {
+        None
+    };
     let mut ctx = FireCtx {
         weapon: input.weapon,
         want_fire: input.want_fire,
@@ -307,8 +314,10 @@ pub fn handle_fire_request(
     let Some((shooter_entity, _)) = registry.character(conn_id) else {
         return;
     };
-    let shooter_holds =
-        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
+    let shooter_holds = pawn_slots
+        .get(shooter_entity)
+        .map(|s| s.contains_net_id(&weapon_net_id))
+        .unwrap_or(false);
     if !shooter_holds {
         return;
     }
@@ -398,7 +407,10 @@ pub fn fire_authoritative_with_replication(
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &net::message::MsgType::ProjectileConfirm { temp_id, net_id: fired.fired.net_id },
+                &net::message::MsgType::ProjectileConfirm {
+                    temp_id,
+                    net_id: fired.fired.net_id,
+                },
             );
         }
         None => quic.send(
@@ -422,8 +434,10 @@ pub fn handle_reload_request(
     let Some((shooter_entity, _)) = registry.character(conn_id) else {
         return;
     };
-    let shooter_holds =
-        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
+    let shooter_holds = pawn_slots
+        .get(shooter_entity)
+        .map(|s| s.contains_net_id(&weapon_net_id))
+        .unwrap_or(false);
     if !shooter_holds {
         return;
     }
@@ -435,7 +449,11 @@ pub fn handle_reload_request(
     };
     let started = start_reload(&mut weapon_state, weapon_config);
     quic.send(
-        if started { SendTarget::All } else { SendTarget::One(conn_id) },
+        if started {
+            SendTarget::All
+        } else {
+            SendTarget::One(conn_id)
+        },
         Channel::Ordered,
         &net::message::MsgType::WeaponState(weapon_net_id, *weapon_state),
     );
@@ -548,7 +566,12 @@ pub fn apply_zoom<W: Weapon>(ctx: &mut FireCtx) -> f32 {
     let Some(cam) = ctx.camera.as_mut() else {
         return 0.0;
     };
-    let zoom_multiplier = if ctx.want_alt_fire { W::ZOOM_MULTIPLIER } else { 1.0 }.max(1.0);
+    let zoom_multiplier = if ctx.want_alt_fire {
+        W::ZOOM_MULTIPLIER
+    } else {
+        1.0
+    }
+    .max(1.0);
     cam.zoom_multiplier = zoom_multiplier;
     if zoom_multiplier <= 1.0 {
         return 0.0;

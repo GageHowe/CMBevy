@@ -1,8 +1,8 @@
 use bevy::prelude::*;
+use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
-use common::GameObjectKind;
-use net::message::{SpawnCommand, NetworkID};
+use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
@@ -48,7 +48,11 @@ pub struct GrenadeLauncherProjectile {
 }
 impl Default for GrenadeLauncherProjectile {
     fn default() -> Self {
-        Self { shooter: None, weapon: None, lifetime: LIFETIME }
+        Self {
+            shooter: None,
+            weapon: None,
+            lifetime: LIFETIME,
+        }
     }
 }
 
@@ -135,7 +139,16 @@ impl Projectile for GrenadeLauncherProjectile {
         weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, shooter_velocity, commands, world, shooter, weapon, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            weapon,
+            temp_id,
+        )
     }
 }
 
@@ -179,8 +192,15 @@ pub fn spawn(
     let entity = commands
         .spawn((
             GameObjectKind::GrenadeLauncherProjectile,
-            GrenadeLauncherProjectile { shooter, weapon, lifetime: LIFETIME },
-            ProjectileState { temp_id, shooter_velocity },
+            GrenadeLauncherProjectile {
+                shooter,
+                weapon,
+                lifetime: LIFETIME,
+            },
+            ProjectileState {
+                temp_id,
+                shooter_velocity,
+            },
             Transform::from_translation(origin),
             GravityScale(GRAVITY_SCALE),
         ))
@@ -201,10 +221,22 @@ pub fn spawn(
         .friction(FRICTION)
         .restitution_combine_rule(CoefficientCombineRule::Max)
         .build();
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands.entity(entity).insert(RigidBodyHandleComponent(handle));
-    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/SniperShot", origin, velocity);
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(handle));
+    helpers::queue_world_fire_sound(
+        commands,
+        shooter,
+        "event:/Weapons/SniperShot",
+        origin,
+        velocity,
+    );
     entity
 }
 
@@ -215,7 +247,10 @@ impl GameObject for GrenadeLauncherProjectile {
         world.entity_mut(entity).insert((
             cmd.kind.clone(),
             GrenadeLauncherProjectile::default(),
-            ProjectileState { temp_id: 0, shooter_velocity: cmd.shooter_velocity },
+            ProjectileState {
+                temp_id: 0,
+                shooter_velocity: cmd.shooter_velocity,
+            },
             Transform::from_translation(cmd.position),
             cmd.net_id.clone(),
             GravityScale(GRAVITY_SCALE),
@@ -242,11 +277,17 @@ impl GameObject for GrenadeLauncherProjectile {
                 .friction(FRICTION)
                 .restitution_combine_rule(CoefficientCombineRule::Max)
                 .build();
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *physics;
             collider_set.insert_with_parent(collider, handle, rigid_body_set);
             handle
         };
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(handle));
+        world
+            .entity_mut(entity)
+            .insert(RigidBodyHandleComponent(handle));
     }
 }
 
@@ -301,20 +342,23 @@ fn explode_at(
 pub struct GrenadeLauncherProjectilePlugin;
 impl Plugin for GrenadeLauncherProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<GrenadeLauncherProjectile>().add_systems(
-            FixedUpdate,
-            (
-                tick_projectiles::<GrenadeLauncherProjectile>,
-                detonate_requested_projectiles,
-            )
-                .chain()
-                .after(step_physics)
-                .in_set(super::AuthoritySet::Projectile),
-        );
+        app.register_game_object::<GrenadeLauncherProjectile>()
+            .add_systems(
+                FixedUpdate,
+                (
+                    tick_projectiles::<GrenadeLauncherProjectile>,
+                    detonate_requested_projectiles,
+                )
+                    .chain()
+                    .after(step_physics)
+                    .in_set(super::AuthoritySet::Projectile),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
-            tick_predicted_projectiles.after(step_physics).run_if(in_state(GameState::Multiplayer)),
+            tick_predicted_projectiles
+                .after(step_physics)
+                .run_if(in_state(GameState::Multiplayer)),
         );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
@@ -325,7 +369,11 @@ fn detonate_requested_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     q: Query<
-        (Entity, &GrenadeLauncherProjectile, &RigidBodyHandleComponent),
+        (
+            Entity,
+            &GrenadeLauncherProjectile,
+            &RigidBodyHandleComponent,
+        ),
         With<PendingDetonation>,
     >,
     mut health_q: Query<&mut Health>,
@@ -351,9 +399,12 @@ fn detonate_requested_projectiles(
 fn tick_predicted_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<
-        (Entity, &mut GrenadeLauncherProjectile, &RigidBodyHandleComponent, &mut ProjectileState),
-    >,
+    mut q: Query<(
+        Entity,
+        &mut GrenadeLauncherProjectile,
+        &RigidBodyHandleComponent,
+        &mut ProjectileState,
+    )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
 ) {
@@ -387,6 +438,8 @@ fn add_visual(
             emissive: LinearRgba::new(0.3, 1.2, 0.3, 1.0),
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

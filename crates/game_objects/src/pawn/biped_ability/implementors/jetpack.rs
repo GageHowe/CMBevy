@@ -27,7 +27,11 @@ impl BipedAbility for JetpackAbility {
                 .build();
             let rb_handle = physics.insert_body(entity, rb);
             let collider = ColliderBuilder::cuboid(0.22, 0.32, 0.14).build();
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *physics;
             collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
             rb_handle
         };
@@ -39,9 +43,12 @@ impl BipedAbility for JetpackAbility {
         ));
         #[cfg(feature = "client")]
         {
-            let scene =
-                world.resource::<AssetServer>().load("models/placeholder_jetpack.glb#Scene0");
-            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+            let scene = world
+                .resource::<AssetServer>()
+                .load("models/placeholder_jetpack.glb#Scene0");
+            world
+                .entity_mut(entity)
+                .insert((SceneRoot(scene), Visibility::default()));
         }
     }
 

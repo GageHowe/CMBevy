@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::input::{gamepad::Gamepad, mouse::AccumulatedMouseMotion};
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
@@ -89,7 +89,6 @@ impl GameObject for SpaceshipPawnComponent {
                 threshold_per_mass: 120.0,
                 min_threshold: 400.0,
                 damage_scale: 0.5,
-                max_damage_per_hit: Some(60.0),
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
@@ -123,11 +122,15 @@ impl GameObject for SpaceshipPawnComponent {
             ColliderBuilder::cuboid(1.5, 1.0, 3.0),
             world,
         );
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        world
+            .entity_mut(entity)
+            .insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+            world
+                .entity_mut(entity)
+                .insert((SceneRoot(scene), Visibility::default()));
         }
     }
 
@@ -161,48 +164,100 @@ fn gather_spaceship_input(
     };
     let gamepad = common::active_gamepad(gamepads.iter());
     let move_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
     let look_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
 
     let mut input = common::SpaceshipInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveForward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.forward += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveBackward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.forward -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveRight,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.right += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveLeft,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.right -= 1.0;
     }
     input.forward = (input.forward + move_stick.y).clamp(-1.0, 1.0);
     input.right = (input.right + move_stick.x).clamp(-1.0, 1.0);
-    if bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::Jump,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.up += 1.0;
     }
-    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::Crouch,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.up -= 1.0;
     }
-    if bindings.pressed(common::InputAction::RollLeft, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::RollLeft,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.roll -= 1.0;
     }
-    if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::RollRight,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.roll += 1.0;
     }
-    input.ability1 =
-        bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons, gamepad);
+    input.ability1 = bindings.pressed(
+        common::InputAction::Ability1,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
     let s = sensitivity.vehicle_pitch_yaw;
     input.yaw = -mouse.delta.x * s + look_stick.x * sensitivity.gamepad_look * time.delta_secs();
     input.pitch = -mouse.delta.y * s
         + look_stick.y
             * sensitivity.gamepad_look
             * time.delta_secs()
-            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 };
+            * if sensitivity.gamepad_invert_y {
+                -1.0
+            } else {
+                1.0
+            };
 
     possessed.push(PawnInputKind::Spaceship(input));
 }

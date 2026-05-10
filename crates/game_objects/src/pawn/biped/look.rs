@@ -85,7 +85,11 @@ pub(super) fn preserve_look_across_body_rotation(
     let local_forward = (body_rot.inverse() * world_forward).normalize_or_zero();
     if local_forward != Vec3::ZERO {
         let yaw = f32::atan2(-local_forward.x, -local_forward.z);
-        let pitch = local_forward.y.clamp(-1.0, 1.0).asin().clamp(-PITCH_MAX, PITCH_MAX);
+        let pitch = local_forward
+            .y
+            .clamp(-1.0, 1.0)
+            .asin()
+            .clamp(-PITCH_MAX, PITCH_MAX);
         {
             let mut yaw_query = pivots.p1();
             if let Ok((mut yaw_t, mut yaw_pivot)) = yaw_query.get_mut(yaw_e) {
@@ -112,7 +116,12 @@ pub fn draw_biped_debug(
 ) {
     use physics::debug::draw_body_colliders;
     for body_handle in bipeds.iter() {
-        draw_body_colliders(&world, body_handle, Color::srgba(0.3, 0.6, 1.0, 0.1), &mut gizmos);
+        draw_body_colliders(
+            &world,
+            body_handle,
+            Color::srgba(0.3, 0.6, 1.0, 0.1),
+            &mut gizmos,
+        );
     }
 }
 
@@ -122,7 +131,11 @@ pub fn draw_melee_debug(bipeds: Query<&BipedPawnComponent>, mut gizmos: Gizmos) 
         if biped.melee_debug_ticks == 0 {
             continue;
         }
-        gizmos.line(biped.melee_debug_start, biped.melee_debug_end, Color::srgba(1.0, 0.2, 0.2, 0.9));
+        gizmos.line(
+            biped.melee_debug_start,
+            biped.melee_debug_end,
+            Color::srgba(1.0, 0.2, 0.2, 0.9),
+        );
         gizmos.sphere(
             Isometry3d::from_translation(biped.melee_debug_start),
             super::melee::melee_radius(),

@@ -24,7 +24,12 @@ pub struct SoundQueue(pub Vec<SoundRequest>);
 
 impl SoundQueue {
     pub fn play_2d(&mut self, event: &'static str) {
-        self.0.push(SoundRequest { event, position: None, velocity: Vec3::ZERO, gain: 1.0 });
+        self.0.push(SoundRequest {
+            event,
+            position: None,
+            velocity: Vec3::ZERO,
+            gain: 1.0,
+        });
     }
 
     pub fn play_3d(&mut self, event: &'static str, position: Vec3, velocity: Vec3) {
@@ -38,7 +43,12 @@ impl SoundQueue {
         velocity: Vec3,
         gain: f32,
     ) {
-        self.0.push(SoundRequest { event, position: Some(position), velocity, gain });
+        self.0.push(SoundRequest {
+            event,
+            position: Some(position),
+            velocity,
+            gain,
+        });
     }
 }
 

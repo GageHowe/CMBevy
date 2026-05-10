@@ -15,7 +15,8 @@ const MUZZLE_FLASH_TICKS: u8 = 3;
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryComponent>().add_systems(FixedUpdate, tick_muzzle_flash);
+        app.register_game_object::<HailMaryComponent>()
+            .add_systems(FixedUpdate, tick_muzzle_flash);
     }
 }
 
@@ -81,21 +82,29 @@ impl GameObject for HailMaryComponent {
     const GC_AFTER_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let light = world
-            .spawn((
-                PointLight {
-                    intensity: 20000.0,
-                    range: 15.0,
-                    color: Color::srgb(1.0, 0.6, 0.2),
-                    shadows_enabled: false,
-                    ..default()
-                },
-                Transform::from_xyz(0.0, 0.0, -0.6),
-                Visibility::Hidden,
-            ))
-            .id();
+        #[cfg(feature = "client")]
+        let light = Some(
+            world
+                .spawn((
+                    PointLight {
+                        intensity: 20000.0,
+                        range: 15.0,
+                        color: Color::srgb(1.0, 0.6, 0.2),
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, -0.6),
+                    Visibility::Hidden,
+                ))
+                .id(),
+        );
+        #[cfg(not(feature = "client"))]
+        let light = None;
         let weapon = weapon_bundle(
-            HailMaryComponent { muzzle_flash_light: Some(light), ..default() },
+            HailMaryComponent {
+                muzzle_flash_light: light,
+                ..default()
+            },
             world,
         );
         helpers::insert_generic_weapon(
@@ -115,11 +124,14 @@ impl GameObject for HailMaryComponent {
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-        world.entity_mut(entity).add_child(light);
+        if let Some(light) = light {
+            world.entity_mut(entity).add_child(light);
+        }
     }
 }
 
 /// Ticks down muzzle flash and toggles the PointLight child accordingly.
+#[cfg(feature = "client")]
 pub fn tick_muzzle_flash(
     mut weapons: Query<&mut HailMaryComponent>,
     mut lights: Query<&mut Visibility, With<PointLight>>,
@@ -135,6 +147,15 @@ pub fn tick_muzzle_flash(
             } else {
                 *vis = Visibility::Hidden;
             }
+        }
+    }
+}
+
+#[cfg(not(feature = "client"))]
+pub fn tick_muzzle_flash(mut weapons: Query<&mut HailMaryComponent>) {
+    for mut weapon in weapons.iter_mut() {
+        if weapon.muzzle_flash_ticks > 0 {
+            weapon.muzzle_flash_ticks -= 1;
         }
     }
 }

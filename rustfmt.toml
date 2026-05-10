@@ -8,4 +8,3 @@ wrap_comments = false
 # use_small_heuristics = "Max" # aggressively keep things one line
 use_field_init_shorthand = true
 # cargo fmt --all
-group_imports = "StdExternalCrate"

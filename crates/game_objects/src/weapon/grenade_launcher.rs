@@ -161,8 +161,10 @@ pub fn handle_detonate_grenade_request(
     let Some((shooter_entity, _)) = registry.character(conn_id) else {
         return;
     };
-    let shooter_holds =
-        pawn_slots.get(shooter_entity).map(|s| s.contains_net_id(&weapon_net_id)).unwrap_or(false);
+    let shooter_holds = pawn_slots
+        .get(shooter_entity)
+        .map(|s| s.contains_net_id(&weapon_net_id))
+        .unwrap_or(false);
     if !shooter_holds {
         return;
     }

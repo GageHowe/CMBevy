@@ -26,10 +26,12 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
         return Err(String::new());
     }
 
-    let mut listen_addr: SocketAddr =
-        "127.0.0.1:42069".parse::<SocketAddr>().map_err(|err| err.to_string())?;
-    let mut server_addr: SocketAddr =
-        "127.0.0.1:42070".parse::<SocketAddr>().map_err(|err| err.to_string())?;
+    let mut listen_addr: SocketAddr = "127.0.0.1:42069"
+        .parse::<SocketAddr>()
+        .map_err(|err| err.to_string())?;
+    let mut server_addr: SocketAddr = "127.0.0.1:42070"
+        .parse::<SocketAddr>()
+        .map_err(|err| err.to_string())?;
     let mut buf_size = 65_535usize;
     let mut seed = 1u64;
     let mut stats_interval = Duration::from_secs(5);
@@ -47,7 +49,9 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
         let key = &args[index];
         let next = |index: &mut usize| -> Result<&str, String> {
             *index += 1;
-            args.get(*index).map(String::as_str).ok_or_else(|| format!("missing value for {}", key))
+            args.get(*index)
+                .map(String::as_str)
+                .ok_or_else(|| format!("missing value for {}", key))
         };
 
         match key.as_str() {
@@ -67,7 +71,9 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
                     .map_err(|err| format!("invalid buf size: {}", err))?;
             }
             "--seed" => {
-                seed = next(&mut index)?.parse().map_err(|err| format!("invalid seed: {}", err))?;
+                seed = next(&mut index)?
+                    .parse()
+                    .map_err(|err| format!("invalid seed: {}", err))?;
             }
             "--stats" => {
                 stats_interval = Duration::from_secs(
@@ -126,7 +132,10 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
             "--down-maxdelay" => downlink.max_delay = parse_millis(next(&mut index)?)?,
             "--down-reorder-window" => downlink.reorder_window = parse_millis(next(&mut index)?)?,
             other => {
-                return Err(format!("unknown argument: {}\n\nUse --help for usage.", other));
+                return Err(format!(
+                    "unknown argument: {}\n\nUse --help for usage.",
+                    other
+                ));
             }
         }
 
@@ -136,7 +145,15 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
     validate_direction("uplink", &uplink)?;
     validate_direction("downlink", &downlink)?;
 
-    Ok(Config { listen_addr, server_addr, buf_size, seed, stats_interval, uplink, downlink })
+    Ok(Config {
+        listen_addr,
+        server_addr,
+        buf_size,
+        seed,
+        stats_interval,
+        uplink,
+        downlink,
+    })
 }
 
 fn validate_direction(label: &str, config: &DirectionConfig) -> Result<(), String> {
@@ -147,8 +164,9 @@ fn validate_direction(label: &str, config: &DirectionConfig) -> Result<(), Strin
 }
 
 fn parse_probability(text: &str) -> Result<f64, String> {
-    let value: f64 =
-        text.parse().map_err(|err| format!("invalid probability {}: {}", text, err))?;
+    let value: f64 = text
+        .parse()
+        .map_err(|err| format!("invalid probability {}: {}", text, err))?;
     if !(0.0..=1.0).contains(&value) {
         return Err(format!("probability must be between 0.0 and 1.0: {}", text));
     }
@@ -156,8 +174,9 @@ fn parse_probability(text: &str) -> Result<f64, String> {
 }
 
 fn parse_millis(text: &str) -> Result<Duration, String> {
-    let millis: u64 =
-        text.parse().map_err(|err| format!("invalid millisecond value {}: {}", text, err))?;
+    let millis: u64 = text
+        .parse()
+        .map_err(|err| format!("invalid millisecond value {}: {}", text, err))?;
     Ok(Duration::from_millis(millis))
 }
 

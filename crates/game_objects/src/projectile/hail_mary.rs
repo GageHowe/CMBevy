@@ -23,7 +23,10 @@ pub struct HailMaryProjectile {
 }
 impl Default for HailMaryProjectile {
     fn default() -> Self {
-        Self { shooter: None, lifetime: LIFETIME }
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
     }
 }
 
@@ -79,7 +82,15 @@ impl Projectile for HailMaryProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -97,8 +108,13 @@ pub fn spawn(
     let entity = helpers::spawn_projectile(
         GameObjectKind::HailMaryProjectile,
         (
-            HailMaryProjectile { shooter, lifetime: LIFETIME },
-            SoundEmitter { event: "event:/Weapons/SniperProjectileSound" },
+            HailMaryProjectile {
+                shooter,
+                lifetime: LIFETIME,
+            },
+            SoundEmitter {
+                event: "event:/Weapons/SniperProjectileSound",
+            },
         ),
         origin,
         velocity,
@@ -108,21 +124,30 @@ pub fn spawn(
         commands,
         world,
     );
-    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/SniperShot", origin, velocity);
+    helpers::queue_world_fire_sound(
+        commands,
+        shooter,
+        "event:/Weapons/SniperShot",
+        origin,
+        velocity,
+    );
     // add point light
-    let light = commands
-        .spawn((
-            PointLight {
-                intensity: 8000.0,
-                range: 50.0,
-                color: Color::srgb(1.0, 0.0, 0.0),
-                shadows_enabled: true,
-                ..default()
-            },
-            Transform::default(),
-        ))
-        .id();
-    commands.entity(entity).add_child(light);
+    #[cfg(feature = "client")]
+    {
+        let light = commands
+            .spawn((
+                PointLight {
+                    intensity: 8000.0,
+                    range: 50.0,
+                    color: Color::srgb(1.0, 0.0, 0.0),
+                    shadows_enabled: true,
+                    ..default()
+                },
+                Transform::default(),
+            ))
+            .id();
+        commands.entity(entity).add_child(light);
+    }
     entity
 }
 
@@ -137,37 +162,46 @@ impl GameObject for HailMaryProjectile {
             cmd,
             world,
             (
-                HailMaryProjectile { shooter: None, lifetime: LIFETIME },
-                SoundEmitter { event: "event:/Weapons/SniperProjectileSound" },
+                HailMaryProjectile {
+                    shooter: None,
+                    lifetime: LIFETIME,
+                },
+                SoundEmitter {
+                    event: "event:/Weapons/SniperProjectileSound",
+                },
             ),
             RADIUS,
             "event:/Weapons/SniperShot",
         );
-        let light = world
-            .spawn((
-                PointLight {
-                    intensity: 8000.0,
-                    range: 50.0,
-                    color: Color::srgb(1.0, 0.0, 0.0),
-                    shadows_enabled: true,
-                    ..default()
-                },
-                Transform::default(),
-            ))
-            .id();
-        world.entity_mut(entity).add_child(light);
+        #[cfg(feature = "client")]
+        {
+            let light = world
+                .spawn((
+                    PointLight {
+                        intensity: 8000.0,
+                        range: 50.0,
+                        color: Color::srgb(1.0, 0.0, 0.0),
+                        shadows_enabled: true,
+                        ..default()
+                    },
+                    Transform::default(),
+                ))
+                .id();
+            world.entity_mut(entity).add_child(light);
+        }
     }
 }
 
 pub struct HailMaryProjectilePlugin;
 impl Plugin for HailMaryProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryProjectile>().add_systems(
-            FixedUpdate,
-            tick_projectiles::<HailMaryProjectile>
-                .after(step_physics)
-                .in_set(super::AuthoritySet::Projectile),
-        );
+        app.register_game_object::<HailMaryProjectile>()
+            .add_systems(
+                FixedUpdate,
+                tick_projectiles::<HailMaryProjectile>
+                    .after(step_physics)
+                    .in_set(super::AuthoritySet::Projectile),
+            );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
     }
@@ -189,6 +223,8 @@ fn add_visual(
             unlit: true,
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

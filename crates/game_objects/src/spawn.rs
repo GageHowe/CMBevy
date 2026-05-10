@@ -60,7 +60,9 @@ pub trait AppGameObjectExt {
 impl AppGameObjectExt for App {
     fn register_game_object<T: GameObject>(&mut self) -> &mut Self {
         self.init_resource::<GameObjectRegistry>();
-        self.world_mut().resource_mut::<GameObjectRegistry>().register::<T>();
+        self.world_mut()
+            .resource_mut::<GameObjectRegistry>()
+            .register::<T>();
         self
     }
 }
@@ -103,7 +105,9 @@ impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
         // Insert NetworkID before type-specific spawn so the on_add hook for GameObjectKind
         // can use its presence as a guard to skip already-spawned entities.
-        world.entity_mut(self.entity).insert(self.cmd.net_id.clone());
+        world
+            .entity_mut(self.entity)
+            .insert(self.cmd.net_id.clone());
         let registration = {
             let registry = world.resource::<GameObjectRegistry>();
             registry.get(self.cmd.kind.clone())
@@ -112,7 +116,9 @@ impl Command for SpawnGameObjectCommand {
         if let Some(reset_secs) = registration.gc_after_secs
             && world.get::<WorldObjectGc>(self.entity).is_none()
         {
-            world.entity_mut(self.entity).insert(WorldObjectGc::new(reset_secs));
+            world
+                .entity_mut(self.entity)
+                .insert(WorldObjectGc::new(reset_secs));
         }
     }
 }

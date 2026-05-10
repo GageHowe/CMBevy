@@ -37,7 +37,9 @@ impl GameObject for BipedPawnComponent {
         world.entity_mut(entity).insert((
             WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
             Health::new(100.0),
-            HealthRegen { per_sec: BIPED_HEALTH_REGEN_PER_SEC },
+            HealthRegen {
+                per_sec: BIPED_HEALTH_REGEN_PER_SEC,
+            },
             LastDamageSource::default(),
             GameObjectKind::Biped,
             Transform::from(transform),
@@ -62,7 +64,11 @@ impl GameObject for BipedPawnComponent {
             }
             let collider =
                 movement::make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true);
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *physics;
             let collider_handle =
                 collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
             (rb_handle, collider_handle)
@@ -103,14 +109,18 @@ impl GameObject for BipedPawnComponent {
             .map(|slots| slots.held_weapons().map(|(net_id, _)| net_id).collect())
             .unwrap_or_default();
         #[cfg(feature = "client")]
-        if let Some(fx_entity) =
-            world.get::<BipedPawnComponent>(entity).and_then(|biped| biped.jetpack_fx_entity)
+        if let Some(fx_entity) = world
+            .get::<BipedPawnComponent>(entity)
+            .and_then(|biped| biped.jetpack_fx_entity)
             && let Ok(fx) = world.get_entity_mut(fx_entity)
         {
             fx.despawn();
         }
         let owner_net_id = world.get::<NetworkID>(entity).cloned();
-        let last_damage = world.get::<LastDamageSource>(entity).copied().unwrap_or_default();
+        let last_damage = world
+            .get::<LastDamageSource>(entity)
+            .copied()
+            .unwrap_or_default();
         let killer = last_damage.resolved_attacker();
         let conn_id = world
             .get_resource::<super::PlayerRegistry>()
@@ -162,11 +172,15 @@ impl GameObject for BipedPawnComponent {
             let respawn_delay = world
                 .get_resource::<crate::mode::ModeConfig>()
                 .map_or(common::config::RESPAWN_DELAY_SECS, |cfg| cfg.respawn_delay);
-            let team = world.get::<crate::Team>(entity).copied().unwrap_or(crate::Team(0));
+            let team = world
+                .get::<crate::Team>(entity)
+                .copied()
+                .unwrap_or(crate::Team(0));
             if let Some(mut pending_respawns) = world.get_resource_mut::<super::PendingRespawns>() {
-                pending_respawns
-                    .0
-                    .insert(conn_id, (respawn_delay, common::GameObjectKind::Biped, team));
+                pending_respawns.0.insert(
+                    conn_id,
+                    (respawn_delay, common::GameObjectKind::Biped, team),
+                );
             }
         }
         true
@@ -177,15 +191,25 @@ impl GameObject for BipedPawnComponent {
 fn spawn_visuals(entity: Entity, world: &mut World) {
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
-        .add(bevy::math::primitives::Capsule3d::new(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT));
-    let material = world.resource_mut::<Assets<StandardMaterial>>().add(Color::srgb(0.9, 0.4, 0.1));
+        .add(bevy::math::primitives::Capsule3d::new(
+            CAPSULE_RADIUS,
+            CAPSULE_HALF_HEIGHT,
+        ));
+    let material = world
+        .resource_mut::<Assets<StandardMaterial>>()
+        .add(Color::srgb(0.9, 0.4, 0.1));
     world.entity_mut(entity).insert((
         Mesh3d(mesh),
         MeshMaterial3d(material),
         Visibility::default(),
     ));
-    let pitch_pivot =
-        world.spawn((PitchPivot { pitch: 0.0 }, Transform::default(), Visibility::default())).id();
+    let pitch_pivot = world
+        .spawn((
+            PitchPivot { pitch: 0.0 },
+            Transform::default(),
+            Visibility::default(),
+        ))
+        .id();
     let yaw_pivot = world
         .spawn((
             YawPivot { yaw: 0.0 },
@@ -195,7 +219,9 @@ fn spawn_visuals(entity: Entity, world: &mut World) {
         .id();
     world.entity_mut(yaw_pivot).add_child(pitch_pivot);
     world.entity_mut(entity).add_child(yaw_pivot);
-    world.entity_mut(entity).insert(crate::reticle::AimOrigin(pitch_pivot));
+    world
+        .entity_mut(entity)
+        .insert(crate::reticle::AimOrigin(pitch_pivot));
     if let Some(mut biped) = world.entity_mut(entity).get_mut::<BipedPawnComponent>() {
         biped.yaw_pivot = Some(yaw_pivot);
         biped.pitch_pivot = Some(pitch_pivot);
@@ -230,7 +256,11 @@ fn push_death_message(
     };
     #[cfg(not(feature = "client"))]
     if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-        quic.send(SendTarget::All, Channel::Ordered, &MsgType::OnscreenMessage(text));
+        quic.send(
+            SendTarget::All,
+            Channel::Ordered,
+            &MsgType::OnscreenMessage(text),
+        );
         return;
     }
     crate::messages::push_world(world, text);

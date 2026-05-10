@@ -25,16 +25,27 @@ pub(super) fn handle_connected(
     parent_transforms: &Query<&Transform>,
     parent_parents: &Query<&ChildOf>,
     parent_bodies: &Query<&RigidBodyHandleComponent>,
-    spawnables: &Query<(Entity, &NetworkID, &GameObjectKind, &RigidBodyHandleComponent)>,
+    spawnables: &Query<(
+        Entity,
+        &NetworkID,
+        &GameObjectKind,
+        &RigidBodyHandleComponent,
+    )>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     pawn_slots: &Query<&mut WeaponSlots>,
     entity_net_ids: &Query<&NetworkID>,
     mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
 ) -> bool {
-    let mut teams = spawn_points.iter().map(|(_, sp, _, _)| sp.team).collect::<Vec<_>>();
+    let mut teams = spawn_points
+        .iter()
+        .map(|(_, sp, _, _)| sp.team)
+        .collect::<Vec<_>>();
     teams.sort();
     teams.dedup();
-    let team = teams.get(registry.controlled_count() % teams.len().max(1)).copied().unwrap_or(0);
+    let team = teams
+        .get(registry.controlled_count() % teams.len().max(1))
+        .copied()
+        .unwrap_or(0);
     let Some((sp, sr, sv)) = game_objects::lifecycle::pick_spawn_point_with_velocity(
         spawn_points,
         parent_transforms,
@@ -116,7 +127,11 @@ pub(super) fn send_connection_files(
     quic: &mut QuicManager,
 ) {
     if let Some(lb) = level_bytes {
-        quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::MapHash(lb.hash.clone()));
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::MapHash(lb.hash.clone()),
+        );
     }
     if let Some(cfg) = script_config
         && let Ok(src) = std::fs::read(&cfg.path)
@@ -151,9 +166,21 @@ pub(super) fn handle_disconnected(
 ) {
     pending_respawns.0.remove(&conn_id);
     if let Some((entity, net_id)) = registry.remove_character_for_conn(conn_id) {
-        info!("GameServer: Player disconnected: entity={entity} conn={:?}", conn_id);
+        info!(
+            "GameServer: Player disconnected: entity={entity} conn={:?}",
+            conn_id
+        );
         let held = slots_to_held(&pawn_slots.get(entity).ok());
-        kill_player(entity, net_id, held, quic, registry, held_weapons, commands, world);
+        kill_player(
+            entity,
+            net_id,
+            held,
+            quic,
+            registry,
+            held_weapons,
+            commands,
+            world,
+        );
     }
 }
 

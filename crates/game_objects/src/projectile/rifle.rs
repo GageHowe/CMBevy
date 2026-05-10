@@ -30,13 +30,19 @@ pub struct PistolProjectile {
 
 impl Default for RifleProjectile {
     fn default() -> Self {
-        Self { shooter: None, lifetime: LIFETIME }
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
     }
 }
 
 impl Default for PistolProjectile {
     fn default() -> Self {
-        Self { shooter: None, lifetime: LIFETIME }
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
     }
 }
 
@@ -77,7 +83,12 @@ impl Projectile for RifleProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        world.apply_game_impulse(shooter, helpers::knockback_impulse::<Self>(dir, 1.0), None, None);
+        world.apply_game_impulse(
+            shooter,
+            helpers::knockback_impulse::<Self>(dir, 1.0),
+            None,
+            None,
+        );
     }
 
     fn spawn_predicted(
@@ -90,7 +101,15 @@ impl Projectile for RifleProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -131,7 +150,12 @@ impl Projectile for PistolProjectile {
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
-        world.apply_game_impulse(shooter, helpers::knockback_impulse::<Self>(dir, 1.0), None, None);
+        world.apply_game_impulse(
+            shooter,
+            helpers::knockback_impulse::<Self>(dir, 1.0),
+            None,
+            None,
+        );
     }
 
     fn spawn_predicted(
@@ -144,7 +168,15 @@ impl Projectile for PistolProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn_pistol(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
+        spawn_pistol(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -161,7 +193,10 @@ pub fn spawn(
 ) -> Entity {
     let entity = helpers::spawn_projectile(
         GameObjectKind::RifleProjectile,
-        RifleProjectile { shooter, lifetime: LIFETIME },
+        RifleProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
         origin,
         velocity,
         shooter_velocity,
@@ -170,7 +205,13 @@ pub fn spawn(
         commands,
         world,
     );
-    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/RifleShot", origin, velocity);
+    helpers::queue_world_fire_sound(
+        commands,
+        shooter,
+        "event:/Weapons/RifleShot",
+        origin,
+        velocity,
+    );
     entity
 }
 
@@ -185,7 +226,10 @@ pub fn spawn_pistol(
 ) -> Entity {
     let entity = helpers::spawn_projectile(
         GameObjectKind::PistolProjectile,
-        PistolProjectile { shooter, lifetime: LIFETIME },
+        PistolProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
         origin,
         velocity,
         shooter_velocity,
@@ -194,7 +238,13 @@ pub fn spawn_pistol(
         commands,
         world,
     );
-    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/RifleShot", origin, velocity);
+    helpers::queue_world_fire_sound(
+        commands,
+        shooter,
+        "event:/Weapons/RifleShot",
+        origin,
+        velocity,
+    );
     entity
 }
 
@@ -208,7 +258,10 @@ impl GameObject for RifleProjectile {
             entity,
             cmd,
             world,
-            RifleProjectile { shooter: None, lifetime: LIFETIME },
+            RifleProjectile {
+                shooter: None,
+                lifetime: LIFETIME,
+            },
             RADIUS,
             "event:/Weapons/RifleShot",
         );
@@ -223,7 +276,10 @@ impl GameObject for PistolProjectile {
             entity,
             cmd,
             world,
-            PistolProjectile { shooter: None, lifetime: LIFETIME },
+            PistolProjectile {
+                shooter: None,
+                lifetime: LIFETIME,
+            },
             RADIUS,
             "event:/Weapons/RifleShot",
         );
@@ -237,14 +293,20 @@ impl Plugin for RifleProjectilePlugin {
             .register_game_object::<PistolProjectile>()
             .add_systems(
                 FixedUpdate,
-                (tick_projectiles::<RifleProjectile>, tick_projectiles::<PistolProjectile>)
+                (
+                    tick_projectiles::<RifleProjectile>,
+                    tick_projectiles::<PistolProjectile>,
+                )
                     .after(step_physics)
                     .in_set(super::AuthoritySet::Projectile),
             );
         #[cfg(feature = "client")]
         app.add_systems(
             bevy::prelude::Update,
-            (add_visual::<RifleProjectile>, add_visual::<PistolProjectile>),
+            (
+                add_visual::<RifleProjectile>,
+                add_visual::<PistolProjectile>,
+            ),
         );
     }
 }
@@ -264,6 +326,8 @@ fn add_visual<P: Component>(
             unlit: true,
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

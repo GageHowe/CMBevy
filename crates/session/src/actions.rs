@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use game_objects::{
     pawn::{
-        HeldWeaponMap, PawnInputKind, PlayerRegistry, WeaponSlots,
-        biped_ability::OnPickup,
+        HeldWeaponMap, PawnInputKind, PlayerRegistry, WeaponSlots, biped_ability::OnPickup,
         vehicle::*,
     },
     weapon::{WeaponConfig, WeaponState},
@@ -19,7 +18,11 @@ pub(super) fn handle_input(
     kind: PawnInputKind,
     pending_inputs: &mut PendingInputs,
 ) {
-    let newest_seen = pending_inputs.0.get(&conn_id).map(|(seq, _)| *seq).unwrap_or(0);
+    let newest_seen = pending_inputs
+        .0
+        .get(&conn_id)
+        .map(|(seq, _)| *seq)
+        .unwrap_or(0);
     if input_seq > newest_seen {
         pending_inputs.0.insert(conn_id, (input_seq, kind));
     }
@@ -58,8 +61,9 @@ pub(super) fn apply_melee_hit_requests(
         }
         let start = biped.melee_debug_start;
         let end = biped.melee_debug_end;
-        if !game_objects::pawn::biped::validate_melee_target(&mut world, attacker, target, start, end)
-        {
+        if !game_objects::pawn::biped::validate_melee_target(
+            &mut world, attacker, target, start, end,
+        ) {
             continue;
         }
         let impulse = game_objects::pawn::biped::melee_impulse(start, end);
@@ -187,7 +191,10 @@ pub(super) fn handle_interact(
 }
 
 fn body_forward(world: &PhysicsWorld, entity: Entity) -> Vec3 {
-    world.body(entity).map(|rb| rb_rot(rb) * Vec3::NEG_Z).unwrap_or(Vec3::NEG_Z)
+    world
+        .body(entity)
+        .map(|rb| rb_rot(rb) * Vec3::NEG_Z)
+        .unwrap_or(Vec3::NEG_Z)
 }
 
 pub(super) fn handle_drop_ability(

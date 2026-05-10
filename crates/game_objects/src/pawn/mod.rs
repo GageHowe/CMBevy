@@ -65,12 +65,20 @@ impl CameraEffector {
         {
             return;
         }
-        self.active_shakes.push(ActiveCameraShake { shake, age: 0.0, seed: fastrand::i32(..) });
+        self.active_shakes.push(ActiveCameraShake {
+            shake,
+            age: 0.0,
+            seed: fastrand::i32(..),
+        });
     }
     pub fn current_zoom_factor(&self) -> f32 {
         let base = (self.base_fov.to_radians() * 0.5).tan();
         let current = (self.current_fov.to_radians() * 0.5).tan();
-        if current > 0.0 { (base / current).max(1.0) } else { 1.0 }
+        if current > 0.0 {
+            (base / current).max(1.0)
+        } else {
+            1.0
+        }
     }
     pub fn reset_zoom(&mut self) {
         self.zoom_multiplier = 1.0;
@@ -137,24 +145,22 @@ struct ActiveCameraShake {
 
 use std::collections::HashMap;
 
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemParam, prelude::*};
 pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::PredictedCommands;
 pub use common::{BipedInput, PawnInputKind, RocketTurretInput, SpaceshipInput, TruckInput};
 pub use fighter::FighterPawnComponent;
-use net::message::MsgType;
-use net::message::NetworkID;
+pub use mount::{CharacterMount, Mounted};
 use net::{
+    message::{MsgType, NetworkID},
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
+pub use rocket_turret::RocketTurretPawnComponent;
 pub use spaceship::SpaceshipPawnComponent;
 pub use truck::TruckPawnComponent;
-pub use mount::{CharacterMount, Mounted};
-pub use rocket_turret::RocketTurretPawnComponent;
 pub use vehicle::VehicleComponent;
 pub use weapon_slots::WeaponSlots;
 
@@ -176,9 +182,11 @@ pub struct PlayerRegistry {
 }
 impl PlayerRegistry {
     pub fn register_character(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        self.controlled_by_conn.insert(conn_id, (entity, net_id.clone()));
-        if let Some((old_entity, _)) =
-            self.character_by_conn.insert(conn_id, (entity, net_id.clone()))
+        self.controlled_by_conn
+            .insert(conn_id, (entity, net_id.clone()));
+        if let Some((old_entity, _)) = self
+            .character_by_conn
+            .insert(conn_id, (entity, net_id.clone()))
         {
             self.conn_by_character_entity.remove(&old_entity);
         }
@@ -195,11 +203,15 @@ impl PlayerRegistry {
     }
 
     pub fn controlled_pawn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.controlled_by_conn.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
+        self.controlled_by_conn
+            .get(&conn_id)
+            .map(|(entity, net_id)| (*entity, net_id))
     }
 
     pub fn character(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.character_by_conn.get(&conn_id).map(|(entity, net_id)| (*entity, net_id))
+        self.character_by_conn
+            .get(&conn_id)
+            .map(|(entity, net_id)| (*entity, net_id))
     }
 
     pub fn remove_character_for_conn(
@@ -374,10 +386,12 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
-        app.init_resource::<InteractionGate>().init_resource::<InteractionHint>().add_systems(
-            PostUpdate,
-            apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
-        );
+        app.init_resource::<InteractionGate>()
+            .init_resource::<InteractionHint>()
+            .add_systems(
+                PostUpdate,
+                apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
+            );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(fighter::FighterPlugin);
@@ -507,16 +521,22 @@ impl<'w, 's> PawnInputParams<'w, 's> {
     }
 }
 
-pub fn aim_dir(world: &PhysicsWorld, entity: Entity, input: Option<&PawnInputKind>) -> Option<Vec3> {
+pub fn aim_dir(
+    world: &PhysicsWorld,
+    entity: Entity,
+    input: Option<&PawnInputKind>,
+) -> Option<Vec3> {
     match input? {
-        PawnInputKind::Biped(input) => {
-            world.entity_to_handle.get(&entity).and_then(|&h| world.rigid_body_set.get(h)).map(|rb| {
+        PawnInputKind::Biped(input) => world
+            .entity_to_handle
+            .get(&entity)
+            .and_then(|&h| world.rigid_body_set.get(h))
+            .map(|rb| {
                 rb_rot(rb)
                     * Quat::from_rotation_y(input.look_yaw)
                     * Quat::from_rotation_x(input.look_pitch)
                     * Vec3::NEG_Z
-            })
-        }
+            }),
         _ => None,
     }
 }
@@ -568,8 +588,10 @@ fn apply_camera_effects(
         shake_roll,
     );
 
-    let target_fov =
-        ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier).atan().to_degrees() * 2.0;
+    let target_fov = ((fx.base_fov / 2.0).to_radians().tan() / fx.zoom_multiplier)
+        .atan()
+        .to_degrees()
+        * 2.0;
     fx.current_fov += (target_fov - fx.current_fov) * (1.0 - (-FOV_LERP_SPEED * dt).exp());
     if let Projection::Perspective(ref mut p) = *proj {
         p.fov = fx.current_fov.to_radians();
@@ -606,7 +628,9 @@ pub struct Possessed {
 }
 impl Possessed {
     pub fn new(_capacity: usize) -> Self {
-        Self { pending_input: None }
+        Self {
+            pending_input: None,
+        }
     }
     pub fn push(&mut self, input: PawnInputKind) {
         self.pending_input = Some(input);

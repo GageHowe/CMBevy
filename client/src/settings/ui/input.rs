@@ -5,7 +5,8 @@ use crate::settings::Settings;
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.heading("Keyboard / Mouse");
     ui.horizontal(|ui| {
-        ui.label("Mouse sensitivity").on_hover_text("You know what this does.");
+        ui.label("Mouse sensitivity")
+            .on_hover_text("You know what this does.");
         ui.add(
             egui::Slider::new(&mut settings.mouse_sensitivity, 0.0001..=0.01)
                 .logarithmic(true)
@@ -40,25 +41,18 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.horizontal(|ui| {
         ui.label("Look sensitivity");
         ui.add(
-            egui::Slider::new(&mut settings.gamepad_look_sensitivity, 0.5..=8.0)
-                .fixed_decimals(2),
+            egui::Slider::new(&mut settings.gamepad_look_sensitivity, 0.5..=8.0).fixed_decimals(2),
         );
     });
 
     ui.horizontal(|ui| {
         ui.label("Move deadzone");
-        ui.add(
-            egui::Slider::new(&mut settings.gamepad_move_deadzone, 0.0..=0.5)
-                .fixed_decimals(2),
-        );
+        ui.add(egui::Slider::new(&mut settings.gamepad_move_deadzone, 0.0..=0.5).fixed_decimals(2));
     });
 
     ui.horizontal(|ui| {
         ui.label("Look deadzone");
-        ui.add(
-            egui::Slider::new(&mut settings.gamepad_look_deadzone, 0.0..=0.5)
-                .fixed_decimals(2),
-        );
+        ui.add(egui::Slider::new(&mut settings.gamepad_look_deadzone, 0.0..=0.5).fixed_decimals(2));
     });
 
     ui.checkbox(&mut settings.gamepad_invert_y, "Invert gamepad Y");

@@ -156,9 +156,21 @@ where
 {
     let (ordered_tx, ordered_rx) = mpsc::unbounded_channel();
     tokio::spawn(ordered_sender_task(connection.clone(), ordered_rx));
-    tokio::spawn(bidi_receiver_task(conn_id, connection.clone(), event_tx.clone()));
-    tokio::spawn(uni_receiver_task(conn_id, connection.clone(), event_tx.clone()));
-    tokio::spawn(datagram_receiver_task(conn_id, connection.clone(), event_tx.clone()));
+    tokio::spawn(bidi_receiver_task(
+        conn_id,
+        connection.clone(),
+        event_tx.clone(),
+    ));
+    tokio::spawn(uni_receiver_task(
+        conn_id,
+        connection.clone(),
+        event_tx.clone(),
+    ));
+    tokio::spawn(datagram_receiver_task(
+        conn_id,
+        connection.clone(),
+        event_tx.clone(),
+    ));
     tokio::spawn(async move {
         let _ = connection.closed().await;
         on_close(conn_id);

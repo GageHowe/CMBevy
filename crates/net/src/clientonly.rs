@@ -21,7 +21,10 @@ use crate::quic::{
 pub struct NetClientPlugin;
 
 pub(crate) enum ClientCommand {
-    Send { channel: Channel, msg: crate::message::MsgType },
+    Send {
+        channel: Channel,
+        msg: crate::message::MsgType,
+    },
     Shutdown,
 }
 pub(crate) struct ClientTransport {
@@ -106,7 +109,10 @@ impl QuicManager {
         let (tx, rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || run_client_worker(server_addr, rx, event_tx));
-        self.client_transport = Some(ClientTransport { tx, rx: Mutex::new(event_rx) });
+        self.client_transport = Some(ClientTransport {
+            tx,
+            rx: Mutex::new(event_rx),
+        });
         println!("Connecting to QUIC server at {server_addr}");
     }
 
@@ -132,7 +138,11 @@ pub fn process_inbound_client(mut quic: ResMut<QuicManager>) {
 }
 
 pub fn flush_outbound_client(mut quic: ResMut<QuicManager>) {
-    let Some(tx) = quic.client_transport.as_ref().map(|transport| transport.tx.clone()) else {
+    let Some(tx) = quic
+        .client_transport
+        .as_ref()
+        .map(|transport| transport.tx.clone())
+    else {
         quic.outbound.clear();
         return;
     };

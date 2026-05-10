@@ -28,7 +28,10 @@ async fn main() {
     let db = db::open("data.db");
     db::sync_assets(&db, &assets::asset_dir());
 
-    let state = AppState { db, lobbies: Arc::new(Mutex::new(HashMap::new())) };
+    let state = AppState {
+        db,
+        lobbies: Arc::new(Mutex::new(HashMap::new())),
+    };
 
     let app = Router::new()
         .route("/", get(|| async { Redirect::to("/assets") }))
@@ -47,7 +50,12 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
     println!("Listening on http://0.0.0.0:8000");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn serve_css() -> Response {

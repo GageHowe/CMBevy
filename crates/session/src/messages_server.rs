@@ -133,14 +133,16 @@ fn process_server_message(
         MsgType::DropAbility(drop_dir) => {
             handle_drop_ability(conn_id, registry, &mut sp.commands, drop_dir);
         }
-        MsgType::SetActiveWeaponSlot(active_primary) => game_objects::weapon::handle_set_active_slot_request(
-            conn_id,
-            active_primary,
-            registry,
-            &mut sp.pawn_slots,
-            &mut sp.weapon_runtime,
-            quic,
-        ),
+        MsgType::SetActiveWeaponSlot(active_primary) => {
+            game_objects::weapon::handle_set_active_slot_request(
+                conn_id,
+                active_primary,
+                registry,
+                &mut sp.pawn_slots,
+                &mut sp.weapon_runtime,
+                quic,
+            )
+        }
         MsgType::ReloadWeapon(weapon_net_id) => game_objects::weapon::handle_reload_request(
             conn_id,
             weapon_net_id,
@@ -150,26 +152,30 @@ fn process_server_message(
             &mut sp.weapon_runtime,
             quic,
         ),
-        MsgType::FireRequest { weapon: weapon_net_id, kind, temp_id, origin, dir } => {
-            game_objects::weapon::handle_fire_request(
-                conn_id,
-                weapon_net_id,
-                kind,
-                temp_id,
-                origin,
-                dir,
-                registry,
-                &sp.all_networked,
-                &mut sp.pawn_slots,
-                &mut sp.weapon_runtime,
-                &mut sp.held_weapons,
-                &mut sp.commands,
-                &mut sp.world,
-                net_ids,
-                quic,
-                tick,
-            )
-        }
+        MsgType::FireRequest {
+            weapon: weapon_net_id,
+            kind,
+            temp_id,
+            origin,
+            dir,
+        } => game_objects::weapon::handle_fire_request(
+            conn_id,
+            weapon_net_id,
+            kind,
+            temp_id,
+            origin,
+            dir,
+            registry,
+            &sp.all_networked,
+            &mut sp.pawn_slots,
+            &mut sp.weapon_runtime,
+            &mut sp.held_weapons,
+            &mut sp.commands,
+            &mut sp.world,
+            net_ids,
+            quic,
+            tick,
+        ),
         MsgType::DetonateGrenadeRequest(weapon_net_id) => {
             game_objects::weapon::grenade_launcher::handle_detonate_grenade_request(
                 conn_id,
@@ -181,15 +187,27 @@ fn process_server_message(
             )
         }
         MsgType::TimePing(bits) => {
-            quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::TimePong(bits));
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Unreliable,
+                &MsgType::TimePong(bits),
+            );
         }
         MsgType::Ping(text) => {
             info!("Got a ping from conn_id {:?} with text {}", conn_id, text);
-            quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Pong(text));
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::Pong(text),
+            );
         }
         MsgType::ChatMessage(sender, text) => {
             info!("GameServer: Got ChatMessage: [{sender}] {text}");
-            quic.send(SendTarget::All, Channel::Ordered, &MsgType::ChatMessage(sender, text));
+            quic.send(
+                SendTarget::All,
+                Channel::Ordered,
+                &MsgType::ChatMessage(sender, text),
+            );
         }
         other => warn!("Unhandled: {other:?}"),
     }

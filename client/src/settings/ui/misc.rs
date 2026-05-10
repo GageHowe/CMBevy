@@ -1,23 +1,8 @@
 use bevy_egui::egui;
 
-use crate::settings::{PhysicsSubsteps, Settings};
+use crate::settings::Settings;
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
-    egui::CollapsingHeader::new("Simulation")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Physics substeps")
-                    .on_hover_text("Run multiple physics steps per tick. Improves accuracy at the cost of CPU time. Ignored during reconciliation.");
-                ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::One, "Off")
-                    .on_hover_text("One physics step per tick. Usually the best option");
-                ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::Two, "2x")
-                    .on_hover_text("Two physics steps per tick; not recommended");
-                ui.selectable_value(&mut settings.physics_substeps, PhysicsSubsteps::Four, "4x")
-                    .on_hover_text("Do you have a supercomputer??");
-            });
-        });
-
     egui::CollapsingHeader::new("Debug")
         .default_open(true)
         .show(ui, |ui| {

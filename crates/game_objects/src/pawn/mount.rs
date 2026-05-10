@@ -1,5 +1,8 @@
 use bevy::prelude::*;
-use net::{message::NetworkID, quic::{ConnectionId, QuicManager}};
+use net::{
+    message::NetworkID,
+    quic::{ConnectionId, QuicManager},
+};
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
 use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
@@ -34,13 +37,20 @@ impl Plugin for MountPlugin {
         app.register_type::<Mounted>();
         app.add_systems(FixedUpdate, sync_mounted_bipeds.before(step_physics));
         #[cfg(feature = "client")]
-        app.add_systems(Update, sync_mounted_biped_visuals.after(sync_physics_visual));
+        app.add_systems(
+            Update,
+            sync_mounted_biped_visuals.after(sync_physics_visual),
+        );
     }
 }
 
 pub fn spawn_mount_anchor(parent: Entity, local_offset: Vec3, world: &mut World) -> Entity {
-    let anchor =
-        world.spawn((Transform::from_translation(local_offset), Visibility::default())).id();
+    let anchor = world
+        .spawn((
+            Transform::from_translation(local_offset),
+            Visibility::default(),
+        ))
+        .id();
     world.entity_mut(parent).add_child(anchor);
     anchor
 }
@@ -94,7 +104,13 @@ pub fn mount_character(
     let parent_angvel = rb_angvel(parent_body);
     let mount_pos = mount_world_point(parent_pos, parent_rot, anchor_transform.translation);
     let mount_rot = parent_rot * anchor_transform.rotation;
-    world.set_body_pose(biped_entity, mount_pos, mount_rot, parent_vel, parent_angvel);
+    world.set_body_pose(
+        biped_entity,
+        mount_pos,
+        mount_rot,
+        parent_vel,
+        parent_angvel,
+    );
     world.set_body_enabled(biped_entity, false);
     mount.occupant = Some(biped_entity);
     true
@@ -219,8 +235,14 @@ pub fn handle_server_interact(
     let Ok(mut mount) = mounts.get_mut(target) else {
         return;
     };
-    match handle_mount_interact(controlled, character, target, world, &mut mount, anchor_transforms)
-    {
+    match handle_mount_interact(
+        controlled,
+        character,
+        target,
+        world,
+        &mut mount,
+        anchor_transforms,
+    ) {
         Some(MountInteractResult::Unmounted(biped_entity)) => {
             let Ok(biped_net_id) = net_ids.get(biped_entity) else {
                 return;
@@ -252,8 +274,10 @@ pub fn apply_mount_state(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
 ) {
-    let biped_entity =
-        just_spawned.get(biped_net_id).map(|(entity, _)| *entity).or_else(|| networked.get_entity(biped_net_id));
+    let biped_entity = just_spawned
+        .get(biped_net_id)
+        .map(|(entity, _)| *entity)
+        .or_else(|| networked.get_entity(biped_net_id));
     let Some(biped_entity) = biped_entity else {
         return;
     };
@@ -272,8 +296,8 @@ pub fn apply_mount_state(
             let predicted_exit = old_parent.and_then(|parent_entity| {
                 mounts.get(parent_entity).ok().and_then(|mount| {
                     let anchor_transform = anchor_transforms.get(mount.anchor).ok()?;
-                    let exit_offset =
-                        anchor_transform.rotation * mount.exit_offset + anchor_transform.translation;
+                    let exit_offset = anchor_transform.rotation * mount.exit_offset
+                        + anchor_transform.translation;
                     world.predicted_body_point_after(parent_entity, exit_offset, 0.0)
                 })
             });
@@ -324,17 +348,20 @@ fn sync_mounted_bipeds(
         let mount_rot = parent_rot * anchor_transform.rotation;
         let parent_vel = rb_vel(parent_body);
         let parent_angvel = rb_angvel(parent_body);
-        world.set_body_pose(biped_entity, mount_pos, mount_rot, parent_vel, parent_angvel);
+        world.set_body_pose(
+            biped_entity,
+            mount_pos,
+            mount_rot,
+            parent_vel,
+            parent_angvel,
+        );
     }
 }
 
 #[cfg(feature = "client")]
 fn sync_mounted_biped_visuals(
     mounted: Query<(Entity, &Mounted)>,
-    mut transforms: ParamSet<(
-        Query<&Transform>,
-        Query<&mut Transform>,
-    )>,
+    mut transforms: ParamSet<(Query<&Transform>, Query<&mut Transform>)>,
     mounts: Query<&CharacterMount>,
 ) {
     for (biped_entity, mounted) in mounted.iter() {
@@ -382,12 +409,19 @@ pub fn draw_mount_debug(
             Color::srgba(0.2, 1.0, 0.8, 0.9)
         };
         gizmos.sphere(center, mount.interact_radius, color);
-        gizmos.line(center, center + rot * mount.exit_offset, Color::srgba(1.0, 0.8, 0.2, 0.9));
+        gizmos.line(
+            center,
+            center + rot * mount.exit_offset,
+            Color::srgba(1.0, 0.8, 0.2, 0.9),
+        );
     }
 }
 
 pub fn handle_mount_parent_death(parent_entity: Entity, world: &mut World) -> Option<Entity> {
-    let Some(anchor) = world.get::<CharacterMount>(parent_entity).map(|mount| mount.anchor) else {
+    let Some(anchor) = world
+        .get::<CharacterMount>(parent_entity)
+        .map(|mount| mount.anchor)
+    else {
         return None;
     };
     let Some(anchor_transform) = world.get::<Transform>(anchor).cloned() else {

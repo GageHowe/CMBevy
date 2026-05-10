@@ -2,23 +2,25 @@
 use bevy::input::gamepad::Gamepad;
 #[cfg(feature = "client")]
 use bevy::input::mouse::AccumulatedMouseMotion;
-use bevy::ecs::system::Command;
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::{ecs::system::Command, prelude::*};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::{CharacterMount, Pawn, PawnInputKind, RocketTurretInput, mount};
 #[cfg(feature = "client")]
 use super::{CameraEffector, GatherInputSet, MovePawnsSet, Possessed};
+use super::{CharacterMount, Pawn, PawnInputKind, RocketTurretInput, mount};
 use crate::{
     GameObject, GameObjectKind,
     health::{CollisionDamageConfig, Health, LastDamageSource},
-    projectile::{Projectile, rpg::{RpgProjectile, SPEED as RPG_SPEED}},
+    projectile::{
+        Projectile,
+        rpg::{RpgProjectile, SPEED as RPG_SPEED},
+    },
     reticle::{AimOrigin, AimReticle},
     spawn::AppGameObjectExt,
 };
@@ -120,7 +122,10 @@ impl GameObject for RocketTurretPawnComponent {
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let mount_anchor = mount::spawn_mount_anchor(entity, MOUNT_OFFSET, world);
         let pitch_pivot = world
-            .spawn((Transform::from_translation(PITCH_PIVOT_OFFSET), Visibility::default()))
+            .spawn((
+                Transform::from_translation(PITCH_PIVOT_OFFSET),
+                Visibility::default(),
+            ))
             .id();
         world.entity_mut(entity).add_child(pitch_pivot);
         world.entity_mut(entity).insert((
@@ -139,7 +144,6 @@ impl GameObject for RocketTurretPawnComponent {
                 threshold_per_mass: 120.0,
                 min_threshold: 250.0,
                 damage_scale: 0.4,
-                max_damage_per_hit: Some(50.0),
             },
             LastDamageSource::default(),
             AimOrigin(pitch_pivot),
@@ -159,15 +163,23 @@ impl GameObject for RocketTurretPawnComponent {
             }
             let collider =
                 ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z).build();
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *physics;
             collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
             rb_handle
         };
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        world
+            .entity_mut(entity)
+            .insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+            world
+                .entity_mut(entity)
+                .insert((SceneRoot(scene), Visibility::default()));
         }
     }
 
@@ -202,10 +214,7 @@ impl GameObject for RocketTurretPawnComponent {
     }
 }
 
-pub fn apply_rocket_turret_input(
-    turret: &mut RocketTurretPawnComponent,
-    input: RocketTurretInput,
-) {
+pub fn apply_rocket_turret_input(turret: &mut RocketTurretPawnComponent, input: RocketTurretInput) {
     if (turret.yaw - input.yaw).abs() > 0.0001 || (turret.pitch - input.pitch).abs() > 0.0001 {
         turret.look_sync_dirty = true;
     }
@@ -239,7 +248,10 @@ pub fn spawn_attached_to_truck(
         },
     }
     .apply(world);
-    world.entity_mut(entity).insert(AttachedTo { parent: parent_entity, local_translation });
+    world.entity_mut(entity).insert(AttachedTo {
+        parent: parent_entity,
+        local_translation,
+    });
     entity
 }
 
@@ -361,7 +373,9 @@ fn gather_rocket_turret_input(
     };
     let gamepad = common::active_gamepad(gamepads.iter());
     let look_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
     let mut input = RocketTurretInput::default();
     input.yaw =
@@ -370,11 +384,23 @@ fn gather_rocket_turret_input(
         + look_stick.y
             * sensitivity.gamepad_look
             * time.delta_secs()
-            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 };
-    input.fire =
-        bindings.pressed(common::InputAction::Fire, &keyboard, &mouse_buttons, gamepad);
-    input.fire_pressed =
-        bindings.just_pressed(common::InputAction::Fire, &keyboard, &mouse_buttons, gamepad);
+            * if sensitivity.gamepad_invert_y {
+                -1.0
+            } else {
+                1.0
+            };
+    input.fire = bindings.pressed(
+        common::InputAction::Fire,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
+    input.fire_pressed = bindings.just_pressed(
+        common::InputAction::Fire,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
     possessed.push(PawnInputKind::RocketTurret(input));
 }
 
@@ -393,17 +419,28 @@ fn attach_camera_on_possess_turret(
     let Some(pitch_pivot) = turret.pitch_pivot else {
         return;
     };
-    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
-    let pivot = commands.spawn((
-        Transform::default(),
-        Visibility::Inherited,
-        crate::spring_arm::SpringArm::new(CAMERA_OFFSET, 0.2, 5.0),
-        crate::spring_arm::SpringArmPivot,
-    )).id();
+    let base_fov = if let Projection::Perspective(p) = proj {
+        p.fov.to_degrees()
+    } else {
+        90.0
+    };
+    let pivot = commands
+        .spawn((
+            Transform::default(),
+            Visibility::Inherited,
+            crate::spring_arm::SpringArm::new(CAMERA_OFFSET, 0.2, 5.0),
+            crate::spring_arm::SpringArmPivot,
+        ))
+        .id();
     commands.entity(pitch_pivot).add_child(pivot);
     commands.entity(cam).insert((
         Transform::default(),
-        CameraEffector { base_translation: Vec3::ZERO, base_fov, current_fov: base_fov, ..default() },
+        CameraEffector {
+            base_translation: Vec3::ZERO,
+            base_fov,
+            current_fov: base_fov,
+            ..default()
+        },
     ));
     commands.entity(pivot).add_child(cam);
 }

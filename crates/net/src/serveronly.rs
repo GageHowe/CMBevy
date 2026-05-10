@@ -22,7 +22,11 @@ pub struct NetServerPlugin;
 
 pub(crate) enum ServerCommand {
     Accepted(quinn::Connection),
-    Send { target: SendTarget, channel: Channel, msg: MsgType },
+    Send {
+        target: SendTarget,
+        channel: Channel,
+        msg: MsgType,
+    },
     ConnectionClosed(ConnectionId),
 }
 
@@ -52,7 +56,10 @@ impl QuicManager {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let accept_tx = tx.clone();
         std::thread::spawn(move || run_server_worker(addr, accept_tx, rx, event_tx));
-        self.server_transport = Some(ServerTransport { tx, rx: Mutex::new(event_rx) });
+        self.server_transport = Some(ServerTransport {
+            tx,
+            rx: Mutex::new(event_rx),
+        });
         println!("QUIC server listening on {addr}");
     }
 }
@@ -71,12 +78,20 @@ pub fn process_inbound_server(mut quic: ResMut<QuicManager>) {
 }
 
 pub fn flush_outbound_server(mut quic: ResMut<QuicManager>) {
-    let Some(tx) = quic.server_transport.as_ref().map(|transport| transport.tx.clone()) else {
+    let Some(tx) = quic
+        .server_transport
+        .as_ref()
+        .map(|transport| transport.tx.clone())
+    else {
         quic.outbound.clear();
         return;
     };
     for (target, channel, msg) in quic.outbound.drain(..) {
-        let _ = tx.send(ServerCommand::Send { target, channel, msg });
+        let _ = tx.send(ServerCommand::Send {
+            target,
+            channel,
+            msg,
+        });
     }
 }
 
@@ -130,13 +145,21 @@ fn run_server_worker(
                             let _ = tx.send(ServerCommand::ConnectionClosed(conn_id));
                         },
                     );
-                    connections.insert(conn_id, ServerConnection { connection, ordered_tx });
+                    connections.insert(
+                        conn_id,
+                        ServerConnection {
+                            connection,
+                            ordered_tx,
+                        },
+                    );
                     println!("Client connected: {conn_id}");
                     let _ = event_tx.send(TransportEvent::Connected(conn_id));
                 }
-                ServerCommand::Send { target, channel, msg } => {
-                    send_to_targets(&connections, target, channel, &msg).await
-                }
+                ServerCommand::Send {
+                    target,
+                    channel,
+                    msg,
+                } => send_to_targets(&connections, target, channel, &msg).await,
                 ServerCommand::ConnectionClosed(conn_id) => {
                     connections.remove(&conn_id);
                     println!("Client disconnected: {conn_id}");

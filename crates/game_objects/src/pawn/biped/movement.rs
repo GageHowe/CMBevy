@@ -12,7 +12,11 @@ pub(super) fn ground_state(
     is_sliding: bool,
 ) -> (bool, Vec3, Option<Entity>) {
     // The crouched capsule is top-aligned, so its bottom is at the body origin (SLIDE_CAPSULE_BOTTOM = 0).
-    let bottom_offset = if is_sliding { SLIDE_CAPSULE_BOTTOM } else { CAPSULE_BOTTOM };
+    let bottom_offset = if is_sliding {
+        SLIDE_CAPSULE_BOTTOM
+    } else {
+        CAPSULE_BOTTOM
+    };
     let ray_origin = capsule_pos - planet_up * bottom_offset;
     let exclude = |_ch: ColliderHandle, col: &rapier3d::prelude::Collider| {
         !col.is_sensor() && col.parent().map_or(true, |rb| rb != body_handle)
@@ -95,7 +99,11 @@ fn replace_capsule_collider(
         col.set_translation_wrt_parent(Vector3::new(0.0, y_offset, 0.0));
         return ch;
     }
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
     collider_set.insert_with_parent(prototype, rb_handle, rigid_body_set)
 }
 
@@ -116,12 +124,19 @@ pub fn apply_biped_movement(
     };
     let planet_up = body_rot * Vec3::Y;
     let desired = biped_move_direction(body_rot, input);
-    let (grounded, ground_linvel, support_entity) =
-        ground_state(world, body_handle.0, capsule_pos, planet_up, biped.is_sliding);
+    let (grounded, ground_linvel, support_entity) = ground_state(
+        world,
+        body_handle.0,
+        capsule_pos,
+        planet_up,
+        biped.is_sliding,
+    );
 
     // Air control: small directional force while airborne
     if !grounded {
-        let impulse = (desired + planet_up * (input.jump as i8 as f32 - input.slide as i8 as f32)) * AIR_CONTROL * capsule_mass;
+        let impulse = (desired + planet_up * (input.jump as i8 as f32 - input.slide as i8 as f32))
+            * AIR_CONTROL
+            * capsule_mass;
         if impulse.length_squared() > 1e-6
             && let Some(rb) = world.rigid_body_set.get_mut(body_handle.0)
         {
@@ -136,8 +151,11 @@ pub fn apply_biped_movement(
     if input.slide != biped.is_sliding {
         let just_crouched = input.slide && !biped.is_sliding;
         biped.is_sliding = input.slide;
-        let (half_height, friction) =
-            if input.slide { (SLIDE_HALF_HEIGHT, SLIDE_FRICTION) } else { (CAPSULE_HALF_HEIGHT, MAIN_FRICTION) };
+        let (half_height, friction) = if input.slide {
+            (SLIDE_HALF_HEIGHT, SLIDE_FRICTION)
+        } else {
+            (CAPSULE_HALF_HEIGHT, MAIN_FRICTION)
+        };
         biped.collider = Some(replace_capsule_collider(
             world,
             body_handle.0,
@@ -179,7 +197,11 @@ pub fn apply_biped_movement(
     // Crouching gives a higher jump.
     if input.jump && grounded && biped.jump_cooldown == 0 {
         biped.jump_cooldown = JUMP_COOLDOWN;
-        let jump_strength = if biped.is_sliding { JUMP_IMPULSE_CROUCHED } else { JUMP_IMPULSE };
+        let jump_strength = if biped.is_sliding {
+            JUMP_IMPULSE_CROUCHED
+        } else {
+            JUMP_IMPULSE
+        };
         let impulse = planet_up * jump_strength * capsule_mass;
         if let Some(rb) = world.rigid_body_set.get_mut(body_handle.0) {
             rb.apply_impulse(Vector::new(impulse.x, impulse.y, impulse.z), true);
@@ -193,8 +215,6 @@ pub fn apply_biped_movement(
             rb.apply_impulse(Vector::new(-impulse.x, -impulse.y, -impulse.z), true);
         }
     }
-
-
 }
 
 pub fn apply_biped_input(
@@ -235,7 +255,10 @@ pub fn aim_pose(
         // Fire origin must come from the physics body, not the visually smoothed transform.
         // Otherwise interpolate/extrapolate shifts projectile spawn sideways while strafing.
         rb_pos(rb) + body_rot * VIEW_PIVOT_OFFSET,
-        body_rot * Quat::from_rotation_y(look_yaw) * Quat::from_rotation_x(look_pitch) * Vec3::NEG_Z,
+        body_rot
+            * Quat::from_rotation_y(look_yaw)
+            * Quat::from_rotation_x(look_pitch)
+            * Vec3::NEG_Z,
     ))
 }
 

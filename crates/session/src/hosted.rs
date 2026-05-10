@@ -23,10 +23,16 @@ pub fn fetch_lan_lobbies() -> Result<Vec<http_common::LobbyInfo>, String> {
     use std::{net::UdpSocket, time::Duration};
     let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     sock.set_broadcast(true).map_err(|e| e.to_string())?;
-    sock.set_read_timeout(Some(Duration::from_millis(1500))).map_err(|e| e.to_string())?;
-    let _ = sock
-        .send_to(b"discover", format!("255.255.255.255:{}", common::config::LAN_DISCOVERY_PORT));
-    let _ = sock.send_to(b"discover", format!("127.0.0.1:{}", common::config::LAN_DISCOVERY_PORT));
+    sock.set_read_timeout(Some(Duration::from_millis(1500)))
+        .map_err(|e| e.to_string())?;
+    let _ = sock.send_to(
+        b"discover",
+        format!("255.255.255.255:{}", common::config::LAN_DISCOVERY_PORT),
+    );
+    let _ = sock.send_to(
+        b"discover",
+        format!("127.0.0.1:{}", common::config::LAN_DISCOVERY_PORT),
+    );
     let mut lobbies = Vec::new();
     let mut buf = [0u8; 16];
     loop {
@@ -120,14 +126,22 @@ fn scan_dir(dir: impl AsRef<std::path::Path>, ext: &str) -> Vec<String> {
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|x| x == ext))
-        .filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .filter_map(|e| {
+            e.path()
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+        })
         .collect();
     names.sort();
     names
 }
 
 fn gameserver_exe() -> std::path::PathBuf {
-    let bin = if cfg!(windows) { "gameserver.exe" } else { "gameserver" };
+    let bin = if cfg!(windows) {
+        "gameserver.exe"
+    } else {
+        "gameserver"
+    };
     let mut candidates = Vec::new();
 
     if let Ok(exe) = std::env::current_exe()
@@ -143,22 +157,35 @@ fn gameserver_exe() -> std::path::PathBuf {
 
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     if let Some(workspace_root) = manifest_dir.parent().and_then(|dir| dir.parent()) {
-        let profile = option_env!("PROFILE")
-            .unwrap_or(if cfg!(debug_assertions) { "debug" } else { "release" });
+        let profile = option_env!("PROFILE").unwrap_or(if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        });
         candidates.push(workspace_root.join("target").join(profile).join(bin));
         candidates.push(workspace_root.join("target").join("debug").join(bin));
         candidates.push(workspace_root.join("target").join("release").join(bin));
         candidates.push(workspace_root.join("target").join("profiling").join(bin));
     }
 
-    candidates.into_iter().find(|path| path.is_file()).unwrap_or_else(|| {
-        std::path::PathBuf::from(if cfg!(windows) { "gameserver.exe" } else { "gameserver" })
-    })
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(if cfg!(windows) {
+                "gameserver.exe"
+            } else {
+                "gameserver"
+            })
+        })
 }
 
 fn workspace_root() -> Option<std::path::PathBuf> {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().and_then(|dir| dir.parent()).map(std::path::Path::to_path_buf)
+    manifest_dir
+        .parent()
+        .and_then(|dir| dir.parent())
+        .map(std::path::Path::to_path_buf)
 }
 
 fn spawn_gameserver_terminal(
@@ -227,7 +254,9 @@ fn local_port_pids(port: u16) -> Vec<u32> {
 
 #[cfg(target_os = "windows")]
 fn local_port_pids(port: u16) -> Vec<u32> {
-    let Ok(output) = std::process::Command::new("netstat").args(["-ano", "-p", "udp"]).output()
+    let Ok(output) = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "udp"])
+        .output()
     else {
         return Vec::new();
     };
@@ -240,7 +269,8 @@ fn local_port_pids(port: u16) -> Vec<u32> {
             }
             let local = cols[1];
             let pid = cols[3];
-            local.rsplit(':')
+            local
+                .rsplit(':')
                 .next()
                 .filter(|p| *p == port.to_string())
                 .and_then(|_| pid.parse::<u32>().ok())
@@ -255,9 +285,13 @@ fn local_port_pids(_port: u16) -> Vec<u32> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn kill_pid(pid: u32) {
-    let _ = std::process::Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+    let _ = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status();
     std::thread::sleep(std::time::Duration::from_millis(150));
-    let _ = std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+    let _ = std::process::Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .status();
 }
 
 #[cfg(target_os = "windows")]
@@ -307,7 +341,11 @@ fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::R
         "tell application \"Terminal\" to do script {}",
         apple_script_string(&shell_command_line(exe, args))
     );
-    std::process::Command::new("osascript").arg("-e").arg(script).spawn().map(|_| ())
+    std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .spawn()
+        .map(|_| ())
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]

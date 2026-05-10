@@ -58,7 +58,11 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let values = world
                 .get_resource::<ScriptTagIndex>()
                 .map(|index| {
-                    index.get(&tag).iter().map(|entity| entity.to_bits() as i64).collect::<Vec<_>>()
+                    index
+                        .get(&tag)
+                        .iter()
+                        .map(|entity| entity.to_bits() as i64)
+                        .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
             lua.create_sequence_from(values)
@@ -79,14 +83,18 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, (entity_id, tag): (i64, String)| {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
-            Ok(world.get_resource::<ScriptTagIndex>().is_some_and(|index| index.has(entity, &tag)))
+            Ok(world
+                .get_resource::<ScriptTagIndex>()
+                .is_some_and(|index| index.has(entity, &tag)))
         })
     });
 
     register_lua_function(&runtime.lua, "entity_exists", |lua| {
         lua.create_function(|lua, entity_id: i64| {
             let world = lua_world(lua)?;
-            Ok(world.get_entity(Entity::from_bits(entity_id as u64)).is_ok())
+            Ok(world
+                .get_entity(Entity::from_bits(entity_id as u64))
+                .is_ok())
         })
     });
 
@@ -114,7 +122,9 @@ pub(crate) fn register_script_functions(world: &mut World) {
     register_lua_function(&runtime.lua, "is_bot", |lua| {
         lua.create_function(|lua, entity_id: i64| {
             let world = lua_world(lua)?;
-            Ok(world.get::<BotController>(Entity::from_bits(entity_id as u64)).is_some())
+            Ok(world
+                .get::<BotController>(Entity::from_bits(entity_id as u64))
+                .is_some())
         })
     });
 
@@ -137,10 +147,12 @@ pub(crate) fn register_script_functions(world: &mut World) {
     register_lua_function(&runtime.lua, "get_match_phase", |lua| {
         lua.create_function(|lua, ()| {
             let world = lua_world(lua)?;
-            Ok(match world.get_resource::<MatchState>().map(|state| state.phase) {
-                Some(MatchPhase::PostGame) => "post_game",
-                _ => "playing",
-            })
+            Ok(
+                match world.get_resource::<MatchState>().map(|state| state.phase) {
+                    Some(MatchPhase::PostGame) => "post_game",
+                    _ => "playing",
+                },
+            )
         })
     });
 
@@ -199,7 +211,11 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 .is_some_and(|config| config.is_server);
             if is_server {
                 if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::OnscreenMessage(text));
+                    quic.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &MsgType::OnscreenMessage(text),
+                    );
                 }
             } else {
                 push_world(world, text);
@@ -232,8 +248,12 @@ pub(crate) fn register_script_functions(world: &mut World) {
     register_lua_function(&runtime.lua, "get_team_number", |lua| {
         lua.create_function(|lua, (team, index): (i32, i32)| {
             let world = lua_world(lua)?;
-            Ok(team_number(world, team.clamp(0, u8::MAX as i32) as u8, normalize_index(index))
-                .unwrap_or_default())
+            Ok(team_number(
+                world,
+                team.clamp(0, u8::MAX as i32) as u8,
+                normalize_index(index),
+            )
+            .unwrap_or_default())
         })
     });
 
@@ -254,7 +274,10 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, entity_id: i64| {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
-            Ok(world.get::<Health>(entity).map(|h| h.current as i32).unwrap_or(0))
+            Ok(world
+                .get::<Health>(entity)
+                .map(|h| h.current as i32)
+                .unwrap_or(0))
         })
     });
 
@@ -262,7 +285,9 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, entity_id: i64| {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
-            Ok(world.get::<Health>(entity).is_some_and(|health| !health.is_dead()))
+            Ok(world
+                .get::<Health>(entity)
+                .is_some_and(|health| !health.is_dead()))
         })
     });
 
@@ -286,9 +311,12 @@ pub(crate) fn register_script_functions(world: &mut World) {
             {
                 return Ok(None);
             }
-            let kind = GameObjectKind::from_name(kind.as_deref().unwrap_or("biped"))
-                .filter(|kind| {
-                    matches!(kind, GameObjectKind::Biped | GameObjectKind::Spaceship | GameObjectKind::Fighter)
+            let kind =
+                GameObjectKind::from_name(kind.as_deref().unwrap_or("biped")).filter(|kind| {
+                    matches!(
+                        kind,
+                        GameObjectKind::Biped | GameObjectKind::Spaceship | GameObjectKind::Fighter
+                    )
                 });
             let Some(kind) = kind else {
                 println!("script spawn_pawn failed: invalid kind {kind:?}");
@@ -296,7 +324,10 @@ pub(crate) fn register_script_functions(world: &mut World) {
             };
             let team = Team(lua_team(team));
             let Some((pos, rot, vel)) = pick_script_spawn(world, team.0) else {
-                println!("script spawn_pawn failed: no spawn point for team {}", team.0);
+                println!(
+                    "script spawn_pawn failed: no spawn point for team {}",
+                    team.0
+                );
                 return Ok(None);
             };
             let tick = world.resource::<common::tick::Ticker>().tick;
@@ -311,10 +342,18 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 kind,
             };
             let entity = world.spawn_empty().id();
-            SpawnGameObjectCommand { entity, cmd: cmd.clone() }.apply(world);
+            SpawnGameObjectCommand {
+                entity,
+                cmd: cmd.clone(),
+            }
+            .apply(world);
             world.entity_mut(entity).insert(team);
             if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(cmd));
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::SpawnCommand(cmd),
+                );
             }
             Ok(Some(entity.to_bits() as i64))
         })
@@ -374,11 +413,14 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 println!("script give_weapon failed: owner {owner:?} has no WeaponSlots");
                 return Ok(false);
             }
-            world.resource_mut::<PendingWeaponGrants>().0.push(WeaponGrant {
-                owner,
-                kind,
-                weapon: None,
-            });
+            world
+                .resource_mut::<PendingWeaponGrants>()
+                .0
+                .push(WeaponGrant {
+                    owner,
+                    kind,
+                    weapon: None,
+                });
             Ok(true)
         })
     });
@@ -496,7 +538,9 @@ fn add_number(numbers: &mut Vec<i32>, index: usize, amount: i32) {
 }
 
 fn player_number(world: &World, entity: Entity, index: usize) -> Option<i32> {
-    let conn_id = world.get_resource::<PlayerRegistry>()?.conn_id_for_character(entity)?;
+    let conn_id = world
+        .get_resource::<PlayerRegistry>()?
+        .conn_id_for_character(entity)?;
     Some(
         world
             .get_resource::<PlayerNumbers>()?

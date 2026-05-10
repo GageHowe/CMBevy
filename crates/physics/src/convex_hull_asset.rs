@@ -73,6 +73,7 @@ fn parse_obj_compound(text: &str, scale: f32) -> Option<Collider> {
 pub struct ConvexHullPlugin;
 impl Plugin for ConvexHullPlugin {
     fn build(&self, app: &mut App) {
-        app.init_asset::<ConvexHullAsset>().init_asset_loader::<ConvexHullAssetLoader>();
+        app.init_asset::<ConvexHullAsset>()
+            .init_asset_loader::<ConvexHullAssetLoader>();
     }
 }

@@ -20,7 +20,11 @@ impl Plugin for HealthPlugin {
         app.init_resource::<PendingDeathDespawns>();
         app.add_systems(
             FixedUpdate,
-            (apply_collision_damage, regenerate_health, age_last_damage_sources)
+            (
+                apply_collision_damage,
+                regenerate_health,
+                age_last_damage_sources,
+            )
                 .chain()
                 .after(CollisionImpactSet)
                 .in_set(AuthoritySet::Health),
@@ -64,7 +68,9 @@ pub struct LastDamageSource {
 
 impl LastDamageSource {
     pub fn resolved_attacker(self) -> Option<Entity> {
-        (self.age_secs <= DAMAGE_ATTRIBUTION_WINDOW_SECS).then_some(self.attacker).flatten()
+        (self.age_secs <= DAMAGE_ATTRIBUTION_WINDOW_SECS)
+            .then_some(self.attacker)
+            .flatten()
     }
 }
 
@@ -109,8 +115,6 @@ pub struct CollisionDamageConfig {
     pub min_threshold: f32,
     /// Scale factor from post-threshold impulse to damage.
     pub damage_scale: f32,
-    /// Optional cap applied per impact event.
-    pub max_damage_per_hit: Option<f32>,
 }
 
 impl Default for CollisionDamageConfig {
@@ -121,7 +125,6 @@ impl Default for CollisionDamageConfig {
             threshold_per_mass: 40.0,
             min_threshold: 40.0,
             damage_scale: 3.0,
-            max_damage_per_hit: None,
         }
     }
 }
@@ -129,11 +132,7 @@ impl Default for CollisionDamageConfig {
 impl CollisionDamageConfig {
     fn damage_from_impulse(self, impulse: f32, mass: f32) -> f32 {
         let threshold = (mass * self.threshold_per_mass).max(self.min_threshold);
-        let mut damage = (impulse - threshold).max(0.0) * self.damage_scale;
-        if let Some(max_damage) = self.max_damage_per_hit {
-            damage = damage.min(max_damage);
-        }
-        damage
+        (impulse - threshold).max(0.0) * self.damage_scale
     }
 }
 
@@ -159,12 +158,17 @@ pub fn apply_collision_damage(
         else {
             continue;
         };
-        let damage =
-            config.copied().unwrap_or_default().damage_from_impulse(impact.impulse, mass);
+        let damage = config
+            .copied()
+            .unwrap_or_default()
+            .damage_from_impulse(impact.impulse, mass);
         if damage <= 0.0 {
             continue;
         }
-        info!("collision impulse: {:.2}  damage: {:.1}", impact.impulse, damage);
+        info!(
+            "collision impulse: {:.2}  damage: {:.1}",
+            impact.impulse, damage
+        );
         *damage_map.entry(impact.entity).or_default() += damage;
     }
 
@@ -243,8 +247,9 @@ pub fn handle_deaths(world: &mut World) {
             continue;
         }
 
-        let should_despawn =
-            kind.clone().is_none_or(|kind| run_death_callback(kind, entity, world));
+        let should_despawn = kind
+            .clone()
+            .is_none_or(|kind| run_death_callback(kind, entity, world));
         if !should_despawn || !world.entities().contains(entity) {
             continue;
         }

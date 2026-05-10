@@ -23,10 +23,18 @@ pub fn draw_collider(collider: &Collider, iso: Isometry3d, color: Color, gizmos:
     if let Some(ball) = shape.as_ball() {
         gizmos.sphere(iso, ball.radius, color);
     } else if let Some(cap) = shape.as_capsule() {
-        gizmos.primitive_3d(&Capsule3d::new(cap.radius, cap.half_height() * 2.0), iso, color);
+        gizmos.primitive_3d(
+            &Capsule3d::new(cap.radius, cap.half_height() * 2.0),
+            iso,
+            color,
+        );
     } else if let Some(cub) = shape.as_cuboid() {
         let he = cub.half_extents;
-        gizmos.primitive_3d(&BevyCuboid::new(he.x * 2.0, he.y * 2.0, he.z * 2.0), iso, color);
+        gizmos.primitive_3d(
+            &BevyCuboid::new(he.x * 2.0, he.y * 2.0, he.z * 2.0),
+            iso,
+            color,
+        );
     } else {
         warn!("draw_collider: no matching type")
     }

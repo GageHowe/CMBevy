@@ -1,6 +1,8 @@
 use bevy::{
-    input::gamepad::Gamepad,
-    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+    input::{
+        gamepad::Gamepad,
+        mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+    },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
@@ -98,28 +100,63 @@ fn gather_biped_input(
     };
     let gamepad = common::active_gamepad(gamepads.iter());
     let move_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
     let mut input = common::BipedInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveForward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.forward += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveBackward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.forward -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveRight,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.right += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveLeft,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.right -= 1.0;
     }
     input.forward = (input.forward + move_stick.y).clamp(-1.0, 1.0);
     input.right = (input.right + move_stick.x).clamp(-1.0, 1.0);
-    input.jump = bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons, gamepad);
-    input.slide =
-        bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad);
-    input.ability1 =
-        bindings.pressed(common::InputAction::Ability1, &keyboard, &mouse_buttons, gamepad);
+    input.jump = bindings.pressed(
+        common::InputAction::Jump,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
+    input.slide = bindings.pressed(
+        common::InputAction::Crouch,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
+    input.ability1 = bindings.pressed(
+        common::InputAction::Ability1,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
     input.ability1_pressed = fixed_presses.consume_ability1();
     input.melee_pressed = fixed_presses.consume_melee();
     if let Some(yaw_e) = biped.yaw_pivot
@@ -150,7 +187,9 @@ fn mouse_look(
 ) {
     let gamepad = common::active_gamepad(gamepads.iter());
     let look_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
     if cursor_q.grab_mode == CursorGrabMode::None
         || (mouse.delta == Vec2::ZERO && look_stick == Vec2::ZERO)
@@ -160,7 +199,10 @@ fn mouse_look(
     let Ok(biped) = possessed.single() else {
         return;
     };
-    let zoom = camera_fx.single().map(|fx| fx.zoom_multiplier.max(1.0)).unwrap_or(1.0);
+    let zoom = camera_fx
+        .single()
+        .map(|fx| fx.zoom_multiplier.max(1.0))
+        .unwrap_or(1.0);
     let zoom_scale = 1.0 + (1.0 / zoom - 1.0) * sensitivity.zoom_blend;
     let s = sensitivity.base * zoom_scale;
     let gamepad_delta = Vec2::new(
@@ -168,9 +210,16 @@ fn mouse_look(
         look_stick.y
             * sensitivity.gamepad_look
             * time.delta_secs()
-            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 },
+            * if sensitivity.gamepad_invert_y {
+                -1.0
+            } else {
+                1.0
+            },
     );
-    let look_delta = Vec2::new(mouse.delta.x * s + gamepad_delta.x, mouse.delta.y * s - gamepad_delta.y);
+    let look_delta = Vec2::new(
+        mouse.delta.x * s + gamepad_delta.x,
+        mouse.delta.y * s - gamepad_delta.y,
+    );
     if let Some(yaw_e) = biped.yaw_pivot
         && let Ok((mut t, mut pivot)) = pivots.p0().get_mut(yaw_e)
     {
@@ -203,7 +252,11 @@ fn switch_weapon_slot(
     };
     let old_active_primary = slots.active_primary();
     let old_active_weapon = slots.active().1;
-    let switched = if scroll.delta.y > 0.0 { slots.next_weapon() } else { slots.prev_weapon() };
+    let switched = if scroll.delta.y > 0.0 {
+        slots.next_weapon()
+    } else {
+        slots.prev_weapon()
+    };
     if !switched {
         return;
     }
@@ -255,7 +308,11 @@ fn attach_camera_on_possess(
     let Some(pitch_e) = biped.pitch_pivot else {
         return;
     };
-    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
+    let base_fov = if let Projection::Perspective(p) = proj {
+        p.fov.to_degrees()
+    } else {
+        90.0
+    };
     commands.entity(cam).insert((
         Transform::default(),
         CameraEffector {
@@ -296,10 +353,7 @@ fn reset_look_on_possess(
     biped.last_look_frame_body_rot = None;
 }
 
-fn hide_weapons_while_seated(
-    seated: Query<&WeaponSlots, Added<Mounted>>,
-    mut commands: Commands,
-) {
+fn hide_weapons_while_seated(seated: Query<&WeaponSlots, Added<Mounted>>, mut commands: Commands) {
     for slots in seated.iter() {
         for weapon in slots.held_entities() {
             commands.entity(weapon).insert(Visibility::Hidden);
@@ -361,13 +415,10 @@ fn queue_fixed_inputs(
     if !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse, gamepad) {
         fixed_presses.queue_reload();
     }
-    if !blocked
-        && bindings.just_pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad)
-    {
+    if !blocked && bindings.just_pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad) {
         fixed_presses.queue_alt_fire();
     }
-    if !blocked
-        && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse, gamepad)
+    if !blocked && bindings.just_pressed(common::InputAction::Ability1, &keyboard, &mouse, gamepad)
     {
         fixed_presses.queue_ability1();
     }
@@ -383,7 +434,12 @@ fn biped_fire(
     egui_wants: Option<Res<EguiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     mut pawn: Query<
-        (Entity, &mut WeaponSlots, &BipedPawnComponent, &physics::physics_world::RigidBodyHandleComponent),
+        (
+            Entity,
+            &mut WeaponSlots,
+            &BipedPawnComponent,
+            &physics::physics_world::RigidBodyHandleComponent,
+        ),
         With<Possessed>,
     >,
     world: Res<PhysicsWorld>,
@@ -473,7 +529,10 @@ fn biped_fire(
 
 enum InteractTarget {
     Mount(Entity),
-    Entity { hit_entity: Entity, net_id: Option<net::message::NetworkID> },
+    Entity {
+        hit_entity: Entity,
+        net_id: Option<net::message::NetworkID>,
+    },
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -481,7 +540,10 @@ struct InteractWorldParams<'w, 's> {
     interactables: Query<
         'w,
         's,
-        (Option<&'static net::message::NetworkID>, &'static crate::interaction::Interactable),
+        (
+            Option<&'static net::message::NetworkID>,
+            &'static crate::interaction::Interactable,
+        ),
         With<crate::interaction::Interactable>,
     >,
     pitch_pivots: Query<'w, 's, &'static GlobalTransform, With<PitchPivot>>,
@@ -519,7 +581,10 @@ fn current_interact_target(
     forward: Vec3,
     world: &PhysicsWorld,
     interactables: &Query<
-        (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
+        (
+            Option<&net::message::NetworkID>,
+            &crate::interaction::Interactable,
+        ),
         With<crate::interaction::Interactable>,
     >,
     mounts: &Query<(Entity, &CharacterMount)>,
@@ -557,7 +622,10 @@ fn current_interact_target(
     if !interactable_in_range(world, pawn_entity, hit_entity, interactable.range) {
         return None;
     }
-    Some(InteractTarget::Entity { hit_entity, net_id: net_id.cloned() })
+    Some(InteractTarget::Entity {
+        hit_entity,
+        net_id: net_id.cloned(),
+    })
 }
 
 fn interactable_in_range(
@@ -574,7 +642,10 @@ fn update_interaction_hint(
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     bindings: Res<common::ActiveBindings>,
     interactables: Query<
-        (Option<&net::message::NetworkID>, &crate::interaction::Interactable),
+        (
+            Option<&net::message::NetworkID>,
+            &crate::interaction::Interactable,
+        ),
         With<crate::interaction::Interactable>,
     >,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
@@ -604,17 +675,15 @@ fn update_interaction_hint(
     };
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
-    let Some(target) =
-        current_interact_target(
-            pawn_entity,
-            origin,
-            forward,
-            &world,
-            &interactables,
-            &mount_q,
-            &mount_anchor_q,
-        )
-    else {
+    let Some(target) = current_interact_target(
+        pawn_entity,
+        origin,
+        forward,
+        &world,
+        &interactables,
+        &mount_q,
+        &mount_anchor_q,
+    ) else {
         hint.0 = None;
         return;
     };
@@ -663,17 +732,15 @@ fn interact(
     };
     let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
     let forward = rot * Vec3::NEG_Z;
-    let Some(target) =
-        current_interact_target(
-            pawn_entity,
-            origin,
-            forward,
-            &world,
-            &sp.interactables,
-            &sp.mounts.p0(),
-            &sp.mount_anchor_visuals,
-        )
-    else {
+    let Some(target) = current_interact_target(
+        pawn_entity,
+        origin,
+        forward,
+        &world,
+        &sp.interactables,
+        &sp.mounts.p0(),
+        &sp.mount_anchor_visuals,
+    ) else {
         return;
     };
     if !interaction.consume_press(
@@ -705,9 +772,13 @@ fn interact(
                         &sp.mount_anchor_transforms,
                     )
                 {
-                    sp.commands.entity(pawn_entity).insert(Mounted(parent_entity));
+                    sp.commands
+                        .entity(pawn_entity)
+                        .insert(Mounted(parent_entity));
                     sp.commands.entity(pawn_entity).remove::<Possessed>();
-                    sp.commands.entity(parent_entity).insert(Possessed::new(128));
+                    sp.commands
+                        .entity(parent_entity)
+                        .insert(Possessed::new(128));
                     if let Ok(kind) = sp.object_kinds.get(parent_entity) {
                         crate::messages::push(
                             &mut sp.commands,
@@ -727,7 +798,10 @@ fn interact(
             }
             _ => {}
         },
-        InteractTarget::Entity { hit_entity, net_id: interact_net_id } => {
+        InteractTarget::Entity {
+            hit_entity,
+            net_id: interact_net_id,
+        } => {
             if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = sp.pickup_fns.get(hit_entity) {
                 match state.get() {
                     GameState::SinglePlayer => {
@@ -753,8 +827,8 @@ fn interact(
                     let Ok(mut slots) = sp.possessed_q.single_mut() else {
                         return;
                     };
-                    let drop_velocity =
-                        forward * 8.0 + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
+                    let drop_velocity = forward * 8.0
+                        + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
                     if !crate::weapon::helpers::pickup_local_world_weapon(
                         pawn_entity,
                         hit_entity,
@@ -849,8 +923,8 @@ fn drop_active_weapon(
             };
             let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
             let forward = rot * Vec3::NEG_Z;
-            let drop_velocity =
-                forward * 8.0 + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
+            let drop_velocity = forward * 8.0
+                + crate::projectile::helpers::shooter_velocity(&world, Some(pawn_entity));
             crate::weapon::helpers::drop_local_active_weapon(
                 &mut slots,
                 origin + forward,

@@ -8,8 +8,7 @@ use bevy::prelude::*;
 use common::{ActiveBindings, GamepadBindings, KeyBindings};
 pub use controls::ControlsCapture;
 pub use data::{
-    DisplayMode, PhysicsInterp, PhysicsSubsteps, Settings, SettingsSection, ShadowQuality, SsaoQuality,
-    VsyncMode,
+    DisplayMode, PhysicsInterp, Settings, SettingsSection, ShadowQuality, SsaoQuality, VsyncMode,
 };
 pub use ui::show_settings_ui;
 
@@ -23,7 +22,10 @@ impl Plugin for SettingsPlugin {
             .insert_resource(ControlsCapture::default())
             .init_resource::<ActiveBindings>()
             .add_systems(Startup, persistence::load_settings)
-            .add_systems(PostUpdate, runtime::apply_settings.run_if(resource_changed::<Settings>))
+            .add_systems(
+                PostUpdate,
+                runtime::apply_settings.run_if(resource_changed::<Settings>),
+            )
             .add_systems(
                 PostUpdate,
                 runtime::sync_active_keybindings.run_if(resource_changed::<Settings>),

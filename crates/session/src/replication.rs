@@ -26,8 +26,9 @@ pub(super) fn spawn_player(
     tick: u64,
 ) {
     let kind_debug = format!("{kind:?}");
-    let (entity, net_id, spawn_cmd) =
-        spawn_game_object(kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids);
+    let (entity, net_id, spawn_cmd) = spawn_game_object(
+        kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
+    );
     commands.entity(entity).insert(team);
 
     for other_conn_id in registry.controlled_conn_ids() {
@@ -37,7 +38,11 @@ pub(super) fn spawn_player(
             &MsgType::SpawnCommand(spawn_cmd.clone()),
         );
     }
-    quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+    quic.send(
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        &MsgType::SpawnCommand(spawn_cmd),
+    );
     game_objects::pawn::possess_pawn(conn_id, entity, &net_id, registry, quic);
     registry.register_character(conn_id, entity, net_id);
     info!("GameServer: spawned {kind_debug} for conn {conn_id}");
@@ -105,9 +110,14 @@ pub fn broadcast_tick(
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
-    mut biped_looks: Query<(&NetworkID, &mut game_objects::pawn::biped::BipedPawnComponent)>,
-    mut rocket_turret_looks:
-        Query<(&NetworkID, &mut game_objects::pawn::RocketTurretPawnComponent)>,
+    mut biped_looks: Query<(
+        &NetworkID,
+        &mut game_objects::pawn::biped::BipedPawnComponent,
+    )>,
+    mut rocket_turret_looks: Query<(
+        &NetworkID,
+        &mut game_objects::pawn::RocketTurretPawnComponent,
+    )>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,
@@ -118,7 +128,11 @@ pub fn broadcast_tick(
     for conn_id in registry.controlled_conn_ids() {
         let mut state_for_client = state.clone();
         state_for_client.last_input_seq = *last_input_seq.0.get(&conn_id).unwrap_or(&0);
-        quic.send(SendTarget::One(conn_id), Channel::Unreliable, &MsgType::State(state_for_client));
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Unreliable,
+            &MsgType::State(state_for_client),
+        );
     }
     game_objects::pawn::broadcast_dirty_look_updates(
         &mut quic,

@@ -50,7 +50,10 @@ pub fn draw_authored_shape(
                 color,
             );
         }
-        AuthoredColliderShape::Capsule { half_height, radius } => {
+        AuthoredColliderShape::Capsule {
+            half_height,
+            radius,
+        } => {
             gizmos.primitive_3d(&Capsule3d::new(*radius, half_height * 2.0), iso, color);
         }
         AuthoredColliderShape::ConvexHulls(_) => {}

@@ -27,9 +27,10 @@ impl AuthoredColliderShape {
                 Some(ColliderBuilder::cuboid(he.x * scale, he.y * scale, he.z * scale).build())
             }
             Self::Ball(radius) => Some(ColliderBuilder::ball(radius * scale).build()),
-            Self::Capsule { half_height, radius } => {
-                Some(ColliderBuilder::capsule_y(half_height * scale, radius * scale).build())
-            }
+            Self::Capsule {
+                half_height,
+                radius,
+            } => Some(ColliderBuilder::capsule_y(half_height * scale, radius * scale).build()),
             Self::ConvexHulls(_) => None,
         }
     }
@@ -42,7 +43,10 @@ impl AuthoredColliderShape {
                 let he = *half_extents * scale;
                 local.x.abs() <= he.x && local.y.abs() <= he.y && local.z.abs() <= he.z
             }
-            Self::Capsule { half_height, radius } => {
+            Self::Capsule {
+                half_height,
+                radius,
+            } => {
                 let half_height = half_height * scale;
                 let radius = radius * scale;
                 let clamped_y = local.y.clamp(-half_height, half_height);

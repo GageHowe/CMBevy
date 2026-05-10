@@ -19,10 +19,16 @@ impl Plugin for UIPlugin {
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .init_resource::<debug::SmoothedFps>()
             // Startup
-            .add_systems(Startup, (reticle::spawn_crosshair, reticle::spawn_prediction_reticle))
+            .add_systems(
+                Startup,
+                (reticle::spawn_crosshair, reticle::spawn_prediction_reticle),
+            )
             // Update
             .add_systems(Update, debug::update_smoothed_fps)
-            .add_systems(Update, (reticle::update_reticle, reticle::update_prediction_reticle))
+            .add_systems(
+                Update,
+                (reticle::update_reticle, reticle::update_prediction_reticle),
+            )
             // EguiPrimaryContextPass
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
             .add_systems(EguiPrimaryContextPass, debug::gui_top_left)
@@ -72,6 +78,9 @@ fn set_style(mut contexts: EguiContexts) {
     style.visuals.widgets.noninteractive.bg_fill =
         egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
     style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-    style.visuals.window_stroke = egui::Stroke { width: 0.0, color: egui::Color32::TRANSPARENT };
+    style.visuals.window_stroke = egui::Stroke {
+        width: 0.0,
+        color: egui::Color32::TRANSPARENT,
+    };
     ctx.set_style(style);
 }

@@ -54,7 +54,11 @@ pub struct BotController {
 
 impl BotController {
     pub fn new(team: Team, brain: impl BotBrain) -> Self {
-        Self { team, brain: Box::new(brain), temp_id: 1 }
+        Self {
+            team,
+            brain: Box::new(brain),
+            temp_id: 1,
+        }
     }
 
     pub fn next_temp_id(&mut self) -> u32 {

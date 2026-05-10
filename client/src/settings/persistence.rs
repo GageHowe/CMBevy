@@ -8,7 +8,10 @@ use super::data::Settings;
 const SETTINGS_FILE: &str = "settings.toml";
 
 fn settings_path() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("CMBevy").join(SETTINGS_FILE)
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("CMBevy")
+        .join(SETTINGS_FILE)
 }
 
 pub fn reveal_settings_file() -> Result<(), String> {
@@ -17,8 +20,11 @@ pub fn reveal_settings_file() -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
     if !path.exists() {
-        fs::write(&path, toml::to_string_pretty(&Settings::default()).unwrap_or_default())
-            .map_err(|err| err.to_string())?;
+        fs::write(
+            &path,
+            toml::to_string_pretty(&Settings::default()).unwrap_or_default(),
+        )
+        .map_err(|err| err.to_string())?;
     }
 
     #[cfg(target_os = "windows")]

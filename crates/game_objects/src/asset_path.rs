@@ -28,15 +28,19 @@ impl<'a> RemoteAsset<'a> {
             Some((head, fragment)) => (head, Some(fragment)),
             None => (path, None),
         };
-        head.starts_with(HASH_PREFIX).then_some(Self { hash: head, fragment })
+        head.starts_with(HASH_PREFIX).then_some(Self {
+            hash: head,
+            fragment,
+        })
     }
 }
 
 fn fetch_asset(hash: &str, fallback_path: &Path) {
     std::fs::create_dir_all(cache_dir()).expect("asset cache dir create failed");
     let url = format!("{}/assets/{}", common::config::BEACON_URL, hash);
-    let response =
-        ureq::get(&url).call().unwrap_or_else(|err| panic!("failed to fetch asset {hash}: {err}"));
+    let response = ureq::get(&url)
+        .call()
+        .unwrap_or_else(|err| panic!("failed to fetch asset {hash}: {err}"));
     let file_name = response
         .header(FILENAME_HEADER)
         .and_then(sanitize_file_name)
@@ -47,7 +51,10 @@ fn fetch_asset(hash: &str, fallback_path: &Path) {
     std::io::Read::read_to_end(&mut reader, &mut bytes)
         .unwrap_or_else(|err| panic!("failed to read asset {hash}: {err}"));
     std::fs::write(&cache_path, bytes).unwrap_or_else(|err| {
-        panic!("failed to write cached asset {}: {err}", cache_path.display())
+        panic!(
+            "failed to write cached asset {}: {err}",
+            cache_path.display()
+        )
     });
     if cache_path != fallback_path {
         let _ = std::fs::remove_file(fallback_path);

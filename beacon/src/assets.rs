@@ -49,7 +49,11 @@ pub(crate) async fn upload(
     let hash = format!("sha256:{}", hex_sha256(&body));
     write_asset(&hash, &file_name, &body)?;
     db::upsert_asset(&state.db, &hash, &file_name, body.len() as u64);
-    Ok(Json(AssetUploadResponse { hash, file_name, size_bytes: body.len() }))
+    Ok(Json(AssetUploadResponse {
+        hash,
+        file_name,
+        size_bytes: body.len(),
+    }))
 }
 
 pub(crate) async fn list_partial(
@@ -125,7 +129,9 @@ pub(crate) async fn get(Path(hash): Path<String>) -> Result<Response, StatusCode
     if let Some(file_name) = file_name.as_deref() {
         builder = builder.header(FILENAME_HEADER, file_name.trim());
     }
-    builder.body(bytes.into()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    builder
+        .body(bytes.into())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub(crate) async fn put(

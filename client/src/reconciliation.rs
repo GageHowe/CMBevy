@@ -192,24 +192,34 @@ fn maybe_reconcile(
 
     let current_state =
         snapshot_body_handles(&world, tick.tick, pairs.iter().map(|(nid, h)| (nid, *h)));
-    let current_biped_state = possessed_bipeds.single().ok().map(|biped| BipedReplayState {
-        jump_cooldown: biped.jump_cooldown,
-        is_sliding: biped.is_sliding,
-    });
-    let current_ability = possessed_bipeds.single().ok().and_then(|biped| biped.ability.clone());
+    let current_biped_state = possessed_bipeds
+        .single()
+        .ok()
+        .map(|biped| BipedReplayState {
+            jump_cooldown: biped.jump_cooldown,
+            is_sliding: biped.is_sliding,
+        });
+    let current_ability = possessed_bipeds
+        .single()
+        .ok()
+        .and_then(|biped| biped.ability.clone());
     let possessed_entity = networked.get_entity(our_net_id);
 
     restore_snapshot(&mut world, &snapshot, &pairs);
     if let (Some(Some(saved)), Ok(mut biped)) = (
-        history.0.get(&snapshot.last_input_seq).map(|saved| saved.biped),
+        history
+            .0
+            .get(&snapshot.last_input_seq)
+            .map(|saved| saved.biped),
         possessed_bipeds.single_mut(),
     ) {
         biped.jump_cooldown = saved.jump_cooldown;
         biped.is_sliding = saved.is_sliding;
     }
-    if let (Some(saved), Ok(mut biped)) =
-        (history.0.get(&snapshot.last_input_seq), possessed_bipeds.single_mut())
-    {
+    if let (Some(saved), Ok(mut biped)) = (
+        history.0.get(&snapshot.last_input_seq),
+        possessed_bipeds.single_mut(),
+    ) {
         biped.ability = saved.ability.clone();
     }
 
@@ -227,8 +237,10 @@ fn maybe_reconcile(
     }
 
     let our_rb = our_handle;
-    let replay_handles: HashMap<NetworkID, RigidBodyHandle> =
-        pairs.iter().map(|(net_id, handle)| (net_id.clone(), *handle)).collect();
+    let replay_handles: HashMap<NetworkID, RigidBodyHandle> = pairs
+        .iter()
+        .map(|(net_id, handle)| (net_id.clone(), *handle))
+        .collect();
     for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
         if let Some(tick) = predicted.get(replay_seq) {
             let handle = RigidBodyHandleComponent(our_rb);
@@ -251,7 +263,12 @@ fn maybe_reconcile(
                 apply_predicted_impulse(&mut world, &replay_handles, our_net_id, our_rb, impulse);
             }
         }
-        apply_gravity_impulses(&mut world, &env.gravity_sources, &env.gravity_scales, &seated);
+        apply_gravity_impulses(
+            &mut world,
+            &env.gravity_sources,
+            &env.gravity_scales,
+            &seated,
+        );
         orient_bipeds_to_snap_sources_impulses(&mut world, &bipeds, &env.snap_sources);
         step_world(&mut world);
     }

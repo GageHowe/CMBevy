@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::input::{gamepad::Gamepad, mouse::AccumulatedMouseMotion};
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
@@ -24,7 +24,7 @@ use crate::{
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/placeholder_carrier.glb#Scene0";
-const SCALE: Vec3 = Vec3::splat(0.45);
+const MODEL_SCALE: f32 = 0.45;
 const FORWARD_THRUST: f32 = 2800.0;
 const REVERSE_THRUST: f32 = 900.0;
 const STRAFE_THRUST: f32 = 800.0;
@@ -93,7 +93,7 @@ impl GameObject for FighterPawnComponent {
         let transform = Transform {
             translation: cmd.position.into(),
             rotation: cmd.rotation.into(),
-            scale: SCALE,
+            ..default()
         };
         spawn_driver_mount::<FighterPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
@@ -103,11 +103,13 @@ impl GameObject for FighterPawnComponent {
                 threshold_per_mass: 120.0,
                 min_threshold: 250.0,
                 damage_scale: 0.5,
-                max_damage_per_hit: Some(45.0),
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<FighterPawnComponent>(),
-            AimReticle("textures/crosshairs/crosshair001.png", Some(crate::projectile::fighter_rocket::SPEED)),
+            AimReticle(
+                "textures/crosshairs/crosshair001.png",
+                Some(crate::projectile::fighter_rocket::SPEED),
+            ),
             GameObjectKind::Fighter,
             Transform::from(transform),
             cmd.net_id.clone(),
@@ -133,15 +135,24 @@ impl GameObject for FighterPawnComponent {
             entity,
             rb_handle,
             HULL_PATH,
-            1.0,
-            ColliderBuilder::cuboid(0.7, 0.45, 1.4),
+            MODEL_SCALE,
+            ColliderBuilder::cuboid(0.7 * MODEL_SCALE, 0.45 * MODEL_SCALE, 1.4 * MODEL_SCALE),
             world,
         );
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        world
+            .entity_mut(entity)
+            .insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+            let visual = world
+                .spawn((
+                    SceneRoot(scene),
+                    Transform::from_scale(Vec3::splat(MODEL_SCALE)),
+                    Visibility::default(),
+                ))
+                .id();
+            world.entity_mut(entity).add_child(visual);
         }
     }
 
@@ -175,48 +186,100 @@ fn gather_fighter_input(
     };
     let gamepad = common::active_gamepad(gamepads.iter());
     let move_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
     let look_stick = gamepad
-        .map(|gamepad| common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone))
+        .map(|gamepad| {
+            common::stick_with_deadzone(gamepad.right_stick(), sensitivity.gamepad_look_deadzone)
+        })
         .unwrap_or(Vec2::ZERO);
 
     let mut input = common::SpaceshipInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveForward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.forward += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveBackward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.forward -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveRight,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.right += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveLeft,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.right -= 1.0;
     }
     input.forward = (input.forward + move_stick.y).clamp(-1.0, 1.0);
     input.right = (input.right + move_stick.x).clamp(-1.0, 1.0);
-    if bindings.pressed(common::InputAction::Jump, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::Jump,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.up += 1.0;
     }
-    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::Crouch,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.up -= 1.0;
     }
-    if bindings.pressed(common::InputAction::RollLeft, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::RollLeft,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.roll -= 1.0;
     }
-    if bindings.pressed(common::InputAction::RollRight, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::RollRight,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.roll += 1.0;
     }
-    input.ability1 =
-        bindings.pressed(common::InputAction::Fire, &keyboard, &mouse_buttons, gamepad);
+    input.ability1 = bindings.pressed(
+        common::InputAction::Fire,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    );
     let s = sensitivity.vehicle_pitch_yaw;
     input.yaw = -mouse.delta.x * s + look_stick.x * sensitivity.gamepad_look * time.delta_secs();
     input.pitch = -mouse.delta.y * s
         + look_stick.y
             * sensitivity.gamepad_look
             * time.delta_secs()
-            * if sensitivity.gamepad_invert_y { -1.0 } else { 1.0 };
+            * if sensitivity.gamepad_invert_y {
+                -1.0
+            } else {
+                1.0
+            };
 
     possessed.push(PawnInputKind::Spaceship(input));
 }

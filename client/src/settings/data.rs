@@ -2,25 +2,6 @@ use bevy::prelude::*;
 use common::{GamepadBindings, KeyBindings};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
-/// Fixed-step substep count used by the local physics simulation.
-pub enum PhysicsSubsteps {
-    #[default]
-    One,
-    Two,
-    Four,
-}
-
-impl PhysicsSubsteps {
-    pub fn count(self) -> u32 {
-        match self {
-            Self::One => 1,
-            Self::Two => 2,
-            Self::Four => 4,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
 /// Visual smoothing mode applied between fixed physics ticks.
 pub enum PhysicsInterp {
@@ -118,7 +99,6 @@ pub struct Settings {
     pub saturation: f32,
     pub fov: f32,
     pub physics_interp: PhysicsInterp,
-    pub physics_substeps: PhysicsSubsteps,
     pub cinematic_mode: bool,
     pub debug_panel: bool,
     pub debug_render: bool,
@@ -160,7 +140,6 @@ impl Default for Settings {
             saturation: 1.2,
             fov: 90.0,
             physics_interp: PhysicsInterp::Balanced,
-            physics_substeps: PhysicsSubsteps::One,
             cinematic_mode: false,
             debug_panel: false,
             debug_render: false,

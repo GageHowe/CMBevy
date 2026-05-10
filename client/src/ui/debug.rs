@@ -51,7 +51,10 @@ pub fn gui_top_left(
             } else {
                 ui.label("RTT: --");
             }
-            ui.label(format!("packet: {}", net::format_packet_size(net_stats.last_packet_bytes)));
+            ui.label(format!(
+                "packet: {}",
+                net::format_packet_size(net_stats.last_packet_bytes)
+            ));
             if ui.button("Quit").clicked() {
                 if *game_state.get() == GameState::MainMenu {
                     exit.write(AppExit::Success);

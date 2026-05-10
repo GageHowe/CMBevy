@@ -4,8 +4,7 @@ use common::{
     tick::{NetworkStats, Ticker},
 };
 use game_objects::{
-    NetworkEntityMap,
-    health,
+    NetworkEntityMap, health,
     pawn::{Possessed, WeaponSlots, biped::BipedPawnComponent},
     projectile,
     weapon::{self, helpers as weapon_helpers},
@@ -16,7 +15,10 @@ use net::{
 };
 use physics::physics_world::PhysicsWorld;
 
-use crate::{resources::*, runtime::{ClientSessionState, handle_file_data, handle_map_hash}};
+use crate::{
+    resources::*,
+    runtime::{ClientSessionState, handle_file_data, handle_map_hash},
+};
 
 pub fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
     let Some(state) = &last.0 else { return };
@@ -113,19 +115,21 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 ticker,
             );
         }
-        MsgType::MountState(biped_net_id, parent_net_id) => game_objects::pawn::mount::apply_mount_state(
-            &biped_net_id,
-            parent_net_id.as_ref(),
-            local_net_id.as_ref(),
-            just_spawned,
-            &mp.networked,
-            &mp.object_kinds,
-            &mp.mounted,
-            &mp.mounts,
-            &mp.mount_anchor_transforms,
-            &mut mp.spawn.commands,
-            &mut mp.world,
-        ),
+        MsgType::MountState(biped_net_id, parent_net_id) => {
+            game_objects::pawn::mount::apply_mount_state(
+                &biped_net_id,
+                parent_net_id.as_ref(),
+                local_net_id.as_ref(),
+                just_spawned,
+                &mp.networked,
+                &mp.object_kinds,
+                &mp.mounted,
+                &mp.mounts,
+                &mp.mount_anchor_transforms,
+                &mut mp.spawn.commands,
+                &mut mp.world,
+            )
+        }
         MsgType::DespawnCommand(net_id) => game_objects::lifecycle::apply_despawn(
             &net_id,
             local_net_id,
@@ -150,7 +154,9 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 &mut mp.spawn.commands,
                 &mut mp.world,
             ) {
-                mp.pending_weapon_pickups.0.push((weapon_id, carrier_net_id));
+                mp.pending_weapon_pickups
+                    .0
+                    .push((weapon_id, carrier_net_id));
             }
         }
         MsgType::PawnLook(net_id, yaw, pitch) => game_objects::pawn::apply_remote_pawn_look(
@@ -184,15 +190,13 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mut mp.world,
         ),
         MsgType::HitResult(_, _, _) => {}
-        MsgType::ProjectileConfirm { temp_id, net_id } => {
-            projectile::confirm_projectile(
-                temp_id,
-                net_id,
-                &mut mp.predicted_projectiles,
-                &mp.projectile_q,
-                &mut mp.spawn.commands,
-            )
-        }
+        MsgType::ProjectileConfirm { temp_id, net_id } => projectile::confirm_projectile(
+            temp_id,
+            net_id,
+            &mut mp.predicted_projectiles,
+            &mp.projectile_q,
+            &mut mp.spawn.commands,
+        ),
         MsgType::HealthUpdate(net_id, current) => {
             health::apply_health_update(&net_id, current, &mp.networked, &mut mp.health_q)
         }

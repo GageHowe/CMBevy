@@ -27,17 +27,23 @@ pub struct ScriptingPlugin;
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_non_send_resource(ScriptRuntime { lua: Lua::new(), loaded: false })
-            .init_resource::<ScriptTagIndex>()
-            .init_resource::<PendingWeaponGrants>()
-            .init_resource::<PendingPlayerKills>()
-            .init_resource::<PendingPlayerRemovals>()
-            .add_systems(Startup, (load, register_script_functions).chain())
-            .add_systems(PreUpdate, sync_script_tags)
-            .add_systems(Update, eval_script_update)
-            .add_systems(FixedUpdate, (reload_script, eval_script_fixed_update))
-            .add_systems(FixedLast, process_weapon_grants)
-            .add_systems(FixedUpdate, dispatch_player_kill_callbacks.after(handle_deaths));
+        app.insert_non_send_resource(ScriptRuntime {
+            lua: Lua::new(),
+            loaded: false,
+        })
+        .init_resource::<ScriptTagIndex>()
+        .init_resource::<PendingWeaponGrants>()
+        .init_resource::<PendingPlayerKills>()
+        .init_resource::<PendingPlayerRemovals>()
+        .add_systems(Startup, (load, register_script_functions).chain())
+        .add_systems(PreUpdate, sync_script_tags)
+        .add_systems(Update, eval_script_update)
+        .add_systems(FixedUpdate, (reload_script, eval_script_fixed_update))
+        .add_systems(FixedLast, process_weapon_grants)
+        .add_systems(
+            FixedUpdate,
+            dispatch_player_kill_callbacks.after(handle_deaths),
+        );
     }
 }
 
@@ -106,7 +112,11 @@ fn process_weapon_grants(world: &mut World) {
                 kind: grant.kind.clone(),
             };
             let weapon_entity = world.spawn_empty().id();
-            SpawnGameObjectCommand { entity: weapon_entity, cmd: spawn_cmd.clone() }.apply(world);
+            SpawnGameObjectCommand {
+                entity: weapon_entity,
+                cmd: spawn_cmd.clone(),
+            }
+            .apply(world);
             if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
                 quic.send(
                     SendTarget::All,
@@ -125,20 +135,22 @@ fn process_weapon_grants(world: &mut World) {
         #[cfg(not(feature = "client"))]
         let _ = &spawn_cmd;
         #[cfg(feature = "client")]
-        let local_parent =
-            if !world.get_resource::<QuicManager>().is_some_and(|quic| quic.client_connected) {
-                let Some(parent) = world
-                    .get::<game_objects::pawn::biped::BipedPawnComponent>(grant.owner)
-                    .and_then(|biped| biped.pitch_pivot)
-                else {
-                    grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
-                    world.resource_mut::<PendingWeaponGrants>().0.push(grant);
-                    continue;
-                };
-                Some(parent)
-            } else {
-                None
+        let local_parent = if !world
+            .get_resource::<QuicManager>()
+            .is_some_and(|quic| quic.client_connected)
+        {
+            let Some(parent) = world
+                .get::<game_objects::pawn::biped::BipedPawnComponent>(grant.owner)
+                .and_then(|biped| biped.pitch_pivot)
+            else {
+                grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
+                world.resource_mut::<PendingWeaponGrants>().0.push(grant);
+                continue;
             };
+            Some(parent)
+        } else {
+            None
+        };
         let ok = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
             let Some(mut slots) = world.get_mut::<WeaponSlots>(grant.owner) else {
                 return false;
@@ -185,7 +197,10 @@ fn dispatch_player_kill_callbacks(world: &mut World) {
         call_script_args(
             world,
             "on_player_killed",
-            (victim.to_bits() as i64, killer.map(|entity| entity.to_bits() as i64)),
+            (
+                victim.to_bits() as i64,
+                killer.map(|entity| entity.to_bits() as i64),
+            ),
         );
     }
 

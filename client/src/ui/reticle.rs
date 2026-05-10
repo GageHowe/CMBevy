@@ -32,7 +32,15 @@ pub fn spawn_prediction_reticle(mut commands: Commands, asset_server: Res<AssetS
 }
 
 pub fn update_prediction_reticle(
-    pawn: Query<(Entity, Option<&AimReticle>, Option<&AimOrigin>, Option<&WeaponSlots>), With<Possessed>>,
+    pawn: Query<
+        (
+            Entity,
+            Option<&AimReticle>,
+            Option<&AimOrigin>,
+            Option<&WeaponSlots>,
+        ),
+        With<Possessed>,
+    >,
     transforms: Query<&GlobalTransform>,
     weapons: Query<&AimReticle>,
     targets: Query<(Entity, &GlobalTransform, &Health), Without<Possessed>>,
@@ -141,7 +149,10 @@ fn solve_intercept_time(
     let root = discriminant.sqrt();
     let t0 = (-b - root) / (2.0 * a);
     let t1 = (-b + root) / (2.0 * a);
-    [t0, t1].into_iter().filter(|t| *t > 0.0 && t.is_finite()).min_by(f32::total_cmp)
+    [t0, t1]
+        .into_iter()
+        .filter(|t| *t > 0.0 && t.is_finite())
+        .min_by(f32::total_cmp)
 }
 
 pub fn update_reticle(
@@ -154,7 +165,9 @@ pub fn update_reticle(
     let path = possessed
         .single()
         .ok()
-        .and_then(|(possessed_reticle, slots)| reticle_for_possessed(possessed_reticle, slots, &reticles))
+        .and_then(|(possessed_reticle, slots)| {
+            reticle_for_possessed(possessed_reticle, slots, &reticles)
+        })
         .map(|reticle| reticle.0)
         .unwrap_or(default_crosshair_path());
     if *current == Some(path) {
@@ -176,7 +189,11 @@ pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
             top: Val::Percent(50.0),
-            margin: UiRect { left: Val::Px(-16.0), top: Val::Px(-16.0), ..default() },
+            margin: UiRect {
+                left: Val::Px(-16.0),
+                top: Val::Px(-16.0),
+                ..default()
+            },
             ..default()
         },
     ));

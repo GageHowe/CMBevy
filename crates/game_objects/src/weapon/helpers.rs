@@ -6,9 +6,9 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 #[cfg(feature = "client")]
 use crate::pawn::CameraEffector;
 #[cfg(feature = "client")]
-use crate::pawn::biped::viewmodel_offset;
-#[cfg(feature = "client")]
 use crate::pawn::biped::BipedPawnComponent;
+#[cfg(feature = "client")]
+use crate::pawn::biped::viewmodel_offset;
 use crate::{
     generic::attach_hull_collider,
     pawn::WeaponSlots,
@@ -25,10 +25,7 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
         .unwrap_or(0.0)
 }
 
-pub fn queue_fire_sound(
-    sound: Option<&mut SoundQueue>,
-    local_event: &'static str,
-) {
+pub fn queue_fire_sound(sound: Option<&mut SoundQueue>, local_event: &'static str) {
     let Some(sound) = sound else {
         return;
     };
@@ -49,7 +46,15 @@ where
         crate::projectile::helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, speed);
     let temp_id = crate::projectile::helpers::next_temp_id(ctx.id_counter.as_deref_mut());
     let shooter_velocity = crate::projectile::helpers::shooter_velocity(world, ctx.shooter);
-    let _ = spawn(ctx.origin, velocity, shooter_velocity, commands, world, ctx.shooter, temp_id);
+    let _ = spawn(
+        ctx.origin,
+        velocity,
+        shooter_velocity,
+        commands,
+        world,
+        ctx.shooter,
+        temp_id,
+    );
     #[cfg(feature = "client")]
     send_fire_request(
         ctx.quic.as_deref_mut(),
@@ -91,7 +96,12 @@ pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld
     let (Some(shooter), Some(shooter_net_id)) = (ctx.shooter, ctx.shooter_net_id) else {
         return;
     };
-    world.apply_game_impulse(shooter, impulse, Some(shooter_net_id), ctx.predicted.as_deref_mut());
+    world.apply_game_impulse(
+        shooter,
+        impulse,
+        Some(shooter_net_id),
+        ctx.predicted.as_deref_mut(),
+    );
 }
 
 pub fn make_generic_weapon_physics(
@@ -118,7 +128,9 @@ pub fn make_generic_weapon_physics(
         }
         rb_handle
     };
-    world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+    world
+        .entity_mut(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     attach_hull_collider(entity, rb_handle, hull_path, 1.0, collider, world);
     rb_handle
 }
@@ -138,14 +150,20 @@ pub fn insert_generic_weapon(
         AimReticle(crosshair_path, prediction_projectile_speed),
         kind,
         crate::interaction::Interactable { range: 2.0 },
-        Transform { translation: cmd.position, rotation: cmd.rotation, scale: Vec3::ONE },
+        Transform {
+            translation: cmd.position,
+            rotation: cmd.rotation,
+            scale: Vec3::ONE,
+        },
         cmd.net_id.clone(),
         weapon,
     ));
     #[cfg(feature = "client")]
     {
         let scene = world.resource::<AssetServer>().load(_model_path);
-        world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+        world
+            .entity_mut(entity)
+            .insert((SceneRoot(scene), Visibility::default()));
     }
 }
 
@@ -160,20 +178,27 @@ pub fn place_world_weapon(
     if let Some(&handle) = world.entity_to_handle.get(&weapon_entity)
         && let Some(rb) = world.rigid_body_set.get_mut(handle)
     {
-        rb.set_linvel(Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z), true);
+        rb.set_linvel(
+            Vector3::new(drop_velocity.x, drop_velocity.y, drop_velocity.z),
+            true,
+        );
         rb.set_angvel(Vector3::ZERO, true);
         rb.wake_up(true);
     }
 }
 
 pub fn drop_pose(world: &PhysicsWorld, owner: Entity, drop_dir: Vec3) -> (Vec3, Vec3) {
-    let Some(body) =
-        world.entity_to_handle.get(&owner).and_then(|&handle| world.rigid_body_set.get(handle))
+    let Some(body) = world
+        .entity_to_handle
+        .get(&owner)
+        .and_then(|&handle| world.rigid_body_set.get(handle))
     else {
         return (Vec3::ZERO, Vec3::ZERO);
     };
-    let forward =
-        drop_dir.normalize_or_zero().try_normalize().unwrap_or_else(|| rb_rot(body) * Vec3::NEG_Z);
+    let forward = drop_dir
+        .normalize_or_zero()
+        .try_normalize()
+        .unwrap_or_else(|| rb_rot(body) * Vec3::NEG_Z);
     let velocity = rb_vel(body) + forward * 8.0;
     (rb_pos(body) + forward, velocity)
 }
@@ -276,7 +301,11 @@ pub fn interact_pickup(
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {
         return;
     };
-    let dropped = if slots.is_full() { slots.remove_active() } else { None };
+    let dropped = if slots.is_full() {
+        slots.remove_active()
+    } else {
+        None
+    };
     drop(slots);
     if let Some((drop_id, drop_entity)) = dropped {
         drop_from_owner(
@@ -320,8 +349,18 @@ pub fn drop_from_owner(
     held_weapons.0.remove(&weapon_id);
     let (drop_pos, drop_velocity) = drop_pose(world, owner_entity, drop_dir);
     let despawned = {
-        let weapon_state = weapon_runtime.get_mut(weapon_entity).ok().map(|(state, _)| state);
-        drop_or_despawn_weapon(commands, world, weapon_entity, weapon_state, drop_pos, drop_velocity)
+        let weapon_state = weapon_runtime
+            .get_mut(weapon_entity)
+            .ok()
+            .map(|(state, _)| state);
+        drop_or_despawn_weapon(
+            commands,
+            world,
+            weapon_entity,
+            weapon_state,
+            drop_pos,
+            drop_velocity,
+        )
     };
     if despawned {
         return;
@@ -432,18 +471,23 @@ pub fn detach_viewmodel(commands: &mut Commands, weapon_entity: Entity) {
     commands
         .entity(weapon_entity)
         .remove_parent_in_place()
-        .insert((crate::interaction::Interactable { range: 2.0 }, Visibility::Inherited));
+        .insert((
+            crate::interaction::Interactable { range: 2.0 },
+            Visibility::Inherited,
+        ));
 }
 
 #[cfg(feature = "client")]
 pub fn set_local_slot_visibility(commands: &mut Commands, slots: &WeaponSlots) {
     for (idx, (_, weapon)) in slots.slots.iter().enumerate() {
         if let Some(weapon) = weapon {
-            commands.entity(*weapon).insert(if idx == slots.active_index {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            });
+            commands
+                .entity(*weapon)
+                .insert(if idx == slots.active_index {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                });
         }
     }
 }
@@ -482,7 +526,10 @@ pub fn apply_pickup_message(
     pickup_world_weapon(world, weapon_entity);
     if local_net_id == Some(carrier_net_id) {
         let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
-            (slots.assign_pickup(weapon_id.clone(), weapon_entity), biped.pitch_pivot)
+            (
+                slots.assign_pickup(weapon_id.clone(), weapon_entity),
+                biped.pitch_pivot,
+            )
         } else {
             (None, None)
         };

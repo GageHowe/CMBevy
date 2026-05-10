@@ -1,7 +1,5 @@
 use bevy::{
-    core_pipeline::{
-        core_3d::graph::{Core3d, Node3d},
-    },
+    core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::query::QueryItem,
     prelude::*,
     render::{
@@ -23,9 +21,7 @@ use bevy::{
     },
 };
 
-use crate::fullscreen_post_process::{
-    draw_fullscreen_post_process, init_fullscreen_post_process,
-};
+use crate::fullscreen_post_process::{draw_fullscreen_post_process, init_fullscreen_post_process};
 
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
 pub struct ColorCompressionSettings {
@@ -35,7 +31,10 @@ pub struct ColorCompressionSettings {
 
 impl Default for ColorCompressionSettings {
     fn default() -> Self {
-        Self { color_steps: 24.0, dither_strength: 0.75 }
+        Self {
+            color_steps: 24.0,
+            dither_strength: 0.75,
+        }
     }
 }
 
@@ -57,7 +56,11 @@ impl Plugin for ColorCompressionPlugin {
             )
             .add_render_graph_edges(
                 Core3d,
-                (Node3d::Smaa, ColorCompressionLabel, Node3d::EndMainPassPostProcessing),
+                (
+                    Node3d::Smaa,
+                    ColorCompressionLabel,
+                    Node3d::EndMainPassPostProcessing,
+                ),
             );
     }
 
@@ -96,11 +99,16 @@ impl FromWorld for ColorCompressionPipeline {
             "shaders/color_compression.wgsl",
             "color_compression_pipeline",
         );
-        Self { layout, sampler, pipeline_id }
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
     }
 }
 
-#[derive(Default)] struct ColorCompressionNode;
+#[derive(Default)]
+struct ColorCompressionNode;
 impl ViewNode for ColorCompressionNode {
     type ViewQuery = (
         &'static ViewTarget,

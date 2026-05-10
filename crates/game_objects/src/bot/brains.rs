@@ -19,7 +19,9 @@ impl BotBrain for HeuristicKillerBot {
                 other.entity != ctx.entity && other.team.0 != ctx.team.0 && other.health > 0.0
             })
             .min_by(|a, b| {
-                ctx.pos.distance_squared(a.pos).total_cmp(&ctx.pos.distance_squared(b.pos))
+                ctx.pos
+                    .distance_squared(a.pos)
+                    .total_cmp(&ctx.pos.distance_squared(b.pos))
             })
         else {
             return output(ctx, ctx.rot * Vec3::NEG_Z, 0.0, 0.0, false);
@@ -33,7 +35,13 @@ impl BotBrain for HeuristicKillerBot {
         let distance = to_target.length();
         let forward = ((distance - 9.0) / 8.0).clamp(-0.4, 1.0);
         let right = if distance < 40.0 { noise * 0.65 } else { 0.0 };
-        output(ctx, to_target.normalize_or_zero(), forward, right, distance < 90.0)
+        output(
+            ctx,
+            to_target.normalize_or_zero(),
+            forward,
+            right,
+            distance < 90.0,
+        )
     }
 }
 

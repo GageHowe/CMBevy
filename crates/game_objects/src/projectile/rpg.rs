@@ -40,7 +40,10 @@ pub struct RpgProjectile {
 }
 impl Default for RpgProjectile {
     fn default() -> Self {
-        Self { shooter: None, lifetime: LIFETIME }
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
     }
 }
 
@@ -63,7 +66,18 @@ impl Projectile for RpgProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
-        tick_inner(self, entity, state, body, world, commands, health_q, last_damage_q, None, None);
+        tick_inner(
+            self,
+            entity,
+            state,
+            body,
+            world,
+            commands,
+            health_q,
+            last_damage_q,
+            None,
+            None,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
@@ -88,7 +102,15 @@ impl Projectile for RpgProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -135,7 +157,10 @@ pub fn spawn(
 ) -> Entity {
     let entity = helpers::spawn_projectile(
         GameObjectKind::RpgProjectile,
-        RpgProjectile { shooter, lifetime: LIFETIME },
+        RpgProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
         origin,
         velocity,
         shooter_velocity,
@@ -144,7 +169,13 @@ pub fn spawn(
         commands,
         world,
     );
-    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/SniperShot", origin, velocity);
+    helpers::queue_world_fire_sound(
+        commands,
+        shooter,
+        "event:/Weapons/SniperShot",
+        origin,
+        velocity,
+    );
     entity
 }
 
@@ -156,7 +187,10 @@ impl GameObject for RpgProjectile {
             entity,
             cmd,
             world,
-            RpgProjectile { shooter: None, lifetime: LIFETIME },
+            RpgProjectile {
+                shooter: None,
+                lifetime: LIFETIME,
+            },
             RADIUS,
             "event:/Weapons/SniperShot",
         );
@@ -175,7 +209,9 @@ impl Plugin for RpgProjectilePlugin {
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
-            tick_predicted_projectiles.after(step_physics).run_if(in_state(GameState::Multiplayer)),
+            tick_predicted_projectiles
+                .after(step_physics)
+                .run_if(in_state(GameState::Multiplayer)),
         );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
@@ -186,7 +222,12 @@ impl Plugin for RpgProjectilePlugin {
 fn tick_predicted_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut RpgProjectile, &RigidBodyHandleComponent, &mut ProjectileState)>,
+    mut q: Query<(
+        Entity,
+        &mut RpgProjectile,
+        &RigidBodyHandleComponent,
+        &mut ProjectileState,
+    )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     net_ids: Query<&NetworkID>,
@@ -226,6 +267,8 @@ fn add_visual(
             unlit: true,
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

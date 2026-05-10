@@ -33,6 +33,8 @@ Refer to AGENTS.md for additional instructions.
 * Before implementing anything or making large changes, assess your proposed solution for scalability, simplicity, and flexibility.
 * Never use Local unless for data we'll definitely want to keep in between games.
 
+Linear damping is BANNED.
+
 ## Iteration
 * When finished with a task, run `make build`.
 

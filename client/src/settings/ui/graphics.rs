@@ -168,8 +168,15 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
 
 fn show_ui_scale_input(ui: &mut egui::Ui, settings: &mut Settings) {
     let id = ui.make_persistent_id("ui_scale_input");
-    let mut text = ui.data_mut(|data| data.get_persisted::<String>(id)).unwrap_or_else(|| format!("{:.0}", settings.ui_scale * 100.0));
-    let response = ui.add(egui::TextEdit::singleline(&mut text).id(id).desired_width(56.0).hint_text("150"));
+    let mut text = ui
+        .data_mut(|data| data.get_persisted::<String>(id))
+        .unwrap_or_else(|| format!("{:.0}", settings.ui_scale * 100.0));
+    let response = ui.add(
+        egui::TextEdit::singleline(&mut text)
+            .id(id)
+            .desired_width(56.0)
+            .hint_text("150"),
+    );
     ui.label("%");
     if response.changed() {
         ui.data_mut(|data| data.insert_persisted(id, text.clone()));

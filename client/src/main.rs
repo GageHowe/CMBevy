@@ -68,7 +68,10 @@ fn parse_server_addr() -> SocketAddr {
     match common::config::SERVER_BIND_ADDRESS.parse() {
         Ok(addr) => addr,
         Err(err) => {
-            error!("invalid SERVER_BIND_ADDRESS '{}': {err}", common::config::SERVER_BIND_ADDRESS);
+            error!(
+                "invalid SERVER_BIND_ADDRESS '{}': {err}",
+                common::config::SERVER_BIND_ADDRESS
+            );
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 42070)
         }
     }
@@ -86,7 +89,10 @@ fn main() {
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
                 ..default()
             })
-            .set(LogPlugin { level: Level::WARN, ..default() })
+            .set(LogPlugin {
+                level: Level::WARN,
+                ..default()
+            })
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Critical Mass".into(),
@@ -113,7 +119,9 @@ fn main() {
             single_player: GameState::SinglePlayer,
             multiplayer: GameState::Multiplayer,
         })
-        .add_plugins(ReconciliationPlugin::<GameState>::new(GameState::Multiplayer))
+        .add_plugins(ReconciliationPlugin::<GameState>::new(
+            GameState::Multiplayer,
+        ))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
         .insert_resource(ServerAddr(server_addr))
         .init_resource::<PendingExit>()
@@ -152,7 +160,9 @@ fn main() {
     app.add_systems(Update, draw_melee_debug.run_if(debug_render_on));
     app.add_systems(
         Update,
-        draw_server_state.run_if(debug_render_on).run_if(in_state(GameState::Multiplayer)),
+        draw_server_state
+            .run_if(debug_render_on)
+            .run_if(in_state(GameState::Multiplayer)),
     );
     app.add_systems(
         FixedUpdate,

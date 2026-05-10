@@ -17,7 +17,9 @@ impl ScriptTagIndex {
     }
 
     pub fn has(&self, entity: Entity, tag: &str) -> bool {
-        self.by_entity.get(&entity).is_some_and(|tags| tags.iter().any(|value| value == tag))
+        self.by_entity
+            .get(&entity)
+            .is_some_and(|tags| tags.iter().any(|value| value == tag))
     }
 
     fn remove_entity(&mut self, entity: Entity) {

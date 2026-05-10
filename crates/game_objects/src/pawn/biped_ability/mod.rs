@@ -1,8 +1,10 @@
 use std::marker::PhantomData;
 
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
+use bevy::prelude::*;
+#[cfg(feature = "client")]
+use net::message::NetworkID;
 #[cfg(feature = "client")]
 use net::quic::{Channel, QuicManager};
 #[cfg(not(feature = "client"))]
@@ -10,8 +12,6 @@ use net::{
     message::{NetworkID, SpawnCommand},
     quic::{Channel, QuicManager, SendTarget},
 };
-#[cfg(feature = "client")]
-use net::message::NetworkID;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
@@ -39,7 +39,10 @@ impl Plugin for BipedAbilityPlugin {
     fn build(&self, app: &mut App) {
         app.register_game_object::<implementors::JetpackPickup>()
             .register_game_object::<implementors::DashPickup>()
-            .add_systems(FixedPreUpdate, tick_biped_ability_state.before(super::MovePawnsSet));
+            .add_systems(
+                FixedPreUpdate,
+                tick_biped_ability_state.before(super::MovePawnsSet),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             bevy::app::FixedPreUpdate,
@@ -109,7 +112,11 @@ impl EquippedAbility {
                     server_tick: world.resource::<common::tick::Ticker>().tick,
                     kind: self.kind.clone(),
                 };
-                SpawnGameObjectCommand { entity, cmd: cmd.clone() }.apply(world);
+                SpawnGameObjectCommand {
+                    entity,
+                    cmd: cmd.clone(),
+                }
+                .apply(world);
                 if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
                     quic.send(
                         SendTarget::All,
@@ -150,7 +157,11 @@ pub fn spawn_ability_pickup(
     };
     let collider = ColliderBuilder::ball(radius).build();
     let mut physics = world.resource_mut::<PhysicsWorld>();
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *physics;
     collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
     world.entity_mut(entity).insert((
         kind.clone(),
@@ -161,7 +172,9 @@ pub fn spawn_ability_pickup(
     #[cfg(feature = "client")]
     {
         let color = _color;
-        let mesh = world.resource_mut::<Assets<Mesh>>().add(Sphere::new(radius));
+        let mesh = world
+            .resource_mut::<Assets<Mesh>>()
+            .add(Sphere::new(radius));
         let material = world.resource_mut::<Assets<StandardMaterial>>().add(color);
         world.entity_mut(entity).insert((
             Mesh3d(mesh),
@@ -178,7 +191,12 @@ fn pickup_ability<A: BipedAbility + Send + 'static>(
     commands: &mut Commands,
 ) {
     commands.queue(move |world: &mut World| {
-        let _ = swap_ability_kind(biped, A::KIND, aim_dir.normalize_or_zero() * DROP_SPEED, world);
+        let _ = swap_ability_kind(
+            biped,
+            A::KIND,
+            aim_dir.normalize_or_zero() * DROP_SPEED,
+            world,
+        );
     });
     commands.entity(pickup).despawn();
 }
@@ -208,12 +226,17 @@ fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
             .get(&owner)
             .and_then(|h| physics.rigid_body_set.get(*h))
             .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::Y * 1.2 + forward)
-            .or_else(|| world.get::<Transform>(owner).map(|t| t.translation + Vec3::Y * 1.2))
+            .or_else(|| {
+                world
+                    .get::<Transform>(owner)
+                    .map(|t| t.translation + Vec3::Y * 1.2)
+            })
             .unwrap_or(Vec3::Y * 1.2);
         (vel + throw_vel, pos)
     };
-    let Some(ability) =
-        world.get_mut::<BipedPawnComponent>(owner).and_then(|mut biped| biped.ability.take())
+    let Some(ability) = world
+        .get_mut::<BipedPawnComponent>(owner)
+        .and_then(|mut biped| biped.ability.take())
     else {
         return;
     };
@@ -303,7 +326,10 @@ pub fn handle_drop_request(
     let Some((player_entity, _)) = registry.character(conn_id) else {
         return;
     };
-    commands.queue(DropActiveAbility { owner: player_entity, aim_dir: drop_dir });
+    commands.queue(DropActiveAbility {
+        owner: player_entity,
+        aim_dir: drop_dir,
+    });
 }
 
 #[cfg(feature = "client")]
@@ -341,7 +367,10 @@ pub trait BipedAbility: Default {
     const PICKUP_COLOR: (f32, f32, f32) = (0.8, 0.8, 0.8);
 
     fn initial_state() -> BipedAbilityState {
-        BipedAbilityState { meter: Self::METER_MAX, active: false }
+        BipedAbilityState {
+            meter: Self::METER_MAX,
+            active: false,
+        }
     }
 
     fn tick(state: &mut BipedAbilityState) {
@@ -384,7 +413,9 @@ impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> Defau
     for AbilityPickup<A>
 {
     fn default() -> Self {
-        Self { _phantom: PhantomData }
+        Self {
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -396,7 +427,9 @@ impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> crate
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         A::spawn_pickup(entity, cmd.position, cmd.starting_velocity, world);
-        world.entity_mut(entity).insert((cmd.net_id.clone(), pickup_callback::<A>()));
+        world
+            .entity_mut(entity)
+            .insert((cmd.net_id.clone(), pickup_callback::<A>()));
     }
 }
 
@@ -407,7 +440,11 @@ pub struct DropActiveAbility {
 
 impl bevy::ecs::system::Command for DropActiveAbility {
     fn apply(self, world: &mut World) {
-        drop_owned_ability(self.owner, self.aim_dir.normalize_or_zero() * DROP_SPEED, world);
+        drop_owned_ability(
+            self.owner,
+            self.aim_dir.normalize_or_zero() * DROP_SPEED,
+            world,
+        );
     }
 }
 
@@ -482,9 +519,15 @@ fn drop_active_ability_input(
         if matches!(state.get(), common::game_state::GameState::Multiplayer)
             && let Some(quic) = quic.as_mut()
         {
-            quic.send_to_server(Channel::Ordered, &net::message::MsgType::DropAbility(aim_dir));
+            quic.send_to_server(
+                Channel::Ordered,
+                &net::message::MsgType::DropAbility(aim_dir),
+            );
         } else {
-            commands.queue(DropActiveAbility { owner: pawn_entity, aim_dir });
+            commands.queue(DropActiveAbility {
+                owner: pawn_entity,
+                aim_dir,
+            });
         }
     }
 }

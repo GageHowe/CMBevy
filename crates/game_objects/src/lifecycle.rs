@@ -3,12 +3,12 @@ use common::GameObjectKind;
 use net::message::{NetworkID, NetworkIDResource, SpawnCommand};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_vel};
 
+#[cfg(feature = "client")]
+use crate::NetworkEntityMap;
 use crate::{
     SpawnGameObjectCommand,
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
 };
-#[cfg(feature = "client")]
-use crate::NetworkEntityMap;
 
 pub fn spawn_game_object(
     kind: GameObjectKind,
@@ -91,7 +91,9 @@ pub fn apply_possess(
         }
     }
     ticker.tick = server_tick;
-    commands.entity(entity).insert(crate::pawn::Possessed::new(128));
+    commands
+        .entity(entity)
+        .insert(crate::pawn::Possessed::new(128));
 }
 
 #[cfg(feature = "client")]
@@ -101,7 +103,13 @@ pub fn apply_despawn(
     networked: &NetworkEntityMap,
     camera: &Query<Entity, With<Camera3d>>,
     biped_q: &mut bevy::ecs::system::ParamSet<(
-        Query<(&mut crate::pawn::WeaponSlots, &crate::pawn::biped::BipedPawnComponent), With<crate::pawn::Possessed>>,
+        Query<
+            (
+                &mut crate::pawn::WeaponSlots,
+                &crate::pawn::biped::BipedPawnComponent,
+            ),
+            With<crate::pawn::Possessed>,
+        >,
         Query<&crate::pawn::biped::BipedPawnComponent>,
         Query<&mut crate::pawn::biped::BipedPawnComponent>,
     )>,

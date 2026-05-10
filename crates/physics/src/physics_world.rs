@@ -57,6 +57,7 @@ pub struct InitialVelocity(pub Vec3);
 #[reflect(Component, Default)]
 pub struct InitialAngularVelocity(pub Vec3);
 
+/// enables specifying RigidBody type in .ron map files
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
 pub enum SceneRigidBody {
@@ -71,6 +72,7 @@ pub enum SceneRigidBody {
 #[derive(Component)]
 pub struct RigidBodyHandleComponent(pub RigidBodyHandle);
 
+/// struct that contains native Rapier world, maps, and bookkeeping
 #[derive(Resource)]
 pub struct PhysicsWorld {
     pub rigid_body_set: RigidBodySet,
@@ -89,14 +91,13 @@ pub struct PhysicsWorld {
 
     pub handle_to_entity: HashMap<RigidBodyHandle, Entity>,
     pub entity_to_handle: HashMap<Entity, RigidBodyHandle>,
-
-    /// Number of physics substeps per game tick. 1 = no substepping. Set by client settings.
-    pub substeps: u32,
 }
 
 impl PhysicsWorld {
     pub fn body(&self, entity: Entity) -> Option<&RigidBody> {
-        self.entity_to_handle.get(&entity).and_then(|&handle| self.rigid_body_set.get(handle))
+        self.entity_to_handle
+            .get(&entity)
+            .and_then(|&handle| self.rigid_body_set.get(handle))
     }
 
     pub fn body_pos(&self, entity: Entity) -> Option<Vec3> {
@@ -122,10 +123,10 @@ impl PhysicsWorld {
                 warmstart_coefficient: 1.0,
                 num_internal_pgs_iterations: 1,
                 num_internal_stabilization_iterations: 1,
-                num_solver_iterations: 4,
+                num_solver_iterations: 3, // prefer speed over accuracy, subject to tuning
                 min_island_size: 128,
                 normalized_allowed_linear_error: 0.001,
-                normalized_max_corrective_velocity: 10.0,
+                normalized_max_corrective_velocity: 10.0, // maybe make this higher...
                 normalized_prediction_distance: 0.002,
                 max_ccd_substeps: 1,
                 length_unit: 1.0,
@@ -139,12 +140,9 @@ impl PhysicsWorld {
             multibody_joint_set: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
             physics_hooks: (),
-
             event_handler: (),
-
             handle_to_entity: HashMap::new(),
             entity_to_handle: HashMap::new(),
-            substeps: 1,
         }
     }
 
@@ -258,8 +256,11 @@ impl PhysicsWorld {
         let linvel = rb_vel(rb);
         let angvel = rb_angvel(rb);
         let predicted = rb.predict_position_using_velocity(dt.max(0.0));
-        let predicted_pos =
-            Vec3::new(predicted.translation.x, predicted.translation.y, predicted.translation.z);
+        let predicted_pos = Vec3::new(
+            predicted.translation.x,
+            predicted.translation.y,
+            predicted.translation.z,
+        );
         let predicted_rot = Quat::from_xyzw(
             predicted.rotation.x,
             predicted.rotation.y,
@@ -267,9 +268,15 @@ impl PhysicsWorld {
             predicted.rotation.w,
         );
         let offset = predicted_rot * local_point;
-        Some((predicted_pos + offset, predicted_rot, linvel + angvel.cross(offset), angvel))
+        Some((
+            predicted_pos + offset,
+            predicted_rot,
+            linvel + angvel.cross(offset),
+            angvel,
+        ))
     }
 
+    /// TODO: what's this helper for? can we inline it
     /// Shared gameplay impulse path so callers don't have to manually keep prediction in sync.
     pub fn apply_game_impulse(
         &mut self,
@@ -361,8 +368,10 @@ impl PhysicsWorld {
         exclude: &[Entity],
     ) -> Option<(Entity, f32, Vec3)> {
         use rapier3d::parry::query::ShapeCastOptions;
-        let excluded: Vec<RigidBodyHandle> =
-            exclude.iter().filter_map(|e| self.entity_to_handle.get(e).copied()).collect();
+        let excluded: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|e| self.entity_to_handle.get(e).copied())
+            .collect();
         let pred = |_: ColliderHandle, col: &Collider| {
             !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
@@ -376,11 +385,20 @@ impl PhysicsWorld {
         let shape = Ball::new(radius);
         let iso = Pose::translation(origin.x, origin.y, origin.z);
         let vel = Vector::new(direction.x, direction.y, direction.z);
-        qp.cast_shape(&iso, vel, &shape, ShapeCastOptions::with_max_time_of_impact(max_distance))
-            .and_then(|(ch, hit)| {
-                let rb_handle = self.collider_set.get(ch)?.parent()?;
-                Some((*self.handle_to_entity.get(&rb_handle)?, hit.time_of_impact, hit.normal2))
-            })
+        qp.cast_shape(
+            &iso,
+            vel,
+            &shape,
+            ShapeCastOptions::with_max_time_of_impact(max_distance),
+        )
+        .and_then(|(ch, hit)| {
+            let rb_handle = self.collider_set.get(ch)?.parent()?;
+            Some((
+                *self.handle_to_entity.get(&rb_handle)?,
+                hit.time_of_impact,
+                hit.normal2,
+            ))
+        })
     }
 
     /// Cast a ray and return the first entity hit and the distance to impact.
@@ -392,8 +410,10 @@ impl PhysicsWorld {
         max_distance: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, f32)> {
-        let excluded: Vec<RigidBodyHandle> =
-            exclude.iter().filter_map(|e| self.entity_to_handle.get(e).copied()).collect();
+        let excluded: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|e| self.entity_to_handle.get(e).copied())
+            .collect();
         let pred = |_: ColliderHandle, col: &Collider| {
             !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
         };
@@ -455,7 +475,7 @@ impl PhysicsWorld {
 
 /// Controls how physics body positions are mapped to Bevy Transforms each frame.
 /// Off: snap to last-tick position. Extrapolate: project forward by overstep. Interpolate: one tick behind, interpolated.
-/// Balanced: extrapolate position for responsiveness, but interpolate rotation to avoid overshoot.
+/// Balanced: extrapolate position, interpolate rotation
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicsInterpMode {
     Off,
@@ -473,11 +493,12 @@ impl Plugin for PhysicsPlugin {
             .register_type::<InitialAngularVelocity>()
             .register_type::<SceneRigidBody>()
             .init_resource::<PhysicsInterpMode>()
-            .add_observer(on_remove_physics_body);
+            .add_observer(on_remove_rigidbody_handle);
     }
 }
 
-fn on_remove_physics_body(
+/// makes sure to delete the rapier rigidbody when killing an entity recursively
+fn on_remove_rigidbody_handle(
     event: On<Remove, RigidBodyHandleComponent>,
     mut world: ResMut<PhysicsWorld>,
 ) {
@@ -485,20 +506,10 @@ fn on_remove_physics_body(
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
-    let substeps = world.substeps.max(1);
-    if substeps == 1 {
-        world.step();
-        return;
-    }
-    let original_dt = world.integration_parameters.dt;
-    world.integration_parameters.dt = original_dt / substeps as f32;
-    for _ in 0..substeps {
-        world.step();
-    }
-    world.integration_parameters.dt = original_dt;
+    world.step();
 }
 
-/// Steps physics exactly once. Use this during reconciliation — never substeps.
+/// Steps physics exactly once.
 pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
     world.step();
 }
@@ -524,7 +535,11 @@ pub fn snapshot_bodies<'a>(
             );
         }
     }
-    SimulationState { tick, last_input_seq: 0, bodies }
+    SimulationState {
+        tick,
+        last_input_seq: 0,
+        bodies,
+    }
 }
 
 pub fn snapshot_body_handles<'a>(
@@ -546,7 +561,11 @@ pub fn snapshot_body_handles<'a>(
             );
         }
     }
-    SimulationState { tick, last_input_seq: 0, bodies }
+    SimulationState {
+        tick,
+        last_input_seq: 0,
+        bodies,
+    }
 }
 
 /// Apply a server snapshot to the physics world.
@@ -568,17 +587,28 @@ pub fn restore_snapshot(
             true,
         );
         rb.set_rotation(
-            Quat::from_xyzw(state.rotation.x, state.rotation.y, state.rotation.z, state.rotation.w),
+            Quat::from_xyzw(
+                state.rotation.x,
+                state.rotation.y,
+                state.rotation.z,
+                state.rotation.w,
+            ),
             true,
         );
-        rb.set_linvel(Vector3::new(state.linvel.x, state.linvel.y, state.linvel.z), true);
-        rb.set_angvel(Vector3::new(state.angvel.x, state.angvel.y, state.angvel.z), true);
+        rb.set_linvel(
+            Vector3::new(state.linvel.x, state.linvel.y, state.linvel.z),
+            true,
+        );
+        rb.set_angvel(
+            Vector3::new(state.angvel.x, state.angvel.y, state.angvel.z),
+            true,
+        );
         rb.wake_up(true);
     }
 }
 
-/// Syncs physics bodies to Bevy transforms every frame, decoupled from the fixed tick.
-/// Register in Update (client-only); for server-side exact sync use sync_physics_to_transforms.
+/// Syncs physics bodies to Bevy transforms every Update frame
+/// Register in Update, client-only
 pub fn sync_physics_visual(
     world: Res<PhysicsWorld>,
     time: Res<Time<Fixed>>,
@@ -595,9 +625,7 @@ pub fn sync_physics_visual(
     let rot_dt_offset = match *interp {
         PhysicsInterpMode::Off => 0.0,
         PhysicsInterpMode::Extrapolate => overstep * fixed_dt,
-        PhysicsInterpMode::Interpolate | PhysicsInterpMode::Balanced => {
-            (overstep - 1.0) * fixed_dt
-        }
+        PhysicsInterpMode::Interpolate | PhysicsInterpMode::Balanced => (overstep - 1.0) * fixed_dt,
     };
     for (body_handle, mut transform) in query.iter_mut() {
         let Some(body) = world.rigid_body_set.get(body_handle.0) else {
@@ -620,6 +648,7 @@ pub fn sync_physics_visual(
     }
 }
 
+/// TODO: maybe integrate this with the other function?
 /// handle visual sync (gameserver FixedUpdate path — no smoothing needed)
 pub fn sync_physics_to_transforms(
     world: Res<PhysicsWorld>,

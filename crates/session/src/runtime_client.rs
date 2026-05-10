@@ -10,9 +10,7 @@ use game_objects::{
     },
     lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
     mode::MatchState,
-    pawn::{
-        HeldWeaponMap, InteractionGate, PawnInputParams, Possessed, WeaponSlots,
-    },
+    pawn::{HeldWeaponMap, InteractionGate, PawnInputParams, Possessed, WeaponSlots},
     weapon::{WeaponConfig, WeaponState},
 };
 use net::{
@@ -49,34 +47,63 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .insert_resource(ClientSessionState { main_menu })
             .add_systems(
                 OnEnter(single_player),
-                (reset_singleplayer_spawn_state, init_singleplayer_match_state, load_sp_level::<S>)
+                (
+                    reset_singleplayer_spawn_state,
+                    init_singleplayer_match_state,
+                    load_sp_level::<S>,
+                )
                     .chain(),
             )
             .add_systems(
                 OnExit(single_player),
-                (reset_interaction_gate, cleanup_world, remove_script, remove_singleplayer_match_state)
+                (
+                    reset_interaction_gate,
+                    cleanup_world,
+                    remove_script,
+                    remove_singleplayer_match_state,
+                )
                     .chain(),
             )
-            .add_systems(FixedUpdate, respawn_singleplayer.run_if(in_state(single_player)))
-            .add_systems(FixedUpdate, run_singleplayer_bots.run_if(in_state(single_player)))
             .add_systems(
                 FixedUpdate,
-                game_objects::pawn::biped::apply_melee_hits
-                    .run_if(crate::runtime::has_authority),
+                respawn_singleplayer.run_if(in_state(single_player)),
+            )
+            .add_systems(
+                FixedUpdate,
+                run_singleplayer_bots.run_if(in_state(single_player)),
+            )
+            .add_systems(
+                FixedUpdate,
+                game_objects::pawn::biped::apply_melee_hits.run_if(crate::runtime::has_authority),
             )
             .add_systems(
                 FixedUpdate,
                 advance_match_state_time.run_if(in_state(single_player)),
             )
-            .add_systems(OnEnter(multiplayer), (reset_interaction_gate, connect).chain())
-            .add_systems(OnExit(multiplayer), (cleanup_world, disconnect, remove_script).chain())
+            .add_systems(
+                OnEnter(multiplayer),
+                (reset_interaction_gate, connect).chain(),
+            )
+            .add_systems(
+                OnExit(multiplayer),
+                (cleanup_world, disconnect, remove_script).chain(),
+            )
             .add_systems(Update, show_transport_notices.run_if(in_state(multiplayer)))
-            .add_systems(Update, messages::retry_weapon_pickups.run_if(in_state(multiplayer)))
+            .add_systems(
+                Update,
+                messages::retry_weapon_pickups.run_if(in_state(multiplayer)),
+            )
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
-            .add_systems(Update, mark_world_ready_after_level_load.run_if(in_state(multiplayer)))
+            .add_systems(
+                Update,
+                mark_world_ready_after_level_load.run_if(in_state(multiplayer)),
+            )
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
             .add_systems(Last, cleanup_before_app_exit)
-            .add_systems(Update, exit_after_returning_to_menu.run_if(in_state(main_menu)))
+            .add_systems(
+                Update,
+                exit_after_returning_to_menu.run_if(in_state(main_menu)),
+            )
             .add_systems(FixedPostUpdate, messages::on_message::<S>)
             .add_systems(
                 FixedLast,
@@ -159,7 +186,11 @@ fn respawn_singleplayer(
         sp.timer = None;
         return;
     }
-    let respawn_delay = if sp.spawned_once { common::config::RESPAWN_DELAY_SECS } else { 0.0 };
+    let respawn_delay = if sp.spawned_once {
+        common::config::RESPAWN_DELAY_SECS
+    } else {
+        0.0
+    };
     let remaining = sp.timer.get_or_insert(respawn_delay);
     *remaining -= time.delta_secs();
     if *remaining > 0.0 {
@@ -186,7 +217,9 @@ fn respawn_singleplayer(
         &mut commands,
         &mut net_ids,
     );
-    commands.entity(entity).insert((Possessed::new(128), Team(0)));
+    commands
+        .entity(entity)
+        .insert((Possessed::new(128), Team(0)));
     sp.spawned_once = true;
 }
 
@@ -246,8 +279,7 @@ fn fire_singleplayer_bot_weapon(
             return;
         };
         slots.active_weapon()
-    })
-    else {
+    }) else {
         return;
     };
     let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
@@ -285,7 +317,11 @@ fn load_skybox(
     let image: Handle<Image> =
         asset_server.load(game_objects::asset_path::resolve_asset_path(path));
     commands.entity(cam).insert((
-        Skybox { image: image.clone(), brightness: meta.skybox_brightness, ..default() },
+        Skybox {
+            image: image.clone(),
+            brightness: meta.skybox_brightness,
+            ..default()
+        },
         EnvironmentMapLight {
             diffuse_map: image.clone(),
             specular_map: image,

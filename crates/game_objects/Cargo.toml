@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-client = ["bevy/jpeg", "dep:bevy_egui", "dep:bevy_hanabi_plugin", "dep:noise-functions"]
+client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:bevy_hanabi_plugin", "dep:noise-functions"]
 
 [lints]
 workspace = true
@@ -13,7 +13,7 @@ workspace = true
 common = { path = "../common" }
 physics = { path = "../physics" }
 net = { path = "../net" }
-bevy = { workspace = true, features = ["serialize", "std", "multi_threaded", "https"] }
+bevy = { workspace = true, features = ["https", "scene", "serialize", "std", "multi_threaded"] }
 rapier3d = { workspace = true }
 bevy_egui = { workspace = true, optional = true }
 bevy_hanabi_plugin = { path = "../bevy_hanabi", optional = true }

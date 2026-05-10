@@ -48,17 +48,26 @@ impl FromWorld for RpgExplosionEffect {
                 (1.0, Vec4::new(0.2, 0.2, 0.2, 0.0)),
             ],
         );
-        let smoke_texture =
-            world.resource::<AssetServer>().load("textures/particles/smoke_06_a.png");
+        let smoke_texture = world
+            .resource::<AssetServer>()
+            .load("textures/particles/smoke_06_a.png");
         let mut effects = world.resource_mut::<Assets<EffectAsset>>();
-        Self { sparks: effects.add(sparks), smoke: effects.add(smoke), smoke_texture }
+        Self {
+            sparks: effects.add(sparks),
+            smoke: effects.add(smoke),
+            smoke_texture,
+        }
     }
 }
 
 pub fn spawn_rpg_explosion_effect(world: &mut World, position: Vec3, inherit_velocity: Vec3) {
     let (sparks, smoke, smoke_texture) = {
         let effect = world.resource::<RpgExplosionEffect>();
-        (effect.sparks.clone(), effect.smoke.clone(), effect.smoke_texture.clone())
+        (
+            effect.sparks.clone(),
+            effect.smoke.clone(),
+            effect.smoke_texture.clone(),
+        )
     };
     spawn_one_shot_effect(
         world,
@@ -73,7 +82,9 @@ pub fn spawn_rpg_explosion_effect(world: &mut World, position: Vec3, inherit_vel
         world,
         "rpg_explosion_smoke_effect",
         smoke,
-        Some(EffectMaterial { images: vec![smoke_texture] }),
+        Some(EffectMaterial {
+            images: vec![smoke_texture],
+        }),
         position,
         inherit_velocity,
         3.5,

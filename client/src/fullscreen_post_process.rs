@@ -3,10 +3,10 @@ use bevy::{
     prelude::*,
     render::{
         render_resource::{
-            BindGroup, BindGroupLayoutDescriptor, CachedRenderPipelineId, ColorTargetState, ColorWrites,
-            FragmentState, MultisampleState, Operations, PipelineCache, PrimitiveState,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerDescriptor, TextureView,
+            BindGroup, BindGroupLayoutDescriptor, CachedRenderPipelineId, ColorTargetState,
+            ColorWrites, FragmentState, MultisampleState, Operations, PipelineCache,
+            PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerDescriptor, TextureView,
         },
         renderer::{RenderContext, RenderDevice},
         view::ViewTarget,
@@ -24,26 +24,28 @@ pub(crate) fn init_fullscreen_post_process(
     let shader = world.load_asset(shader_path);
     let fullscreen = world.resource::<FullscreenShader>().clone();
     let pipeline_id =
-        world.resource::<PipelineCache>().queue_render_pipeline(RenderPipelineDescriptor {
-            label: Some(pipeline_label.into()),
-            layout: vec![layout.clone()],
-            vertex: fullscreen.to_vertex_state(),
-            fragment: Some(FragmentState {
-                shader,
-                shader_defs: vec![],
-                targets: vec![Some(ColorTargetState {
-                    format: ViewTarget::TEXTURE_FORMAT_HDR,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            primitive: PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            push_constant_ranges: vec![],
-            zero_initialize_workgroup_memory: false,
-        });
+        world
+            .resource::<PipelineCache>()
+            .queue_render_pipeline(RenderPipelineDescriptor {
+                label: Some(pipeline_label.into()),
+                layout: vec![layout.clone()],
+                vertex: fullscreen.to_vertex_state(),
+                fragment: Some(FragmentState {
+                    shader,
+                    shader_defs: vec![],
+                    targets: vec![Some(ColorTargetState {
+                        format: ViewTarget::TEXTURE_FORMAT_HDR,
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    ..default()
+                }),
+                primitive: PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: MultisampleState::default(),
+                push_constant_ranges: vec![],
+                zero_initialize_workgroup_memory: false,
+            });
     (sampler, pipeline_id)
 }
 

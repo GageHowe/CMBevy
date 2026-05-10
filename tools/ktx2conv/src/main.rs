@@ -115,8 +115,9 @@ fn write_ktx2(path: &PathBuf, faces: &[Vec<f32>], res: u32) -> std::io::Result<(
 
     // --- KTX2 Header ---
     // Identifier (12 bytes)
-    let identifier: [u8; 12] =
-        [0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A];
+    let identifier: [u8; 12] = [
+        0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A,
+    ];
     w.write_all(&identifier)?;
 
     let vk_format: u32 = 109; // VK_FORMAT_R32G32B32A32_SFLOAT

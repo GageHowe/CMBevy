@@ -5,7 +5,7 @@ use common::{GameObjectKind, PredictedCommands};
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
 
-use super::{Projectile, ProjectileState, tick_projectiles, helpers};
+use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 use crate::{
     GameObject,
     health::{Health, LastDamageSource},
@@ -42,7 +42,10 @@ pub struct FighterRocketProjectile {
 
 impl Default for FighterRocketProjectile {
     fn default() -> Self {
-        Self { shooter: None, lifetime: LIFETIME }
+        Self {
+            shooter: None,
+            lifetime: LIFETIME,
+        }
     }
 }
 
@@ -61,7 +64,18 @@ impl Projectile for FighterRocketProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
     ) {
-        tick_inner(self, entity, state, body, world, commands, health_q, last_damage_q, None, None);
+        tick_inner(
+            self,
+            entity,
+            state,
+            body,
+            world,
+            commands,
+            health_q,
+            last_damage_q,
+            None,
+            None,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
@@ -85,7 +99,15 @@ impl Projectile for FighterRocketProjectile {
         _weapon: Option<Entity>,
         temp_id: u32,
     ) -> Entity {
-        spawn(origin, velocity, shooter_velocity, commands, world, shooter, temp_id)
+        spawn(
+            origin,
+            velocity,
+            shooter_velocity,
+            commands,
+            world,
+            shooter,
+            temp_id,
+        )
     }
 }
 
@@ -132,7 +154,10 @@ pub fn spawn(
 ) -> Entity {
     let entity = helpers::spawn_projectile(
         GameObjectKind::FighterRocketProjectile,
-        FighterRocketProjectile { shooter, lifetime: LIFETIME },
+        FighterRocketProjectile {
+            shooter,
+            lifetime: LIFETIME,
+        },
         origin,
         velocity,
         shooter_velocity,
@@ -142,7 +167,13 @@ pub fn spawn(
         world,
     );
     commands.entity(entity).insert(GravityScale(GRAVITY_SCALE));
-    helpers::queue_world_fire_sound(commands, shooter, "event:/Weapons/SniperShot", origin, velocity);
+    helpers::queue_world_fire_sound(
+        commands,
+        shooter,
+        "event:/Weapons/SniperShot",
+        origin,
+        velocity,
+    );
     entity
 }
 
@@ -154,7 +185,10 @@ impl GameObject for FighterRocketProjectile {
             entity,
             cmd,
             world,
-            FighterRocketProjectile { shooter: None, lifetime: LIFETIME },
+            FighterRocketProjectile {
+                shooter: None,
+                lifetime: LIFETIME,
+            },
             RADIUS,
             "event:/Weapons/SniperShot",
         );
@@ -165,16 +199,19 @@ impl GameObject for FighterRocketProjectile {
 pub struct FighterRocketProjectilePlugin;
 impl Plugin for FighterRocketProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<FighterRocketProjectile>().add_systems(
-            FixedUpdate,
-            tick_projectiles::<FighterRocketProjectile>
-                .after(step_physics)
-                .in_set(super::AuthoritySet::Projectile),
-        );
+        app.register_game_object::<FighterRocketProjectile>()
+            .add_systems(
+                FixedUpdate,
+                tick_projectiles::<FighterRocketProjectile>
+                    .after(step_physics)
+                    .in_set(super::AuthoritySet::Projectile),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
-            tick_predicted_projectiles.after(step_physics).run_if(in_state(GameState::Multiplayer)),
+            tick_predicted_projectiles
+                .after(step_physics)
+                .run_if(in_state(GameState::Multiplayer)),
         );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
@@ -185,9 +222,12 @@ impl Plugin for FighterRocketProjectilePlugin {
 fn tick_predicted_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<
-        (Entity, &mut FighterRocketProjectile, &RigidBodyHandleComponent, &mut ProjectileState),
-    >,
+    mut q: Query<(
+        Entity,
+        &mut FighterRocketProjectile,
+        &RigidBodyHandleComponent,
+        &mut ProjectileState,
+    )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     net_ids: Query<&NetworkID>,
@@ -227,6 +267,8 @@ fn add_visual(
             unlit: true,
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

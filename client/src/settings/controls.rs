@@ -66,33 +66,99 @@ pub fn show_controls_settings(
         }
     });
 
-    egui::CollapsingHeader::new("Movement").default_open(true).show(ui, |ui| {
-        show_binding_row(ui, settings, capture, InputAction::MoveForward, "Move forward");
-        show_binding_row(ui, settings, capture, InputAction::MoveBackward, "Move backward");
-        show_binding_row(ui, settings, capture, InputAction::MoveRight, "Move right");
-        show_binding_row(ui, settings, capture, InputAction::MoveLeft, "Move left");
-        show_binding_row(ui, settings, capture, InputAction::Jump, "Jump / ascend");
-        show_binding_row(ui, settings, capture, InputAction::Crouch, "Crouch / descend");
-        show_binding_row(ui, settings, capture, InputAction::Ability1, "Ability 1 / boost");
-        show_binding_row(ui, settings, capture, InputAction::RollLeft, "Ship roll left");
-        show_binding_row(ui, settings, capture, InputAction::RollRight, "Ship roll right");
-    });
+    egui::CollapsingHeader::new("Movement")
+        .default_open(true)
+        .show(ui, |ui| {
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::MoveForward,
+                "Move forward",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::MoveBackward,
+                "Move backward",
+            );
+            show_binding_row(ui, settings, capture, InputAction::MoveRight, "Move right");
+            show_binding_row(ui, settings, capture, InputAction::MoveLeft, "Move left");
+            show_binding_row(ui, settings, capture, InputAction::Jump, "Jump / ascend");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::Crouch,
+                "Crouch / descend",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::Ability1,
+                "Ability 1 / boost",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::RollLeft,
+                "Ship roll left",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::RollRight,
+                "Ship roll right",
+            );
+        });
 
-    egui::CollapsingHeader::new("Actions").default_open(true).show(ui, |ui| {
-        show_binding_row(ui, settings, capture, InputAction::Melee, "Melee");
-        show_binding_row(ui, settings, capture, InputAction::Interact, "Interact / use");
-        show_binding_row(ui, settings, capture, InputAction::Ability2, "Ability 2");
-        show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");
-        show_binding_row(ui, settings, capture, InputAction::Fire, "Fire");
-        show_binding_row(ui, settings, capture, InputAction::AltFire, "Alt fire / zoom");
-        show_binding_row(ui, settings, capture, InputAction::DropWeapon, "Drop weapon");
-    });
+    egui::CollapsingHeader::new("Actions")
+        .default_open(true)
+        .show(ui, |ui| {
+            show_binding_row(ui, settings, capture, InputAction::Melee, "Melee");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::Interact,
+                "Interact / use",
+            );
+            show_binding_row(ui, settings, capture, InputAction::Ability2, "Ability 2");
+            show_binding_row(ui, settings, capture, InputAction::Reload, "Reload");
+            show_binding_row(ui, settings, capture, InputAction::Fire, "Fire");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::AltFire,
+                "Alt fire / zoom",
+            );
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::DropWeapon,
+                "Drop weapon",
+            );
+        });
 
-    egui::CollapsingHeader::new("Interface").default_open(true).show(ui, |ui| {
-        show_binding_row(ui, settings, capture, InputAction::Pause, "Pause / back");
-        show_binding_row(ui, settings, capture, InputAction::Chat, "Chat");
-        show_binding_row(ui, settings, capture, InputAction::CaptureCursor, "Resume cursor lock");
-    });
+    egui::CollapsingHeader::new("Interface")
+        .default_open(true)
+        .show(ui, |ui| {
+            show_binding_row(ui, settings, capture, InputAction::Pause, "Pause / back");
+            show_binding_row(ui, settings, capture, InputAction::Chat, "Chat");
+            show_binding_row(
+                ui,
+                settings,
+                capture,
+                InputAction::CaptureCursor,
+                "Resume cursor lock",
+            );
+        });
 }
 
 fn show_binding_row(
@@ -161,7 +227,11 @@ fn binding_slot_button(
 ) {
     let waiting =
         capture.action == Some(action) && capture.slot == slot && capture.device == device;
-    let label = if waiting { "Press input...".to_string() } else { label };
+    let label = if waiting {
+        "Press input...".to_string()
+    } else {
+        label
+    };
     if ui.button(label).clicked() {
         capture.begin(action, slot, device);
     }
@@ -189,13 +259,19 @@ fn poll_binding_capture(
 
     match capture.device {
         CaptureDevice::KeyboardMouse => {
-            let button =
-                keyboard.get_just_pressed().next().copied().map(BindingButton::Key).or_else(|| {
+            let button = keyboard
+                .get_just_pressed()
+                .next()
+                .copied()
+                .map(BindingButton::Key)
+                .or_else(|| {
                     mouse.get_just_pressed().find_map(|button| match button {
                         MouseButton::Left | MouseButton::Right | MouseButton::Middle => {
                             Some(BindingButton::Mouse(*button))
                         }
-                        MouseButton::Back | MouseButton::Forward => Some(BindingButton::Mouse(*button)),
+                        MouseButton::Back | MouseButton::Forward => {
+                            Some(BindingButton::Mouse(*button))
+                        }
                         MouseButton::Other(_) => None,
                     })
                 });
@@ -243,7 +319,9 @@ fn button_label(button: Option<BindingButton>) -> String {
 }
 
 fn gamepad_button_label(button: Option<GamepadBindingButton>) -> String {
-    button.map(|button| button.label().to_string()).unwrap_or_else(|| "Unbound".to_string())
+    button
+        .map(|button| button.label().to_string())
+        .unwrap_or_else(|| "Unbound".to_string())
 }
 
 fn binding_button_name(button: BindingButton) -> String {

@@ -73,8 +73,9 @@ pub fn queue_remote_fx(
 #[cfg(feature = "client")]
 pub fn queue_jetpack_fx(owner: Entity, active: bool, commands: &mut Commands) {
     commands.queue(move |world: &mut World| {
-        let current =
-            world.get::<BipedPawnComponent>(owner).and_then(|biped| biped.jetpack_fx_entity);
+        let current = world
+            .get::<BipedPawnComponent>(owner)
+            .and_then(|biped| biped.jetpack_fx_entity);
         if active {
             if let Some(fx_entity) = current {
                 if let Some(mut spawner) = world.get_mut::<EffectSpawner>(fx_entity) {
@@ -83,7 +84,9 @@ pub fn queue_jetpack_fx(owner: Entity, active: bool, commands: &mut Commands) {
                 return;
             }
             let fx_entity = spawn_jetpack_effect(world);
-            world.entity_mut(fx_entity).insert((JetpackFxTag, JetpackFxOwner(owner)));
+            world
+                .entity_mut(fx_entity)
+                .insert((JetpackFxTag, JetpackFxOwner(owner)));
             if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
                 biped.jetpack_fx_entity = Some(fx_entity);
             }
@@ -105,7 +108,11 @@ pub fn queue_dash_fx(owner: Entity, dir: Vec3, world: &PhysicsWorld, commands: &
     let Some(rb) = world.rigid_body_set.get(handle) else {
         return;
     };
-    let world_emit_dir = if dir.length_squared() > 1e-6 { -dir.normalize() } else { Vec3::NEG_Y };
+    let world_emit_dir = if dir.length_squared() > 1e-6 {
+        -dir.normalize()
+    } else {
+        Vec3::NEG_Y
+    };
     let local_emit_dir = { rb_rot(rb).inverse() * world_emit_dir };
     commands.queue(move |world: &mut World| {
         spawn_dash_effect(world, owner, local_emit_dir);

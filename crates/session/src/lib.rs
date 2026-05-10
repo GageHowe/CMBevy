@@ -33,8 +33,8 @@ pub use messages::draw_server_state;
 pub use messages::on_message;
 #[cfg(feature = "client")]
 pub use resources::{
-    GuiState, HostedServer, LastAckedInputSeq, LastServerState, LocalCharacterNetId,
-    PendingExit, PendingReconciliation, PendingWorldReady, ServerAddr, SinglePlayerConfig,
+    GuiState, HostedServer, LastAckedInputSeq, LastServerState, LocalCharacterNetId, PendingExit,
+    PendingReconciliation, PendingWorldReady, ServerAddr, SinglePlayerConfig,
 };
 #[cfg(not(feature = "client"))]
 pub use runtime::ServerSessionPlugin;

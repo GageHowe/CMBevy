@@ -94,7 +94,10 @@ pub fn gui_ammo(
             ui.heading(format!("{}/{}", state.ammo_in_mag, state.reserve_ammo));
             if state.reload_ticks > 0 && config.reload_ticks > 0 {
                 let progress = 1.0 - state.reload_ticks as f32 / config.reload_ticks.max(1) as f32;
-                ui.label(format!("Reloading {:.0}%", progress.clamp(0.0, 1.0) * 100.0));
+                ui.label(format!(
+                    "Reloading {:.0}%",
+                    progress.clamp(0.0, 1.0) * 100.0
+                ));
             }
         });
 }
@@ -105,7 +108,9 @@ pub fn gui_notifications(
     mut messages: ResMut<GameMessages>,
 ) {
     let now = time.elapsed_secs_f64();
-    messages.0.retain(|entry| now - entry.created_at < MESSAGE_TTL_SECS);
+    messages
+        .0
+        .retain(|entry| now - entry.created_at < MESSAGE_TTL_SECS);
     if messages.0.is_empty() {
         return;
     }

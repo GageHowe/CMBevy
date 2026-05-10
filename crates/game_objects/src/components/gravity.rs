@@ -1,10 +1,12 @@
 use bevy::prelude::*;
-use physics::physics_world::{self, PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot, step_physics};
+use physics::physics_world::{
+    self, PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot, step_physics,
+};
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::{in_ring_zone, in_spherical_zone};
 use crate::pawn::Mounted;
-use super::{in_spherical_zone, in_ring_zone};
 
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component, Default)]
@@ -108,7 +110,9 @@ pub fn apply_gravity_impulses(
                 let mut handles = Vec::new();
                 for (ch, _) in qp.intersect_shape(pos, &shape) {
                     if let Some(h) = world.collider_set.get(ch).and_then(|c| c.parent()) {
-                        if !handles.contains(&h) { handles.push(h); }
+                        if !handles.contains(&h) {
+                            handles.push(h);
+                        }
                     }
                 }
                 handles
@@ -122,19 +126,40 @@ pub fn apply_gravity_impulses(
         };
 
         for rb_handle in affected {
-            if world.handle_to_entity.get(&rb_handle).and_then(|e| seated.get(*e).ok()).is_some() {
+            if world
+                .handle_to_entity
+                .get(&rb_handle)
+                .and_then(|e| seated.get(*e).ok())
+                .is_some()
+            {
                 continue;
             }
-            let Some(rb) = world.rigid_body_set.get(rb_handle) else { continue };
-            if !rb.is_enabled() { continue; }
+            let Some(rb) = world.rigid_body_set.get(rb_handle) else {
+                continue;
+            };
+            if !rb.is_enabled() {
+                continue;
+            }
 
             let pos = rb_pos(rb);
             // Spherical pulls toward center; ring pushes outward from axis.
             let Some((outward, dist)) = (match entry.axis {
                 None => in_spherical_zone(entry.center, entry.inner_r, entry.outer_r, pos),
-                Some(ax) => in_ring_zone(entry.center, ax, entry.inner_r, entry.outer_r, entry.half_width, pos),
-            }) else { continue };
-            let dir = match entry.axis { None => -outward, Some(_) => outward };
+                Some(ax) => in_ring_zone(
+                    entry.center,
+                    ax,
+                    entry.inner_r,
+                    entry.outer_r,
+                    entry.half_width,
+                    pos,
+                ),
+            }) else {
+                continue;
+            };
+            let dir = match entry.axis {
+                None => -outward,
+                Some(_) => outward,
+            };
 
             let strength = eval_profile(&entry.profile, dist, entry.outer_r);
             let scale = world
@@ -142,7 +167,9 @@ pub fn apply_gravity_impulses(
                 .get(&rb_handle)
                 .and_then(|e| gravity_scales.get(*e).ok())
                 .map_or(1.0, |gs| gs.0);
-            if scale == 0.0 { continue; }
+            if scale == 0.0 {
+                continue;
+            }
 
             let f = dir * strength * scale * dt;
             if rb.is_dynamic() {
@@ -154,7 +181,9 @@ pub fn apply_gravity_impulses(
     }
 
     for (h, imp) in impulses {
-        if let Some(rb) = world.rigid_body_set.get_mut(h) { rb.apply_impulse(imp, true); }
+        if let Some(rb) = world.rigid_body_set.get_mut(h) {
+            rb.apply_impulse(imp, true);
+        }
     }
     for (h, dv) in vel_deltas {
         if let Some(rb) = world.rigid_body_set.get_mut(h) {
@@ -176,7 +205,13 @@ pub fn apply_gravity(
 fn eval_profile(profile: &GravityProfile, dist: f32, outer_r: f32) -> f32 {
     match profile {
         GravityProfile::InverseSquare(s) => s / (dist * dist),
-        GravityProfile::Linear(s) => s * if outer_r > 0.0 { 1.0 - (dist / outer_r).min(1.0) } else { 1.0 },
+        GravityProfile::Linear(s) => {
+            s * if outer_r > 0.0 {
+                1.0 - (dist / outer_r).min(1.0)
+            } else {
+                1.0
+            }
+        }
         GravityProfile::Constant(s) => *s,
     }
 }
@@ -198,8 +233,18 @@ pub fn draw_gravity_radii(sources: Query<(&GravitySource, &GlobalTransform)>, mu
             ),
             GravityKind::Axis(dir) => {
                 let normal = gt.affine().transform_vector3(dir).normalize_or_zero();
-                if normal.length_squared() < 0.5 { continue; }
-                super::draw_zone_circles(&mut gizmos, pos, normal, src.inner_radius as f32, src.radius as f32, src.half_width as f32, Color::srgba(0.2, 1.0, 0.4, 0.5));
+                if normal.length_squared() < 0.5 {
+                    continue;
+                }
+                super::draw_zone_circles(
+                    &mut gizmos,
+                    pos,
+                    normal,
+                    src.inner_radius as f32,
+                    src.radius as f32,
+                    src.half_width as f32,
+                    Color::srgba(0.2, 1.0, 0.4, 0.5),
+                );
             }
         }
     }

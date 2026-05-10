@@ -16,6 +16,7 @@ use bevy::{
     },
     prelude::*,
 };
+
 use crate::color_compression::ColorCompressionSettings;
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
 // use bevy::post_process::effect_stack::ChromaticAberration;
@@ -26,7 +27,10 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
             Camera3d::default(),
             // This render path uses SMAA plus prepass-driven post effects; keep MSAA off.
             Msaa::Off,
-            Camera { clear_color: ClearColorConfig::Custom(Color::BLACK), ..Default::default() },
+            Camera {
+                clear_color: ClearColorConfig::Custom(Color::BLACK),
+                ..Default::default()
+            },
             AmbientLight {
                 // MapMeta overrides this on map load; keep startup neutral so authored maps own it.
                 brightness: 0.0,

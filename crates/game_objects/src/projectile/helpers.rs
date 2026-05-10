@@ -1,10 +1,8 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
-use common::GameObjectKind;
-use common::PredictedCommands;
-use net::message::SpawnCommand;
-use net::message::NetworkID;
+use common::{GameObjectKind, PredictedCommands};
+use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
 use rapier3d::prelude::{
     Ball, Collider, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
@@ -72,7 +70,11 @@ pub fn make_projectile_physics(
         .collision_groups(projectile_groups)
         .solver_groups(projectile_groups)
         .build();
-    let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *world;
+    let PhysicsWorld {
+        collider_set,
+        rigid_body_set,
+        ..
+    } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
     handle
 }
@@ -92,13 +94,18 @@ pub fn spawn_projectile(
         .spawn((
             kind,
             projectile,
-            ProjectileState { temp_id, shooter_velocity },
+            ProjectileState {
+                temp_id,
+                shooter_velocity,
+            },
             Transform::from_translation(origin),
         ))
         .id();
     // Projectile collision is resolved by casts so contacts do not push the shooter.
     let rb_handle = make_projectile_physics(entity, origin, velocity, radius, world);
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     entity
 }
 
@@ -113,15 +120,26 @@ pub fn insert_remote_projectile(
     world.entity_mut(entity).insert((
         cmd.kind.clone(),
         projectile,
-        ProjectileState { temp_id: 0, shooter_velocity: cmd.shooter_velocity },
+        ProjectileState {
+            temp_id: 0,
+            shooter_velocity: cmd.shooter_velocity,
+        },
         Transform::from_translation(cmd.position),
         cmd.net_id.clone(),
     ));
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
-        make_projectile_physics(entity, cmd.position, cmd.starting_velocity, radius, &mut physics)
+        make_projectile_physics(
+            entity,
+            cmd.position,
+            cmd.starting_velocity,
+            radius,
+            &mut physics,
+        )
     };
-    world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+    world
+        .entity_mut(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     play_world_fire_sound(world, None, fire_sound, cmd.position, cmd.starting_velocity);
 }
 
@@ -157,8 +175,10 @@ fn play_world_fire_sound(
     velocity: Vec3,
 ) {
     #[cfg(feature = "client")]
-    if let Some(local_shooter) =
-        world.query_filtered::<Entity, With<crate::pawn::Possessed>>().single(world).ok()
+    if let Some(local_shooter) = world
+        .query_filtered::<Entity, With<crate::pawn::Possessed>>()
+        .single(world)
+        .ok()
         && shooter == Some(local_shooter)
     {
         return;
@@ -196,12 +216,19 @@ pub fn tick_raycast_projectile(
     {
         commands
             .entity(entity)
-            .insert(super::ProjectileRaycastDebug { start: prev, end: prev + dir * step });
+            .insert(super::ProjectileRaycastDebug {
+                start: prev,
+                end: prev + dir * step,
+            });
     }
     let exclude = [entity, shooter.unwrap_or(entity)];
     let (hit, toi) = world.cast_ray(prev, dir, step, &exclude)?;
     commands.entity(entity).despawn();
-    Some(RayProjectileHit { entity: hit, dir, point: prev + dir * toi })
+    Some(RayProjectileHit {
+        entity: hit,
+        dir,
+        point: prev + dir * toi,
+    })
 }
 
 pub struct ExplosiveProjectileConfig {
@@ -234,13 +261,9 @@ pub fn rocket_explosion_inherit_velocity(
 }
 
 #[cfg(feature = "client")]
-pub fn add_explosion_camera_shake(
-    world: &mut World,
-    center: Vec3,
-    radius: f32,
-    scale: f32,
-) {
-    let mut camera_q = world.query_filtered::<(&GlobalTransform, &mut CameraEffector), With<Camera3d>>();
+pub fn add_explosion_camera_shake(world: &mut World, center: Vec3, radius: f32, scale: f32) {
+    let mut camera_q =
+        world.query_filtered::<(&GlobalTransform, &mut CameraEffector), With<Camera3d>>();
     let Ok((camera_gt, mut camera_fx)) = camera_q.single_mut(world) else {
         return;
     };
@@ -330,7 +353,10 @@ pub fn tick_sphere_explosive_projectile(
     {
         commands
             .entity(entity)
-            .insert(super::ProjectileRaycastDebug { start: prev, end: prev + dir * step });
+            .insert(super::ProjectileRaycastDebug {
+                start: prev,
+                end: prev + dir * step,
+            });
     }
     if let Some((hit, toi, normal)) =
         world.cast_sphere(prev, dir, config.projectile_radius, step, &exclude)

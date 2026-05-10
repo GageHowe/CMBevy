@@ -3,7 +3,6 @@ use bevy::{
     prelude::*,
 };
 use common::{LeaderboardScope, ScoringOption};
-use http_common::{RegisterRequest, RegisterResponse};
 use game_objects::{
     SpawnGameObjectCommand,
     health::Health,
@@ -11,6 +10,7 @@ use game_objects::{
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
     pawn::{Mounted, PawnInputParams, PendingRespawns, PlayerRegistry},
 };
+use http_common::{RegisterRequest, RegisterResponse};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
@@ -68,17 +68,30 @@ impl Plugin for ServerSessionPlugin {
             .init_resource::<BodyHistory>()
             .add_systems(Update, (tick_respawns, process_console_commands))
             .add_systems(Update, restart_round)
-            .add_systems(Startup, (load_server_level, start_server, init_mode_config).chain())
+            .add_systems(
+                Startup,
+                (load_server_level, start_server, init_mode_config).chain(),
+            )
             .add_systems(FixedUpdate, crate::bots::run_bots.before(step_physics))
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
-            .add_systems(FixedUpdate, apply_melee_hit_requests.after(apply_inputs).before(step_physics))
+            .add_systems(
+                FixedUpdate,
+                apply_melee_hit_requests
+                    .after(apply_inputs)
+                    .before(step_physics),
+            )
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,
-                broadcast_health_updates.after(step_physics).before(broadcast_tick),
+                broadcast_health_updates
+                    .after(step_physics)
+                    .before(broadcast_tick),
             )
             .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
-            .add_systems(FixedUpdate, broadcast_tick.after(game_objects::health::handle_deaths));
+            .add_systems(
+                FixedUpdate,
+                broadcast_tick.after(game_objects::health::handle_deaths),
+            );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobbyAdvertise(advertise.clone()))
                 .init_resource::<HostedLobbyId>()
@@ -252,7 +265,11 @@ fn process_console_commands(
             }
             "kick" => {
                 if let Some(id) = parts.next().and_then(|s| s.parse::<ConnectionId>().ok()) {
-                    quic.send(SendTarget::One(id), Channel::Ordered, &MsgType::Disconnected);
+                    quic.send(
+                        SendTarget::One(id),
+                        Channel::Ordered,
+                        &MsgType::Disconnected,
+                    );
                     quic.inbound.push_back(InboundMessage {
                         conn_id: id,
                         channel: Channel::Ordered,
@@ -307,7 +324,11 @@ fn process_console_commands(
                             game_objects::bot::HeuristicKillerBot,
                         ),
                     ));
-                    quic.send(SendTarget::All, Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+                    quic.send(
+                        SendTarget::All,
+                        Channel::Ordered,
+                        &MsgType::SpawnCommand(spawn_cmd),
+                    );
                 }
                 println!("spawned bot on team {}", team + 1);
             }
@@ -320,8 +341,9 @@ fn process_console_commands(
 }
 
 fn restart_round(world: &mut World) {
-    let restart_requested =
-        world.get_resource::<MatchState>().is_some_and(|state| state.restart_requested);
+    let restart_requested = world
+        .get_resource::<MatchState>()
+        .is_some_and(|state| state.restart_requested);
     if !restart_requested {
         return;
     }
@@ -347,7 +369,9 @@ fn restart_round(world: &mut World) {
 
     for (conn_id, team, spawn_pos, spawn_rot, spawn_vel) in collect_restart_spawns(world) {
         let existing = world.get_resource::<PlayerRegistry>().and_then(|registry| {
-            registry.character(conn_id).map(|(entity, net_id)| (entity, net_id.clone()))
+            registry
+                .character(conn_id)
+                .map(|(entity, net_id)| (entity, net_id.clone()))
         });
 
         if let Some((character_entity, character_net_id)) = existing {
@@ -445,7 +469,13 @@ fn reset_existing_player(
     world.entity_mut(character_entity).insert(team);
     world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
         physics.set_body_enabled(character_entity, true);
-        physics.set_body_pose(character_entity, spawn_pos, spawn_rot, spawn_vel, Vec3::ZERO);
+        physics.set_body_pose(
+            character_entity,
+            spawn_pos,
+            spawn_rot,
+            spawn_vel,
+            Vec3::ZERO,
+        );
     });
     world.resource_mut::<QuicManager>().send(
         SendTarget::One(conn_id),
@@ -479,7 +509,11 @@ fn spawn_restarted_player(
         kind: GameObjectKind::Biped,
     };
     let entity = world.spawn_empty().id();
-    SpawnGameObjectCommand { entity, cmd: spawn_cmd.clone() }.apply(world);
+    SpawnGameObjectCommand {
+        entity,
+        cmd: spawn_cmd.clone(),
+    }
+    .apply(world);
     world.entity_mut(entity).insert(team);
 
     let existing_conn_ids = world
@@ -494,12 +528,20 @@ fn spawn_restarted_player(
                 &MsgType::SpawnCommand(spawn_cmd.clone()),
             );
         }
-        quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::SpawnCommand(spawn_cmd));
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(spawn_cmd),
+        );
     }
     if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
         registry.register_character(conn_id, entity, net_id.clone());
         if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-            quic.send(SendTarget::One(conn_id), Channel::Ordered, &MsgType::Possess(net_id));
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &MsgType::Possess(net_id),
+            );
         }
     }
 }

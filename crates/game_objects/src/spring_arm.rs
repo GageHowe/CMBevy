@@ -73,13 +73,14 @@ fn update_spring_arms(
         // sphere-cast initial-overlap problem (starting inside geometry returns toi=0),
         // which caused the camera to collapse to the body origin when inverted near the floor.
         // probe_radius is subtracted from the hit distance to keep the camera off surfaces.
-        let new_length = match world.cast_ray(parent_pos, arm_dir_world, max_length, &[parent_entity]) {
-            Some((_entity, hit_t)) => (hit_t - arm.probe_radius).max(0.0),
-            None => {
-                let t = (arm.recover_speed * time.delta_secs()).min(1.0);
-                arm.current_length + (max_length - arm.current_length) * t
-            }
-        };
+        let new_length =
+            match world.cast_ray(parent_pos, arm_dir_world, max_length, &[parent_entity]) {
+                Some((_entity, hit_t)) => (hit_t - arm.probe_radius).max(0.0),
+                None => {
+                    let t = (arm.recover_speed * time.delta_secs()).min(1.0);
+                    arm.current_length + (max_length - arm.current_length) * t
+                }
+            };
 
         arm.current_length = new_length;
         // Update this entity's local translation; Bevy's transform propagation carries it

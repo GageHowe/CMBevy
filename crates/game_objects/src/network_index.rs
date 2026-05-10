@@ -42,7 +42,10 @@ impl NetworkEntityMap {
     }
 
     pub fn body_pairs_vec(&self) -> Vec<(net::message::NetworkID, RigidBodyHandle)> {
-        self.netid_to_rigidbody.iter().map(|(net_id, handle)| (net_id.clone(), *handle)).collect()
+        self.netid_to_rigidbody
+            .iter()
+            .map(|(net_id, handle)| (net_id.clone(), *handle))
+            .collect()
     }
 
     pub fn insert(&mut self, net_id: net::message::NetworkID, entity: Entity) {
@@ -78,7 +81,11 @@ impl NetworkEntityMap {
 pub(crate) fn index_added_network_ids(
     mut map: ResMut<NetworkEntityMap>,
     added: Query<
-        (Entity, &net::message::NetworkID, Option<&RigidBodyHandleComponent>),
+        (
+            Entity,
+            &net::message::NetworkID,
+            Option<&RigidBodyHandleComponent>,
+        ),
         Added<net::message::NetworkID>,
     >,
 ) {
@@ -94,7 +101,10 @@ pub(crate) fn index_added_or_changed_rigid_bodies(
     mut map: ResMut<NetworkEntityMap>,
     bodies: Query<
         (Entity, &RigidBodyHandleComponent),
-        Or<(Added<RigidBodyHandleComponent>, Changed<RigidBodyHandleComponent>)>,
+        Or<(
+            Added<RigidBodyHandleComponent>,
+            Changed<RigidBodyHandleComponent>,
+        )>,
     >,
 ) {
     for (entity, body) in bodies.iter() {

@@ -79,7 +79,10 @@ struct LinkState {
 
 impl LinkState {
     fn new(seed: u64, config: DirectionConfig) -> Self {
-        Self { rng: Rng64::new(seed), config }
+        Self {
+            rng: Rng64::new(seed),
+            config,
+        }
     }
 
     fn schedule(
@@ -200,7 +203,10 @@ impl PartialOrd for ScheduledPacket {
 
 impl Ord for ScheduledPacket {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.due.cmp(&self.due).then_with(|| other.sequence.cmp(&self.sequence))
+        other
+            .due
+            .cmp(&self.due)
+            .then_with(|| other.sequence.cmp(&self.sequence))
     }
 }
 
@@ -250,7 +256,9 @@ pub fn run(config: Config) -> io::Result<()> {
     loop {
         let (count, client_addr) = listener.recv_from(&mut buf)?;
         stats.client_packets.fetch_add(1, AtomicOrdering::Relaxed);
-        stats.client_bytes.fetch_add(count as u64, AtomicOrdering::Relaxed);
+        stats
+            .client_bytes
+            .fetch_add(count as u64, AtomicOrdering::Relaxed);
 
         let client = get_or_create_client(
             client_addr,
@@ -353,7 +361,9 @@ fn spawn_downlink_thread(
                 }
             };
             stats.server_packets.fetch_add(1, AtomicOrdering::Relaxed);
-            stats.server_bytes.fetch_add(count as u64, AtomicOrdering::Relaxed);
+            stats
+                .server_bytes
+                .fetch_add(count as u64, AtomicOrdering::Relaxed);
             downlink.schedule(
                 &buf[..count],
                 Instant::now(),

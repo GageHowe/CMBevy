@@ -1,5 +1,8 @@
 use bevy::{
-    input::{gamepad::{Gamepad, GamepadButton}, mouse::MouseButton},
+    input::{
+        gamepad::{Gamepad, GamepadButton},
+        mouse::MouseButton,
+    },
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -190,7 +193,10 @@ impl GamepadActionBinding {
         primary: GamepadBindingButton,
         secondary: Option<GamepadBindingButton>,
     ) -> Self {
-        Self { primary: Some(primary), secondary }
+        Self {
+            primary: Some(primary),
+            secondary,
+        }
     }
 
     pub fn pressed(self, gamepad: Option<&Gamepad>) -> bool {
@@ -199,8 +205,11 @@ impl GamepadActionBinding {
     }
 
     pub fn just_pressed(self, gamepad: Option<&Gamepad>) -> bool {
-        self.primary.is_some_and(|button| button.just_pressed(gamepad))
-            || self.secondary.is_some_and(|button| button.just_pressed(gamepad))
+        self.primary
+            .is_some_and(|button| button.just_pressed(gamepad))
+            || self
+                .secondary
+                .is_some_and(|button| button.just_pressed(gamepad))
     }
 
     pub fn button(self, slot: BindingSlot) -> Option<GamepadBindingButton> {
@@ -230,7 +239,10 @@ impl GamepadActionBinding {
 
 impl ActionBinding {
     pub const fn new(primary: BindingButton, secondary: Option<BindingButton>) -> Self {
-        Self { primary: Some(primary), secondary }
+        Self {
+            primary: Some(primary),
+            secondary,
+        }
     }
 
     pub fn pressed(
@@ -238,8 +250,11 @@ impl ActionBinding {
         keyboard: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.primary.is_some_and(|button| button.pressed(keyboard, mouse))
-            || self.secondary.is_some_and(|button| button.pressed(keyboard, mouse))
+        self.primary
+            .is_some_and(|button| button.pressed(keyboard, mouse))
+            || self
+                .secondary
+                .is_some_and(|button| button.pressed(keyboard, mouse))
     }
 
     pub fn just_pressed(
@@ -247,8 +262,11 @@ impl ActionBinding {
         keyboard: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.primary.is_some_and(|button| button.just_pressed(keyboard, mouse))
-            || self.secondary.is_some_and(|button| button.just_pressed(keyboard, mouse))
+        self.primary
+            .is_some_and(|button| button.just_pressed(keyboard, mouse))
+            || self
+                .secondary
+                .is_some_and(|button| button.just_pressed(keyboard, mouse))
     }
 
     pub fn button(self, slot: BindingSlot) -> Option<BindingButton> {
@@ -321,7 +339,10 @@ impl ActiveBindings {
             keys[action as usize] = keybindings.binding(action);
             gamepads[action as usize] = gamepad_bindings.binding(action);
         }
-        Self { keybindings: keys, gamepad_bindings: gamepads }
+        Self {
+            keybindings: keys,
+            gamepad_bindings: gamepads,
+        }
     }
 
     pub fn sync_from(&mut self, keybindings: &KeyBindings, gamepad_bindings: &GamepadBindings) {

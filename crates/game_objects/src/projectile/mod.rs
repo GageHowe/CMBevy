@@ -4,16 +4,15 @@ use net::message::*;
 use physics::physics_world::*;
 
 use crate::{
-    AuthoritySet,
-    GameObject,
+    AuthoritySet, GameObject,
     health::{DamageCause, Health, LastDamageSource},
 };
 
+pub mod fighter_rocket;
+pub mod grenade_launcher;
 pub mod hail_mary;
 pub mod helpers;
 pub mod rifle;
-pub mod fighter_rocket;
-pub mod grenade_launcher;
 pub mod rpg;
 
 pub struct FiredProjectile {
@@ -29,7 +28,10 @@ impl Plugin for ProjectilePlugin {
             .init_resource::<PredictedProjectileMap>()
             .add_systems(
                 FixedPostUpdate,
-                (index_added_predicted_projectiles, index_removed_predicted_projectiles)
+                (
+                    index_added_predicted_projectiles,
+                    index_removed_predicted_projectiles,
+                )
                     .in_set(TrackPredictedProjectilesSet),
             );
         app.add_plugins((
@@ -222,7 +224,12 @@ pub fn draw_projectile_debug<P: Component>(
 pub fn tick_projectiles<P: Projectile>(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut P, &mut ProjectileState, &RigidBodyHandleComponent)>,
+    mut q: Query<(
+        Entity,
+        &mut P,
+        &mut ProjectileState,
+        &RigidBodyHandleComponent,
+    )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
 ) {

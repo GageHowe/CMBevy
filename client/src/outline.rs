@@ -24,9 +24,7 @@ use bevy::{
     },
 };
 
-use crate::fullscreen_post_process::{
-    draw_fullscreen_post_process, init_fullscreen_post_process,
-};
+use crate::fullscreen_post_process::{draw_fullscreen_post_process, init_fullscreen_post_process};
 
 /// Add to a camera entity to enable screen-space edge outlines.
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
@@ -39,7 +37,10 @@ pub struct OutlineSettings {
 
 impl Default for OutlineSettings {
     fn default() -> Self {
-        Self { threshold: 0.05, color: Vec4::new(1.0, 1.0, 1.0, 0.8) }
+        Self {
+            threshold: 0.05,
+            color: Vec4::new(1.0, 1.0, 1.0, 0.8),
+        }
     }
 }
 
@@ -58,7 +59,11 @@ impl Plugin for OutlinePlugin {
             .add_render_graph_node::<ViewNodeRunner<OutlineNode>>(Core3d, OutlineLabel)
             .add_render_graph_edges(
                 Core3d,
-                (Node3d::Smaa, OutlineLabel, Node3d::EndMainPassPostProcessing),
+                (
+                    Node3d::Smaa,
+                    OutlineLabel,
+                    Node3d::EndMainPassPostProcessing,
+                ),
             );
     }
 
@@ -93,9 +98,17 @@ impl FromWorld for OutlinePipeline {
             ),
         );
         let layout = BindGroupLayoutDescriptor::new("outline_layout", &entries);
-        let (sampler, pipeline_id) =
-            init_fullscreen_post_process(world, &layout, "shaders/outline.wgsl", "outline_pipeline");
-        Self { layout, sampler, pipeline_id }
+        let (sampler, pipeline_id) = init_fullscreen_post_process(
+            world,
+            &layout,
+            "shaders/outline.wgsl",
+            "outline_pipeline",
+        );
+        Self {
+            layout,
+            sampler,
+            pipeline_id,
+        }
     }
 }
 

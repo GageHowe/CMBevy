@@ -20,9 +20,18 @@ pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, main_menu.run_if(in_state(GameState::MainMenu)));
-        app.add_systems(EguiPrimaryContextPass, pause_menu.run_if(in_state(UiState::Paused)));
-        app.add_systems(EguiPrimaryContextPass, settings_menu.run_if(in_state(UiState::Settings)));
+        app.add_systems(
+            EguiPrimaryContextPass,
+            main_menu.run_if(in_state(GameState::MainMenu)),
+        );
+        app.add_systems(
+            EguiPrimaryContextPass,
+            pause_menu.run_if(in_state(UiState::Paused)),
+        );
+        app.add_systems(
+            EguiPrimaryContextPass,
+            settings_menu.run_if(in_state(UiState::Settings)),
+        );
     }
 }
 
@@ -113,23 +122,22 @@ fn show_fullscreen_menu(
     add_contents: impl FnOnce(&mut egui::Ui),
 ) {
     let rect = ctx.content_rect();
-    egui::Area::new(id.into()).order(egui::Order::Foreground).fixed_pos(rect.left_top()).show(
-        ctx,
-        |ui| {
+    egui::Area::new(id.into())
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.left_top())
+        .show(ctx, |ui| {
             ui.set_min_size(rect.size());
-            egui::Frame::NONE.fill(egui::Color32::from_rgba_premultiplied(5, 0, 8, 230)).show(
-                ui,
-                |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgba_premultiplied(5, 0, 8, 230))
+                .show(ui, |ui| {
                     ui.set_min_size(rect.size());
                     ui.vertical_centered(|ui| {
                         ui.add_space((rect.height() * 0.16).max(40.0));
                         ui.set_max_width(520.0);
                         add_contents(ui);
                     });
-                },
-            );
-        },
-    );
+                });
+        });
 }
 
 fn main_menu(
@@ -431,7 +439,10 @@ fn show_singleplayer_screen(
     show_map_gametype_grid(ui, "sp", host);
 
     let can_start = !host.maps.is_empty() && !host.gametypes.is_empty();
-    if ui.add_enabled(can_start, egui::Button::new("Start")).clicked() {
+    if ui
+        .add_enabled(can_start, egui::Button::new("Start"))
+        .clicked()
+    {
         shutdown_session(None, None, hosted);
         sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
         sp_config.gametype = gametype_path(&host.gametypes[host.gametype_idx]);
@@ -555,16 +566,18 @@ fn show_browser_screen(
         ui.label(empty_label);
     } else {
         let mut connect_to: Option<String> = None;
-        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-            for lobby in &browser.lobbies {
-                ui.horizontal(|ui| {
-                    draw_lobby(ui, lobby);
-                    if ui.button("Connect").clicked() {
-                        connect_to = Some(lobby.host.clone());
-                    }
-                });
-            }
-        });
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .show(ui, |ui| {
+                for lobby in &browser.lobbies {
+                    ui.horizontal(|ui| {
+                        draw_lobby(ui, lobby);
+                        if ui.button("Connect").clicked() {
+                            connect_to = Some(lobby.host.clone());
+                        }
+                    });
+                }
+            });
         if let Some(addr) = connect_to {
             queue_ui_sound(sound_queue, UI_CLICK_EVENT);
             connect_to_lobby(&addr, hosted, server_addr, next_state, browser, screen);
@@ -595,33 +608,42 @@ fn show_matchmaking_screen(
 }
 
 fn show_map_gametype_grid(ui: &mut egui::Ui, id: &'static str, host: &mut HostState) {
-    egui::Grid::new(format!("{id}_grid")).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-        ui.label("Map");
-        let map_label = host.maps.get(host.map_idx).cloned().unwrap_or_else(|| "—".into());
-        egui::ComboBox::from_id_salt(format!("{id}_map_combo")).selected_text(&map_label).show_ui(
-            ui,
-            |ui| {
-                for i in 0..host.maps.len() {
-                    let label = host.maps[i].clone();
-                    ui.selectable_value(&mut host.map_idx, i, label);
-                }
-            },
-        );
-        ui.end_row();
+    egui::Grid::new(format!("{id}_grid"))
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label("Map");
+            let map_label = host
+                .maps
+                .get(host.map_idx)
+                .cloned()
+                .unwrap_or_else(|| "—".into());
+            egui::ComboBox::from_id_salt(format!("{id}_map_combo"))
+                .selected_text(&map_label)
+                .show_ui(ui, |ui| {
+                    for i in 0..host.maps.len() {
+                        let label = host.maps[i].clone();
+                        ui.selectable_value(&mut host.map_idx, i, label);
+                    }
+                });
+            ui.end_row();
 
-        ui.label("Mode");
-        let mode_label =
-            host.gametypes.get(host.gametype_idx).cloned().unwrap_or_else(|| "—".into());
-        egui::ComboBox::from_id_salt(format!("{id}_mode_combo"))
-            .selected_text(&mode_label)
-            .show_ui(ui, |ui| {
-                for i in 0..host.gametypes.len() {
-                    let label = host.gametypes[i].clone();
-                    ui.selectable_value(&mut host.gametype_idx, i, label);
-                }
-            });
-        ui.end_row();
-    });
+            ui.label("Mode");
+            let mode_label = host
+                .gametypes
+                .get(host.gametype_idx)
+                .cloned()
+                .unwrap_or_else(|| "—".into());
+            egui::ComboBox::from_id_salt(format!("{id}_mode_combo"))
+                .selected_text(&mode_label)
+                .show_ui(ui, |ui| {
+                    for i in 0..host.gametypes.len() {
+                        let label = host.gametypes[i].clone();
+                        ui.selectable_value(&mut host.gametype_idx, i, label);
+                    }
+                });
+            ui.end_row();
+        });
 }
 
 fn show_host_screen(
@@ -637,30 +659,36 @@ fn show_host_screen(
     sound_queue: &mut SoundQueue,
 ) {
     show_map_gametype_grid(ui, "host", host);
-    egui::Grid::new("host_settings_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-        ui.label("Port");
-        ui.text_edit_singleline(&mut host.port);
-        ui.end_row();
-
-        ui.label("Advertise");
-        ui.checkbox(&mut host.advertise, "");
-        ui.end_row();
-
-        if host.advertise {
-            ui.label("Lobby name");
-            ui.text_edit_singleline(&mut host.name);
+    egui::Grid::new("host_settings_grid")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label("Port");
+            ui.text_edit_singleline(&mut host.port);
             ui.end_row();
 
-            ui.label("Max players");
-            ui.text_edit_singleline(&mut host.max_players);
+            ui.label("Advertise");
+            ui.checkbox(&mut host.advertise, "");
             ui.end_row();
-        }
-    });
+
+            if host.advertise {
+                ui.label("Lobby name");
+                ui.text_edit_singleline(&mut host.name);
+                ui.end_row();
+
+                ui.label("Max players");
+                ui.text_edit_singleline(&mut host.max_players);
+                ui.end_row();
+            }
+        });
 
     let port_ok = host.port.parse::<u16>().is_ok();
     let max_players_ok = !host.advertise || host.max_players.parse::<u8>().is_ok();
     let can_host = !host.maps.is_empty() && !host.gametypes.is_empty() && port_ok && max_players_ok;
-    if ui.add_enabled(can_host, egui::Button::new("Start & Join")).clicked() {
+    if ui
+        .add_enabled(can_host, egui::Button::new("Start & Join"))
+        .clicked()
+    {
         shutdown_session(None, None, hosted);
         let port: u16 = host.port.parse().unwrap_or(42070);
         let map = format!("maps/{}.ron", host.maps[host.map_idx]);

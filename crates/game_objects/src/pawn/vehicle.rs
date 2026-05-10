@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
+use bevy::prelude::*;
 use net::{
     message::{MsgType, NetworkID},
     quic::{Channel, QuicManager, SendTarget},
@@ -8,9 +8,9 @@ use net::{
 
 #[cfg(feature = "client")]
 use super::*;
+use super::{Pawn, PlayerRegistry, mount};
 #[cfg(feature = "client")]
 use crate::GameObjectKind;
-use super::{Pawn, PlayerRegistry, mount};
 
 /// Marker shared by drivable vehicles.
 #[derive(Component, Reflect)]
@@ -21,7 +21,9 @@ pub struct VehicleComponent {
 
 impl VehicleComponent {
     pub fn for_vehicle<T: VehiclePawn>() -> Self {
-        Self { camera_offset: T::CAMERA_OFFSET }
+        Self {
+            camera_offset: T::CAMERA_OFFSET,
+        }
     }
 }
 
@@ -48,12 +50,14 @@ impl Plugin for VehiclePlugin {
 
 pub fn spawn_driver_mount<T: VehiclePawn>(vehicle_entity: Entity, world: &mut World) -> Entity {
     let anchor = mount::spawn_mount_anchor(vehicle_entity, T::DRIVER_MOUNT_OFFSET, world);
-    world.entity_mut(vehicle_entity).insert(mount::CharacterMount {
-        occupant: None,
-        anchor,
-        interact_radius: T::DRIVER_INTERACT_RADIUS,
-        exit_offset: T::EXIT_OFFSET,
-    });
+    world
+        .entity_mut(vehicle_entity)
+        .insert(mount::CharacterMount {
+            occupant: None,
+            anchor,
+            interact_radius: T::DRIVER_INTERACT_RADIUS,
+            exit_offset: T::EXIT_OFFSET,
+        });
     anchor
 }
 
@@ -150,17 +154,28 @@ pub fn attach_camera_on_possess_vehicle(
     let Ok((cam, proj)) = camera.single() else {
         return;
     };
-    let base_fov = if let Projection::Perspective(p) = proj { p.fov.to_degrees() } else { 90.0 };
-    let pivot = commands.spawn((
-        Transform::default(),
-        Visibility::Inherited,
-        crate::spring_arm::SpringArm::new(vehicle.camera_offset, 0.2, 5.0),
-        crate::spring_arm::SpringArmPivot,
-    )).id();
+    let base_fov = if let Projection::Perspective(p) = proj {
+        p.fov.to_degrees()
+    } else {
+        90.0
+    };
+    let pivot = commands
+        .spawn((
+            Transform::default(),
+            Visibility::Inherited,
+            crate::spring_arm::SpringArm::new(vehicle.camera_offset, 0.2, 5.0),
+            crate::spring_arm::SpringArmPivot,
+        ))
+        .id();
     commands.entity(vehicle_entity).add_child(pivot);
     commands.entity(cam).insert((
         Transform::default(),
-        CameraEffector { base_translation: Vec3::ZERO, base_fov, current_fov: base_fov, ..default() },
+        CameraEffector {
+            base_translation: Vec3::ZERO,
+            base_fov,
+            current_fov: base_fov,
+            ..default()
+        },
     ));
     commands.entity(pivot).add_child(cam);
 }
@@ -215,13 +230,19 @@ fn vehicle_exit_interact(
             let Ok(mut driver_mount) = mounts.get_mut(vehicle_entity) else {
                 return;
             };
-            let Some(biped_entity) =
-                mount::try_unmount_character(&mut world, vehicle_entity, &mut driver_mount, &anchor_transforms)
-            else {
+            let Some(biped_entity) = mount::try_unmount_character(
+                &mut world,
+                vehicle_entity,
+                &mut driver_mount,
+                &anchor_transforms,
+            ) else {
                 return;
             };
             commands.entity(vehicle_entity).remove::<Possessed>();
-            commands.entity(biped_entity).remove::<mount::Mounted>().insert(Possessed::new(128));
+            commands
+                .entity(biped_entity)
+                .remove::<mount::Mounted>()
+                .insert(Possessed::new(128));
             if let Ok(kind) = object_kinds.get(vehicle_entity) {
                 crate::messages::push(&mut commands, format!("Exited {}", kind.interaction_name()));
             }

@@ -73,8 +73,10 @@ fn local_directional_effect(
     let velocity = ((writer.lit(direction) + jitter).normalized()
         * writer.lit(speed.0).uniform(writer.lit(speed.1)))
     .expr();
-    base_effect(name, capacity, spawner, writer, lifetime, size, colors, velocity)
-        .with_simulation_space(SimulationSpace::Local)
+    base_effect(
+        name, capacity, spawner, writer, lifetime, size, colors, velocity,
+    )
+    .with_simulation_space(SimulationSpace::Local)
 }
 
 fn base_effect(
@@ -97,7 +99,10 @@ fn base_effect(
     let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
     let init_lifetime = SetAttributeModifier::new(
         Attribute::LIFETIME,
-        writer.lit(lifetime.0).uniform(writer.lit(lifetime.1)).expr(),
+        writer
+            .lit(lifetime.0)
+            .uniform(writer.lit(lifetime.1))
+            .expr(),
     );
 
     EffectAsset::new(capacity, spawner, writer.finish())
