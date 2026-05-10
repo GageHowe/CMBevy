@@ -15,7 +15,7 @@ use game_objects::{
 };
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
-    restore_snapshot, snapshot_body_handles, step_world,
+    restore_snapshot, snapshot_body_handles,
 };
 use rapier3d::prelude::{RigidBodyHandle, Vector};
 use session::PendingReconciliation;
@@ -270,7 +270,7 @@ fn maybe_reconcile(
             &seated,
         );
         orient_bipeds_to_snap_sources_impulses(&mut world, &bipeds, &env.snap_sources);
-        step_world(&mut world);
+        world.step();
     }
 
     for &h in &to_freeze {

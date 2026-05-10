@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use net::message::NetworkID;
@@ -144,7 +142,6 @@ pub fn apply_collision_damage(
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
 ) {
-    let mut damage_map: HashMap<Entity, f32> = HashMap::new();
     for impact in &impacts.0 {
         let Ok(config) = has_health_q.get(impact.entity) else {
             continue;
@@ -165,16 +162,9 @@ pub fn apply_collision_damage(
         if damage <= 0.0 {
             continue;
         }
-        info!(
-            "collision impulse: {:.2}  damage: {:.1}",
-            impact.impulse, damage
-        );
-        *damage_map.entry(impact.entity).or_default() += damage;
-    }
-
-    for (entity, damage) in damage_map {
-        if let Ok(mut health) = health_q.get_mut(entity) {
-            if let Ok(mut last_damage) = last_damage_q.get_mut(entity) {
+        info!("collision impulse: {:.2}  damage: {:.1}", impact.impulse, damage);
+        if let Ok(mut health) = health_q.get_mut(impact.entity) {
+            if let Ok(mut last_damage) = last_damage_q.get_mut(impact.entity) {
                 last_damage.attacker = None;
                 last_damage.cause = DamageCause::Collision;
                 last_damage.age_secs = 0.0;

@@ -50,11 +50,13 @@ pub struct GravityScale(pub f32);
 /// Scene-authored initial linear velocity for objects that spawn through map data.
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
+#[component(storage = "SparseSet")]
 pub struct InitialVelocity(pub Vec3);
 
 /// Scene-authored initial angular velocity for objects that spawn through map data.
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Reflect, Default)]
 #[reflect(Component, Default)]
+#[component(storage = "SparseSet")]
 pub struct InitialAngularVelocity(pub Vec3);
 
 /// enables specifying RigidBody type in .ron map files
@@ -508,10 +510,6 @@ fn on_remove_rigidbody_handle(
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
 }
-
-/// Steps physics exactly once.
-pub fn step_world(world: &mut ResMut<PhysicsWorld>) {
-    world.step();
 }
 
 /// Snapshot the current physics state for all networked bodies.
