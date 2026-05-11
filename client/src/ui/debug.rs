@@ -13,7 +13,8 @@ use crate::{GameState, UiState, settings::Settings};
 #[derive(Resource, Default)]
 pub struct SmoothedFps(pub Option<f32>);
 
-pub fn gui_top_left(
+/// top left debug panel for showing debug info
+pub fn debug_panel(
     mut contexts: EguiContexts,
     world: ResMut<PhysicsWorld>,
     smoothed_fps: Res<SmoothedFps>,
@@ -55,15 +56,6 @@ pub fn gui_top_left(
                 "packet: {}",
                 net::format_packet_size(net_stats.last_packet_bytes)
             ));
-            if ui.button("Quit").clicked() {
-                if *game_state.get() == GameState::MainMenu {
-                    exit.write(AppExit::Success);
-                } else {
-                    pending_exit.0 = true;
-                    next_game.set(GameState::MainMenu);
-                    next_ui.set(UiState::Playing);
-                }
-            }
         });
     Ok(())
 }
@@ -81,7 +73,7 @@ pub fn update_smoothed_fps(
     else {
         return;
     };
-    const HALF_LIFE_SECS: f32 = 0.35;
+    const HALF_LIFE_SECS: f32 = 0.35; // subject to tuning
     let alpha = 1.0 - f32::exp2(-time.delta_secs() / HALF_LIFE_SECS);
     smoothed_fps.0 = Some(match smoothed_fps.0 {
         Some(prev) => prev + (raw_fps - prev) * alpha,

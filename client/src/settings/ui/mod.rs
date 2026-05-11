@@ -32,11 +32,9 @@ pub fn show_settings_ui(
     });
     ui.separator();
 
-    let viewport_height = (ui.ctx().content_rect().height() * 0.55).max(180.0);
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .max_height(viewport_height)
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+        .max_height((ui.ctx().content_rect().height() * 0.55).max(180.0))
         .show(ui, |ui| match section {
             SettingsSection::Graphics => graphics::show(ui, settings),
             SettingsSection::Audio => audio::show(ui, settings, audio_outputs),

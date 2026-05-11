@@ -31,7 +31,7 @@ impl Plugin for UIPlugin {
             )
             // EguiPrimaryContextPass
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
-            .add_systems(EguiPrimaryContextPass, debug::gui_top_left)
+            .add_systems(EguiPrimaryContextPass, debug::debug_panel)
             .add_systems(EguiPrimaryContextPass, hud::gui_notifications)
             .add_systems(EguiPrimaryContextPass, hud::gui_interaction_hint)
             .add_systems(
