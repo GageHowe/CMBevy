@@ -162,7 +162,10 @@ pub fn apply_collision_damage(
         if damage <= 0.0 {
             continue;
         }
-        info!("collision impulse: {:.2}  damage: {:.1}", impact.impulse, damage);
+        info!(
+            "collision impulse: {:.2}  damage: {:.1}",
+            impact.impulse, damage
+        );
         if let Ok(mut health) = health_q.get_mut(impact.entity) {
             if let Ok(mut last_damage) = last_damage_q.get_mut(impact.entity) {
                 last_damage.attacker = None;

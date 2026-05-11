@@ -342,16 +342,17 @@ fn explode_at(
 pub struct GrenadeLauncherProjectilePlugin;
 impl Plugin for GrenadeLauncherProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<GrenadeLauncherProjectile>().add_systems(
-            FixedUpdate,
-            (
-                tick_projectiles::<GrenadeLauncherProjectile>,
-                detonate_requested_projectiles,
-            )
-                .chain()
-                .after(step_physics)
-                .in_set(super::AuthoritySystems),
-        );
+        app.register_game_object::<GrenadeLauncherProjectile>()
+            .add_systems(
+                FixedUpdate,
+                (
+                    tick_projectiles::<GrenadeLauncherProjectile>,
+                    detonate_requested_projectiles,
+                )
+                    .chain()
+                    .after(step_physics)
+                    .in_set(super::AuthoritySystems),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,

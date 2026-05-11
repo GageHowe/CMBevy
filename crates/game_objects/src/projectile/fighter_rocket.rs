@@ -199,12 +199,13 @@ impl GameObject for FighterRocketProjectile {
 pub struct FighterRocketProjectilePlugin;
 impl Plugin for FighterRocketProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<FighterRocketProjectile>().add_systems(
-            FixedUpdate,
-            tick_projectiles::<FighterRocketProjectile>
-                .after(step_physics)
-                .in_set(super::AuthoritySystems),
-        );
+        app.register_game_object::<FighterRocketProjectile>()
+            .add_systems(
+                FixedUpdate,
+                tick_projectiles::<FighterRocketProjectile>
+                    .after(step_physics)
+                    .in_set(super::AuthoritySystems),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,

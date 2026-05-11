@@ -58,13 +58,21 @@ impl CameraEffector {
         {
             return;
         }
-        self.active_shakes.push(ActiveCameraShake { shake, age: 0.0, seed: fastrand::i32(..) });
+        self.active_shakes.push(ActiveCameraShake {
+            shake,
+            age: 0.0,
+            seed: fastrand::i32(..),
+        });
     }
 
     pub fn current_zoom_factor(&self) -> f32 {
         let base = (self.base_fov.to_radians() * 0.5).tan();
         let current = (self.current_fov.to_radians() * 0.5).tan();
-        if current > 0.0 { (base / current).max(1.0) } else { 1.0 }
+        if current > 0.0 {
+            (base / current).max(1.0)
+        } else {
+            1.0
+        }
     }
 
     pub fn reset_zoom(&mut self) {

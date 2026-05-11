@@ -117,15 +117,23 @@ impl GameObject for TruckPawnComponent {
             let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
                 .friction(1.0)
                 .build();
-            let PhysicsWorld { collider_set, rigid_body_set, .. } = &mut *physics;
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *physics;
             collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
             rb_handle
         };
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+        world
+            .entity_mut(entity)
+            .insert(RigidBodyHandleComponent(rb_handle));
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world.entity_mut(entity).insert((SceneRoot(scene), Visibility::default()));
+            world
+                .entity_mut(entity)
+                .insert((SceneRoot(scene), Visibility::default()));
         }
     }
 
@@ -158,29 +166,51 @@ fn gather_truck_input(
     let gamepad = common::active_gamepad(gamepads.iter());
     let move_stick = gamepad
         .map(|gamepad| {
-            common::stick_with_deadzone(
-                gamepad.left_stick(),
-                sensitivity.gamepad_move_deadzone,
-            )
+            common::stick_with_deadzone(gamepad.left_stick(), sensitivity.gamepad_move_deadzone)
         })
         .unwrap_or(Vec2::ZERO);
 
     let mut input = common::TruckInput::default();
-    if bindings.pressed(common::InputAction::MoveForward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveForward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.throttle += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveBackward, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveBackward,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.throttle -= 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveRight, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveRight,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.steer += 1.0;
     }
-    if bindings.pressed(common::InputAction::MoveLeft, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::MoveLeft,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.steer -= 1.0;
     }
     input.throttle = (input.throttle + move_stick.y).clamp(-1.0, 1.0);
     input.steer = (input.steer + move_stick.x).clamp(-1.0, 1.0);
-    if bindings.pressed(common::InputAction::Crouch, &keyboard, &mouse_buttons, gamepad) {
+    if bindings.pressed(
+        common::InputAction::Crouch,
+        &keyboard,
+        &mouse_buttons,
+        gamepad,
+    ) {
         input.brake = 1.0;
     }
     possessed.push(PawnInputKind::Truck(input));
@@ -229,6 +259,9 @@ pub fn apply_truck_movement(
         input.throttle.signum()
     };
     if steer_dir != 0.0 {
-        body.apply_torque_impulse(up * (input.steer * STEER_TORQUE * steer_speed * steer_dir), true);
+        body.apply_torque_impulse(
+            up * (input.steer * STEER_TORQUE * steer_speed * steer_dir),
+            true,
+        );
     }
 }

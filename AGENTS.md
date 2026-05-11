@@ -4,8 +4,8 @@ This file is for getting a fresh Codex/Claude/OpenCode instance productive quick
 
 * Read as many files as you need to understand the codebase.
 * If you don't understand something I ask, look it up or clarify.
-* If code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing it.
-* Use minimal words/tokens. Use `cp` instead of regenerating files
+* If code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing/removing it. DO NOT delete todos.
+* Use minimal words/tokens.
 * Drop pleasantries, filler, hedging, niceties, and repetition.
 * State assumptions briefly.
 * If detail is necessary for correctness, include it.

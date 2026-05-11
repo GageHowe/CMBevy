@@ -33,7 +33,10 @@ pub struct WorldGcPlugin;
 
 impl Plugin for WorldGcPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(SlowUpdate, cleanup_world_gc_entities.in_set(AuthoritySystems));
+        app.add_systems(
+            SlowUpdate,
+            cleanup_world_gc_entities.in_set(AuthoritySystems),
+        );
     }
 }
 

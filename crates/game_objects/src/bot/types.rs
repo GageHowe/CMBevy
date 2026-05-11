@@ -49,6 +49,7 @@ pub struct BotController {
     pub team: Team,
     pub brain: Box<dyn BotBrain>,
     /// Temporary projectile id counter for locally generated authoritative bot shots.
+    /// TODO: bots will either be in singleplayer or server-authoritative, so this isn't needed
     pub temp_id: u32,
 }
 
