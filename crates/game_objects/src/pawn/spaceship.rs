@@ -2,6 +2,8 @@
 use bevy::input::{gamepad::Gamepad, mouse::AccumulatedMouseMotion};
 use bevy::prelude::*;
 #[cfg(feature = "client")]
+use bevy_hanabi_plugin::prelude::spawn_spaceship_death_explosion_effect;
+#[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
@@ -31,12 +33,10 @@ const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<SpaceshipPawnComponent>();
-        #[cfg(not(feature = "client"))]
-        let _ = app;
+    fn build(&self, _app: &mut App) {
+        _app.register_game_object::<SpaceshipPawnComponent>();
         #[cfg(feature = "client")]
-        app.add_systems(
+        _app.add_systems(
             FixedPreUpdate,
             (
                 gather_spaceship_input
@@ -135,6 +135,21 @@ impl GameObject for SpaceshipPawnComponent {
     }
 
     fn on_death(entity: Entity, world: &mut World) -> bool {
+        #[cfg(feature = "client")]
+        {
+            let (position, velocity) = world
+                .resource::<PhysicsWorld>()
+                .entity_to_handle
+                .get(&entity)
+                .and_then(|&handle| {
+                    let physics = world.resource::<PhysicsWorld>();
+                    let rb = physics.rigid_body_set.get(handle)?;
+                    Some((rb_pos(rb), rb_vel(rb)))
+                })
+                .or_else(|| world.get::<Transform>(entity).map(|t| (t.translation, Vec3::ZERO)))
+                .unwrap_or((Vec3::ZERO, Vec3::ZERO));
+            spawn_spaceship_death_explosion_effect(world, position, velocity);
+        }
         super::vehicle::handle_vehicle_death(entity, world);
         true
     }

@@ -12,15 +12,14 @@ use crate::{
     spawn::AppGameObjectExt,
 };
 
-pub const SPEED: f32 = 140.0;
+pub const SPEED: f32 = 60.0;
 pub const LIFETIME: u32 = 240;
-pub const DAMAGE: f32 = 110.0;
+pub const DAMAGE: f32 = 200.0;
 pub const EXPLOSION_RADIUS: f32 = 10.0;
 pub const EXPLOSION_IMPULSE: f32 = 30.0;
 pub const EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS: f32 = 1000.0;
 const RADIUS: f32 = 0.16;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
-const GRAVITY_SCALE: f32 = 0.1;
 #[cfg(feature = "client")]
 pub const EXPLOSION_SHAKE_RADIUS: f32 = 30.0;
 #[cfg(feature = "client")]
@@ -32,18 +31,17 @@ const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileC
     explosion_impulse: EXPLOSION_IMPULSE,
     explosion_impulse_max_effective_mass: EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS,
     self_damage_scale: SELF_DAMAGE_SCALE,
-    percent_max_health_damage: 0.0,
+    percent_max_health_damage: 0.2,
     #[cfg(feature = "client")]
     spawn_explosion_effect: bevy_hanabi_plugin::prelude::spawn_lobber_explosion_effect,
 };
 
 #[derive(Component, Reflect)]
-pub struct FighterRocketProjectile {
+pub struct LobberProjectile {
     pub shooter: Option<Entity>,
     pub lifetime: u32,
 }
-
-impl Default for FighterRocketProjectile {
+impl Default for LobberProjectile {
     fn default() -> Self {
         Self {
             shooter: None,
@@ -52,8 +50,12 @@ impl Default for FighterRocketProjectile {
     }
 }
 
-impl Projectile for FighterRocketProjectile {
-    const KIND: GameObjectKind = GameObjectKind::FighterRocketProjectile;
+pub fn shooter_knockback(mass: f32) -> f32 {
+    mass * <LobberProjectile as Projectile>::SHOOTER_KNOCKBACK
+}
+
+impl Projectile for LobberProjectile {
+    const KIND: GameObjectKind = GameObjectKind::LobberProjectile;
     const SPEED: f32 = SPEED;
     const SHOOTER_KNOCKBACK: f32 = 3.0;
 
@@ -88,7 +90,8 @@ impl Projectile for FighterRocketProjectile {
         let Some(rb) = world.rigid_body_set.get(rb_handle) else {
             return;
         };
-        let impulse = -dir * rb.mass() * <Self as Projectile>::SHOOTER_KNOCKBACK;
+        // Match the predicted launcher recoil so server and client stay on the same path.
+        let impulse = -dir * shooter_knockback(rb.mass());
         world.apply_game_impulse(shooter, impulse, None, None);
     }
 
@@ -115,7 +118,7 @@ impl Projectile for FighterRocketProjectile {
 }
 
 fn tick_inner(
-    projectile: &mut FighterRocketProjectile,
+    projectile: &mut LobberProjectile,
     entity: Entity,
     state: &mut ProjectileState,
     body: &RigidBodyHandleComponent,
@@ -156,8 +159,8 @@ pub fn spawn(
     temp_id: u32,
 ) -> Entity {
     let entity = helpers::spawn_projectile(
-        GameObjectKind::FighterRocketProjectile,
-        FighterRocketProjectile {
+        GameObjectKind::LobberProjectile,
+        LobberProjectile {
             shooter,
             lifetime: LIFETIME,
         },
@@ -169,7 +172,6 @@ pub fn spawn(
         commands,
         world,
     );
-    commands.entity(entity).insert(GravityScale(GRAVITY_SCALE));
     helpers::queue_world_fire_sound(
         commands,
         shooter,
@@ -180,35 +182,33 @@ pub fn spawn(
     entity
 }
 
-impl GameObject for FighterRocketProjectile {
-    const KIND: GameObjectKind = GameObjectKind::FighterRocketProjectile;
+impl GameObject for LobberProjectile {
+    const KIND: GameObjectKind = GameObjectKind::LobberProjectile;
 
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
             world,
-            FighterRocketProjectile {
+            LobberProjectile {
                 shooter: None,
                 lifetime: LIFETIME,
             },
             RADIUS,
             "event:/Weapons/SniperShot",
         );
-        world.entity_mut(entity).insert(GravityScale(GRAVITY_SCALE));
     }
 }
 
-pub struct FighterRocketProjectilePlugin;
-impl Plugin for FighterRocketProjectilePlugin {
+pub struct LobberProjectilePlugin;
+impl Plugin for LobberProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<FighterRocketProjectile>()
-            .add_systems(
-                FixedUpdate,
-                tick_projectiles::<FighterRocketProjectile>
-                    .after(step_physics)
-                    .in_set(super::AuthoritySystems),
-            );
+        app.register_game_object::<LobberProjectile>().add_systems(
+            FixedUpdate,
+            tick_projectiles::<LobberProjectile>
+                .after(step_physics)
+                .in_set(super::AuthoritySystems),
+        );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
@@ -227,7 +227,7 @@ fn tick_predicted_projectiles(
     mut commands: Commands,
     mut q: Query<(
         Entity,
-        &mut FighterRocketProjectile,
+        &mut LobberProjectile,
         &RigidBodyHandleComponent,
         &mut ProjectileState,
     )>,
@@ -257,16 +257,16 @@ fn tick_predicted_projectiles(
 
 #[cfg(feature = "client")]
 fn add_visual(
-    q: Query<Entity, Added<FighterRocketProjectile>>,
+    q: Query<Entity, Added<LobberProjectile>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for entity in &q {
-        let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.14));
+        let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.18));
         let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.75, 0.2),
-            emissive: LinearRgba::new(6.0, 3.0, 0.5, 1.0),
+            base_color: Color::srgb(1.0, 0.45, 0.1),
+            emissive: LinearRgba::new(5.0, 1.8, 0.3, 1.0),
             unlit: true,
             ..default()
         });

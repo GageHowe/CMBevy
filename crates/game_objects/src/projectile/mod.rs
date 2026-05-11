@@ -12,8 +12,9 @@ pub mod fighter_rocket;
 pub mod grenade_launcher;
 pub mod hail_mary;
 pub mod helpers;
+pub mod lobber;
 pub mod rifle;
-pub mod rpg;
+pub mod thumper;
 
 pub struct FiredProjectile {
     pub net_id: NetworkID,
@@ -39,7 +40,8 @@ impl Plugin for ProjectilePlugin {
             hail_mary::HailMaryProjectilePlugin,
             fighter_rocket::FighterRocketProjectilePlugin,
             grenade_launcher::GrenadeLauncherProjectilePlugin,
-            rpg::RpgProjectilePlugin,
+            lobber::LobberProjectilePlugin,
+            thumper::ThumperProjectilePlugin,
         ));
     }
 }

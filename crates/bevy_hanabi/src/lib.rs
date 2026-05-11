@@ -16,7 +16,9 @@ impl Plugin for HanabiEffectsPlugin {
         // into the client binary or gameplay crates.
         app.add_plugins(hanabi::prelude::HanabiPlugin)
             .init_resource::<effects::ability::AbilityEffects>()
-            .init_resource::<effects::rpg::RpgExplosionEffect>()
+            .init_resource::<effects::explosion::LobberExplosionEffect>()
+            .init_resource::<effects::explosion::SpaceshipDeathExplosionEffect>()
+            .init_resource::<effects::explosion::ThumperExplosionEffect>()
             .add_systems(Update, helpers::tick_one_shot_effects);
     }
 }

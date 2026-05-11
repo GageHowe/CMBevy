@@ -20,9 +20,10 @@ use crate::{
 pub mod grenade_launcher;
 pub mod hail_mary;
 pub mod helpers;
+pub mod lobber;
 pub mod pistol;
 pub mod rifle;
-pub mod rpg;
+pub mod thumper;
 
 /// Type-erased authoritative projectile spawn function used by weapon configs.
 pub type FireProjectileFn = fn(
@@ -46,7 +47,8 @@ impl Plugin for WeaponPlugin {
             rifle::RiflePlugin,
             pistol::PistolPlugin,
             hail_mary::HailMaryPlugin,
-            rpg::RpgPlugin,
+            thumper::ThumperPlugin,
+            lobber::LobberPlugin,
             grenade_launcher::GrenadeLauncherPlugin,
         ))
         .add_systems(FixedUpdate, tick_weapon_state);
@@ -659,7 +661,8 @@ pub fn is_weapon_kind(kind: &common::GameObjectKind) -> bool {
         common::GameObjectKind::Pistol
             | common::GameObjectKind::Rifle
             | common::GameObjectKind::HailMary
-            | common::GameObjectKind::Rpg
+            | common::GameObjectKind::Thumper
+            | common::GameObjectKind::Lobber
             | common::GameObjectKind::GrenadeLauncher
     )
 }

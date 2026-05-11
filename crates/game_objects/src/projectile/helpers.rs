@@ -1,6 +1,4 @@
 use bevy::prelude::*;
-#[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::spawn_rpg_explosion_effect;
 use common::{GameObjectKind, PredictedCommands};
 use net::message::{NetworkID, SpawnCommand};
 use physics::physics_world::*;
@@ -238,6 +236,9 @@ pub struct ExplosiveProjectileConfig {
     pub explosion_impulse: f32,
     pub explosion_impulse_max_effective_mass: f32,
     pub self_damage_scale: f32,
+    pub percent_max_health_damage: f32,
+    #[cfg(feature = "client")]
+    pub spawn_explosion_effect: fn(&mut World, Vec3, Vec3),
 }
 
 #[cfg(feature = "client")]
@@ -290,10 +291,11 @@ pub fn queue_rocket_explosion_fx(
     inherit_velocity: Vec3,
     shake_radius: f32,
     shake_scale: f32,
+    spawn_effect: fn(&mut World, Vec3, Vec3),
 ) {
     commands.queue(move |world: &mut World| {
         add_explosion_camera_shake(world, center, shake_radius, shake_scale);
-        spawn_rpg_explosion_effect(world, center, inherit_velocity);
+        spawn_effect(world, center, inherit_velocity);
     });
 }
 
@@ -406,6 +408,7 @@ pub fn explode_sphere_explosive_projectile(
         rocket_explosion_inherit_velocity(world, direct_hit, direct_hit_impulse),
         shake_radius,
         shake_scale,
+        config.spawn_explosion_effect,
     );
 
     let mut affected = std::collections::HashMap::<Entity, f32>::new();
@@ -483,7 +486,7 @@ pub fn explode_sphere_explosive_projectile(
                     }
                     attribute_damage(last_damage_q, entity, shooter, DamageCause::Explosion);
                     health.apply_damage(damage);
-                    health.apply_percent_damage(0.2 * falloff);
+                    health.apply_percent_damage(config.percent_max_health_damage * falloff);
                 }
             }
         }

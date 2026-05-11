@@ -12,16 +12,16 @@ use crate::{
     spawn::AppGameObjectExt,
 };
 
-pub const SPEED: f32 = 60.0;
-pub const LIFETIME: u32 = 240;
-pub const DAMAGE: f32 = 110.0;
-pub const EXPLOSION_RADIUS: f32 = 10.0;
-pub const EXPLOSION_IMPULSE: f32 = 30.0;
+pub const SPEED: f32 = 120.0;
+pub const LIFETIME: u32 = 180;
+pub const DAMAGE: f32 = 70.0;
+pub const EXPLOSION_RADIUS: f32 = 6.0;
+pub const EXPLOSION_IMPULSE: f32 = 15.0;
 pub const EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS: f32 = 1000.0;
 const RADIUS: f32 = 0.16;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
 #[cfg(feature = "client")]
-pub const EXPLOSION_SHAKE_RADIUS: f32 = 30.0;
+pub const EXPLOSION_SHAKE_RADIUS: f32 = 10.0;
 #[cfg(feature = "client")]
 const SHAKE_SCALE: f32 = 1.0;
 const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileConfig {
@@ -31,14 +31,18 @@ const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileC
     explosion_impulse: EXPLOSION_IMPULSE,
     explosion_impulse_max_effective_mass: EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS,
     self_damage_scale: SELF_DAMAGE_SCALE,
+    percent_max_health_damage: 0.0,
+    #[cfg(feature = "client")]
+    spawn_explosion_effect: bevy_hanabi_plugin::prelude::spawn_thumper_explosion_effect,
 };
 
 #[derive(Component, Reflect)]
-pub struct RpgProjectile {
+pub struct ThumperProjectile {
     pub shooter: Option<Entity>,
     pub lifetime: u32,
 }
-impl Default for RpgProjectile {
+
+impl Default for ThumperProjectile {
     fn default() -> Self {
         Self {
             shooter: None,
@@ -48,13 +52,13 @@ impl Default for RpgProjectile {
 }
 
 pub fn shooter_knockback(mass: f32) -> f32 {
-    mass * <RpgProjectile as Projectile>::SHOOTER_KNOCKBACK
+    mass * <ThumperProjectile as Projectile>::SHOOTER_KNOCKBACK
 }
 
-impl Projectile for RpgProjectile {
-    const KIND: GameObjectKind = GameObjectKind::RpgProjectile;
+impl Projectile for ThumperProjectile {
+    const KIND: GameObjectKind = GameObjectKind::ThumperProjectile;
     const SPEED: f32 = SPEED;
-    const SHOOTER_KNOCKBACK: f32 = 3.0;
+    const SHOOTER_KNOCKBACK: f32 = 0.8;
 
     fn tick(
         &mut self,
@@ -87,9 +91,7 @@ impl Projectile for RpgProjectile {
         let Some(rb) = world.rigid_body_set.get(rb_handle) else {
             return;
         };
-        // Match the predicted launcher recoil so server and client stay on the same path.
-        let impulse = -dir * shooter_knockback(rb.mass());
-        world.apply_game_impulse(shooter, impulse, None, None);
+        world.apply_game_impulse(shooter, -dir * shooter_knockback(rb.mass()), None, None);
     }
 
     fn spawn_predicted(
@@ -115,7 +117,7 @@ impl Projectile for RpgProjectile {
 }
 
 fn tick_inner(
-    projectile: &mut RpgProjectile,
+    projectile: &mut ThumperProjectile,
     entity: Entity,
     state: &mut ProjectileState,
     body: &RigidBodyHandleComponent,
@@ -156,8 +158,8 @@ pub fn spawn(
     temp_id: u32,
 ) -> Entity {
     let entity = helpers::spawn_projectile(
-        GameObjectKind::RpgProjectile,
-        RpgProjectile {
+        GameObjectKind::ThumperProjectile,
+        ThumperProjectile {
             shooter,
             lifetime: LIFETIME,
         },
@@ -179,30 +181,28 @@ pub fn spawn(
     entity
 }
 
-impl GameObject for RpgProjectile {
-    const KIND: GameObjectKind = GameObjectKind::RpgProjectile;
+impl GameObject for ThumperProjectile {
+    const KIND: GameObjectKind = GameObjectKind::ThumperProjectile;
 
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
             world,
-            RpgProjectile {
-                shooter: None,
-                lifetime: LIFETIME,
-            },
+            ThumperProjectile::default(),
             RADIUS,
             "event:/Weapons/SniperShot",
         );
     }
 }
 
-pub struct RpgProjectilePlugin;
-impl Plugin for RpgProjectilePlugin {
+pub struct ThumperProjectilePlugin;
+
+impl Plugin for ThumperProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<RpgProjectile>().add_systems(
+        app.register_game_object::<ThumperProjectile>().add_systems(
             FixedUpdate,
-            tick_projectiles::<RpgProjectile>
+            tick_projectiles::<ThumperProjectile>
                 .after(step_physics)
                 .in_set(super::AuthoritySystems),
         );
@@ -214,7 +214,7 @@ impl Plugin for RpgProjectilePlugin {
                 .run_if(in_state(GameState::Multiplayer)),
         );
         #[cfg(feature = "client")]
-        app.add_systems(bevy::prelude::Update, add_visual);
+        app.add_systems(Update, add_visual);
     }
 }
 
@@ -224,7 +224,7 @@ fn tick_predicted_projectiles(
     mut commands: Commands,
     mut q: Query<(
         Entity,
-        &mut RpgProjectile,
+        &mut ThumperProjectile,
         &RigidBodyHandleComponent,
         &mut ProjectileState,
     )>,
@@ -254,7 +254,7 @@ fn tick_predicted_projectiles(
 
 #[cfg(feature = "client")]
 fn add_visual(
-    q: Query<Entity, Added<RpgProjectile>>,
+    q: Query<Entity, Added<ThumperProjectile>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -262,8 +262,8 @@ fn add_visual(
     for entity in &q {
         let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.18));
         let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.45, 0.1),
-            emissive: LinearRgba::new(5.0, 1.8, 0.3, 1.0),
+            base_color: Color::srgb(0.4, 0.9, 1.0),
+            emissive: LinearRgba::new(0.8, 2.5, 3.2, 1.0),
             unlit: true,
             ..default()
         });

@@ -35,6 +35,9 @@ const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileC
     explosion_impulse: EXPLOSION_IMPULSE,
     explosion_impulse_max_effective_mass: EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS,
     self_damage_scale: SELF_DAMAGE_SCALE,
+    percent_max_health_damage: 0.0,
+    #[cfg(feature = "client")]
+    spawn_explosion_effect: bevy_hanabi_plugin::prelude::spawn_lobber_explosion_effect,
 };
 
 #[derive(Component)]

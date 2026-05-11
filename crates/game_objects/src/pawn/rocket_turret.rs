@@ -19,7 +19,7 @@ use crate::{
     health::{CollisionDamageConfig, Health, LastDamageSource},
     projectile::{
         Projectile,
-        rpg::{RpgProjectile, SPEED as RPG_SPEED},
+        lobber::{LobberProjectile, SPEED as RPG_SPEED},
     },
     reticle::{AimOrigin, AimReticle},
     spawn::AppGameObjectExt,
@@ -269,7 +269,7 @@ fn fire_queued_rocket_turrets(
         let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
         let dir = rot * Vec3::NEG_Z;
         let fire_origin = origin + dir * MUZZLE_LENGTH;
-        let Some(fired) = <RpgProjectile as Projectile>::fire_authoritative(
+        let Some(fired) = <LobberProjectile as Projectile>::fire_authoritative(
             fire_origin,
             dir,
             entity,
