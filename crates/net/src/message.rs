@@ -83,6 +83,19 @@ pub enum MsgType {
         origin: Vec3,
         dir: Vec3,
     },
+    StartBeamCharge(NetworkID),
+    StartBeam {
+        weapon: NetworkID,
+        origin: Vec3,
+        dir: Vec3,
+    },
+    BeamHitReport {
+        weapon: NetworkID,
+        origin: Vec3,
+        dir: Vec3,
+        target: Option<NetworkID>,
+    },
+    EndBeam(NetworkID),
     DetonateGrenadeRequest(NetworkID),
     ProjectileConfirm {
         temp_id: u32,

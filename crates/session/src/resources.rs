@@ -221,5 +221,8 @@ pub struct ServerMessageParams<'w, 's> {
     pub mounts: Query<'w, 's, &'static mut CharacterMount>,
     pub mount_anchor_transforms: Query<'w, 's, &'static Transform>,
     pub weapon_runtime: Query<'w, 's, (&'static mut WeaponState, &'static WeaponConfig)>,
+    pub beamers: Query<'w, 's, &'static mut game_objects::weapon::beamer::BeamerComponent>,
+    pub health_q: Query<'w, 's, &'static mut game_objects::health::Health>,
+    pub last_damage_q: Query<'w, 's, &'static mut game_objects::health::LastDamageSource>,
     pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
 }

@@ -20,6 +20,8 @@ use sha2::{Digest, Sha256};
 use crate::debug_draw::draw_authored_shape;
 #[cfg(feature = "client")]
 use crate::zone_effects::{ZoneEffect, ZoneEffectKind};
+#[cfg(feature = "client")]
+use bevy::light::AmbientLight;
 use crate::{
     AuthoritySystems,
     gc::{SpawnerGc, WorldObjectGc},
@@ -822,7 +824,6 @@ fn ensure_body(
     handle
 }
 
-/// Spawns the GLB visual scene when MapMeta is available. Client-only.
 #[cfg(feature = "client")]
 pub fn load_level_scene(
     scene_root: Query<Entity, With<LevelSceneRoot>>,

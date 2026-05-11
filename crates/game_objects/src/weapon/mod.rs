@@ -19,6 +19,7 @@ use crate::{
 
 pub mod grenade_launcher;
 pub mod hail_mary;
+pub mod beamer;
 pub mod helpers;
 pub mod lobber;
 pub mod coil_launcher;
@@ -47,6 +48,7 @@ impl Plugin for WeaponPlugin {
         app.add_plugins((
             rifle::RiflePlugin,
             pistol::PistolPlugin,
+            beamer::BeamerPlugin,
             hail_mary::HailMaryPlugin,
             thumper::ThumperPlugin,
             lobber::LobberPlugin,
@@ -661,6 +663,7 @@ pub fn is_weapon_kind(kind: &common::GameObjectKind) -> bool {
     matches!(
         kind,
         common::GameObjectKind::Pistol
+            | common::GameObjectKind::Beamer
             | common::GameObjectKind::Rifle
             | common::GameObjectKind::HailMary
             | common::GameObjectKind::Thumper

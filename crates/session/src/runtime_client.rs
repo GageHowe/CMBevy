@@ -226,8 +226,10 @@ fn respawn_singleplayer(
 fn run_singleplayer_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
+    weapon_kinds: Query<&GameObjectKind>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
+    mut beamers: Query<&mut game_objects::weapon::beamer::BeamerComponent>,
     mut pawns: PawnInputParams,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
@@ -243,31 +245,35 @@ fn run_singleplayer_bots(
         ctx.visible = actors.clone();
         let output = bot.brain.think(&ctx);
         let _ = pawns.apply_server_input(entity, output.input, &mut world);
-        if output.fire {
-            fire_singleplayer_bot_weapon(
-                entity,
-                output.aim_origin,
-                output.aim_dir,
-                bot.next_temp_id(),
-                &mut pawn_slots,
-                &mut weapon_runtime,
-                &mut held_weapons,
-                &mut commands,
-                &mut world,
-                &mut net_ids,
-                tick.tick,
-            );
-        }
+        fire_singleplayer_bot_weapon(
+            entity,
+            output.fire,
+            output.aim_origin,
+            output.aim_dir,
+            bot.next_temp_id(),
+            &weapon_kinds,
+            &mut pawn_slots,
+            &mut weapon_runtime,
+            &mut beamers,
+            &mut held_weapons,
+            &mut commands,
+            &mut world,
+            &mut net_ids,
+            tick.tick,
+        );
     }
 }
 
 fn fire_singleplayer_bot_weapon(
     shooter: Entity,
+    want_fire: bool,
     origin: Vec3,
     dir: Vec3,
     temp_id: u32,
+    weapon_kinds: &Query<&GameObjectKind>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    beamers: &mut Query<&mut game_objects::weapon::beamer::BeamerComponent>,
     held_weapons: &mut HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
@@ -282,6 +288,31 @@ fn fire_singleplayer_bot_weapon(
     }) else {
         return;
     };
+    if weapon_kinds.get(weapon_entity).ok() == Some(&GameObjectKind::Beamer) {
+        if want_fire {
+            game_objects::weapon::beamer::tick_singleplayer_beam(
+                weapon_entity,
+                shooter,
+                origin,
+                dir,
+                tick,
+                beamers,
+                weapon_runtime,
+                commands,
+                world,
+            );
+        } else {
+            game_objects::weapon::beamer::end_singleplayer_beam(
+                weapon_entity,
+                beamers,
+                weapon_runtime,
+            );
+        }
+        return;
+    }
+    if !want_fire {
+        return;
+    }
     let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
         return;
     };
