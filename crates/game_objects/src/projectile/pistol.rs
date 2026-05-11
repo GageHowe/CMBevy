@@ -10,18 +10,20 @@ use crate::{
     spawn::AppGameObjectExt,
 };
 
-pub const SPEED: f32 = 600.0;
-pub const DAMAGE: f32 = 40.0;
-pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
+pub const SPEED: f32 = rifle::SPEED;
+pub const DAMAGE: f32 = 60.0;
+pub const LIFETIME: u32 = rifle::LIFETIME;
 const RADIUS: f32 = 0.03;
 
+use super::rifle;
+
 #[derive(Component, Reflect)]
-pub struct RifleProjectile {
+pub struct PistolProjectile {
     pub shooter: Option<Entity>,
     pub lifetime: u32,
 }
 
-impl Default for RifleProjectile {
+impl Default for PistolProjectile {
     fn default() -> Self {
         Self {
             shooter: None,
@@ -30,10 +32,10 @@ impl Default for RifleProjectile {
     }
 }
 
-impl Projectile for RifleProjectile {
-    const KIND: GameObjectKind = GameObjectKind::RifleProjectile;
+impl Projectile for PistolProjectile {
+    const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
     const SPEED: f32 = SPEED;
-    const KNOCKBACK: f32 = 0.1;
+    const KNOCKBACK: f32 = 1.5;
 
     fn tick(
         &mut self,
@@ -97,8 +99,6 @@ impl Projectile for RifleProjectile {
     }
 }
 
-/// Spawns a rifle projectile (local prediction on client, authoritative on server).
-/// velocity = pre-computed velocity (SPEED * dir + shooter_vel).
 pub fn spawn(
     origin: Vec3,
     velocity: Vec3,
@@ -109,8 +109,8 @@ pub fn spawn(
     temp_id: u32,
 ) -> Entity {
     let entity = helpers::spawn_projectile(
-        GameObjectKind::RifleProjectile,
-        RifleProjectile {
+        GameObjectKind::PistolProjectile,
+        PistolProjectile {
             shooter,
             lifetime: LIFETIME,
         },
@@ -132,17 +132,15 @@ pub fn spawn(
     entity
 }
 
-/// Spawns a rifle projectile when a SpawnCommand arrives (other clients receiving server broadcast).
-/// starting_velocity already includes the shooter's velocity, computed server-side.
-impl GameObject for RifleProjectile {
-    const KIND: GameObjectKind = GameObjectKind::RifleProjectile;
+impl GameObject for PistolProjectile {
+    const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
 
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
             world,
-            RifleProjectile {
+            PistolProjectile {
                 shooter: None,
                 lifetime: LIFETIME,
             },
@@ -152,38 +150,16 @@ impl GameObject for RifleProjectile {
     }
 }
 
-pub struct RifleProjectilePlugin;
-impl Plugin for RifleProjectilePlugin {
+pub struct PistolProjectilePlugin;
+impl Plugin for PistolProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<RifleProjectile>()
-            .add_systems(
-                FixedUpdate,
-                tick_projectiles::<RifleProjectile>
-                    .after(step_physics)
-                    .in_set(super::AuthoritySystems),
-            );
+        app.register_game_object::<PistolProjectile>().add_systems(
+            FixedUpdate,
+            tick_projectiles::<PistolProjectile>
+                .after(step_physics)
+                .in_set(super::AuthoritySystems),
+        );
         #[cfg(feature = "client")]
-        app.add_systems(bevy::prelude::Update, add_visual::<RifleProjectile>);
-    }
-}
-
-/// Adds a visible mesh to newly spawned rifle-style projectile entities (client-only).
-#[cfg(feature = "client")]
-pub(crate) fn add_visual<P: Component>(
-    q: Query<Entity, Added<P>>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    for entity in &q {
-        let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.04));
-        let mat = materials.add(StandardMaterial {
-            emissive: LinearRgba::new(6.0, 5.0, 0.5, 1.0) * 3.0,
-            unlit: true,
-            ..default()
-        });
-        commands
-            .entity(entity)
-            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        app.add_systems(bevy::prelude::Update, rifle::add_visual::<PistolProjectile>);
     }
 }

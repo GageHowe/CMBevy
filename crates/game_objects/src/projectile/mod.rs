@@ -13,6 +13,8 @@ pub mod grenade_launcher;
 pub mod hail_mary;
 pub mod helpers;
 pub mod lobber;
+pub mod coil_launcher;
+pub mod pistol;
 pub mod rifle;
 pub mod thumper;
 
@@ -36,11 +38,13 @@ impl Plugin for ProjectilePlugin {
                     .in_set(TrackPredictedProjectilesSet),
             );
         app.add_plugins((
+            pistol::PistolProjectilePlugin,
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
             fighter_rocket::FighterRocketProjectilePlugin,
             grenade_launcher::GrenadeLauncherProjectilePlugin,
             lobber::LobberProjectilePlugin,
+            coil_launcher::CoilLauncherProjectilePlugin,
             thumper::ThumperProjectilePlugin,
         ));
     }

@@ -21,6 +21,7 @@ pub mod grenade_launcher;
 pub mod hail_mary;
 pub mod helpers;
 pub mod lobber;
+pub mod coil_launcher;
 pub mod pistol;
 pub mod rifle;
 pub mod thumper;
@@ -49,6 +50,7 @@ impl Plugin for WeaponPlugin {
             hail_mary::HailMaryPlugin,
             thumper::ThumperPlugin,
             lobber::LobberPlugin,
+            coil_launcher::CoilLauncherPlugin,
             grenade_launcher::GrenadeLauncherPlugin,
         ))
         .add_systems(FixedUpdate, tick_weapon_state);
@@ -663,6 +665,7 @@ pub fn is_weapon_kind(kind: &common::GameObjectKind) -> bool {
             | common::GameObjectKind::HailMary
             | common::GameObjectKind::Thumper
             | common::GameObjectKind::Lobber
+            | common::GameObjectKind::CoilLauncher
             | common::GameObjectKind::GrenadeLauncher
     )
 }

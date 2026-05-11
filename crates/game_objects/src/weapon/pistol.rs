@@ -5,7 +5,7 @@ use rapier3d::prelude::ColliderBuilder;
 use super::{FireCtx, Weapon, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::projectile::helpers as projectile_helpers;
-use crate::{GameObject, GameObjectKind, projectile::rifle, spawn::AppGameObjectExt};
+use crate::{GameObject, GameObjectKind, projectile::pistol, spawn::AppGameObjectExt};
 
 pub const COOLDOWN_TICKS: u32 = 10;
 pub const MAGAZINE_SIZE: u16 = 12;
@@ -25,10 +25,10 @@ pub struct PistolComponent {
 }
 
 impl Weapon for PistolComponent {
-    const MODEL_PATH: &'static str = "models/placeholder_ar.glb#Scene0";
+    const MODEL_PATH: &'static str = "models/placeholder_pistol.glb#Scene0";
     const COLLIDER_PATH: &'static str = "collision/placeholder_ar.obj";
     const CROSSHAIR_PATH: &'static str = "textures/crosshairs/crosshair007.png";
-    const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(rifle::SPEED);
+    const PREDICTION_PROJECTILE_SPEED: Option<f32> = Some(pistol::SPEED);
     const MAGAZINE_SIZE: u16 = MAGAZINE_SIZE;
     const RESERVE_AMMO: u16 = RESERVE_AMMO;
     const RELOAD_TICKS: u16 = RELOAD_TICKS;
@@ -36,7 +36,7 @@ impl Weapon for PistolComponent {
     const PROJECTILE_KIND: net::message::GameObjectKind =
         net::message::GameObjectKind::PistolProjectile;
     const FIRE_PROJECTILE: super::FireProjectileFn =
-        <rifle::PistolProjectile as crate::projectile::Projectile>::fire_authoritative;
+        <pistol::PistolProjectile as crate::projectile::Projectile>::fire_authoritative;
 
     fn fixed_update(
         &mut self,
@@ -56,9 +56,9 @@ impl Weapon for PistolComponent {
         }
         self.trigger_down = true;
 
-        helpers::fire_projectile(ctx, world, commands, rifle::SPEED, rifle::spawn_pistol);
+        helpers::fire_projectile(ctx, world, commands, pistol::SPEED, pistol::spawn);
         #[cfg(feature = "client")]
-        projectile_helpers::apply_recoil::<rifle::PistolProjectile>(ctx, world, 0.6);
+        projectile_helpers::apply_recoil::<pistol::PistolProjectile>(ctx, world, 0.6);
         helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
         if let Some(cam) = ctx.camera.as_mut() {
             cam.add_kick((1.2, 0.3), (-0.6, 0.6), 22.0);

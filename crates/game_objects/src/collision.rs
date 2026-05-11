@@ -33,8 +33,8 @@ impl CollisionFxMaterial {
     #[cfg(feature = "client")]
     fn min_relative_speed(self) -> f32 {
         match self {
-            Self::Dust => 2.0,
-            Self::Sparks => 4.0,
+            Self::Dust => 8.0,
+            Self::Sparks => 12.0,
         }
     }
 }
@@ -109,18 +109,13 @@ fn collect_collision_impacts(world: Res<PhysicsWorld>, mut impacts: ResMut<Colli
             (None, Some(entity2)) => collision_fx_velocity(&world, entity2).length(),
             (None, None) => 0.0,
         };
-        let impact_speed = if let Some(effective_mass) = collision_effective_mass(&world, entity1, entity2) {
-            relative_speed.max(impulse / effective_mass.max(0.001))
-        } else {
-            relative_speed
-        };
 
         if let Some(entity) = entity1 {
             impacts.0.push(CollisionImpact {
                 entity,
                 other: entity2,
                 impulse,
-                relative_speed: impact_speed,
+                relative_speed,
                 position,
                 is_new,
             });
@@ -130,7 +125,7 @@ fn collect_collision_impacts(world: Res<PhysicsWorld>, mut impacts: ResMut<Colli
                 entity,
                 other: entity1,
                 impulse,
-                relative_speed: impact_speed,
+                relative_speed,
                 position,
                 is_new,
             });
@@ -157,13 +152,12 @@ fn spawn_collision_fx(
         }
         let position = impact.position;
         let inherit_velocity = collision_fx_velocity(&world, impact.entity).clamp_length_max(40.0);
-        let scale = collision_fx_scale(impact.impulse);
         match material {
             CollisionFxMaterial::Dust => commands.queue(move |world: &mut World| {
-                spawn_dust_impact_effect(world, position, inherit_velocity, scale);
+                spawn_dust_impact_effect(world, position, inherit_velocity);
             }),
             CollisionFxMaterial::Sparks => commands.queue(move |world: &mut World| {
-                spawn_sparks_impact_effect(world, position, inherit_velocity, scale);
+                spawn_sparks_impact_effect(world, position, inherit_velocity);
             }),
         }
     }
@@ -176,34 +170,4 @@ fn collision_fx_velocity(world: &PhysicsWorld, entity: Entity) -> Vec3 {
         .and_then(|&handle| world.rigid_body_set.get(handle))
         .map(physics::physics_world::rb_vel)
         .unwrap_or(Vec3::ZERO)
-}
-
-fn collision_effective_mass(
-    world: &PhysicsWorld,
-    entity1: Option<Entity>,
-    entity2: Option<Entity>,
-) -> Option<f32> {
-    let mass = |entity| {
-        world
-            .entity_to_handle
-            .get(&entity)
-            .and_then(|&handle| world.rigid_body_set.get(handle))
-            .map(|rb| rb.mass())
-    };
-    match (entity1.and_then(mass), entity2.and_then(mass)) {
-        (Some(m1), Some(m2)) if m1 > 0.0 && m2 > 0.0 => Some((m1 * m2) / (m1 + m2)),
-        (Some(m1), _) if m1 > 0.0 => Some(m1),
-        (_, Some(m2)) if m2 > 0.0 => Some(m2),
-        _ => None,
-    }
-}
-
-#[cfg(feature = "client")]
-fn collision_fx_scale(impulse: f32) -> f32 {
-    const MIN_IMPULSE: f32 = 20.0;
-    const FULL_SCALE_IMPULSE: f32 = 600.0;
-    if impulse <= MIN_IMPULSE {
-        return 0.0;
-    }
-    ((impulse - MIN_IMPULSE) / (FULL_SCALE_IMPULSE - MIN_IMPULSE)).clamp(0.0, 1.0)
 }

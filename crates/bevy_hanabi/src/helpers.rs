@@ -125,22 +125,17 @@ pub fn spawn_one_shot_effect(
     position: Vec3,
     inherit_velocity: Vec3,
     remaining: f32,
-    scale: f32,
 ) -> Entity {
     let mut properties = EffectProperties::default();
     properties.set("inherit_velocity", inherit_velocity.into());
     let id = world
         .spawn((
-        Name::new(name),
-        Transform {
-            translation: position,
-            scale: Vec3::splat(scale.max(0.01)),
-            ..default()
-        },
-        ParticleEffect::new(handle),
-        properties,
-        OneShotEffect { remaining },
-    ))
+            Name::new(name),
+            Transform::from_translation(position),
+            ParticleEffect::new(handle),
+            properties,
+            OneShotEffect { remaining },
+        ))
         .id();
     let mut entity = world.entity_mut(id);
     if let Some(material) = material {

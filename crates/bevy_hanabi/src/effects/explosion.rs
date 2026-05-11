@@ -18,6 +18,11 @@ pub struct ThumperExplosionEffect {
 }
 
 #[derive(Resource)]
+pub struct CoilLauncherExplosionEffect {
+    sparks: Handle<EffectAsset>,
+}
+
+#[derive(Resource)]
 pub struct SpaceshipDeathExplosionEffect {
     sparks: Handle<EffectAsset>,
     smoke: Handle<EffectAsset>,
@@ -124,6 +129,33 @@ impl FromWorld for ThumperExplosionEffect {
     }
 }
 
+impl FromWorld for CoilLauncherExplosionEffect {
+    fn from_world(world: &mut World) -> Self {
+        let sparks = burst_effect(
+            "coil_launcher_explosion_sparks",
+            80,
+            18.0,
+            (0.18, 0.5),
+            (14.0, 44.0),
+            7.0,
+            Vec3::splat(0.06),
+            Some((0.7, 1.1)),
+            false,
+            false,
+            false,
+            &[
+                (0.0, Vec4::new(9.0, 1.2, 0.6, 0.95)),
+                (0.45, Vec4::new(4.0, 0.35, 0.18, 0.35)),
+                (1.0, Vec4::new(1.0, 0.08, 0.04, 0.0)),
+            ],
+        );
+        let mut effects = world.resource_mut::<Assets<EffectAsset>>();
+        Self {
+            sparks: effects.add(sparks),
+        }
+    }
+}
+
 impl FromWorld for SpaceshipDeathExplosionEffect {
     fn from_world(world: &mut World) -> Self {
         let sparks = burst_effect(
@@ -191,7 +223,6 @@ pub fn spawn_lobber_explosion_effect(world: &mut World, position: Vec3, inherit_
         position,
         inherit_velocity,
         0.4,
-        1.0,
     );
     spawn_one_shot_effect(
         world,
@@ -203,7 +234,6 @@ pub fn spawn_lobber_explosion_effect(world: &mut World, position: Vec3, inherit_
         position,
         inherit_velocity,
         3.5,
-        1.0,
     );
 }
 
@@ -224,7 +254,6 @@ pub fn spawn_thumper_explosion_effect(world: &mut World, position: Vec3, inherit
         position,
         inherit_velocity,
         0.25,
-        1.0,
     );
     spawn_one_shot_effect(
         world,
@@ -236,7 +265,26 @@ pub fn spawn_thumper_explosion_effect(world: &mut World, position: Vec3, inherit
         position,
         inherit_velocity,
         1.1,
-        1.0,
+    );
+}
+
+pub fn spawn_coil_launcher_explosion_effect(
+    world: &mut World,
+    position: Vec3,
+    inherit_velocity: Vec3,
+) {
+    let sparks = world
+        .resource::<CoilLauncherExplosionEffect>()
+        .sparks
+        .clone();
+    spawn_one_shot_effect(
+        world,
+        "coil_launcher_explosion_sparks_effect",
+        sparks,
+        None,
+        position,
+        inherit_velocity,
+        0.35,
     );
 }
 
@@ -261,7 +309,6 @@ pub fn spawn_spaceship_death_explosion_effect(
         position,
         inherit_velocity,
         1.2,
-        1.0,
     );
     spawn_one_shot_effect(
         world,
@@ -273,6 +320,5 @@ pub fn spawn_spaceship_death_explosion_effect(
         position,
         inherit_velocity,
         6.0,
-        1.0,
     );
 }

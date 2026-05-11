@@ -23,8 +23,8 @@ impl FromWorld for DustImpactEffect {
             (0.35, 1.1),
             (1.5, 6.0),
             6.0,
-            Vec3::splat(4.0),
-            Some((0.5, 1.2)),
+            Vec3::splat(2.5),
+            Some((0.35, 0.8)),
             true,
             true,
             true,
@@ -72,12 +72,7 @@ impl FromWorld for SparksImpactEffect {
     }
 }
 
-pub fn spawn_dust_impact_effect(
-    world: &mut World,
-    position: Vec3,
-    inherit_velocity: Vec3,
-    scale: f32,
-) {
+pub fn spawn_dust_impact_effect(world: &mut World, position: Vec3, inherit_velocity: Vec3) {
     let (smoke, smoke_texture) = {
         let effect = world.resource::<DustImpactEffect>();
         (effect.smoke.clone(), effect.smoke_texture.clone())
@@ -91,17 +86,11 @@ pub fn spawn_dust_impact_effect(
         }),
         position,
         inherit_velocity,
-        0.9 + scale * 0.4,
-        0.7 + scale * 1.0,
+        1.0,
     );
 }
 
-pub fn spawn_sparks_impact_effect(
-    world: &mut World,
-    position: Vec3,
-    inherit_velocity: Vec3,
-    scale: f32,
-) {
+pub fn spawn_sparks_impact_effect(world: &mut World, position: Vec3, inherit_velocity: Vec3) {
     let sparks = world.resource::<SparksImpactEffect>().sparks.clone();
     spawn_one_shot_effect(
         world,
@@ -110,7 +99,6 @@ pub fn spawn_sparks_impact_effect(
         None,
         position,
         inherit_velocity,
-        0.25 + scale * 0.2,
-        0.7 + scale * 1.2,
+        0.35,
     );
 }
