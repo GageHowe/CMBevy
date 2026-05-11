@@ -191,6 +191,7 @@ pub fn spawn_lobber_explosion_effect(world: &mut World, position: Vec3, inherit_
         position,
         inherit_velocity,
         0.4,
+        1.0,
     );
     spawn_one_shot_effect(
         world,
@@ -202,6 +203,7 @@ pub fn spawn_lobber_explosion_effect(world: &mut World, position: Vec3, inherit_
         position,
         inherit_velocity,
         3.5,
+        1.0,
     );
 }
 
@@ -222,6 +224,7 @@ pub fn spawn_thumper_explosion_effect(world: &mut World, position: Vec3, inherit
         position,
         inherit_velocity,
         0.25,
+        1.0,
     );
     spawn_one_shot_effect(
         world,
@@ -233,6 +236,7 @@ pub fn spawn_thumper_explosion_effect(world: &mut World, position: Vec3, inherit
         position,
         inherit_velocity,
         1.1,
+        1.0,
     );
 }
 
@@ -257,6 +261,7 @@ pub fn spawn_spaceship_death_explosion_effect(
         position,
         inherit_velocity,
         1.2,
+        1.0,
     );
     spawn_one_shot_effect(
         world,
@@ -268,5 +273,6 @@ pub fn spawn_spaceship_death_explosion_effect(
         position,
         inherit_velocity,
         6.0,
+        1.0,
     );
 }

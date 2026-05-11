@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{
     GameObject, GameObjectKind,
+    collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     projectile::{Projectile, fighter_rocket::FighterRocketProjectile},
@@ -106,6 +107,7 @@ impl GameObject for FighterPawnComponent {
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<FighterPawnComponent>(),
+            CollisionFxMaterial::Sparks,
             AimReticle(
                 "textures/crosshairs/crosshair001.png",
                 Some(crate::projectile::fighter_rocket::SPEED),

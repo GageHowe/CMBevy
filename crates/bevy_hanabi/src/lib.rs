@@ -19,6 +19,8 @@ impl Plugin for HanabiEffectsPlugin {
             .init_resource::<effects::explosion::LobberExplosionEffect>()
             .init_resource::<effects::explosion::SpaceshipDeathExplosionEffect>()
             .init_resource::<effects::explosion::ThumperExplosionEffect>()
+            .init_resource::<effects::impact::DustImpactEffect>()
+            .init_resource::<effects::impact::SparksImpactEffect>()
             .add_systems(Update, helpers::tick_one_shot_effects);
     }
 }

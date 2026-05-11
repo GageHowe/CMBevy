@@ -21,9 +21,9 @@ pub const EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS: f32 = 1000.0;
 const RADIUS: f32 = 0.16;
 const SELF_DAMAGE_SCALE: f32 = 0.5;
 #[cfg(feature = "client")]
-pub const EXPLOSION_SHAKE_RADIUS: f32 = 30.0;
+pub const EXPLOSION_SHAKE_RADIUS: f32 = 10.0;
 #[cfg(feature = "client")]
-const SHAKE_SCALE: f32 = 1.0;
+const SHAKE_SCALE: f32 = 0.5;
 const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileConfig {
     projectile_radius: RADIUS,
     damage: DAMAGE,

@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{
     GameObject, GameObjectKind,
+    collision::CollisionFxMaterial,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     spawn::AppGameObjectExt,
 };
@@ -91,6 +92,7 @@ impl GameObject for TruckPawnComponent {
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<TruckPawnComponent>(),
+            CollisionFxMaterial::Sparks,
             GameObjectKind::Truck,
             Transform::from(transform),
             cmd.net_id.clone(),

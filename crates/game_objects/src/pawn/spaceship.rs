@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     GameObject, GameObjectKind,
+    collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     reticle::AimReticle,
@@ -92,6 +93,7 @@ impl GameObject for SpaceshipPawnComponent {
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
+            CollisionFxMaterial::Sparks,
             AimReticle("textures/crosshairs/crosshair001.png", None),
             GameObjectKind::Spaceship,
             Transform::from(transform),

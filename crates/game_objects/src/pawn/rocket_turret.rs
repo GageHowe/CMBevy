@@ -16,6 +16,7 @@ use super::{CameraEffector, GatherInputSet, MovePawnsSet, Possessed};
 use super::{CharacterMount, Pawn, PawnInputKind, RocketTurretInput, mount};
 use crate::{
     GameObject, GameObjectKind,
+    collision::CollisionFxMaterial,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     projectile::{
         Projectile,
@@ -138,6 +139,7 @@ impl GameObject for RocketTurretPawnComponent {
                 damage_scale: 0.4,
             },
             LastDamageSource::default(),
+            CollisionFxMaterial::Sparks,
             AimOrigin(pitch_pivot),
             AimReticle("textures/crosshairs/crosshair001.png", Some(RPG_SPEED)),
             GameObjectKind::RocketTurret,

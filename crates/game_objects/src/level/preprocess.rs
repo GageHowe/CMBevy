@@ -8,6 +8,7 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("MapMeta", "game_objects::level::MapMeta"),
     ("StaticCollider", "game_objects::level::StaticCollider"),
     ("SceneModel", "game_objects::level::SceneModel"),
+    ("CollisionFxMaterial", "game_objects::collision::CollisionFxMaterial"),
     ("SpawnPoint", "game_objects::level::SpawnPoint"),
     ("ScriptTags", "game_objects::level::ScriptTags"),
     ("ScriptZone", "game_objects::level::ScriptZone"),
