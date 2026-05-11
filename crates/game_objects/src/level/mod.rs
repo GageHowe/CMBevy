@@ -397,6 +397,7 @@ fn sanitize_hash(hash: &str) -> String {
 pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<ChildOf>();
         app.register_type::<Shape>();
         app.register_type::<StaticCollider>();
         app.register_type::<SceneModel>();
