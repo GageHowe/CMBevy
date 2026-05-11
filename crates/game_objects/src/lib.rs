@@ -35,11 +35,7 @@ pub use spawn::{
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AuthoritySet {
-    Health,
-    Projectile,
-    Level,
-}
+pub struct AuthoritySystems;
 
 pub struct GameObjectsPlugin;
 

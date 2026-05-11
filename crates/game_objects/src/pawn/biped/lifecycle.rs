@@ -89,7 +89,7 @@ impl GameObject for BipedPawnComponent {
     fn on_death(entity: Entity, world: &mut World) -> bool {
         #[cfg(feature = "client")]
         if world.get::<Possessed>(entity).is_some() {
-            super::detach_local_camera(world);
+            super::detach_camera(world);
         }
         let (drop_pos, drop_velocity) = {
             let physics = world.resource::<PhysicsWorld>();

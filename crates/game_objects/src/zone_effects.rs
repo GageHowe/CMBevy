@@ -9,7 +9,7 @@ use net::{
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
-    AuthoritySet,
+    AuthoritySystems,
     health::Health,
     level::{ScriptZone, parented_world_pose},
     pawn::PlayerRegistry,
@@ -87,11 +87,8 @@ impl Plugin for ZoneEffectsPlugin {
         app.register_type::<ZoneEffectRegion>();
         app.register_type::<ZoneEffect>();
         app.init_resource::<ZoneEffectRuntime>();
-        app.add_systems(
-            SemiSlowUpdate,
-            tick_zone_effects.in_set(AuthoritySet::Level),
-        );
-        app.add_systems(SlowUpdate, tick_zone_messages.in_set(AuthoritySet::Level));
+        app.add_systems(SemiSlowUpdate, tick_zone_effects.in_set(AuthoritySystems));
+        app.add_systems(SlowUpdate, tick_zone_messages.in_set(AuthoritySystems));
     }
 }
 

@@ -204,7 +204,7 @@ impl Plugin for RpgProjectilePlugin {
             FixedUpdate,
             tick_projectiles::<RpgProjectile>
                 .after(step_physics)
-                .in_set(super::AuthoritySet::Projectile),
+                .in_set(super::AuthoritySystems),
         );
         #[cfg(feature = "client")]
         app.add_systems(

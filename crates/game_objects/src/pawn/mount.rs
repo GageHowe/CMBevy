@@ -438,7 +438,7 @@ pub fn handle_mount_parent_death(parent_entity: Entity, world: &mut World) -> Op
 #[cfg(feature = "client")]
 pub fn clear_mount_possession(parent_entity: Entity, rider_entity: Entity, world: &mut World) {
     if world.get::<Possessed>(parent_entity).is_some() {
-        crate::pawn::detach_local_camera(world);
+        crate::pawn::detach_camera(world);
         world.entity_mut(parent_entity).remove::<Possessed>();
         world.entity_mut(rider_entity).insert(Possessed::new(128));
     }

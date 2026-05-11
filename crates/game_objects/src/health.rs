@@ -4,7 +4,7 @@ use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
 
 use crate::{
-    AuthoritySet,
+    AuthoritySystems,
     collision::{CollisionImpactSet, CollisionImpacts},
     dispatch_game_object_on_death,
 };
@@ -25,9 +25,9 @@ impl Plugin for HealthPlugin {
             )
                 .chain()
                 .after(CollisionImpactSet)
-                .in_set(AuthoritySet::Health),
+                .in_set(AuthoritySystems),
         );
-        app.add_systems(FixedUpdate, handle_deaths.in_set(AuthoritySet::Health));
+        app.add_systems(FixedUpdate, handle_deaths.in_set(AuthoritySystems));
         app.add_systems(FixedLast, flush_pending_death_despawns);
     }
 }

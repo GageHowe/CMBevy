@@ -298,7 +298,7 @@ impl Plugin for RifleProjectilePlugin {
                     tick_projectiles::<PistolProjectile>,
                 )
                     .after(step_physics)
-                    .in_set(super::AuthoritySet::Projectile),
+                    .in_set(super::AuthoritySystems),
             );
         #[cfg(feature = "client")]
         app.add_systems(

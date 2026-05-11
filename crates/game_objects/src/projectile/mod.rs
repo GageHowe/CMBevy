@@ -4,7 +4,8 @@ use net::message::*;
 use physics::physics_world::*;
 
 use crate::{
-    AuthoritySet, GameObject,
+    AuthoritySystems,
+    GameObject,
     health::{DamageCause, Health, LastDamageSource},
 };
 

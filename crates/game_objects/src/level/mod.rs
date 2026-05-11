@@ -21,7 +21,7 @@ use crate::debug_draw::draw_authored_shape;
 #[cfg(feature = "client")]
 use crate::zone_effects::{ZoneEffect, ZoneEffectKind};
 use crate::{
-    AuthoritySet,
+    AuthoritySystems,
     gc::{SpawnerGc, WorldObjectGc},
     lifecycle::spawn_game_object,
 };
@@ -428,7 +428,7 @@ impl Plugin for LevelPlugin {
         // Keep authored scene data as small marker components and route all runtime setup
         // through the existing imperative GameObject spawn path.
         app.add_systems(Update, init_spawners);
-        app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySet::Level));
+        app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySystems));
     }
 }
 

@@ -1,12 +1,6 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::{
-    Team,
-    bot::{BotController, collect_contexts},
-    health::Health,
-    pawn::{PawnInputParams, WeaponSlots},
-    weapon::{WeaponConfig, WeaponState},
-};
+use game_objects::{Team, bot::*, health::Health, pawn::*, weapon::*};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 

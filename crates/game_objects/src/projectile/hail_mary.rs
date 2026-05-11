@@ -195,13 +195,12 @@ impl GameObject for HailMaryProjectile {
 pub struct HailMaryProjectilePlugin;
 impl Plugin for HailMaryProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryProjectile>()
-            .add_systems(
-                FixedUpdate,
-                tick_projectiles::<HailMaryProjectile>
-                    .after(step_physics)
-                    .in_set(super::AuthoritySet::Projectile),
-            );
+        app.register_game_object::<HailMaryProjectile>().add_systems(
+            FixedUpdate,
+            tick_projectiles::<HailMaryProjectile>
+                .after(step_physics)
+                .in_set(super::AuthoritySystems),
+        );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual);
     }

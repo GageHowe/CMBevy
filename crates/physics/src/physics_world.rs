@@ -510,7 +510,6 @@ fn on_remove_rigidbody_handle(
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {
     world.step();
 }
-}
 
 /// Snapshot the current physics state for all networked bodies.
 /// Returns a `SimulationState` stamped with `tick`.
