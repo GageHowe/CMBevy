@@ -4,49 +4,6 @@ use game_objects::{Team, bot::*, health::Health, pawn::*, weapon::*};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 
-pub(super) fn run_bots(
-    mut bots: Query<(Entity, &mut BotController)>,
-    actors: Query<(Entity, &Team, &Health)>,
-    mut pawn_slots: Query<&mut WeaponSlots>,
-    mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
-    mut pawns: PawnInputParams,
-    mut world: ResMut<PhysicsWorld>,
-    mut quic: ResMut<QuicManager>,
-    mut net_ids: ResMut<NetworkIDResource>,
-    mut commands: Commands,
-    mut held_weapons: ResMut<game_objects::pawn::HeldWeaponMap>,
-    tick: Res<Ticker>,
-) {
-    let actors = collect_contexts(&actors, &world);
-    for (entity, mut bot) in &mut bots {
-        let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
-            continue;
-        };
-        ctx.visible = actors.clone();
-        let output = bot.brain.think(&ctx);
-        let _ = pawns.apply_server_input(entity, output.input, &mut world);
-        if output.fire {
-            fire_active_weapon(
-                entity,
-                output.aim_origin,
-                output.aim_dir,
-                bot.next_temp_id(),
-                &mut pawn_slots,
-                &mut weapon_runtime,
-                &mut held_weapons,
-                &mut commands,
-                &mut world,
-                &mut net_ids,
-                &mut quic,
-                tick.tick,
-            );
-        }
-        if output.reload {
-            reload_active_weapon(entity, &mut pawn_slots, &mut weapon_runtime, &mut quic);
-        }
-    }
-}
-
 pub(super) fn fire_active_weapon(
     shooter: Entity,
     origin: Vec3,
