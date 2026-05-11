@@ -641,6 +641,7 @@ fn update_interaction_hint(
     egui_wants: Option<Res<EguiWantsInput>>,
     player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
     bindings: Res<common::ActiveBindings>,
+    prompt_device: Option<Res<common::PromptDevicePreference>>,
     interactables: Query<
         (
             Option<&net::message::NetworkID>,
@@ -687,7 +688,10 @@ fn update_interaction_hint(
         hint.0 = None;
         return;
     };
-    let key = bindings.prompt_label(common::InputAction::Interact);
+    let key = bindings.prompt_label_for(
+        common::InputAction::Interact,
+        prompt_device.map_or(common::PromptDeviceMode::Both, |mode| mode.0),
+    );
     hint.0 = match target {
         InteractTarget::Mount(parent_entity) => object_kinds
             .get(parent_entity)

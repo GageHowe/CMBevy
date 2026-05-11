@@ -1,4 +1,5 @@
 use bevy_egui::egui;
+use common::PromptDeviceMode;
 
 use crate::settings::Settings;
 
@@ -64,4 +65,25 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
     .on_hover_text(
         "EXPERIMENTAL: Keeps the camera aimed in the same world direction when planet snapping rotates the player frame. This may cause camera jitter.",
     );
+
+    ui.separator();
+    ui.heading("Prompt labels");
+    ui.horizontal(|ui| {
+        ui.label("Show prompts as");
+        ui.selectable_value(
+            &mut settings.prompt_device_mode,
+            PromptDeviceMode::KeyboardMouse,
+            "Keyboard / mouse",
+        );
+        ui.selectable_value(
+            &mut settings.prompt_device_mode,
+            PromptDeviceMode::Gamepad,
+            "Gamepad",
+        );
+        ui.selectable_value(
+            &mut settings.prompt_device_mode,
+            PromptDeviceMode::Both,
+            "Both",
+        );
+    });
 }

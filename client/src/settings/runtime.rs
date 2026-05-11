@@ -8,7 +8,7 @@ use bevy::{
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
-use common::ActiveBindings;
+use common::{ActiveBindings, PromptDevicePreference};
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
 
@@ -27,6 +27,7 @@ pub fn apply_settings(
     mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
     mut egui_context_settings: Query<&mut EguiContextSettings, With<PrimaryEguiContext>>,
 ) {
+    commands.insert_resource(PromptDevicePreference(settings.prompt_device_mode));
     sensitivity.base = settings.mouse_sensitivity;
     sensitivity.zoom_blend = settings.zoom_sensitivity_blend;
     sensitivity.vehicle_pitch_yaw = settings.vehicle_pitch_yaw_sensitivity;

@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, process::Command};
 
 use bevy::prelude::*;
-use common::ActiveBindings;
+use common::{ActiveBindings, PromptDevicePreference};
 
 use super::data::Settings;
 
@@ -70,6 +70,7 @@ pub fn load_settings(mut commands: Commands) {
         &settings.keybindings,
         &settings.gamepad_bindings,
     ));
+    commands.insert_resource(PromptDevicePreference(settings.prompt_device_mode));
     commands.insert_resource(settings);
 }
 

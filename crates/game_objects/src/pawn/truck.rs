@@ -22,13 +22,10 @@ use crate::{
 const MODEL_PATH: &str = "models/kenney-prototypes/shape-cube-recentered.glb#Scene0";
 const HALF_EXTENTS: Vec3 = Vec3::new(1.2, 0.45, 2.0);
 const TRUCK_MAX_HEALTH: f32 = 1200.0;
-const FORWARD_THRUST: f32 = 260.0;
-const REVERSE_THRUST: f32 = 130.0;
-const BRAKE_FORCE: f32 = 220.0;
-const COASTING_DRAG: f32 = 25.0;
-const SIDEWAYS_GRIP: f32 = 70.0;
-const STEER_TORQUE: f32 = 18.0;
-const MAX_STEER_SPEED: f32 = 10.0;
+const DRIVE_FORCE: f32 = 220.0;
+const BRAKE_FORCE: f32 = 320.0;
+const SIDEWAYS_GRIP: f32 = 45.0;
+const STEER_TORQUE: f32 = 28.0;
 
 pub struct TruckPlugin;
 impl Plugin for TruckPlugin {
@@ -234,34 +231,29 @@ pub fn apply_truck_movement(
     let right = rotation * Vector3::X;
     let up = rotation * Vector3::Y;
     let velocity = body.linvel();
+    if !forward.is_finite()
+        || !right.is_finite()
+        || !up.is_finite()
+        || !Vec3::new(velocity.x, velocity.y, velocity.z).is_finite()
+    {
+        body.set_linvel(Vector3::ZERO, true);
+        body.set_angvel(Vector3::ZERO, true);
+        return;
+    }
     let forward_speed = velocity.dot(forward);
     let sideways_speed = velocity.dot(right);
-
-    let thrust = if input.throttle >= 0.0 {
-        input.throttle * FORWARD_THRUST
-    } else {
-        input.throttle * REVERSE_THRUST
-    };
-    body.apply_impulse(forward * thrust, true);
-
-    let forward_drag = if input.throttle == 0.0 {
-        COASTING_DRAG
-    } else {
-        input.brake * BRAKE_FORCE
-    };
-    body.apply_impulse(-forward * (forward_speed * forward_drag), true);
+    body.apply_impulse(forward * (input.throttle * DRIVE_FORCE), true);
     body.apply_impulse(-right * (sideways_speed * SIDEWAYS_GRIP), true);
-
-    let steer_speed = (forward_speed.abs() / MAX_STEER_SPEED).clamp(0.2, 1.0);
+    body.apply_impulse(
+        -(forward * forward_speed + right * sideways_speed) * (input.brake * BRAKE_FORCE),
+        true,
+    );
     let steer_dir = if forward_speed.abs() > 0.5 {
         forward_speed.signum()
     } else {
         input.throttle.signum()
     };
     if steer_dir != 0.0 {
-        body.apply_torque_impulse(
-            up * (input.steer * STEER_TORQUE * steer_speed * steer_dir),
-            true,
-        );
+        body.apply_torque_impulse(up * (input.steer * STEER_TORQUE * steer_dir), true);
     }
 }

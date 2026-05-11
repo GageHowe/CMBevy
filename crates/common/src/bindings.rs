@@ -34,6 +34,23 @@ pub enum InputAction {
     CaptureCursor,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug, Default)]
+pub enum PromptDeviceMode {
+    KeyboardMouse,
+    Gamepad,
+    #[default]
+    Both,
+}
+
+#[derive(Resource, Clone, Copy, Reflect, PartialEq, Eq, Debug)]
+pub struct PromptDevicePreference(pub PromptDeviceMode);
+
+impl Default for PromptDevicePreference {
+    fn default() -> Self {
+        Self(PromptDeviceMode::Both)
+    }
+}
+
 pub const INPUT_ACTIONS: [InputAction; INPUT_ACTION_COUNT] = [
     InputAction::MoveForward,
     InputAction::MoveBackward,
@@ -362,13 +379,33 @@ impl ActiveBindings {
     }
 
     pub fn prompt_label(&self, action: InputAction) -> String {
+        self.prompt_label_for(action, PromptDeviceMode::Both)
+    }
+
+    pub fn prompt_label_for(&self, action: InputAction, mode: PromptDeviceMode) -> String {
         let key = self.keybinding(action).prompt_label();
         let gamepad = self.gamepad_binding(action).prompt_label();
-        match (key.as_str(), gamepad.as_str()) {
-            ("Unbound", "Unbound") => "Unbound".to_string(),
-            (_, "Unbound") => key,
-            ("Unbound", _) => gamepad,
-            _ => format!("{key} / {gamepad}"),
+        match mode {
+            PromptDeviceMode::KeyboardMouse => {
+                if key == "Unbound" {
+                    gamepad
+                } else {
+                    key
+                }
+            }
+            PromptDeviceMode::Gamepad => {
+                if gamepad == "Unbound" {
+                    key
+                } else {
+                    gamepad
+                }
+            }
+            PromptDeviceMode::Both => match (key.as_str(), gamepad.as_str()) {
+                ("Unbound", "Unbound") => "Unbound".to_string(),
+                (_, "Unbound") => key,
+                ("Unbound", _) => gamepad,
+                _ => format!("{key} / {gamepad}"),
+            },
         }
     }
 

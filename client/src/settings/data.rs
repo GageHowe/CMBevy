@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use common::{GamepadBindings, KeyBindings};
+use common::{GamepadBindings, KeyBindings, PromptDeviceMode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
@@ -78,6 +78,7 @@ pub struct Settings {
     pub gamepad_look_deadzone: f32,
     pub gamepad_invert_y: bool,
     pub preserve_look_across_planet_snap: bool,
+    pub prompt_device_mode: PromptDeviceMode,
     pub audio_output_device: String,
     pub fmod_buffer_size: u32,
     pub ui_scale: f32,
@@ -120,6 +121,7 @@ impl Default for Settings {
             gamepad_look_deadzone: 0.15,
             gamepad_invert_y: false,
             preserve_look_across_planet_snap: false,
+            prompt_device_mode: PromptDeviceMode::Both,
             audio_output_device: String::new(),
             fmod_buffer_size: 256,
             ui_scale: 1.25,
