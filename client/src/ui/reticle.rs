@@ -20,9 +20,9 @@ const PREDICTION_RETICLE_SIZE: f32 = 18.0;
 pub fn spawn_prediction_reticle(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    settings: Res<Settings>,
+    settings: Option<Res<Settings>>,
 ) {
-    let size = scaled_reticle_size(PREDICTION_RETICLE_SIZE, settings.reticle_scale);
+    let size = scaled_reticle_size(PREDICTION_RETICLE_SIZE, reticle_scale(settings.as_deref()));
     commands.spawn((
         PredictionReticle,
         ImageNode {
@@ -56,13 +56,14 @@ pub fn update_prediction_reticle(
     targets: Query<(Entity, &GlobalTransform, &Health), Without<Possessed>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     world: Res<PhysicsWorld>,
-    settings: Res<Settings>,
+    settings: Option<Res<Settings>>,
     mut indicator: Query<(&mut Node, &mut Visibility), With<PredictionReticle>>,
 ) {
     let Ok((mut node, mut vis)) = indicator.single_mut() else {
         return;
     };
-    let half_size = scaled_reticle_size(PREDICTION_RETICLE_SIZE, settings.reticle_scale) * 0.5;
+    let half_size =
+        scaled_reticle_size(PREDICTION_RETICLE_SIZE, reticle_scale(settings.as_deref())) * 0.5;
     let show = (|| -> Option<Vec2> {
         let (pawn_entity, possessed_reticle, aim_origin, slots) = pawn.single().ok()?;
         let projectile_speed = reticle_for_possessed(possessed_reticle, slots, &weapons)?.1?;
@@ -194,9 +195,9 @@ pub fn update_reticle(
 pub fn spawn_crosshair(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    settings: Res<Settings>,
+    settings: Option<Res<Settings>>,
 ) {
-    let size = scaled_reticle_size(CROSSHAIR_SIZE, settings.reticle_scale);
+    let size = scaled_reticle_size(CROSSHAIR_SIZE, reticle_scale(settings.as_deref()));
     commands.spawn((
         Crosshair,
         ImageNode::new(asset_server.load(default_crosshair_path())),
@@ -247,6 +248,10 @@ fn reticle_for_possessed<'a>(
 
 fn scaled_reticle_size(base_size: f32, scale: f32) -> f32 {
     base_size * scale.clamp(0.5, 2.0)
+}
+
+fn reticle_scale(settings: Option<&Settings>) -> f32 {
+    settings.map_or(1.0, |settings| settings.reticle_scale)
 }
 
 fn set_reticle_size(node: &mut Node, size: f32) {
