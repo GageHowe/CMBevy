@@ -8,7 +8,7 @@ pub mod window;
 use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, prelude::*};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use crate::GameState;
+use crate::{GameState, settings::Settings};
 
 pub struct UIPlugin;
 
@@ -28,6 +28,10 @@ impl Plugin for UIPlugin {
             .add_systems(
                 Update,
                 (reticle::update_reticle, reticle::update_prediction_reticle),
+            )
+            .add_systems(
+                Update,
+                reticle::apply_reticle_scale.run_if(resource_changed::<Settings>),
             )
             // EguiPrimaryContextPass
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))

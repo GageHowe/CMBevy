@@ -49,6 +49,13 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
 
             ui.horizontal(|ui| {
+                ui.label("Reticle size").on_hover_text("Scales the center crosshair and lead reticle.");
+                ui.add(
+                    egui::Slider::new(&mut settings.reticle_scale, 0.5..=2.0).fixed_decimals(2),
+                );
+            });
+
+            ui.horizontal(|ui| {
                 ui.label("FPS cap").on_hover_text("Limits the client update rate. Uncapped leaves frame pacing to VSync and hardware.");
                 egui::ComboBox::from_id_salt("fps_cap_combo")
                     .selected_text(fps_cap_label(settings.fps_cap))

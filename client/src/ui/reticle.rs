@@ -6,13 +6,23 @@ use game_objects::{
 };
 use physics::physics_world::{PhysicsWorld, rb_vel};
 
+use crate::settings::Settings;
+
 #[derive(Component)]
 pub struct PredictionReticle;
 
 #[derive(Component)]
 pub struct Crosshair;
 
-pub fn spawn_prediction_reticle(mut commands: Commands, asset_server: Res<AssetServer>) {
+const CROSSHAIR_SIZE: f32 = 32.0;
+const PREDICTION_RETICLE_SIZE: f32 = 18.0;
+
+pub fn spawn_prediction_reticle(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    settings: Res<Settings>,
+) {
+    let size = scaled_reticle_size(PREDICTION_RETICLE_SIZE, settings.reticle_scale);
     commands.spawn((
         PredictionReticle,
         ImageNode {
@@ -22,8 +32,8 @@ pub fn spawn_prediction_reticle(mut commands: Commands, asset_server: Res<AssetS
         },
         Node {
             position_type: PositionType::Absolute,
-            width: Val::Px(18.0),
-            height: Val::Px(18.0),
+            width: Val::Px(size),
+            height: Val::Px(size),
             ..default()
         },
         ZIndex(10),
@@ -46,11 +56,13 @@ pub fn update_prediction_reticle(
     targets: Query<(Entity, &GlobalTransform, &Health), Without<Possessed>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     world: Res<PhysicsWorld>,
+    settings: Res<Settings>,
     mut indicator: Query<(&mut Node, &mut Visibility), With<PredictionReticle>>,
 ) {
     let Ok((mut node, mut vis)) = indicator.single_mut() else {
         return;
     };
+    let half_size = scaled_reticle_size(PREDICTION_RETICLE_SIZE, settings.reticle_scale) * 0.5;
     let show = (|| -> Option<Vec2> {
         let (pawn_entity, possessed_reticle, aim_origin, slots) = pawn.single().ok()?;
         let projectile_speed = reticle_for_possessed(possessed_reticle, slots, &weapons)?.1?;
@@ -116,8 +128,8 @@ pub fn update_prediction_reticle(
     })();
     match show {
         Some(pos) => {
-            node.left = Val::Px(pos.x - 12.0);
-            node.top = Val::Px(pos.y - 12.0);
+            node.left = Val::Px(pos.x - half_size);
+            node.top = Val::Px(pos.y - half_size);
             *vis = Visibility::Inherited;
         }
         None => *vis = Visibility::Hidden,
@@ -179,24 +191,47 @@ pub fn update_reticle(
     }
 }
 
-pub fn spawn_crosshair(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn spawn_crosshair(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    settings: Res<Settings>,
+) {
+    let size = scaled_reticle_size(CROSSHAIR_SIZE, settings.reticle_scale);
     commands.spawn((
         Crosshair,
         ImageNode::new(asset_server.load(default_crosshair_path())),
         Node {
-            width: Val::Px(32.0),
-            height: Val::Px(32.0),
+            width: Val::Px(size),
+            height: Val::Px(size),
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
             top: Val::Percent(50.0),
             margin: UiRect {
-                left: Val::Px(-16.0),
-                top: Val::Px(-16.0),
+                left: Val::Px(-size * 0.5),
+                top: Val::Px(-size * 0.5),
                 ..default()
             },
             ..default()
         },
     ));
+}
+
+pub fn apply_reticle_scale(
+    settings: Res<Settings>,
+    mut crosshair: Query<&mut Node, (With<Crosshair>, Without<PredictionReticle>)>,
+    mut prediction: Query<&mut Node, (With<PredictionReticle>, Without<Crosshair>)>,
+) {
+    let crosshair_size = scaled_reticle_size(CROSSHAIR_SIZE, settings.reticle_scale);
+    let prediction_size = scaled_reticle_size(PREDICTION_RETICLE_SIZE, settings.reticle_scale);
+
+    if let Ok(mut node) = crosshair.single_mut() {
+        set_reticle_size(&mut node, crosshair_size);
+        node.margin.left = Val::Px(-crosshair_size * 0.5);
+        node.margin.top = Val::Px(-crosshair_size * 0.5);
+    }
+    if let Ok(mut node) = prediction.single_mut() {
+        set_reticle_size(&mut node, prediction_size);
+    }
 }
 
 fn reticle_for_possessed<'a>(
@@ -208,4 +243,13 @@ fn reticle_for_possessed<'a>(
         let weapon_entity = slots?.active().1?;
         reticles.get(weapon_entity).ok()
     })
+}
+
+fn scaled_reticle_size(base_size: f32, scale: f32) -> f32 {
+    base_size * scale.clamp(0.5, 2.0)
+}
+
+fn set_reticle_size(node: &mut Node, size: f32) {
+    node.width = Val::Px(size);
+    node.height = Val::Px(size);
 }

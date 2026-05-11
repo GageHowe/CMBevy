@@ -20,11 +20,11 @@ pub fn debug_panel(
     smoothed_fps: Res<SmoothedFps>,
     net_stats: Res<NetworkStats>,
     settings: Res<Settings>,
-    game_state: Res<State<GameState>>,
-    mut next_game: ResMut<NextState<GameState>>,
-    mut next_ui: ResMut<NextState<UiState>>,
-    mut pending_exit: ResMut<PendingExit>,
-    mut exit: MessageWriter<AppExit>,
+    _game_state: Res<State<GameState>>,
+    _next_game: ResMut<NextState<GameState>>,
+    _next_ui: ResMut<NextState<UiState>>,
+    _pending_exit: ResMut<PendingExit>,
+    _exit: MessageWriter<AppExit>,
 ) -> Result {
     if !settings.debug_panel {
         return Ok(());
