@@ -738,8 +738,9 @@ fn add_visuals(
                 BeamerChargeVisual,
                 Mesh3d(meshes.add(bevy::math::primitives::Sphere::new(0.12))),
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    emissive: LinearRgba::new(7.0, 0.15, 0.15, 1.0),
-                    base_color: Color::srgb(1.0, 0.12, 0.12),
+                    emissive: LinearRgba::new(18.0, 0.45, 0.45, 1.0),
+                    base_color: Color::srgba(1.0, 0.16, 0.16, 0.7),
+                    alpha_mode: AlphaMode::Add,
                     unlit: true,
                     ..default()
                 })),
@@ -752,8 +753,9 @@ fn add_visuals(
                 BeamerBeamVisual,
                 Mesh3d(meshes.add(bevy::math::primitives::Cuboid::new(0.08, 0.08, 1.0))),
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    emissive: LinearRgba::new(9.0, 0.18, 0.18, 1.0),
-                    base_color: Color::srgb(1.0, 0.15, 0.15),
+                    emissive: LinearRgba::new(24.0, 0.6, 0.6, 1.0),
+                    base_color: Color::srgba(1.0, 0.2, 0.2, 0.8),
+                    alpha_mode: AlphaMode::Add,
                     unlit: true,
                     ..default()
                 })),

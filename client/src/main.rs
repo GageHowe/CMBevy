@@ -5,6 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use bevy::{
     log::{Level, LogPlugin},
+    post_process::auto_exposure::AutoExposurePlugin,
     prelude::*,
     window::PresentMode,
 };
@@ -106,7 +107,7 @@ fn main() {
             }),
     );
 
-    app.add_plugins((OutlinePlugin, ColorCompressionPlugin))
+    app.add_plugins((AutoExposurePlugin, OutlinePlugin, ColorCompressionPlugin))
         .init_state::<GameState>()
         .init_state::<UiState>()
         .add_plugins(MasterPlugin)

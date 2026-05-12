@@ -64,13 +64,7 @@ pub fn spawn_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
             // post — nested to stay within Bevy's 16-item bundle arity limit
             (
                 Smaa::default(),
-                AutoExposure {
-                    range: -12.0..=4.0,
-                    speed_brighten: 0.2,
-                    speed_darken: 0.1,
-                    filter: 0.0..=0.50, // ignore 50% brightest pixels
-                    ..default()
-                },
+                AutoExposure::default(),
                 Bloom {
                     intensity: 0.4,
                     composite_mode: BloomCompositeMode::Additive, // additive = more sci-fi glow
