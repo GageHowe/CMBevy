@@ -1,7 +1,10 @@
 use bevy::{
     app::AppExit,
+    camera::Exposure,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     prelude::*,
+    post_process::auto_exposure::AutoExposure,
+    render::view::Hdr,
 };
 use bevy_egui::{EguiContexts, egui};
 use common::tick::NetworkStats;
@@ -20,6 +23,7 @@ pub fn debug_panel(
     smoothed_fps: Res<SmoothedFps>,
     net_stats: Res<NetworkStats>,
     settings: Res<Settings>,
+    camera_q: Query<(&Exposure, Has<AutoExposure>, Has<Hdr>), With<Camera3d>>,
     _game_state: Res<State<GameState>>,
     _next_game: ResMut<NextState<GameState>>,
     _next_ui: ResMut<NextState<UiState>>,
@@ -56,6 +60,13 @@ pub fn debug_panel(
                 "packet: {}",
                 net::format_packet_size(net_stats.last_packet_bytes)
             ));
+            if let Ok((exposure, auto_exposure, hdr)) = camera_q.single() {
+                let mode = if auto_exposure { "auto" } else { "manual" };
+                let hdr = if hdr { "hdr" } else { "ldr" };
+                ui.label(format!("camera ev100: {:.2} ({mode}, {hdr})", exposure.ev100));
+            } else {
+                ui.label("camera ev100: N/A");
+            }
         });
     Ok(())
 }

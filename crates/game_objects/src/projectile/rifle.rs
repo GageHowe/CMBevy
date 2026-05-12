@@ -12,7 +12,7 @@ use crate::{
 
 pub const SPEED: f32 = 600.0;
 pub const DAMAGE: f32 = 40.0;
-pub const LIFETIME: u32 = 120; // 2 seconds at 60 Hz
+pub const LIFETIME: u32 = 60; // 2 seconds at 60 Hz
 const RADIUS: f32 = 0.03;
 
 #[derive(Component, Reflect)]
@@ -155,13 +155,12 @@ impl GameObject for RifleProjectile {
 pub struct RifleProjectilePlugin;
 impl Plugin for RifleProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<RifleProjectile>()
-            .add_systems(
-                FixedUpdate,
-                tick_projectiles::<RifleProjectile>
-                    .after(step_physics)
-                    .in_set(super::AuthoritySystems),
-            );
+        app.register_game_object::<RifleProjectile>().add_systems(
+            FixedUpdate,
+            tick_projectiles::<RifleProjectile>
+                .after(step_physics)
+                .in_set(super::AuthoritySystems),
+        );
         #[cfg(feature = "client")]
         app.add_systems(bevy::prelude::Update, add_visual::<RifleProjectile>);
     }

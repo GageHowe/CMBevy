@@ -3,6 +3,9 @@ use common::GameObjectKind;
 use net::message::SpawnCommand;
 use physics::physics_world::*;
 
+// for sounds etc, will remove when possible
+#[cfg(feature = "client")]
+use super::rifle;
 use super::{Projectile, helpers, tick_projectiles};
 use crate::{
     GameObject,
@@ -10,12 +13,10 @@ use crate::{
     spawn::AppGameObjectExt,
 };
 
-pub const SPEED: f32 = rifle::SPEED;
+pub const SPEED: f32 = 600.0;
 pub const DAMAGE: f32 = 60.0;
-pub const LIFETIME: u32 = rifle::LIFETIME;
+pub const LIFETIME: u32 = 60;
 const RADIUS: f32 = 0.03;
-
-use super::rifle;
 
 #[derive(Component, Reflect)]
 pub struct PistolProjectile {
@@ -35,7 +36,7 @@ impl Default for PistolProjectile {
 impl Projectile for PistolProjectile {
     const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
     const SPEED: f32 = SPEED;
-    const KNOCKBACK: f32 = 1.5;
+    const KNOCKBACK: f32 = 0.1;
 
     fn tick(
         &mut self,

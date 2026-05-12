@@ -251,7 +251,7 @@ fn push_death_message(
         }
         (Some(_), Some(killer_name), _) => format!("{killer_name} killed {victim_name}"),
         (_, _, DamageCause::Explosion) => format!("{victim_name} blew up"),
-        (_, _, DamageCause::Collision) => format!("{victim_name} was crushed"),
+        (_, _, DamageCause::Collision) => format!("{victim_name} was flattened"),
         _ => format!("{victim_name} died"),
     };
     #[cfg(not(feature = "client"))]

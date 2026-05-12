@@ -133,7 +133,7 @@ impl Default for Settings {
             motion_blur_shutter_angle: 0.5,
             bloom_intensity: 0.5,
             bloom_threshold: 0.5,
-            color_compression: true,
+            color_compression: false,
             color_compression_steps: 24.0,
             color_compression_dither: 0.75,
             ssao_quality: SsaoQuality::Medium,
