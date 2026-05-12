@@ -153,6 +153,18 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             ui.label("Saturation").on_hover_text("Post-tonemap saturation. Lower values desaturate, higher values intensify color.");
             ui.add(egui::Slider::new(&mut settings.saturation, 0.0..=2.0).fixed_decimals(2));
         });
+
+        ui.horizontal(|ui| {
+            ui.label("Outline color").on_hover_text("Screen-space outline tint.");
+            ui.add(egui::Slider::new(&mut settings.outline_red, 0.0..=1.0).text("R").fixed_decimals(2));
+            ui.add(egui::Slider::new(&mut settings.outline_green, 0.0..=1.0).text("G").fixed_decimals(2));
+            ui.add(egui::Slider::new(&mut settings.outline_blue, 0.0..=1.0).text("B").fixed_decimals(2));
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Outline opacity").on_hover_text("Alpha of the screen-space outline overlay.");
+            ui.add(egui::Slider::new(&mut settings.outline_opacity, 0.0..=1.0).fixed_decimals(2));
+        });
     });
 
     egui::CollapsingHeader::new("Camera")

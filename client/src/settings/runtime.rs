@@ -104,11 +104,11 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
 
     if settings.auto_exposure {
         camera.insert(bevy::post_process::auto_exposure::AutoExposure {
-            range: -1.0..=16.0,
-            filter: 0.02..=0.98,
-            speed_brighten: 3.0,
-            speed_darken: 1.0,
-            exponential_transition_distance: 1.5,
+            range: -2.0..=0.0,
+            // speed_brighten: 1.5,
+            filter: 0.0..=0.99,
+            // filter: 0.10..=0.90,
+            // speed_darken: 0.75,
             ..default()
         });
     } else {
@@ -179,7 +179,12 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
     } else {
         camera.insert(OutlineSettings {
             threshold: 0.10,
-            color: Vec4::new(0.5, 0.5, 0.5, 0.03),
+            color: Vec4::new(
+                settings.outline_red.clamp(0.0, 1.0),
+                settings.outline_green.clamp(0.0, 1.0),
+                settings.outline_blue.clamp(0.0, 1.0),
+                settings.outline_opacity.clamp(0.0, 1.0),
+            ),
         });
     }
 

@@ -1,6 +1,5 @@
 use bevy::{
     app::AppExit,
-    camera::Exposure,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     prelude::*,
     post_process::auto_exposure::AutoExposure,
@@ -11,7 +10,9 @@ use common::tick::NetworkStats;
 use physics::physics_world::PhysicsWorld;
 use session::PendingExit;
 
-use crate::{GameState, UiState, settings::Settings};
+use crate::{
+    GameState, UiState, auto_exposure_debug::AutoExposureCorrection, settings::Settings,
+};
 
 #[derive(Resource, Default)]
 pub struct SmoothedFps(pub Option<f32>);
@@ -23,7 +24,8 @@ pub fn debug_panel(
     smoothed_fps: Res<SmoothedFps>,
     net_stats: Res<NetworkStats>,
     settings: Res<Settings>,
-    camera_q: Query<(&Exposure, Has<AutoExposure>, Has<Hdr>), With<Camera3d>>,
+    auto_exposure_correction: Res<AutoExposureCorrection>,
+    camera_q: Query<(Has<AutoExposure>, Has<Hdr>), With<Camera3d>>,
     _game_state: Res<State<GameState>>,
     _next_game: ResMut<NextState<GameState>>,
     _next_ui: ResMut<NextState<UiState>>,
@@ -60,12 +62,16 @@ pub fn debug_panel(
                 "packet: {}",
                 net::format_packet_size(net_stats.last_packet_bytes)
             ));
-            if let Ok((exposure, auto_exposure, hdr)) = camera_q.single() {
+            if let Ok((auto_exposure, hdr)) = camera_q.single() {
                 let mode = if auto_exposure { "auto" } else { "manual" };
                 let hdr = if hdr { "hdr" } else { "ldr" };
-                ui.label(format!("camera ev100: {:.2} ({mode}, {hdr})", exposure.ev100));
+                let correction = auto_exposure_correction
+                    .0
+                    .map(|value| format!("{value:.2}"))
+                    .unwrap_or_else(|| "N/A".to_string());
+                ui.label(format!("exposure correction: {correction} ({mode}, {hdr})"));
             } else {
-                ui.label("camera ev100: N/A");
+                ui.label("exposure correction: N/A");
             }
         });
     Ok(())

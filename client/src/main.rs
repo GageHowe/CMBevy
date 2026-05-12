@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
     window::PresentMode,
 };
+use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
 use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
@@ -27,6 +28,7 @@ use ui::{UIPlugin, window::WindowSettingsPlugin};
 mod camera;
 mod color_compression;
 mod fullscreen_post_process;
+mod auto_exposure_debug;
 mod menu;
 mod outline;
 mod reconciliation;
@@ -107,7 +109,12 @@ fn main() {
             }),
     );
 
-    app.add_plugins((AutoExposurePlugin, OutlinePlugin, ColorCompressionPlugin))
+    app.add_plugins((
+        AutoExposurePlugin,
+        AutoExposureDebugPlugin,
+        OutlinePlugin,
+        ColorCompressionPlugin,
+    ))
         .init_state::<GameState>()
         .init_state::<UiState>()
         .add_plugins(MasterPlugin)

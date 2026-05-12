@@ -80,6 +80,7 @@ struct ColorCompressionPipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
+    pipeline_id_hdr: CachedRenderPipelineId,
 }
 
 impl FromWorld for ColorCompressionPipeline {
@@ -93,7 +94,7 @@ impl FromWorld for ColorCompressionPipeline {
             ),
         );
         let layout = BindGroupLayoutDescriptor::new("color_compression_layout", &entries);
-        let (sampler, pipeline_id) = init_fullscreen_post_process(
+        let (sampler, pipeline_id, pipeline_id_hdr) = init_fullscreen_post_process(
             world,
             &layout,
             "shaders/color_compression.wgsl",
@@ -103,6 +104,7 @@ impl FromWorld for ColorCompressionPipeline {
             layout,
             sampler,
             pipeline_id,
+            pipeline_id_hdr,
         }
     }
 }
@@ -126,7 +128,12 @@ impl ViewNode for ColorCompressionNode {
         let pipeline_cache = world.resource::<PipelineCache>();
         let settings_uniforms = world.resource::<ComponentUniforms<ColorCompressionSettings>>();
 
-        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id) else {
+        let pipeline_id = if view_target.is_hdr() {
+            pipeline.pipeline_id_hdr
+        } else {
+            pipeline.pipeline_id
+        };
+        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline_id) else {
             return Ok(());
         };
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {

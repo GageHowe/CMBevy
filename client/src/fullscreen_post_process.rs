@@ -6,7 +6,7 @@ use bevy::{
             BindGroup, BindGroupLayoutDescriptor, CachedRenderPipelineId, ColorTargetState,
             ColorWrites, FragmentState, MultisampleState, Operations, PipelineCache,
             PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
-            RenderPipelineDescriptor, Sampler, SamplerDescriptor, TextureView,
+            RenderPipelineDescriptor, Sampler, SamplerDescriptor, TextureFormat, TextureView,
         },
         renderer::{RenderContext, RenderDevice},
         view::ViewTarget,
@@ -18,35 +18,39 @@ pub(crate) fn init_fullscreen_post_process(
     layout: &BindGroupLayoutDescriptor,
     shader_path: &'static str,
     pipeline_label: &'static str,
-) -> (Sampler, CachedRenderPipelineId) {
+) -> (Sampler, CachedRenderPipelineId, CachedRenderPipelineId) {
     let render_device = world.resource::<RenderDevice>();
     let sampler = render_device.create_sampler(&SamplerDescriptor::default());
     let shader = world.load_asset(shader_path);
     let fullscreen = world.resource::<FullscreenShader>().clone();
-    let pipeline_id =
-        world
-            .resource::<PipelineCache>()
-            .queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some(pipeline_label.into()),
-                layout: vec![layout.clone()],
-                vertex: fullscreen.to_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader,
-                    shader_defs: vec![],
-                    targets: vec![Some(ColorTargetState {
-                        format: ViewTarget::TEXTURE_FORMAT_HDR,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                primitive: PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
-                zero_initialize_workgroup_memory: false,
-            });
-    (sampler, pipeline_id)
+    let mut descriptor = RenderPipelineDescriptor {
+        label: Some(pipeline_label.into()),
+        layout: vec![layout.clone()],
+        vertex: fullscreen.to_vertex_state(),
+        fragment: Some(FragmentState {
+            shader,
+            shader_defs: vec![],
+            targets: vec![Some(ColorTargetState {
+                format: TextureFormat::bevy_default(),
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        primitive: PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: MultisampleState::default(),
+        push_constant_ranges: vec![],
+        zero_initialize_workgroup_memory: false,
+    };
+    let pipeline_cache = world.resource::<PipelineCache>();
+    let pipeline_id = pipeline_cache.queue_render_pipeline(descriptor.clone());
+    descriptor.fragment.as_mut().unwrap().targets[0]
+        .as_mut()
+        .unwrap()
+        .format = ViewTarget::TEXTURE_FORMAT_HDR;
+    let pipeline_id_hdr = pipeline_cache.queue_render_pipeline(descriptor);
+    (sampler, pipeline_id, pipeline_id_hdr)
 }
 
 pub(crate) fn draw_fullscreen_post_process(

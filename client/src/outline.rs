@@ -83,6 +83,7 @@ struct OutlinePipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
+    pipeline_id_hdr: CachedRenderPipelineId,
 }
 
 impl FromWorld for OutlinePipeline {
@@ -98,7 +99,7 @@ impl FromWorld for OutlinePipeline {
             ),
         );
         let layout = BindGroupLayoutDescriptor::new("outline_layout", &entries);
-        let (sampler, pipeline_id) = init_fullscreen_post_process(
+        let (sampler, pipeline_id, pipeline_id_hdr) = init_fullscreen_post_process(
             world,
             &layout,
             "shaders/outline.wgsl",
@@ -108,6 +109,7 @@ impl FromWorld for OutlinePipeline {
             layout,
             sampler,
             pipeline_id,
+            pipeline_id_hdr,
         }
     }
 }
@@ -133,7 +135,12 @@ impl ViewNode for OutlineNode {
         let pipeline_cache = world.resource::<PipelineCache>();
         let settings_uniforms = world.resource::<ComponentUniforms<OutlineSettings>>();
 
-        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id) else {
+        let pipeline_id = if view_target.is_hdr() {
+            pipeline.pipeline_id_hdr
+        } else {
+            pipeline.pipeline_id
+        };
+        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline_id) else {
             return Ok(());
         };
         let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
