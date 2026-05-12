@@ -105,7 +105,7 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
     if settings.auto_exposure {
         camera.insert(bevy::post_process::auto_exposure::AutoExposure {
             range: -1.0..=16.0,
-            filter: 0.10..=0.90,
+            filter: 0.02..=0.98,
             speed_brighten: 3.0,
             speed_darken: 1.0,
             exponential_transition_distance: 1.5,

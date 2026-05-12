@@ -7,6 +7,7 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("Shape", "physics::collider_shape::AuthoredColliderShape"),
     ("MapMeta", "game_objects::level::MapMeta"),
     ("StaticCollider", "game_objects::level::StaticCollider"),
+    ("ColliderMaterial", "game_objects::level::ColliderMaterial"),
     ("SceneModel", "game_objects::level::SceneModel"),
     ("CollisionFxMaterial", "game_objects::collision::CollisionFxMaterial"),
     ("SpawnPoint", "game_objects::level::SpawnPoint"),

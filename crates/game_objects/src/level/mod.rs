@@ -40,6 +40,14 @@ pub struct StaticCollider {
     pub scale: f32,
 }
 
+/// Scene-authored surface material for level colliders.
+#[derive(Component, Clone, Copy, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct ColliderMaterial {
+    pub friction: f32,
+    pub restitution: f32,
+}
+
 /// Client-only GLB scene attached to an authored map entity.
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
@@ -400,6 +408,7 @@ impl Plugin for LevelPlugin {
         app.register_type::<ChildOf>();
         app.register_type::<Shape>();
         app.register_type::<StaticCollider>();
+        app.register_type::<ColliderMaterial>();
         app.register_type::<SceneModel>();
         app.register_type::<SpawnPoint>();
         app.register_type::<ScriptTags>();
@@ -587,6 +596,7 @@ pub fn spawn_static_colliders(
         (
             Entity,
             &StaticCollider,
+            Option<&ColliderMaterial>,
             &Transform,
             Option<&RigidBodyHandleComponent>,
             Option<&SceneRigidBody>,
@@ -600,7 +610,7 @@ pub fn spawn_static_colliders(
     mut pending: ResMut<PendingHullColliders>,
     asset_server: Res<AssetServer>,
 ) {
-    for (entity, sc, transform, body_handle, scene_body, initial_velocity, initial_angvel) in
+    for (entity, sc, material, transform, body_handle, scene_body, initial_velocity, initial_angvel) in
         new_colliders.iter()
     {
         let s = sc.scale;
@@ -637,9 +647,10 @@ pub fn spawn_static_colliders(
             });
             continue;
         }
-        let Some(collider) = sc.shape.build_primitive_collider(s) else {
+        let Some(mut collider) = sc.shape.build_primitive_collider(s) else {
             continue;
         };
+        apply_collider_material(&mut collider, material.copied());
         attach_collider_to_body(
             entity,
             pos,
@@ -660,6 +671,7 @@ pub fn spawn_hull_colliders(
     mut world: ResMut<PhysicsWorld>,
     mut pending: ResMut<PendingHullColliders>,
     hull_assets: Res<Assets<ConvexHullAsset>>,
+    materials: Query<&ColliderMaterial>,
 ) {
     let ready: Vec<_> = pending
         .0
@@ -671,6 +683,7 @@ pub fn spawn_hull_colliders(
                     pending.position,
                     pending.rotation,
                     asset.0.clone(),
+                    materials.get(pending.entity).ok().copied(),
                     pending.body_type,
                     pending.initial_velocity,
                     pending.initial_angvel,
@@ -681,8 +694,9 @@ pub fn spawn_hull_colliders(
     pending
         .0
         .retain(|pending| hull_assets.get(&pending.hull).is_none());
-    for (entity, pos, rot, collider, body_type, linvel, angvel) in ready {
+    for (entity, pos, rot, mut collider, material, body_type, linvel, angvel) in ready {
         let existing = world.entity_to_handle.get(&entity).copied();
+        apply_collider_material(&mut collider, material);
         attach_collider_to_body(
             entity,
             pos,
@@ -744,6 +758,14 @@ pub fn draw_script_zone_debug(
         };
         draw_authored_shape(&mut gizmos, &zone.shape, center, _rotation, color);
     }
+}
+
+fn apply_collider_material(collider: &mut Collider, material: Option<ColliderMaterial>) {
+    let Some(material) = material else {
+        return;
+    };
+    collider.set_friction(material.friction);
+    collider.set_restitution(material.restitution);
 }
 
 fn attach_collider_to_body(
