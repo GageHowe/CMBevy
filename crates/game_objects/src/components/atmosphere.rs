@@ -54,16 +54,12 @@ pub struct PlanetAtmosphere {
     pub density: f32,
     /// Extra alpha multiplier after integration.
     pub opacity: f32,
-    /// Density falloff from surface to vacuum.
-    pub falloff: f32,
     /// Extra directional light gain.
     pub sun_intensity: f32,
     /// Forward-scattering amount for sun glints. `0` disables the warm forward lobe.
     pub forward_scatter: f32,
-    /// Cheap ambient floor so low-angle views do not go flat.
-    pub ambient: f32,
-    /// Fixed ray-march step count.
-    pub steps: u32,
+    /// Extra sun glint on the exterior limb.
+    pub specular: f32,
 }
 
 impl Default for PlanetAtmosphere {
@@ -74,11 +70,9 @@ impl Default for PlanetAtmosphere {
             color: Color::srgb(0.35, 0.55, 1.0),
             density: 0.08,
             opacity: 1.0,
-            falloff: 2.7,
             sun_intensity: 15.0,
             forward_scatter: 0.15,
-            ambient: 0.02,
-            steps: 12,
+            specular: 2.0,
         }
     }
 }
@@ -111,15 +105,15 @@ struct PlanetAtmosphereMaterialUniform {
     planet_radius: f32,
     atmosphere_radius: f32,
     density: f32,
-    falloff: f32,
+    specular: f32,
     opacity: f32,
     color: Vec4,
     sun_color: Vec4,
     sun_dir: Vec3,
-    ambient: f32,
+    _unused_ambient: f32,
     sun_intensity: f32,
     forward_scatter: f32,
-    steps: u32,
+    _unused_steps: u32,
     camera_pos: Vec3,
     _pad0: u32,
 }
@@ -132,15 +126,15 @@ impl Default for PlanetAtmosphereMaterialUniform {
             planet_radius: 100.0,
             atmosphere_radius: 103.0,
             density: 0.08,
-            falloff: 2.7,
+            specular: 2.0,
             opacity: 1.0,
             color: Vec4::new(0.35, 0.55, 1.0, 1.0),
             sun_color: Vec4::ONE,
             sun_dir: Vec3::Y,
-            ambient: 0.02,
+            _unused_ambient: 0.0,
             sun_intensity: 15.0,
             forward_scatter: 0.15,
-            steps: 12,
+            _unused_steps: 0,
             camera_pos: Vec3::ZERO,
             _pad0: 0,
         }
@@ -276,13 +270,11 @@ fn apply_planet_atmosphere_component(
     params.atmosphere_radius =
         (atmosphere.planet_radius + atmosphere.shell_thickness.max(0.001)).max(params.planet_radius + 0.001);
     params.density = atmosphere.density.max(0.0);
+    params.specular = atmosphere.specular.max(0.0);
     params.opacity = atmosphere.opacity.clamp(0.0, 4.0);
-    params.falloff = atmosphere.falloff.max(0.001);
     params.color = color;
-    params.ambient = atmosphere.ambient.max(0.0);
     params.sun_intensity = atmosphere.sun_intensity.max(0.0);
     params.forward_scatter = atmosphere.forward_scatter.clamp(0.0, 1.0);
-    params.steps = atmosphere.steps.clamp(1, 32);
 }
 
 #[cfg(feature = "client")]
