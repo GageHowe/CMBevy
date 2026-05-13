@@ -1,5 +1,5 @@
-target/
-dist/
+target
+dist
 *.db
 *.DS_Store
 *.exe
@@ -7,3 +7,7 @@ dist/
 Cargo.lock
 perf.data*
 assets/fmod-out
+ssh
+dev-assets/lib/steamworks_sdk_164/**
+!dev-assets/lib/steamworks_sdk_164/
+!dev-assets/lib/steamworks_sdk_164/README.md
