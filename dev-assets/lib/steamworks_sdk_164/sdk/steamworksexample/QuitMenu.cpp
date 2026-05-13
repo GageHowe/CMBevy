@@ -1,21 +1,3 @@
-//========= Copyright © 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose: Class to define the pause menu
-//
-// $NoKeywords: $
-//=============================================================================
-
-
-#include "stdafx.h"
-#include "QuitMenu.h"
-#include "SpaceWar.h"
-
-//-----------------------------------------------------------------------------
-// Purpose: Constructor
-//-----------------------------------------------------------------------------
-CQuitMenu::CQuitMenu( IGameEngine *pGameEngine ) : CBaseMenu<EClientGameState>( pGameEngine )
-{
-	AddMenuItem( MenuItem_t( "Resume Game", k_EClientGameActive ) );
-	AddMenuItem( MenuItem_t( "Exit To Menu", k_EClientGameMenu ) );
-	AddMenuItem( MenuItem_t( "Exit To Desktop", k_EClientGameExiting ) );
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:8401a25f18bd6057320cf68fffc7984614180688d3a407c866bde5234bef3334
+size 799

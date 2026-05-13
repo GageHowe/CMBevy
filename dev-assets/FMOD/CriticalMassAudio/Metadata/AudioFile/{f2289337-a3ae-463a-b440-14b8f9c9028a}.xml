@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{f2289337-a3ae-463a-b440-14b8f9c9028a}">
-		<property name="assetPath">
-			<value>Misc Ship Elements (Extra)/InsectShip_SFX/WAV/GGA_Insect_Attack_2.wav</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>0.6196666666666667</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:0a8549ef6162d229f2c550e35994940bf1f8a166399ba82190503253501f7753
+size 656

@@ -1,23 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{7ad75743-0fc8-4493-9136-dba0c0bddbca}">
-		<property name="assetPath">
-			<value>Sound design/music/more_ambient.wav</value>
-		</property>
-		<property name="isStreaming">
-			<value>true</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>109.71429166666667</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:a42f5c7caaa981f4f34110cfe05b13d8db122430361d2f68eff4a89e5dd7bbec
+size 691

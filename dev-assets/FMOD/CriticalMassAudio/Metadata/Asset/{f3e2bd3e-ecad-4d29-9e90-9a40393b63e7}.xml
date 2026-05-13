@@ -1,11 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="EncodableAsset" id="{f3e2bd3e-ecad-4d29-9e90-9a40393b63e7}">
-		<property name="assetPath">
-			<value>Sound design/music/</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:1c117cc4f78430b12a131f38430ab0e80663ec1be1051bb90fa73eb8b1c4c1fd
+size 396

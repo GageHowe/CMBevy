@@ -1,11 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="EncodableAsset" id="{5f636cc1-94ec-4afb-887c-2a9c03697cd8}">
-		<property name="assetPath">
-			<value>Sci-Fi Sniper Rifle/WAV/</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:94d29ae846e2c3f0e8086794b8695c715f16060878b253bd565367d39ee812e4
+size 401

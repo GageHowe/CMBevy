@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{75e021cf-8d81-472c-b912-c18f22b8539e}">
-		<property name="assetPath">
-			<value>switch1.ogg</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>44.0999985</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>0.31469387755102041</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:65b0d47bd175ba85123a3f0a5409f1bc78f85e62f758ed6c03a5aec25404867f
+size 607

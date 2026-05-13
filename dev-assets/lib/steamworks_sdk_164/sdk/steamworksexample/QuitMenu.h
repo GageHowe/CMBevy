@@ -1,25 +1,3 @@
-//========= Copyright © 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose: Class to define the pause game menu
-//
-// $NoKeywords: $
-//=============================================================================
-
-#ifndef QUITMENU_H
-#define QUITMENU_H
-
-#include <string>
-#include <vector>
-#include "GameEngine.h"
-#include "SpaceWar.h"
-#include "BaseMenu.h" 
-#include "SpaceWarClient.h"
-
-class CQuitMenu : public CBaseMenu<EClientGameState>
-{
-public:
-	// Constructor
-	CQuitMenu( IGameEngine *pGameEngine );
-};
-
-#endif // QUITMENU_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:4a347aa00acf7fe9657ac3b067f4c28bf0c1e6de6346e839f7722d933dfb8031
+size 573

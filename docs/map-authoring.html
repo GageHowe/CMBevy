@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Reference</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <nav>
+      <p><a href="index.html">Docs</a> / Map reference</p>
+      <h1>Map Reference</h1>
+      <p>Maps are Bevy dynamic scenes written as <code>.ron</code> files under <code>assets/maps</code>.</p>
+    </nav>
+
+    <section>
+      <h2>Scene format</h2>
+      <table>
+        <tr>
+          <th>Key</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>resources</code></td>
+          <td>Map-wide resources keyed by reflected type name.</td>
+        </tr>
+        <tr>
+          <td><code>entities</code></td>
+          <td>Entity id map. Each entity contains a <code>components</code> table.</td>
+        </tr>
+        <tr>
+          <td><code>components</code></td>
+          <td>Reflected component values keyed by short type name.</td>
+        </tr>
+      </table>
+      <p>Short type names are expanded by the level preprocessor before deserialization.</p>
+    </section>
+
+    <section>
+      <h2>Resources</h2>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Fields</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>MapMeta</code></td>
+          <td><code>visuals</code>, <code>skybox</code>, <code>skybox_brightness</code>, <code>env_light_intensity</code>, <code>ambient_light_color</code>, <code>ambient_light_brightness</code></td>
+          <td>Level-wide visual and lighting metadata.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Core scene components</h2>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Fields</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>Transform</code></td>
+          <td><code>translation</code>, <code>rotation</code>, <code>scale</code></td>
+          <td>Local transform for authored entities.</td>
+        </tr>
+        <tr>
+          <td><code>ChildOf</code></td>
+          <td>Parent entity id</td>
+          <td>Scene hierarchy parent relation.</td>
+        </tr>
+        <tr>
+          <td><code>StaticCollider</code></td>
+          <td><code>shape</code>, <code>scale</code></td>
+          <td>Fixed collider authored in the scene. World pose comes from <code>Transform</code>.</td>
+        </tr>
+        <tr>
+          <td><code>ColliderMaterial</code></td>
+          <td><code>friction</code>, <code>restitution</code></td>
+          <td>Surface material for scene-authored colliders.</td>
+        </tr>
+        <tr>
+          <td><code>SceneModel</code></td>
+          <td><code>path</code></td>
+          <td>Client-only GLB scene path attached to an entity.</td>
+        </tr>
+        <tr>
+          <td><code>SpawnPoint</code></td>
+          <td><code>team</code></td>
+          <td>Player or bot spawn location.</td>
+        </tr>
+        <tr>
+          <td><code>Spawner</code></td>
+          <td><code>kind</code>, <code>respawn_delay_secs</code>, <code>gc_after_secs</code></td>
+          <td>Respawning world object spawner for weapons, vehicles, pickups, or pawns.</td>
+        </tr>
+        <tr>
+          <td><code>ScriptTags</code></td>
+          <td><code>tags</code></td>
+          <td>String tags visible to gametype scripts.</td>
+        </tr>
+        <tr>
+          <td><code>ScriptZone</code></td>
+          <td><code>shape</code></td>
+          <td>Script-visible query volume evaluated in world space.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Physics and motion types</h2>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Fields or variants</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>Shape</code></td>
+          <td>Authoring shape enum</td>
+          <td>Collider or query volume shape used by <code>StaticCollider</code> and <code>ScriptZone</code>.</td>
+        </tr>
+        <tr>
+          <td><code>SceneRigidBody</code></td>
+          <td><code>Fixed</code>, <code>Dynamic</code>, <code>Kinematic</code></td>
+          <td>Rigid body mode for scene-authored physics bodies.</td>
+        </tr>
+        <tr>
+          <td><code>InitialVelocity</code></td>
+          <td><code>(Vec3)</code></td>
+          <td>Initial linear velocity for scene-authored bodies.</td>
+        </tr>
+        <tr>
+          <td><code>InitialAngularVelocity</code></td>
+          <td><code>(Vec3)</code></td>
+          <td>Initial angular velocity for scene-authored bodies.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Gameplay-oriented map types</h2>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Fields or variants</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>GravityProfile</code></td>
+          <td><code>InverseSquare(f32)</code>, <code>Linear(f32)</code>, <code>Constant(f32)</code></td>
+          <td>Strength curve for gravity authored by a <code>GravitySource</code>.</td>
+        </tr>
+        <tr>
+          <td><code>GravityKind</code></td>
+          <td><code>Point</code>, <code>Axis(Vec3)</code></td>
+          <td>Planet-style center pull or ring-style axis behavior.</td>
+        </tr>
+        <tr>
+          <td><code>GravitySource</code></td>
+          <td><code>kind</code>, <code>inner_radius</code>, <code>radius</code>, <code>half_width</code>, <code>profile</code></td>
+          <td>Authored gravity volume.</td>
+        </tr>
+        <tr>
+          <td><code>SnapKind</code></td>
+          <td><code>Point</code>, <code>Axis(Vec3)</code></td>
+          <td>How biped up-direction is chosen.</td>
+        </tr>
+        <tr>
+          <td><code>SnapSource</code></td>
+          <td><code>kind</code>, <code>inner_radius</code>, <code>radius</code>, <code>half_width</code></td>
+          <td>Authored orientation source for bipeds.</td>
+        </tr>
+        <tr>
+          <td><code>ZoneEffectKind</code></td>
+          <td><code>Safe</code>, <code>OutOfBounds</code></td>
+          <td>Zone effect behavior.</td>
+        </tr>
+        <tr>
+          <td><code>ZoneEffectRegion</code></td>
+          <td><code>Inside</code>, <code>Outside</code></td>
+          <td>Whether the effect applies inside or outside the zone shape.</td>
+        </tr>
+        <tr>
+          <td><code>ZoneEffect</code></td>
+          <td><code>kind</code>, <code>region</code>, <code>priority</code>, <code>countdown_secs</code>, <code>damage_fraction_per_sec</code></td>
+          <td>Zone-driven safe or harmful gameplay effect.</td>
+        </tr>
+        <tr>
+          <td><code>CollisionFxMaterial</code></td>
+          <td><code>Dust</code>, <code>Sparks</code></td>
+          <td>Client-side impact effect material for collision reactions.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Client-only presentation types</h2>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Fields</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>AreaReverbComponent</code></td>
+          <td><code>min_distance</code>, <code>max_distance</code></td>
+          <td>Client audio reverb zone.</td>
+        </tr>
+        <tr>
+          <td><code>PlanetAtmosphere</code></td>
+          <td><code>planet_radius</code>, <code>shell_thickness</code>, <code>color</code>, <code>density</code>, <code>opacity</code>, <code>sun_intensity</code>, <code>forward_scatter</code>, <code>specular</code></td>
+          <td>Client-rendered atmosphere shell around a planet-like body.</td>
+        </tr>
+        <tr>
+          <td><code>DirectionalLight</code></td>
+          <td>Bevy light fields</td>
+          <td>Authorable scene lighting.</td>
+        </tr>
+        <tr>
+          <td><code>CascadeShadowConfig</code></td>
+          <td>Bevy shadow cascade fields</td>
+          <td>Directional light cascade tuning.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Conventions</h2>
+      <ul>
+        <li>Short names such as <code>MapMeta</code> and <code>ScriptZone</code> are loader conveniences, not engine-native type paths.</li>
+        <li>Map and gametype agreements such as a tag named <code>hill</code> are conventions, not built-in contracts.</li>
+        <li>Child transforms and parent rigid bodies affect world-space spawning and zone evaluation.</li>
+      </ul>
+      <p><a href="map-examples.html">Examples, conventions, and snippets</a></p>
+    </section>
+  </main>
+</body>
+</html>

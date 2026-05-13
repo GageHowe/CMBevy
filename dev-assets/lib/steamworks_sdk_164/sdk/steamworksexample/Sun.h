@@ -1,27 +1,3 @@
-//========= Copyright © 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose: Class for rendering the sun
-//
-// $NoKeywords: $
-//=============================================================================
-
-#ifndef SUN_H
-#define SUN_H
-
-#include "GameEngine.h"
-#include "SpaceWarEntity.h"
-
-#define SUN_VECTOR_SCALE_FACTOR 14
-
-class CSun : public CSpaceWarEntity
-{
-public:
-	// Constructor
-	CSun( IGameEngine *pGameEngine );
-
-	// Run a frame
-	void RunFrame();
-
-};
-
-#endif // SUN_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:2f6bf28ad0f5300a982b87341be4aad1bee8dd308eb8e92529d46d2e46695cdf
+size 521

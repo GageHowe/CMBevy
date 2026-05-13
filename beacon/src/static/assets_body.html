@@ -1,0 +1,74 @@
+<section class="stack">
+    <h1>Asset Uploads</h1>
+    <p>
+        Upload a file to get a `sha256:...` hash. Map files can
+        reference that hash later to download and use that file.
+    </p>
+</section>
+
+<section class="stack">
+    <h2>Upload</h2>
+    <div class="row">
+        <input
+            id="asset-file"
+            class="hidden"
+            type="file"
+            onchange="updateSelectedFile()"
+        />
+        <button
+            type="button"
+            class="ghost"
+            onclick="document.getElementById('asset-file').click()"
+        >
+            Choose file
+        </button>
+        <span id="selected-file" class="status">No file selected.</span>
+    </div>
+    <div class="row">
+        <button
+            id="upload-button"
+            type="button"
+            onclick="uploadSelectedFile()"
+        >
+            Upload
+        </button>
+    </div>
+    <p id="upload-status" class="muted">No upload in progress.</p>
+    <div id="upload-result" class="stack" hidden>
+        <label for="asset-hash">Hash</label>
+        <input id="asset-hash" class="grow" type="text" readonly />
+    </div>
+</section>
+
+<section class="stack">
+    <div class="footer">
+        <h2>Uploaded Files</h2>
+        <button
+            type="button"
+            class="ghost"
+            hx-get="/assets/list"
+            hx-include="#asset-filter"
+            hx-target="#asset-list"
+            hx-indicator="#asset-spinner"
+        >
+            Refresh
+        </button>
+    </div>
+    <div class="row">
+        <input
+            class="grow"
+            id="asset-filter"
+            name="q"
+            type="text"
+            placeholder="Filter by name or hash..."
+            hx-get="/assets/list"
+            hx-trigger="load, input changed delay:200ms"
+            hx-target="#asset-list"
+            hx-indicator="#asset-spinner"
+        />
+        <span id="asset-spinner" class="htmx-indicator">↻</span>
+    </div>
+    <div id="asset-list">
+        <div class="empty">Loading assets...</div>
+    </div>
+</section>

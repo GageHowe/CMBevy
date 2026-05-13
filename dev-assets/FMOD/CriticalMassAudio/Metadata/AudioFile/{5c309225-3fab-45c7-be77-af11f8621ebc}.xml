@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{5c309225-3fab-45c7-be77-af11f8621ebc}">
-		<property name="assetPath">
-			<value>Ship/Raw/MP3/GGA_Ship_Fire v1 (1).mp3</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>0.504</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:4917907414a980d1d536dc871bd3e5d62353e3dee79c42e8f6ccf38726e28d4f
+size 611

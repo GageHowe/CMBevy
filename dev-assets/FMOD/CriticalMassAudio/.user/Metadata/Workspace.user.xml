@@ -1,23 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="Workspace" id="{e9b59e36-a80d-4677-b918-517a8bdaadab}">
-		<relationship name="projectSettings">
-			<destination>{b80d1320-97a0-4a4e-a199-a95111816e8d}</destination>
-		</relationship>
-		<relationship name="changelist">
-			<destination>{4ce12d57-cdd9-44d5-bf4c-e03fa52ebe42}</destination>
-		</relationship>
-	</object>
-	<object class="ProjectSettings" id="{b80d1320-97a0-4a4e-a199-a95111816e8d}">
-		<property name="openWindows">
-			<value>Event Editor 1</value>
-		</property>
-		<property name="windowLayout">
-			<value>AAAABgAAABYAQQB1AGQAaQBvACAAQgBpAG4AIAAxAAAAQgHZ0MsAAwAAAAACjgAAAJAAAAQdAAADfQAAAo4AAACuAAAEHQAAA30AAAAAAAAAAAarAAACjgAAAK4AAAQdAAADfQAAABwARQB2AGUAbgB0ACAARQBkAGkAdABvAHIAIAAxAAAAQgHZ0MsAAwAAAAAAAAAAAAAAAAf/AAAEtwAAAcAAAACoAAAFvwAAAksAAAAAAgAAAAgAAAAAAAAAAAAAAAf/AAAEtwAAAA4ATQBpAHgAZQByACAAMQAAAEIB2dDLAAMAAAAAAAAAAAAAAAAH/wAABLcAAAABAAAAHgAABCsAAAQoAAAAAAIAAAAIAAAAAAAAAAAAAAAH/wAABLcAAAAOAE0AaQB4AGUAcgAgADIAAABCAdnQywADAAAAAAAAAAAAAAAAB/8AAAS3AAAAAAAAAAAAAASNAAADVAAAAAACAAAACAAAAAAAAAAAAAAAB/8AAAS3AAAAHgBNAGkAeABlAHIAIABSAG8AdQB0AGkAbgBnACAAMQAAAEIB2dDLAAMAAAAAAOUAAAC1AAAEtAAAA9UAAADlAAAA0wAABLQAAAPVAAAAAAAAAAAGqwAAAOUAAADTAAAEtAAAA9UAAAAoAFAAYQByAGEAbQBlAHQAZQByAHMAIABCAHIAbwB3AHMAZQByACAAMQAAAEIB2dDLAAMAAAAAAAAAAAAAAAAC1QAAAs8AAAAAAAAAAAAAAtUAAALPAAAAAAAAAAAIAAAAAAAAAAAAAAAC1QAAAs8=</value>
-		</property>
-		<relationship name="activePlatform">
-			<destination>{dcea8fcd-4b38-4ea2-9daa-4987eac7d62f}</destination>
-		</relationship>
-	</object>
-	<object class="WorkspaceChangelist" id="{4ce12d57-cdd9-44d5-bf4c-e03fa52ebe42}" />
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:5acbae3229054df2a6a8f4d3305bcc5da0df4b5be5fcee7a562dcd8da157ed2c
+size 1669

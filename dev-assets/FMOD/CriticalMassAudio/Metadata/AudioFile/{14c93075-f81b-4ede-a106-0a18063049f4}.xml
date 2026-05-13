@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{14c93075-f81b-4ede-a106-0a18063049f4}">
-		<property name="assetPath">
-			<value>Ship/Raw/WAV/GGA_Ship_Fire Lock-on Loop (Far).wav</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>3.2080000000000002</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:2a1c662f5c2070192adebdbc51a377b24f7c5f31de8d79961b9510526a3b9f25
+size 636

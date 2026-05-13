@@ -1,11 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="Bank" id="{e423dce0-84ba-4fb2-86c1-70af65303fba}">
-		<property name="name">
-			<value>Music</value>
-		</property>
-		<relationship name="folder">
-			<destination>{47c45b0d-6dae-4c08-aee6-53e5b964c2c8}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:b292ef322b5cb97825b00cdd5e18854f582ccdf502a40e1b14bdbe9e515e5b5f
+size 356

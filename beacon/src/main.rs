@@ -1,6 +1,8 @@
+mod auth;
 mod assets;
 mod beacon_routes;
 mod db;
+mod ui;
 
 use std::{
     collections::HashMap,
@@ -21,6 +23,7 @@ use rusqlite::Connection;
 pub(crate) struct AppState {
     pub(crate) db: Arc<Mutex<Connection>>,
     pub(crate) lobbies: Arc<Mutex<HashMap<String, LobbyInfo>>>,
+    pub(crate) steam: auth::SteamAuthConfig,
 }
 
 #[tokio::main]
@@ -31,6 +34,7 @@ async fn main() {
     let state = AppState {
         db,
         lobbies: Arc::new(Mutex::new(HashMap::new())),
+        steam: auth::SteamAuthConfig::from_env(),
     };
 
     let app = Router::new()
@@ -41,6 +45,12 @@ async fn main() {
         .route("/assets/list", get(assets::list_partial))
         .route("/assets/{hash}", get(assets::get).put(assets::put))
         .route("/assets/{hash}/vote/{vote}", post(assets::vote))
+        .route("/auth/register/standalone", post(auth::register_standalone))
+        .route("/auth/login/standalone", post(auth::login_standalone))
+        .route("/auth/login/provider", post(auth::login_provider))
+        .route("/auth/link/provider", post(auth::link_provider))
+        .route("/auth/logout", post(auth::logout))
+        .route("/auth/session/{token}", get(auth::session))
         .route("/beacon", get(beacon_routes::serve_ui))
         .route("/lobbies", get(beacon_routes::list_json))
         .route("/lobbies/partial", get(beacon_routes::list_partial))

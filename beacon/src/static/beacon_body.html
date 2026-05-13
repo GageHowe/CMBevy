@@ -1,0 +1,34 @@
+<section class="stack">
+    <h1>Lobbies</h1>
+    <p>Browse registered lobbies.</p>
+</section>
+
+<section class="stack">
+    <div class="row">
+        <input
+            class="grow"
+            type="text"
+            placeholder="Search lobbies..."
+            id="search"
+            oninput="filterLobbies(this.value)"
+        />
+        <button
+            hx-get="/lobbies/partial"
+            hx-target="#lobby-grid"
+            hx-trigger="click"
+            hx-indicator="#spinner"
+        >
+            Refresh
+        </button>
+        <span id="spinner" class="htmx-indicator">↻</span>
+    </div>
+
+    <div
+        id="lobby-grid"
+        hx-get="/lobbies/partial"
+        hx-trigger="load, every 5s"
+        hx-swap="innerHTML"
+    >
+        <div class="empty">Loading lobbies...</div>
+    </div>
+</section>

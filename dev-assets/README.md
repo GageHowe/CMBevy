@@ -1,5 +1,3 @@
-# dev-assets
-
-this folder is for assets that users don't need to have access to. This includes FMOD, .hdri, .blend, and assets that aren't currently used in the game.
-
-for dynamically linked libraries, these should be copied into the client's build.
+version https://git-lfs.github.com/spec/v1
+oid sha256:4d71af6d97f1f39c36c5b04b0b24d6a13cc8abd7ac52ef92903378a17788fab4
+size 250

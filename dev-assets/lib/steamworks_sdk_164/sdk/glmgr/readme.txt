@@ -1,11 +1,3 @@
-================================================================
-
-Copyright © 1996-2011, Valve Corporation, All rights reserved.
-
-================================================================
-
-OSX DirectX to OpenGL Conversion Library
-
-Contains all support files required to assist in converting DirectX applications to OpenGL on OSX. For reference,
-this library can be enabled in the Steamworks Example by building with the compile time flag DX9MODE=1.
-
+version https://git-lfs.github.com/spec/v1
+oid sha256:55cec50415d758874e6f0febeacee85f74e14daad923d49aba92eb40ca55bed2
+size 468

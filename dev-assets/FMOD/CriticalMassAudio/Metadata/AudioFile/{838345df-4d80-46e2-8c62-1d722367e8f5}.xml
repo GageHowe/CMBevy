@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{838345df-4d80-46e2-8c62-1d722367e8f5}">
-		<property name="assetPath">
-			<value>Sci-Fi Sniper Rifle/WAV/GGA_Sci-fi Sniper_Ammo Pickup (2).wav</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>0.15466666666666667</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:df13a3235c941542113130ea9d3e4ee73fd1b31eb5229716dbc3c3f8c2c37c5b
+size 649

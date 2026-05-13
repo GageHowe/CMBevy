@@ -1,12 +1,3 @@
-"sku"
-{
-	"name" "Steamworks Spacewar"
-	"appID"				"480"
-	"disk_size_mb"		4700
-
-	"included_depots"
-	{
-		"1"	"481"
-	//  "2"	"482" more depots if needed
-	}
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:8a94d9c431159535445c8fdc602e6c98d5a7607c9bf38683c3b0080ed9c454d0
+size 167

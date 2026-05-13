@@ -13,7 +13,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{AppState, db};
+use crate::{
+    AppState, db,
+    ui::{self, Page},
+};
 
 const FILENAME_HEADER: &str = "x-asset-filename";
 
@@ -29,8 +32,13 @@ pub(crate) struct AssetUploadResponse {
     size_bytes: usize,
 }
 
-pub(crate) async fn serve_ui() -> Html<&'static str> {
-    Html(include_str!("static/assets.html"))
+pub(crate) async fn serve_ui() -> Html<String> {
+    ui::page(
+        "Critical Mass Assets",
+        Page::Assets,
+        include_str!("static/assets_body.html"),
+        include_str!("static/assets.js"),
+    )
 }
 
 pub(crate) async fn upload(

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Examples and Conventions</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <nav>
+      <p><a href="index.html">Docs</a> / Map examples, conventions, and snippets</p>
+      <h1>Map Examples, Conventions, and Snippets</h1>
+      <p>Examples taken from current assets. They are conventions, not built-in contracts.</p>
+    </nav>
+
+    <section>
+      <h2>Minimal map snippet</h2>
+<pre><code>(
+  resources: {
+    "MapMeta": (
+      visuals: [],
+      skybox: Some("textures/skyboxes/HDR_rich_blue_nebulae_1.ktx2"),
+      skybox_brightness: 1000.0,
+      env_light_intensity: 100.0,
+      ambient_light_color: Srgba((
+        red: 1.0,
+        green: 1.0,
+        blue: 1.0,
+        alpha: 1.0,
+      )),
+      ambient_light_brightness: 20.0,
+    ),
+  },
+  entities: {
+    1: (
+      components: {
+        "StaticCollider": (
+          shape: Ball(500.0),
+          scale: 1.0,
+        ),
+        "Transform": (
+          translation: (0.0, 0.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    2: (
+      components: {
+        "SpawnPoint": ( team: 0 ),
+        "Transform": (
+          translation: (0.0, 520.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+  },
+)</code></pre>
+    </section>
+
+    <section>
+      <h2>Convention: tag-driven zone lookup</h2>
+      <p>A mode can decide that a map entity tagged <code>hill</code> is the scoring zone.</p>
+<pre><code>"ScriptZone": (
+  shape: Ball(180.0),
+),
+"ScriptTags": (
+  tags: ["hill"],
+),</code></pre>
+      <p>The engine does not reserve the tag name <code>hill</code>. The map and mode agree on it by convention.</p>
+    </section>
+
+    <section>
+      <h2>Snippet: rotating ring surface</h2>
+<pre><code>"StaticCollider": (
+  shape: ConvexHulls("collision/ring_collision.obj"),
+  scale: 1.0,
+),
+"SceneRigidBody": Kinematic,
+"InitialAngularVelocity": ((0.14, 0.0, 0.0)),
+"SnapSource": (
+  kind: Axis((1.0, 0.0, 0.0)),
+  inner_radius: 0,
+  radius: 1000,
+  half_width: 250,
+),</code></pre>
+    </section>
+
+    <section>
+      <h2>Snippet: respawning world object</h2>
+<pre><code>"Spawner": (
+  kind: Rifle,
+  respawn_delay_secs: 10.0,
+  gc_after_secs: Some(30.0),
+),</code></pre>
+    </section>
+
+    <section>
+      <h2>Snippet: out-of-bounds zone</h2>
+<pre><code>"ScriptZone": (
+  shape: Ball(1800.0),
+),
+"ZoneEffect": (
+  kind: OutOfBounds,
+  region: Outside,
+  priority: 0,
+  countdown_secs: 10.0,
+  damage_fraction_per_sec: 0.25,
+),</code></pre>
+    </section>
+
+    <section>
+      <h2>Conventions</h2>
+      <ul>
+        <li>Prefer string tags and query zones for map-to-mode integration.</li>
+        <li>Use <code>ChildOf</code> when objects should inherit parent motion and authored local space.</li>
+        <li>When a parent body moves or spins, downstream spawning and zone world pose will follow that parent.</li>
+      </ul>
+      <p><a href="map-authoring.html">Back to map reference</a></p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,22 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="ParameterPreset" id="{47aa6320-7c9a-4d63-8590-dc7d91d9dbe5}">
-		<property name="name">
-			<value>AtmosphereReverb</value>
-		</property>
-		<relationship name="folder">
-			<destination>{6a5dcacb-0d09-4965-a14f-6de4ccf43f7e}</destination>
-		</relationship>
-		<relationship name="parameter">
-			<destination>{01896eb4-d488-4415-9416-58ce44421d54}</destination>
-		</relationship>
-	</object>
-	<object class="GameParameter" id="{01896eb4-d488-4415-9416-58ce44421d54}">
-		<property name="isHeld">
-			<value>true</value>
-		</property>
-		<property name="initialValue">
-			<value>0</value>
-		</property>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:3ad8de1ea6a8d29ffd3471fc87143ce764b45cf4f667fcc5270002739ccf6d73
+size 717

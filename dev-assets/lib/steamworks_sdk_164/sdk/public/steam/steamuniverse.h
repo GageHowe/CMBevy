@@ -1,27 +1,3 @@
-//========= Copyright � 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose:
-//
-//=============================================================================
-
-#ifndef STEAMUNIVERSE_H
-#define STEAMUNIVERSE_H
-#ifdef _WIN32
-#pragma once
-#endif
-
-
-// Steam universes.  Each universe is a self-contained Steam instance.
-enum EUniverse
-{
-	k_EUniverseInvalid = 0,
-	k_EUniversePublic = 1,
-	k_EUniverseBeta = 2,
-	k_EUniverseInternal = 3,
-	k_EUniverseDev = 4,
-	// k_EUniverseRC = 5,				// no such universe anymore
-	k_EUniverseMax
-};
-
-
-#endif // STEAMUNIVERSE_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:91b43f660be112f6496eb26480732b28a9981fc7a48c78a41c90966e802b05a3
+size 599

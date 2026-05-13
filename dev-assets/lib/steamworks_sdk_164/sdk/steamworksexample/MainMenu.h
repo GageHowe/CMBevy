@@ -1,30 +1,3 @@
-//========= Copyright © 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose: Class to define the main game menu
-//
-// $NoKeywords: $
-//=============================================================================
-
-#ifndef MAINMENU_H
-#define MAINMENU_H
-
-#include <string>
-#include <vector>
-#include "GameEngine.h"
-#include "SpaceWar.h"
-#include "BaseMenu.h"
-#include "SpaceWarClient.h"
-
-class CMainMenu : public CBaseMenu<EClientGameState>
-{
-public:
-	// Constructor
-	CMainMenu( IGameEngine *pGameEngine );
-
-	void SetupMenu();
-
-private:
-	STEAM_CALLBACK( CMainMenu, OnParentalSettingsChanged, SteamParentalSettingsChanged_t );
-};
-
-#endif // MAINMENU_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:61e43dce23c2df6bca891d57369cc8a3cf7b58507ad48a059ee7da709d1fef6d
+size 695

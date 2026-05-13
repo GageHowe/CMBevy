@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{5a098f18-891f-4efe-aa8a-216d7ce415ea}">
-		<property name="assetPath">
-			<value>Misc Ship Elements (Extra)/EnemyShip_SFX/MP3/GGA_Enemy_Attack_3.mp3</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>0.33600000000000002</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:dd8b17023e7fb6fef71372d4a5b2660e5ec6af2802c0ef0d987114a3aeadacfb
+size 655

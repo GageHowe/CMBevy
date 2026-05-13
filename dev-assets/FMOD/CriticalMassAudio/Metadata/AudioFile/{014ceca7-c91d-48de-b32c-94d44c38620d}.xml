@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{014ceca7-c91d-48de-b32c-94d44c38620d}">
-		<property name="assetPath">
-			<value>Ship/Muffled/WAV/GGA_Ship_Muffled_Fire v4 Reference.wav</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>3.0773333333333333</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:8586c91c829f7e8db56d546be88f0981639cb30fe42e3a5208ffa067f24fe5e3
+size 642

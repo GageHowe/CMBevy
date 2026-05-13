@@ -1,11 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="Bank" id="{21288ad1-fa4b-4c5c-b2d6-f6df3c6f75bd}">
-		<property name="name">
-			<value>UI</value>
-		</property>
-		<relationship name="folder">
-			<destination>{47c45b0d-6dae-4c08-aee6-53e5b964c2c8}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:7d7216cb2d7bc4de4c733630915f3f71b139265cd72f93b6783bd0ef0bb79078
+size 353

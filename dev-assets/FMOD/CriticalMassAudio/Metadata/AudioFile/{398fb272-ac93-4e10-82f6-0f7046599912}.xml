@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{398fb272-ac93-4e10-82f6-0f7046599912}">
-		<property name="assetPath">
-			<value>Misc Ship Elements (Extra)/EnemyShip_SFX/WAV/GGA_Enemy_Death_2.wav</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>4.1230000000000002</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:07bdc7d32b9dfb80d18c101eadd3ba7c764f68e63707c25f199e03d5803402f4
+size 653

@@ -8,10 +8,18 @@ use axum::{
 };
 use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
 
-use crate::AppState;
+use crate::{
+    AppState,
+    ui::{self, Page},
+};
 
-pub(crate) async fn serve_ui() -> Html<&'static str> {
-    Html(include_str!("static/beacon.html"))
+pub(crate) async fn serve_ui() -> Html<String> {
+    ui::page(
+        "Critical Mass Beacon",
+        Page::Lobbies,
+        include_str!("static/beacon_body.html"),
+        include_str!("static/beacon.js"),
+    )
 }
 
 pub(crate) async fn register(

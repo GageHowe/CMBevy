@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gametype Examples and Conventions</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <nav>
+      <p><a href="index.html">Docs</a> / Gametype examples, conventions, and snippets</p>
+      <h1>Gametype Examples, Conventions, and Snippets</h1>
+      <p>Examples taken from current scripts. They demonstrate patterns, not engine-mandated contracts.</p>
+    </nav>
+
+    <section>
+      <h2>Minimal scoring mode</h2>
+<pre><code>RESPAWN_DELAY = 5.0
+TEAMS_ENABLED = false
+SCORING = "score_to_win"
+LEADERBOARD_SCOPE = "player"
+LEADERBOARD_NUMBER_INDEX = 0
+SCORE_TO_WIN = 25
+TIME_LIMIT_SECS = 600.0
+TEAM_COUNT = 2
+LEADERBOARD_LABEL = "Kills"
+PRIMARY_OBJECTIVE_LABEL = "Eliminate enemies"
+
+function on_player_killed(victim, killer)
+    if not IS_SERVER then
+        return
+    end
+    if killer == nil or killer == victim then
+        return
+    end
+    add_player_number(killer, 0, 1)
+    if get_player_number(killer, 0) >= SCORE_TO_WIN then
+        end_game_with_player_winner(killer)
+    end
+end</code></pre>
+    </section>
+
+    <section>
+      <h2>Convention: map tag lookup</h2>
+<pre><code>local hill = get_first_tagged("hill")
+if hill == nil then
+    return
+end
+
+for _, entity in ipairs(get_entities_in_zone(hill)) do
+    if is_player(entity) then
+        add_player_number(entity, PLAYER_NUMBER.score, 1)
+    end
+end</code></pre>
+      <p>This works only if the map author chooses the same <code>hill</code> convention.</p>
+    </section>
+
+    <section>
+      <h2>Snippet: authoritative guard</h2>
+<pre><code>function on_fixed_tick()
+    if not IS_SERVER then
+        return
+    end
+
+    -- authoritative logic here
+end</code></pre>
+    </section>
+
+    <section>
+      <h2>Snippet: bot spawning</h2>
+<pre><code>local bot = spawn_bot(0, "killer")
+if bot ~= nil then
+    give_weapon(bot, "beamer")
+end</code></pre>
+    </section>
+
+    <section>
+      <h2>Conventions</h2>
+      <ul>
+        <li>Guard authoritative state changes with <code>IS_SERVER</code>.</li>
+        <li>Use top-level config globals for round metadata and HUD labels.</li>
+        <li>Use tags and zones to bind a mode to map-authored areas.</li>
+        <li>Document any custom tag names, counter indices, or expected zone layouts next to the script.</li>
+      </ul>
+      <p><a href="gametype-authoring.html">Back to gametype reference</a></p>
+    </section>
+  </main>
+</body>
+</html>

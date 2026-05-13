@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{111a2731-78de-4d0a-bfab-c31d1222baf8}">
-		<property name="assetPath">
-			<value>Misc Ship Elements (Extra)/InsectShip_SFX/MP3/GGA_Insect_Pain_3.mp3</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>0.79200000000000004</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:39a703beefb80e43ecf73dab661466a9fab0471db280d93f97af4788f8833655
+size 655

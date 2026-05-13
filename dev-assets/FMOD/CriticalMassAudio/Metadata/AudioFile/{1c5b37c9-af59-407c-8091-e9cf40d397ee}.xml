@@ -1,20 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="AudioFile" id="{1c5b37c9-af59-407c-8091-e9cf40d397ee}">
-		<property name="assetPath">
-			<value>Ship/Muffled/MP3/GGA_Ship_Muffled_Barrel Roll v1.mp3</value>
-		</property>
-		<property name="frequencyInKHz">
-			<value>48</value>
-		</property>
-		<property name="channelCount">
-			<value>2</value>
-		</property>
-		<property name="length">
-			<value>1.6559999999999999</value>
-		</property>
-		<relationship name="masterAssetFolder">
-			<destination>{d64ce7c3-6fdd-43fb-987b-ebc484bf3a35}</destination>
-		</relationship>
-	</object>
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:283c30b5199683cb17b7627d4447c4831d3a15dc284139e13e3ea52b7a864b2d
+size 639

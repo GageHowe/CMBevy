@@ -1,10 +1,3 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-	<trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
-	  <security>
-	    <requestedPrivileges>
-	      <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
-	    </requestedPrivileges>
-	  </security>
-	</trustInfo>
-</assembly>
+version https://git-lfs.github.com/spec/v1
+oid sha256:1b3e41645b50354f9e032014b51e126288452dfe4520843c3378003e06c16fd2
+size 371

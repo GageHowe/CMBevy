@@ -1,27 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<objects serializationModel="Studio.02.03.00">
-	<object class="MixerGroup" id="{2ec6632e-33e1-4f55-9524-05d66f659084}">
-		<property name="color">
-			<value>Green</value>
-		</property>
-		<property name="name">
-			<value>Music</value>
-		</property>
-		<relationship name="effectChain">
-			<destination>{1cfc209f-bce9-42e9-9022-1a18e0b6f6ee}</destination>
-		</relationship>
-		<relationship name="panner">
-			<destination>{ac664520-36d0-4dbd-8a79-4c10da78b9c9}</destination>
-		</relationship>
-		<relationship name="output">
-			<destination>{9d8424e5-8cfe-4ed0-8f2f-de1479c16c18}</destination>
-		</relationship>
-	</object>
-	<object class="MixerBusEffectChain" id="{1cfc209f-bce9-42e9-9022-1a18e0b6f6ee}">
-		<relationship name="effects">
-			<destination>{b26744f3-0225-4f2e-a5f1-8dd9ad08e0cc}</destination>
-		</relationship>
-	</object>
-	<object class="MixerBusPanner" id="{ac664520-36d0-4dbd-8a79-4c10da78b9c9}" />
-	<object class="MixerBusFader" id="{b26744f3-0225-4f2e-a5f1-8dd9ad08e0cc}" />
-</objects>
+version https://git-lfs.github.com/spec/v1
+oid sha256:ba95d1be1b6f21c68d11ab9f9da387a8f749758af8d4686ede7e20fedf34f706
+size 1036

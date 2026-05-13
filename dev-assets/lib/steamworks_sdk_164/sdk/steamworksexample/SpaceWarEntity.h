@@ -1,31 +1,3 @@
-//========= Copyright © 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose: A SpaceWarEntity is just like a VectorEntity, except it knows how
-//			to apply gravity from the SpaceWar Sun
-//
-// $NoKeywords: $
-//=============================================================================
-
-#ifndef SPACEWARENTITY_H
-#define SPACEWARENTITY_H
-
-#include "GameEngine.h"
-#include "VectorEntity.h"
-
-class CSpaceWarEntity : public CVectorEntity
-{
-public:
-	// Constructor
-	CSpaceWarEntity( IGameEngine *pGameEngine, uint32 uCollisionRadius, bool bAffectedByGravity );
-
-	// Destructor
-	virtual ~CSpaceWarEntity() { return; }
-
-	// Run Frame
-	void RunFrame();
-
-private:
-	bool m_bAffectedByGravity;
-};
-
-#endif // SPACEWARENTITY_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:e691d20ba83fefecc3f5eecc61aca8008808e5507317107d71b42aeaa69c8094
+size 763

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gametype Reference</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <nav>
+      <p><a href="index.html">Docs</a> / Gametype reference</p>
+      <h1>Gametype Reference</h1>
+      <p>Gametype scripts are Lua files under <code>assets/gametypes</code>.</p>
+    </nav>
+
+    <section>
+      <h2>Runtime features</h2>
+      <table>
+        <tr>
+          <th>Feature</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td>Lua source file</td>
+          <td>Gametypes are plain Lua scripts loaded from <code>assets/gametypes</code> or sent over the network.</td>
+        </tr>
+        <tr>
+          <td>Shared client/server execution</td>
+          <td>The same script runs on both sides. Use <code>IS_SERVER</code> to guard authority-only behavior.</td>
+        </tr>
+        <tr>
+          <td>Hook-based execution</td>
+          <td>Specific function names are called by Rust when present.</td>
+        </tr>
+        <tr>
+          <td>ModeConfig globals</td>
+          <td>Specific top-level globals are read once to populate authoritative mode metadata.</td>
+        </tr>
+        <tr>
+          <td>Script API globals</td>
+          <td>Rust registers a fixed set of callable Lua functions for world queries and round control.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Hook functions</h2>
+      <table>
+        <tr>
+          <th>Hook</th>
+          <th>Arguments</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>on_tick</code></td>
+          <td>none</td>
+          <td>Called during Bevy <code>Update</code>.</td>
+        </tr>
+        <tr>
+          <td><code>on_fixed_tick</code></td>
+          <td>none</td>
+          <td>Called during Bevy <code>FixedUpdate</code>.</td>
+        </tr>
+        <tr>
+          <td><code>on_player_killed</code></td>
+          <td><code>(victim, killer)</code></td>
+          <td>Called after authoritative death handling. <code>killer</code> may be <code>nil</code>.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Built-in runtime globals</h2>
+      <table>
+        <tr>
+          <th>Name</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>IS_SERVER</code></td>
+          <td>Boolean indicating whether the script is currently executing on the authoritative server.</td>
+        </tr>
+        <tr>
+          <td><code>FIXED_TICK_RATE</code></td>
+          <td>Fixed simulation rate.</td>
+        </tr>
+        <tr>
+          <td><code>FIXED_DELTA_SECONDS</code></td>
+          <td>Seconds per fixed tick.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>ModeConfig globals</h2>
+      <table>
+        <tr>
+          <th>Name</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>RESPAWN_DELAY</code></td>
+          <td>Player respawn delay in seconds.</td>
+        </tr>
+        <tr>
+          <td><code>TEAMS_ENABLED</code></td>
+          <td>Whether the mode uses teams.</td>
+        </tr>
+        <tr>
+          <td><code>SCORING</code></td>
+          <td><code>"unscored"</code> or <code>"score_to_win"</code>.</td>
+        </tr>
+        <tr>
+          <td><code>SCORE_TO_WIN</code></td>
+          <td>Target score when using <code>score_to_win</code>.</td>
+        </tr>
+        <tr>
+          <td><code>TIME_LIMIT_SECS</code></td>
+          <td>Round length in seconds.</td>
+        </tr>
+        <tr>
+          <td><code>LEADERBOARD_SCOPE</code></td>
+          <td><code>"none"</code>, <code>"team"</code>, or <code>"player"</code>.</td>
+        </tr>
+        <tr>
+          <td><code>LEADERBOARD_NUMBER_INDEX</code></td>
+          <td>Which counter the HUD should show.</td>
+        </tr>
+        <tr>
+          <td><code>TEAM_COUNT</code></td>
+          <td>Team count for team modes.</td>
+        </tr>
+        <tr>
+          <td><code>LEADERBOARD_LABEL</code></td>
+          <td>HUD label for the main score number.</td>
+        </tr>
+        <tr>
+          <td><code>PRIMARY_OBJECTIVE_LABEL</code></td>
+          <td>Short objective text.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Script API functions</h2>
+      <table>
+        <tr>
+          <th>Function</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>get_tagged(tag)</code></td>
+          <td>Returns all entities matching a script tag.</td>
+        </tr>
+        <tr>
+          <td><code>get_first_tagged(tag)</code></td>
+          <td>Returns the first entity matching a script tag.</td>
+        </tr>
+        <tr>
+          <td><code>entity_has_tag(entity, tag)</code></td>
+          <td>Tests whether a specific entity has a specific script tag.</td>
+        </tr>
+        <tr>
+          <td><code>entity_exists(entity)</code></td>
+          <td>Tests whether an entity id still exists.</td>
+        </tr>
+        <tr>
+          <td><code>get_entities_in_zone(entity)</code></td>
+          <td>Returns entities currently inside a <code>ScriptZone</code> entity.</td>
+        </tr>
+        <tr>
+          <td><code>is_player(entity)</code>, <code>is_bot(entity)</code></td>
+          <td>Entity classification.</td>
+        </tr>
+        <tr>
+          <td><code>get_players()</code></td>
+          <td>Returns all player character entities.</td>
+        </tr>
+        <tr>
+          <td><code>get_match_phase()</code>, <code>get_match_phase_time()</code></td>
+          <td>Reads the current round phase and elapsed time in that phase.</td>
+        </tr>
+        <tr>
+          <td><code>end_game()</code>, <code>end_game_with_player_winner</code>, <code>end_game_with_team_winner</code>, <code>restart_round()</code></td>
+          <td>Round flow control.</td>
+        </tr>
+        <tr>
+          <td><code>show_message(text)</code></td>
+          <td>Pushes a message to players.</td>
+        </tr>
+        <tr>
+          <td><code>get_player_number</code>, <code>add_player_number</code></td>
+          <td>Per-player scoring or objective counters.</td>
+        </tr>
+        <tr>
+          <td><code>get_team_number</code>, <code>add_team_number</code></td>
+          <td>Per-team counters.</td>
+        </tr>
+        <tr>
+          <td><code>get_health(entity)</code>, <code>entity_alive(entity)</code>, <code>set_health(entity, amount)</code></td>
+          <td>Read or write health values for an entity.</td>
+        </tr>
+        <tr>
+          <td><code>spawn_pawn(team, kind)</code></td>
+          <td>Server-only pawn spawn helper. Current accepted kinds are limited.</td>
+        </tr>
+        <tr>
+          <td><code>add_bot(entity, brain)</code></td>
+          <td>Turns an existing pawn entity into a bot. Currently only the <code>killer</code> brain is accepted.</td>
+        </tr>
+        <tr>
+          <td><code>spawn_bot(team, brain)</code></td>
+          <td>Convenience helper for spawning and bot-enabling a biped.</td>
+        </tr>
+        <tr>
+          <td><code>give_weapon(entity, kind)</code></td>
+          <td>Server-only weapon grant.</td>
+        </tr>
+        <tr>
+          <td><code>despawn(entity)</code></td>
+          <td>Despawns an entity by id.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Conventions</h2>
+      <ul>
+        <li>Mode scripts define only script-level conventions. Names like <code>hill</code> or number-index layouts are not built-in engine contracts.</li>
+        <li>Server-authoritative state changes should be guarded with <code>IS_SERVER</code>.</li>
+        <li>Map integration is usually done with <code>ScriptTags</code> and <code>ScriptZone</code> rather than hard-coded entity ids.</li>
+      </ul>
+      <p><a href="gametype-examples.html">Examples, conventions, and snippets</a></p>
+    </section>
+  </main>
+</body>
+</html>
