@@ -41,16 +41,19 @@ Returns an HTMX HTML partial listing all active lobbies.
 
 ## Running
 
-Plain HTTP local default:
+Local development:
 ```bash
 cargo run -p beacon
 ```
 
 That binds `127.0.0.1:8000`.
 
-Automatic HTTPS:
+Production with Caddy:
 ```bash
-cargo run -p beacon --release
+cargo build -p beacon --release
+cp beacon/Caddyfile /etc/caddy/Caddyfile
+systemctl reload caddy
+./target/release/beacon
 ```
 
-If `fullchain.pem` and `privkey.pem` exist beside the beacon executable, beacon binds `0.0.0.0:443` with TLS automatically.
+Caddy handles HTTPS for `criticalmass.dev` and proxies to `http://127.0.0.1:8000`.
