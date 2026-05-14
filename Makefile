@@ -17,7 +17,8 @@ build:
 beacon-release:
 	cargo build -p beacon --release
 	mkdir -p build
-	cp target/release/beacon build/beacon
+	cp target/release/beacon build/beacon.new
+	mv -f build/beacon.new build/beacon
 
 runb: beacon-release
 	./build/beacon

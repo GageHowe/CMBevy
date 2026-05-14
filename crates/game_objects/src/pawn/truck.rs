@@ -244,7 +244,7 @@ pub fn apply_truck_movement(
     }
     let forward_speed = velocity.dot(forward);
     let sideways_speed = velocity.dot(right);
-    body.apply_impulse(forward * (input.throttle * DRIVE_FORCE), true);
+    body.apply_impulse(forward * (input.throttle * DRIVE_FORCE), false);
     body.apply_impulse(-right * (sideways_speed * SIDEWAYS_GRIP), true);
     body.apply_impulse(
         -(forward * forward_speed + right * sideways_speed) * (input.brake * BRAKE_FORCE),
