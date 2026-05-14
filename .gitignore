@@ -8,6 +8,8 @@ Cargo.lock
 perf.data*
 assets/fmod-out
 ssh
+.env
 dev-assets/lib/steamworks_sdk_164/**
 !dev-assets/lib/steamworks_sdk_164/
 !dev-assets/lib/steamworks_sdk_164/README.md
+build
