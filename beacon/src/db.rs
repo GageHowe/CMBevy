@@ -15,11 +15,19 @@ pub(crate) struct AssetRow {
     pub(crate) downvotes: u64,
 }
 
-pub(crate) fn open(path: &str) -> Db {
+pub(crate) fn open(path: &Path) -> Db {
+    if let Some(dir) = parent_dir(path) {
+        std::fs::create_dir_all(dir).unwrap();
+    }
     let conn = Connection::open(path).unwrap();
     conn.pragma_update(None, "foreign_keys", "ON").unwrap();
     conn.execute_batch(include_str!("../schema.sql")).unwrap();
     Arc::new(Mutex::new(conn))
+}
+
+fn parent_dir(path: &Path) -> Option<&Path> {
+    let dir = path.parent()?;
+    (!dir.as_os_str().is_empty()).then_some(dir)
 }
 
 pub(crate) fn sync_assets(db: &Db, dir: &Path) {

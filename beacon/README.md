@@ -51,9 +51,28 @@ That binds `127.0.0.1:8000`.
 Production with Caddy:
 ```bash
 cargo build -p beacon --release
-cp beacon/Caddyfile /etc/caddy/Caddyfile
-systemctl reload caddy
+sudo cp beacon/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl restart caddy
 ./target/release/beacon
 ```
 
-Caddy handles HTTPS for `criticalmass.dev` and proxies to `http://127.0.0.1:8000`.
+Caddy handles HTTPS for `criticalmass.dev` on `:443` and proxies to `http://127.0.0.1:8000`.
+
+Persistent server data:
+- Set `BEACON_DB_PATH` to move the sqlite file out of the repo.
+- Set `BEACON_ASSET_DIR` to move uploaded files out of the repo.
+
+Minimal VPS setup:
+```bash
+sudo install -d -m 755 /var/lib/beacon/asset_blobs
+sudo cp scripts/beacon.service /etc/systemd/system/beacon.service
+sudo cp beacon/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl daemon-reload
+sudo systemctl enable beacon --now
+sudo systemctl restart caddy
+```
+
+Update deploy:
+```bash
+./scripts/update-beacon.sh
+```

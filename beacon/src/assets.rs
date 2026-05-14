@@ -1,4 +1,5 @@
 use std::{
+    env,
     net::SocketAddr,
     path::{Path as FsPath, PathBuf},
 };
@@ -183,6 +184,9 @@ fn parse_vote(vote: &str) -> Option<bool> {
 }
 
 pub(crate) fn asset_dir() -> PathBuf {
+    if let Some(dir) = env::var_os("BEACON_ASSET_DIR").filter(|value| !value.is_empty()) {
+        return PathBuf::from(dir);
+    }
     if FsPath::new("asset_blobs").exists() || !cfg!(debug_assertions) {
         PathBuf::from("asset_blobs")
     } else {

@@ -5,7 +5,9 @@ mod ui;
 
 use std::{
     collections::HashMap,
+    env,
     net::SocketAddr,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -26,8 +28,10 @@ pub(crate) struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let db = db::open("data.db");
-    db::sync_assets(&db, &assets::asset_dir());
+    let db_path = env_path("BEACON_DB_PATH").unwrap_or_else(|| PathBuf::from("data.db"));
+    let asset_dir = assets::asset_dir();
+    let db = db::open(&db_path);
+    db::sync_assets(&db, &asset_dir);
 
     let state = AppState {
         db,
@@ -56,6 +60,12 @@ async fn main() {
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    env::var_os(key)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 async fn serve_css() -> Response {
