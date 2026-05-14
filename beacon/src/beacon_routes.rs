@@ -6,16 +6,25 @@ use axum::{
     http::StatusCode,
     response::Html,
 };
-use http_common::{LobbyInfo, RegisterRequest, RegisterResponse};
+use http_common::{LobbyHeartbeat, LobbyInfo, RegisterRequest, RegisterResponse};
 
 use crate::{
     AppState,
     ui::{self, Page},
 };
 
+pub(crate) async fn serve_home() -> Html<String> {
+    ui::page(
+        "Critical Mass",
+        Page::Home,
+        include_str!("static/home_body.html"),
+        "",
+    )
+}
+
 pub(crate) async fn serve_ui() -> Html<String> {
     ui::page(
-        "Critical Mass Beacon",
+        "Critical Mass Custom Games",
         Page::Lobbies,
         include_str!("static/beacon_body.html"),
         include_str!("static/beacon.js"),
@@ -52,6 +61,20 @@ pub(crate) async fn delete(Path(id): Path<String>, State(state): State<AppState>
     StatusCode::NO_CONTENT
 }
 
+pub(crate) async fn heartbeat(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Json(req): Json<LobbyHeartbeat>,
+) -> StatusCode {
+    let mut lobbies = state.lobbies.lock().unwrap();
+    let Some(lobby) = lobbies.get_mut(&id) else {
+        return StatusCode::NOT_FOUND;
+    };
+    lobby.player_count = req.player_count.min(req.max_players);
+    lobby.max_players = req.max_players.max(1);
+    StatusCode::NO_CONTENT
+}
+
 pub(crate) async fn list_partial(State(state): State<AppState>) -> Html<String> {
     let lobbies = state.lobbies.lock().unwrap();
     if lobbies.is_empty() {
@@ -71,7 +94,6 @@ pub(crate) async fn list_partial(State(state): State<AppState>) -> Html<String> 
                         <span class="lobby-host">hosted by {host}</span>
                         <div class="footer">
                             <span class="{badge_class}">{badge_text} · {pc}/{mp}</span>
-                            <button class="ghost" hx-post="/join/{id}" hx-swap="none">Join</button>
                         </div>
                     </div>
                 "#,
@@ -81,7 +103,6 @@ pub(crate) async fn list_partial(State(state): State<AppState>) -> Html<String> 
                     badge_text = badge_text,
                     pc = l.player_count,
                     mp = l.max_players,
-                    id = l.id,
                 )
             })
             .collect(),

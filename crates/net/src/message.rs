@@ -8,6 +8,27 @@ pub use common::{
 };
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinPlatform {
+    Guest,
+    Steam,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ClientHello {
+    pub display_name: String,
+    pub platform: JoinPlatform,
+    pub proof: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct JoinAccepted {
+    pub display_name: String,
+    pub platform: JoinPlatform,
+    pub verified_platform_user_id: Option<String>,
+}
+
 /// Type-erased spawn payload used for all replicated game objects.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SpawnCommand {
@@ -53,6 +74,10 @@ pub struct ScoreboardSnapshot {
 /// Transport-level message enum shared by client and server.
 pub enum MsgType {
     Connected,
+    JoinChallenge(String),
+    ClientHello(ClientHello),
+    JoinAccepted(JoinAccepted),
+    JoinRejected(String),
     ClientReady,
     RequestMap,
     Disconnected,

@@ -1,11 +1,6 @@
 # feature-unification = "package" in .cargo/config.toml means each binary gets its own
 # feature set — no unification across workspace members. Use -p <package> to be explicit.
 
-# .PHONY: dev test-network build s c emulator build-release build-testing runs-release runs-testing runc-release runc-testing
-
-PERF_BUILDID_DIR := $(CURDIR)/target/perf-buildid
-PROFILING_RUSTFLAGS := -C force-frame-pointers=yes
-
 define CLIPPY_COMMANDS
 	cargo clippy -p client --bin client --no-deps -q
 	cargo clippy -p gameserver --bin gameserver --no-deps -q
@@ -15,6 +10,17 @@ endef
 build:
 	cargo build -p client
 	cargo build -p gameserver
+
+# beacon:
+# 	cargo build -p beacon
+
+beacon-release:
+	cargo build -p beacon --release
+	mkdir -p build
+	cp target/release/beacon build/beacon
+
+runb: beacon-release
+	./build/beacon
 
 dummy:
 	# $(CLIPPY_COMMANDS)
@@ -57,23 +63,3 @@ clippy:
 
 clean:
 	cargo clean
-
-# build-profiling:
-# 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p gameserver --profile profiling
-# 	RUSTFLAGS="$(PROFILING_RUSTFLAGS)" cargo build -p client --profile profiling
-
-# perf-client: build-profiling
-# 	mkdir -p $(PERF_BUILDID_DIR)
-# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf record -F 99 --call-graph fp -- target/profiling/client --server 127.0.0.1:42070
-
-# perf-server: build-profiling
-# 	mkdir -p $(PERF_BUILDID_DIR)
-# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf record -F 99 --call-graph fp -- target/profiling/gameserver --port 42070
-
-# perf-report:
-# 	mkdir -p $(PERF_BUILDID_DIR)
-# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" perf report
-
-# perf-top-client:
-# 	mkdir -p $(PERF_BUILDID_DIR)
-# 	DEBUGINFOD_URLS= PERF_BUILDID_DIR="$(PERF_BUILDID_DIR)" LD_LIBRARY_PATH="$(CURDIR)/target/profiling:$$LD_LIBRARY_PATH" perf top -- target/profiling/client --server 127.0.0.1:42070

@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.8"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rcgen = { workspace = true }
 rusqlite = { version = "0.38.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { workspace = true }
@@ -12,4 +14,3 @@ sha2 = "0.10.9"
 tokio = { version = "1.49.0", features = ["rt-multi-thread"] }
 http_common = { path = "../crates/http_common" }
 fastrand = { workspace = true }
-ureq = { workspace = true }

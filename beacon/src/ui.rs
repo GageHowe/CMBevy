@@ -1,6 +1,7 @@
 use axum::response::Html;
 
 pub(crate) enum Page {
+    Home,
     Assets,
     Lobbies,
 }
@@ -23,10 +24,7 @@ pub(crate) fn page(title: &str, active: Page, body: &str, script: &str) -> Html<
         </main>
 
         <script>
-            {status_script}
             {script}
-            checkStatus();
-            setInterval(checkStatus, 10000);
         </script>
     </body>
 </html>
@@ -34,36 +32,40 @@ pub(crate) fn page(title: &str, active: Page, body: &str, script: &str) -> Html<
         title = title,
         nav = nav(active),
         body = body,
-        status_script = include_str!("static/status.js"),
         script = script,
     ))
 }
 
 fn nav(active: Page) -> &'static str {
     match active {
+        Page::Home => {
+            r#"<nav>
+            <a class="brand" href="/">Critical Mass</a>
+            <div class="row">
+                <a class="nav-link active" href="/">Home</a>
+                <a class="nav-link" href="/beacon">Custom Games</a>
+                <a class="nav-link" href="/assets">Assets</a>
+            </div>
+        </nav>"#
+        }
         Page::Assets => {
             r#"<nav>
+            <a class="brand" href="/">Critical Mass</a>
             <div class="row">
+                <a class="nav-link" href="/">Home</a>
+                <a class="nav-link" href="/beacon">Custom Games</a>
                 <a class="nav-link active" href="/assets">Assets</a>
-                <a class="nav-link" href="/beacon">Lobbies</a>
             </div>
-            <span class="status row">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-text">Connecting...</span>
-            </span>
         </nav>"#
         }
         Page::Lobbies => {
             r#"<nav>
-            <a href="/assets">Beacon</a>
+            <a class="brand" href="/">Critical Mass</a>
             <div class="row">
+                <a class="nav-link" href="/">Home</a>
+                <a class="nav-link active" href="/beacon">Custom Games</a>
                 <a class="nav-link" href="/assets">Assets</a>
-                <a class="nav-link active" href="/beacon">Lobbies</a>
             </div>
-            <span class="status row">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-text">Connecting...</span>
-            </span>
         </nav>"#
         }
     }

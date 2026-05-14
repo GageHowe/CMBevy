@@ -10,7 +10,7 @@ use game_objects::{
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
     pawn::{Mounted, PawnInputParams, PendingRespawns, PlayerRegistry},
 };
-use http_common::{RegisterRequest, RegisterResponse};
+use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
@@ -33,6 +33,12 @@ struct HostedLobbyAdvertise(RegisterRequest);
 
 #[derive(Resource, Default)]
 struct HostedLobbyId(Option<String>);
+
+#[derive(Resource)]
+struct HostedLobbyHeartbeat {
+    timer: Timer,
+    max_players: u8,
+}
 
 impl Plugin for ServerSessionPlugin {
     fn build(&self, app: &mut App) {
@@ -94,8 +100,13 @@ impl Plugin for ServerSessionPlugin {
             );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobbyAdvertise(advertise.clone()))
+                .insert_resource(HostedLobbyHeartbeat {
+                    timer: Timer::from_seconds(3.0, TimerMode::Repeating),
+                    max_players: advertise.max_players,
+                })
                 .init_resource::<HostedLobbyId>()
-                .add_systems(Startup, register_hosted_lobby.after(start_server));
+                .add_systems(Startup, register_hosted_lobby.after(start_server))
+                .add_systems(Update, heartbeat_hosted_lobby);
         }
     }
 }
@@ -117,6 +128,30 @@ fn register_hosted_lobby(world: &mut World) {
         .and_then(|resp| resp.into_json::<RegisterResponse>().ok())
         .map(|resp| resp.id);
     world.insert_resource(HostedLobbyId(id));
+}
+
+fn heartbeat_hosted_lobby(
+    time: Res<Time>,
+    mut heartbeat: ResMut<HostedLobbyHeartbeat>,
+    lobby_id: Res<HostedLobbyId>,
+    active_connections: Res<ActiveConnections>,
+) {
+    if !heartbeat.timer.tick(time.delta()).just_finished() {
+        return;
+    }
+    let Some(id) = lobby_id.0.as_ref() else {
+        return;
+    };
+    let player_count = active_connections.0.len().min(u8::MAX as usize) as u8;
+    let _ = ureq::post(&format!(
+        "{}/lobbies/{}/heartbeat",
+        common::config::BEACON_URL,
+        id
+    ))
+    .send_json(LobbyHeartbeat {
+        player_count,
+        max_players: heartbeat.max_players,
+    });
 }
 
 fn advance_match_state_time(mut match_state: ResMut<MatchState>, time: Res<Time<Fixed>>) {

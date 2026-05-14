@@ -1,13 +1,7 @@
 # use with https://github.com/GageHowe/wat/
 
-default = ["client", "server"]
+default = ["beacon"]
 
-[client]
-watch = ["client/src/**", "client/Cargo.toml", "crates/**/*.rs", "Cargo.toml"]
-run = ["cargo build -p client"]
-
-[server]
-watch = ["gameserver/src/**", "gameserver/Cargo.toml", "crates/**/*.rs", "Cargo.toml"]
-run = ["cargo build -p gameserver"]
-
-# [beacon]
+[beacon]
+watch = ["beacon/src/**", "beacon/Cargo.toml", "schema.sql", "Cargo.toml"]
+run = ["cargo run -p beacon"]
