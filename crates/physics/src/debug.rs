@@ -36,7 +36,7 @@ pub fn draw_collider(collider: &Collider, iso: Isometry3d, color: Color, gizmos:
             color,
         );
     } else {
-        warn!("draw_collider: no matching type")
+        eprintln!("draw_collider: no matching type")
     }
 }
 

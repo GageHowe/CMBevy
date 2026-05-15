@@ -39,11 +39,11 @@ where
     F: FnOnce(&Lua) -> LuaResult<LuaFunction>,
 {
     let Ok(function) = build(lua) else {
-        error!("failed to create Lua function '{name}'");
+        eprintln!("failed to create Lua function '{name}'");
         return;
     };
     if let Err(err) = lua.globals().set(name, function) {
-        error!("failed to register Lua function '{name}': {err}");
+        eprintln!("failed to register Lua function '{name}': {err}");
     }
 }
 

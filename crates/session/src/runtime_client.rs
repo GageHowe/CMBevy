@@ -401,7 +401,7 @@ fn connect(
 ) {
     pending.0 = false;
     game_objects::messages::push(&mut commands, "Connecting...");
-    quic.connect(addr.0);
+    quic.connect(addr.addr, addr.lobby_id.clone());
 }
 
 fn send_world_ready(

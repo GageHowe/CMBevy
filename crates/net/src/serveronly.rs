@@ -18,10 +18,15 @@ use crate::{
     },
 };
 
+const HOST_ANNOUNCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+const HOST_PUNCH_ATTEMPTS: usize = 50;
+
 pub struct NetServerPlugin;
 
 pub(crate) enum ServerCommand {
     Accepted(quinn::Connection),
+    EnablePunch(String),
+    Punch(SocketAddr),
     Send {
         target: SendTarget,
         channel: Channel,
@@ -61,6 +66,20 @@ impl QuicManager {
             rx: Mutex::new(event_rx),
         });
         println!("QUIC server listening on {addr}");
+    }
+
+    pub fn enable_punch(&self, lobby_id: String) {
+        let Some(transport) = &self.server_transport else {
+            return;
+        };
+        let _ = transport.tx.send(ServerCommand::EnablePunch(lobby_id));
+    }
+
+    pub fn punch_peer(&self, addr: SocketAddr) {
+        let Some(transport) = &self.server_transport else {
+            return;
+        };
+        let _ = transport.tx.send(ServerCommand::Punch(addr));
     }
 }
 
@@ -109,7 +128,15 @@ fn run_server_worker(
         }
     };
     runtime.block_on(async move {
-        let endpoint = match make_server_endpoint(addr) {
+        let socket = match std::net::UdpSocket::bind(addr) {
+            Ok(socket) => socket,
+            Err(e) => {
+                eprintln!("Failed to bind server socket: {e}");
+                return;
+            }
+        };
+        let punch_socket = socket.try_clone().ok();
+        let endpoint = match make_server_endpoint(socket) {
             Ok(endpoint) => endpoint,
             Err(e) => {
                 eprintln!("Failed to start QUIC server: {e}");
@@ -154,6 +181,16 @@ fn run_server_worker(
                     );
                     println!("Client connected: {conn_id}");
                     let _ = event_tx.send(TransportEvent::Connected(conn_id));
+                }
+                ServerCommand::EnablePunch(lobby_id) => {
+                    if let Some(socket) = punch_socket.as_ref().and_then(|sock| sock.try_clone().ok()) {
+                        tokio::spawn(run_host_announce_loop(socket, lobby_id));
+                    }
+                }
+                ServerCommand::Punch(addr) => {
+                    if let Some(socket) = punch_socket.as_ref().and_then(|sock| sock.try_clone().ok()) {
+                        tokio::spawn(send_punch(socket, addr));
+                    }
                 }
                 ServerCommand::Send {
                     target,
@@ -206,8 +243,9 @@ async fn send_to_targets(
     }
 }
 
-fn make_server_endpoint(addr: SocketAddr) -> Result<quinn::Endpoint, String> {
+fn make_server_endpoint(socket: std::net::UdpSocket) -> Result<quinn::Endpoint, String> {
     ensure_rustls_crypto_provider();
+    let addr = socket.local_addr().map_err(|e| format!("local addr: {e}"))?;
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into(), addr.ip().to_string()])
         .map_err(|e| format!("generate cert: {e}"))?;
     let key = rustls::pki_types::PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
@@ -224,5 +262,35 @@ fn make_server_endpoint(addr: SocketAddr) -> Result<quinn::Endpoint, String> {
         transport.max_concurrent_bidi_streams(1024u32.into());
         transport.datagram_receive_buffer_size(Some(1024 * 1024));
     }
-    quinn::Endpoint::server(server_config, addr).map_err(|e| format!("endpoint: {e}"))
+    quinn::Endpoint::new(
+        quinn::EndpointConfig::default(),
+        Some(server_config),
+        socket,
+        quinn::default_runtime().expect("quinn runtime"),
+    )
+    .map_err(|e| format!("endpoint: {e}"))
+}
+
+async fn run_host_announce_loop(socket: std::net::UdpSocket, lobby_id: String) {
+    let _ = socket.set_nonblocking(true);
+    let Ok(socket) = tokio::net::UdpSocket::from_std(socket) else {
+        return;
+    };
+    let beacon_addr = common::config::beacon_rendezvous_addr();
+    let announce = format!("host:{lobby_id}");
+    loop {
+        let _ = socket.send_to(announce.as_bytes(), &beacon_addr).await;
+        tokio::time::sleep(HOST_ANNOUNCE_INTERVAL).await;
+    }
+}
+
+async fn send_punch(socket: std::net::UdpSocket, addr: SocketAddr) {
+    let _ = socket.set_nonblocking(true);
+    let Ok(socket) = tokio::net::UdpSocket::from_std(socket) else {
+        return;
+    };
+    for _ in 0..HOST_PUNCH_ATTEMPTS {
+        let _ = socket.send_to(b"cm", addr).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }

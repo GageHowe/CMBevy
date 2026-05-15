@@ -31,9 +31,12 @@ use net::message::{NetworkID, SimulationState};
 use net::quic::ConnectionId;
 
 #[cfg(feature = "client")]
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 /// Selected multiplayer server address for the client runtime.
-pub struct ServerAddr(pub std::net::SocketAddr);
+pub struct ServerAddr {
+    pub addr: std::net::SocketAddr,
+    pub lobby_id: Option<String>,
+}
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]

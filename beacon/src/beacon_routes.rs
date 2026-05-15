@@ -1,17 +1,43 @@
-use std::net::SocketAddr;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use axum::{
     Json,
-    extract::{ConnectInfo, Path, State},
+    extract::{ConnectInfo, Path},
     http::StatusCode,
     response::Html,
 };
-use http_common::{LobbyHeartbeat, LobbyInfo, RegisterRequest, RegisterResponse};
+use http_common::{
+    JoinLobbyResponse, JoinStatusResponse, LobbyHeartbeat, LobbyInfo, PendingPeersResponse,
+    RegisterRequest, RegisterResponse,
+};
 
 use crate::{
-    AppState,
+    RendezvousState,
     ui::{self, Page},
 };
+
+static LOBBIES: OnceLock<Arc<Mutex<HashMap<String, LobbyInfo>>>> = OnceLock::new();
+static RENDEZVOUS: OnceLock<Arc<Mutex<RendezvousState>>> = OnceLock::new();
+
+pub(crate) fn init_state(
+    lobbies: Arc<Mutex<HashMap<String, LobbyInfo>>>,
+    rendezvous: Arc<Mutex<RendezvousState>>,
+) {
+    let _ = LOBBIES.set(lobbies);
+    let _ = RENDEZVOUS.set(rendezvous);
+}
+
+fn lobbies() -> &'static Arc<Mutex<HashMap<String, LobbyInfo>>> {
+    LOBBIES.get().expect("lobbies initialized")
+}
+
+fn rendezvous() -> &'static Arc<Mutex<RendezvousState>> {
+    RENDEZVOUS.get().expect("rendezvous initialized")
+}
 
 pub(crate) async fn serve_home() -> Html<String> {
     ui::page(
@@ -33,7 +59,6 @@ pub(crate) async fn serve_ui() -> Html<String> {
 
 pub(crate) async fn register(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Json<RegisterResponse> {
     let id = std::time::SystemTime::now()
@@ -48,25 +73,24 @@ pub(crate) async fn register(
         player_count: 0,
         max_players: req.max_players,
     };
-    state.lobbies.lock().unwrap().insert(id.clone(), lobby);
+    lobbies().lock().unwrap().insert(id.clone(), lobby);
     Json(RegisterResponse { id })
 }
 
-pub(crate) async fn list_json(State(state): State<AppState>) -> Json<Vec<LobbyInfo>> {
-    Json(state.lobbies.lock().unwrap().values().cloned().collect())
+pub(crate) async fn list_json() -> Json<Vec<LobbyInfo>> {
+    Json(lobbies().lock().unwrap().values().cloned().collect())
 }
 
-pub(crate) async fn delete(Path(id): Path<String>, State(state): State<AppState>) -> StatusCode {
-    state.lobbies.lock().unwrap().remove(&id);
+pub(crate) async fn delete(Path(id): Path<String>) -> StatusCode {
+    lobbies().lock().unwrap().remove(&id);
     StatusCode::NO_CONTENT
 }
 
 pub(crate) async fn heartbeat(
     Path(id): Path<String>,
-    State(state): State<AppState>,
     Json(req): Json<LobbyHeartbeat>,
 ) -> StatusCode {
-    let mut lobbies = state.lobbies.lock().unwrap();
+    let mut lobbies = lobbies().lock().unwrap();
     let Some(lobby) = lobbies.get_mut(&id) else {
         return StatusCode::NOT_FOUND;
     };
@@ -75,8 +99,43 @@ pub(crate) async fn heartbeat(
     StatusCode::NO_CONTENT
 }
 
-pub(crate) async fn list_partial(State(state): State<AppState>) -> Html<String> {
-    let lobbies = state.lobbies.lock().unwrap();
+pub(crate) async fn join(Path(id): Path<String>) -> Result<Json<JoinLobbyResponse>, StatusCode> {
+    if !lobbies().lock().unwrap().contains_key(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let token = fastrand::u64(..).to_string();
+    let mut rendezvous = rendezvous().lock().unwrap();
+    let host = rendezvous.hosts.get(&id).map(ToString::to_string);
+    rendezvous.tokens.insert(token.clone(), id);
+    Ok(Json(JoinLobbyResponse { host, token }))
+}
+
+pub(crate) async fn pending_peers(Path(id): Path<String>) -> Json<PendingPeersResponse> {
+    let peers = rendezvous()
+        .lock()
+        .unwrap()
+        .pending
+        .remove(&id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|addr| addr.to_string())
+        .collect();
+    Json(PendingPeersResponse { peers })
+}
+
+pub(crate) async fn join_status(
+    Path((id, token)): Path<(String, String)>,
+) -> Result<Json<JoinStatusResponse>, StatusCode> {
+    let rendezvous = rendezvous().lock().unwrap();
+    if rendezvous.tokens.get(&token).is_none_or(|value| value != &id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let host = rendezvous.hosts.get(&id).map(ToString::to_string);
+    Ok(Json(JoinStatusResponse { host }))
+}
+
+pub(crate) async fn list_partial() -> Html<String> {
+    let lobbies = lobbies().lock().unwrap();
     if lobbies.is_empty() {
         return Html(r#"<div class="empty">No active lobbies right now.</div>"#.into());
     }

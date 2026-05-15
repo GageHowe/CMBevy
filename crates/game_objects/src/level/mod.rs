@@ -288,7 +288,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
     let bytes = match zstd::stream::decode_all(pending.0.as_slice()) {
         Ok(b) => b,
         Err(e) => {
-            error!("map decompress: {e}");
+            eprintln!("map decompress: {e}");
             crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
@@ -296,7 +296,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
     let bytes = match preprocess::preprocess_level_bytes(&bytes) {
         Ok(b) => b,
         Err(e) => {
-            error!("map preprocess: {e}");
+            eprintln!("map preprocess: {e}");
             crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
@@ -309,7 +309,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
     let mut ron_de = match ron::Deserializer::from_bytes(&bytes) {
         Ok(d) => d,
         Err(e) => {
-            error!("map ron: {e}");
+            eprintln!("map ron: {e}");
             crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }
@@ -317,7 +317,7 @@ pub fn apply_pending_map_scene(world: &mut World) {
     let scene = match scene_de.deserialize(&mut ron_de) {
         Ok(s) => s,
         Err(e) => {
-            error!("map deserialize: {e}");
+            eprintln!("map deserialize: {e}");
             crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }

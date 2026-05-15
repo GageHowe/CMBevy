@@ -18,7 +18,7 @@ pub(crate) fn compile_script(config: &ScriptConfig, runtime: &mut ScriptRuntime)
         match std::fs::read_to_string(&config.path) {
             Ok(s) => s,
             Err(err) => {
-                error!("Failed to read Lua script '{}': {err}", config.path);
+                eprintln!("Failed to read Lua script '{}': {err}", config.path);
                 return;
             }
         }
@@ -35,10 +35,10 @@ pub(crate) fn compile_script(config: &ScriptConfig, runtime: &mut ScriptRuntime)
     match runtime.lua.load(&src).exec() {
         Ok(_) => {
             runtime.loaded = true;
-            info!("Lua script loaded from '{}'", config.path);
+            eprintln!("Lua script loaded from '{}'", config.path);
         }
         Err(err) => {
-            error!("Failed to load Lua script '{}': {err}", config.path);
+            eprintln!("Failed to load Lua script '{}': {err}", config.path);
         }
     }
 }
@@ -88,7 +88,7 @@ pub(crate) fn call_script_args<A: IntoLuaMulti>(world: &mut World, fn_name: &str
     if let Ok(func) = runtime.lua.globals().get::<LuaFunction>(fn_name)
         && let Err(err) = func.call::<()>(args)
     {
-        error!("Lua {fn_name} error: {err}");
+        eprintln!("Lua {fn_name} error: {err}");
     }
     runtime.lua.remove_app_data::<*mut World>();
     world.insert_non_send_resource(runtime);

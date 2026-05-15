@@ -12,6 +12,7 @@ server = []
 
 [dependencies]
 common = { path = "../common" }
+http_common = { path = "../http_common" }
 bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
 bytes = { workspace = true }
 postcard = { workspace = true }
@@ -20,4 +21,5 @@ rcgen = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
+ureq = { workspace = true }
 zstd = { workspace = true }

@@ -8,6 +8,7 @@ pub mod bot;
 pub mod collision;
 pub mod components;
 pub mod debug_draw;
+pub mod flash;
 pub mod gc;
 pub mod generic;
 pub mod health;
@@ -70,6 +71,7 @@ impl Plugin for GameObjectsPlugin {
         app.add_plugins(spring_arm::SpringArmPlugin);
         #[cfg(feature = "client")]
         sound::configure_collision_sound_system(app);
+        app.add_plugins(flash::FlashPlugin);
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(weapon::WeaponPlugin);

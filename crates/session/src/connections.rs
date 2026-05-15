@@ -55,7 +55,7 @@ pub(super) fn handle_connected(
         team,
         registry.controlled_count(),
     ) else {
-        warn!("conn {conn_id}: server ready but no spawn point resolved");
+        eprintln!("conn {conn_id}: server ready but no spawn point resolved");
         return false;
     };
 
@@ -166,7 +166,7 @@ pub(super) fn handle_disconnected(
 ) {
     pending_respawns.0.remove(&conn_id);
     if let Some((entity, net_id)) = registry.remove_character_for_conn(conn_id) {
-        info!(
+        eprintln!(
             "GameServer: Player disconnected: entity={entity} conn={:?}",
             conn_id
         );
@@ -199,7 +199,7 @@ pub(super) fn flush_pending_connections(
             continue;
         }
         if let Some(reason) = sp.level_ready.reason() {
-            info!("pending conn {conn_id}: server world not ready: {reason}");
+            eprintln!("pending conn {conn_id}: server world not ready: {reason}");
             continue;
         }
         if handle_connected(

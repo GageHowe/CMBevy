@@ -2,11 +2,11 @@
 use bevy::input::{gamepad::Gamepad, mouse::AccumulatedMouseMotion};
 use bevy::prelude::*;
 #[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::spawn_spaceship_death_explosion_effect;
-#[cfg(feature = "client")]
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
+#[cfg(feature = "client")]
+use bevy_hanabi_plugin::prelude::spawn_spaceship_death_explosion_effect;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
@@ -14,6 +14,8 @@ use super::{
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
     *,
 };
+#[cfg(feature = "client")]
+use crate::flash::spawn_flash;
 use crate::{
     GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
@@ -148,9 +150,26 @@ impl GameObject for SpaceshipPawnComponent {
                     let rb = physics.rigid_body_set.get(handle)?;
                     Some((rb_pos(rb), rb_vel(rb)))
                 })
-                .or_else(|| world.get::<Transform>(entity).map(|t| (t.translation, Vec3::ZERO)))
+                .or_else(|| {
+                    world
+                        .get::<Transform>(entity)
+                        .map(|t| (t.translation, Vec3::ZERO))
+                })
                 .unwrap_or((Vec3::ZERO, Vec3::ZERO));
             spawn_spaceship_death_explosion_effect(world, position, velocity);
+            spawn_flash(
+                world,
+                position,
+                18.0,
+                Color::srgb(1.0, 0.9, 0.1),
+                true, // make the light visible even when not in frustum
+                10000.0,
+                10.0, // mesh brightness decay speed
+                200000000.0,
+                3.0, // light decay speed
+                true,
+                velocity,
+            );
         }
         super::vehicle::handle_vehicle_death(entity, world);
         true

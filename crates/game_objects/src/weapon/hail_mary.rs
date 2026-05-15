@@ -5,18 +5,17 @@ use rapier3d::prelude::ColliderBuilder;
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::projectile::helpers as projectile_helpers;
+#[cfg(feature = "client")]
+use crate::weapon::weapon_flash;
 use crate::{GameObject, GameObjectKind, projectile::hail_mary, spawn::AppGameObjectExt};
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
 
-const MUZZLE_FLASH_TICKS: u8 = 3;
-
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryComponent>()
-            .add_systems(FixedUpdate, tick_muzzle_flash);
+        app.register_game_object::<HailMaryComponent>();
     }
 }
 
@@ -24,9 +23,7 @@ impl Plugin for HailMaryPlugin {
 pub struct HailMaryComponent {
     /// Latched when fire is requested; cleared after the shot fires.
     pub fire_requested: bool,
-    /// Ticks remaining for muzzle flash visibility. Set to MUZZLE_FLASH_TICKS on fire.
-    pub muzzle_flash_ticks: u8,
-    pub muzzle_flash_light: Option<Entity>,
+    pub muzzle_flash: Option<Entity>,
 }
 
 impl Weapon for HailMaryComponent {
@@ -65,7 +62,12 @@ impl Weapon for HailMaryComponent {
             return;
         }
         self.fire_requested = false;
-        self.muzzle_flash_ticks = MUZZLE_FLASH_TICKS;
+        #[cfg(feature = "client")]
+        if let Some(flash) = self.muzzle_flash {
+            commands.queue(move |world: &mut World| {
+                weapon_flash::trigger_weapon_flash(world, flash);
+            });
+        }
 
         helpers::fire_projectile(ctx, world, commands, hail_mary::SPEED, hail_mary::spawn);
         #[cfg(feature = "client")]
@@ -83,26 +85,23 @@ impl GameObject for HailMaryComponent {
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         #[cfg(feature = "client")]
-        let light = Some(
-            world
-                .spawn((
-                    PointLight {
-                        intensity: 20000.0,
-                        range: 15.0,
-                        color: Color::srgb(1.0, 0.6, 0.2),
-                        shadows_enabled: false,
-                        ..default()
-                    },
-                    Transform::from_xyz(0.0, 0.0, -0.6),
-                    Visibility::Hidden,
-                ))
-                .id(),
-        );
+        let muzzle_flash = Some(weapon_flash::spawn_weapon_flash(
+            world,
+            entity,
+            Vec3::new(0.0, 0.0, -0.6),
+            0.18,
+            Color::srgb(1.0, 0.6, 0.2),
+            8.0,
+            28.0,
+            20_000.0,
+            20.0,
+            false,
+        ));
         #[cfg(not(feature = "client"))]
-        let light = None;
+        let muzzle_flash = None;
         let weapon = weapon_bundle(
             HailMaryComponent {
-                muzzle_flash_light: light,
+                muzzle_flash,
                 ..default()
             },
             world,
@@ -124,38 +123,5 @@ impl GameObject for HailMaryComponent {
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-        if let Some(light) = light {
-            world.entity_mut(entity).add_child(light);
-        }
-    }
-}
-
-/// Ticks down muzzle flash and toggles the PointLight child accordingly.
-#[cfg(feature = "client")]
-pub fn tick_muzzle_flash(
-    mut weapons: Query<&mut HailMaryComponent>,
-    mut lights: Query<&mut Visibility, With<PointLight>>,
-) {
-    for mut weapon in weapons.iter_mut() {
-        let Some(light) = weapon.muzzle_flash_light else {
-            continue;
-        };
-        if let Ok(mut vis) = lights.get_mut(light) {
-            if weapon.muzzle_flash_ticks > 0 {
-                weapon.muzzle_flash_ticks -= 1;
-                *vis = Visibility::Inherited;
-            } else {
-                *vis = Visibility::Hidden;
-            }
-        }
-    }
-}
-
-#[cfg(not(feature = "client"))]
-pub fn tick_muzzle_flash(mut weapons: Query<&mut HailMaryComponent>) {
-    for mut weapon in weapons.iter_mut() {
-        if weapon.muzzle_flash_ticks > 0 {
-            weapon.muzzle_flash_ticks -= 1;
-        }
     }
 }

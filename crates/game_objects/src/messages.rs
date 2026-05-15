@@ -38,6 +38,6 @@ pub fn push_world(_world: &mut World, text: impl Into<String>) {
     }
     #[cfg(not(feature = "client"))]
     {
-        info!("{text}");
+        eprintln!("{text}");
     }
 }

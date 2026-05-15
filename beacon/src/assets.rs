@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AppState, db,
+    AssetState, db,
     ui::{self, Page},
 };
 
@@ -43,7 +43,7 @@ pub(crate) async fn serve_ui() -> Html<String> {
 }
 
 pub(crate) async fn upload(
-    State(state): State<AppState>,
+    State(state): State<AssetState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<AssetUploadResponse>, StatusCode> {
@@ -66,7 +66,7 @@ pub(crate) async fn upload(
 }
 
 pub(crate) async fn list_partial(
-    State(state): State<AppState>,
+    State(state): State<AssetState>,
     Query(query): Query<AssetListQuery>,
 ) -> Html<String> {
     let entries = db::list_assets(&state.db, query.q.as_deref());
@@ -121,7 +121,7 @@ pub(crate) async fn list_partial(
 
 pub(crate) async fn vote(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    State(state): State<AppState>,
+    State(state): State<AssetState>,
     Path((hash, vote)): Path<(String, String)>,
 ) -> StatusCode {
     let Some(value) = parse_vote(&vote) else {
@@ -144,7 +144,7 @@ pub(crate) async fn get(Path(hash): Path<String>) -> Result<Response, StatusCode
 }
 
 pub(crate) async fn put(
-    State(state): State<AppState>,
+    State(state): State<AssetState>,
     Path(hash): Path<String>,
     headers: HeaderMap,
     body: Bytes,

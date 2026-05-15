@@ -1,6 +1,8 @@
 # feature-unification = "package" in .cargo/config.toml means each binary gets its own
 # feature set — no unification across workspace members. Use -p <package> to be explicit.
 
+.PHONY: build beacon-release runb dummy run runs runs-release runs-testing runc runc-release runc-testing emulator build-release build-testing check clippy clean
+
 define CLIPPY_COMMANDS
 	cargo clippy -p client --bin client --no-deps -q
 	cargo clippy -p gameserver --bin gameserver --no-deps -q

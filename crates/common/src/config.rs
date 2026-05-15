@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 pub const SERVER_BIND_ADDRESS: &str = "127.0.0.1:42070";
 /// UDP port the gameserver listens on for LAN discovery probes.
 pub const LAN_DISCOVERY_PORT: u16 = 42071;
-pub const BEACON_URL: &str = "https://cmbevy.onrender.com";
+pub const BEACON_RENDEZVOUS_PORT: u16 = 42072;
+pub const BEACON_URL: &str = "https://criticalmass.dev";
 pub const FIXED_TICK_RATE: f64 = 60.0;
 pub const RESPAWN_DELAY_SECS: f32 = 5.0;
 
@@ -31,4 +32,14 @@ pub fn asset_dir() -> PathBuf {
         return path;
     }
     runtime_path("assets")
+}
+
+pub fn beacon_rendezvous_addr() -> String {
+    let rest = BEACON_URL
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(BEACON_URL);
+    let host = rest.split('/').next().unwrap_or(rest);
+    let host = host.rsplit_once(':').map(|(host, _)| host).unwrap_or(host);
+    format!("{host}:{BEACON_RENDEZVOUS_PORT}")
 }

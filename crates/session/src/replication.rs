@@ -45,7 +45,7 @@ pub(super) fn spawn_player(
     );
     game_objects::pawn::possess_pawn(conn_id, entity, &net_id, registry, quic);
     registry.register_character(conn_id, entity, net_id);
-    info!("GameServer: spawned {kind_debug} for conn {conn_id}");
+    eprintln!("GameServer: spawned {kind_debug} for conn {conn_id}");
 }
 
 pub(super) fn slots_to_held(slots: &Option<&WeaponSlots>) -> Vec<(NetworkID, Entity)> {

@@ -71,12 +71,12 @@ fn process_server_message(
     match msg {
         MsgType::Connected => {
             active_connections.0.insert(conn_id);
-            info!("GameServer: conn {conn_id} connected; sending map metadata");
+            eprintln!("GameServer: conn {conn_id} connected; sending map metadata");
             send_connection_files(conn_id, level_bytes, script_config, quic);
         }
         MsgType::RequestMap => send_map_file(conn_id, level_bytes, quic),
         MsgType::ClientReady => {
-            info!("GameServer: conn {conn_id} sent ClientReady");
+            eprintln!("GameServer: conn {conn_id} sent ClientReady");
             pending_connections.0.insert(conn_id);
         }
         MsgType::Disconnected => {
@@ -254,7 +254,7 @@ fn process_server_message(
             );
         }
         MsgType::Ping(text) => {
-            info!("Got a ping from conn_id {:?} with text {}", conn_id, text);
+            eprintln!("Got a ping from conn_id {:?} with text {}", conn_id, text);
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
@@ -262,13 +262,13 @@ fn process_server_message(
             );
         }
         MsgType::ChatMessage(sender, text) => {
-            info!("GameServer: Got ChatMessage: [{sender}] {text}");
+            eprintln!("GameServer: Got ChatMessage: [{sender}] {text}");
             quic.send(
                 SendTarget::All,
                 Channel::Ordered,
                 &MsgType::ChatMessage(sender, text),
             );
         }
-        other => warn!("Unhandled: {other:?}"),
+        other => eprintln!("Unhandled: {other:?}"),
     }
 }

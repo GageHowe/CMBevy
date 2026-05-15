@@ -26,6 +26,7 @@ pub mod coil_launcher;
 pub mod pistol;
 pub mod rifle;
 pub mod thumper;
+pub mod weapon_flash;
 
 /// Type-erased authoritative projectile spawn function used by weapon configs.
 pub type FireProjectileFn = fn(
@@ -54,6 +55,7 @@ impl Plugin for WeaponPlugin {
             lobber::LobberPlugin,
             coil_launcher::CoilLauncherPlugin,
             grenade_launcher::GrenadeLauncherPlugin,
+            weapon_flash::WeaponFlashPlugin,
         ))
         .add_systems(FixedUpdate, tick_weapon_state);
     }

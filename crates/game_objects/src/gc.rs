@@ -144,7 +144,7 @@ fn cleanup_world_gc_entities(
         }
 
         state.notify_spawner_despawn(spawner_gc, entity);
-        info!("gc despawned world entity {entity}");
+        eprintln!("gc despawned world entity {entity}");
         commands.entity(entity).despawn();
     }
 }

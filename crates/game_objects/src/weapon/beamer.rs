@@ -1,9 +1,13 @@
 use bevy::prelude::*;
+#[cfg(feature = "client")]
+use bevy::pbr::MeshMaterial3d;
 use net::quic::{Channel, ConnectionId, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
 use super::{FireCtx, Weapon, WeaponState, apply_zoom, helpers, weapon_bundle};
+#[cfg(feature = "client")]
+use crate::flash::{FlashMaterial, FlashMaterialUniform, update_flash_material};
 use crate::{
     GameObject, GameObjectKind, NetworkEntityMap,
     health::{DamageCause, Health, LastDamageSource, attribute_damage},
@@ -731,18 +735,20 @@ fn add_visuals(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut flash_materials: ResMut<Assets<FlashMaterial>>,
 ) {
     for entity in &q {
         let charge = commands
             .spawn((
                 BeamerChargeVisual,
                 Mesh3d(meshes.add(bevy::math::primitives::Sphere::new(0.12))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    emissive: LinearRgba::new(18.0, 0.45, 0.45, 1.0),
-                    base_color: Color::srgba(1.0, 0.16, 0.16, 0.7),
-                    alpha_mode: AlphaMode::Add,
-                    unlit: true,
-                    ..default()
+                MeshMaterial3d(flash_materials.add(FlashMaterial {
+                    params: FlashMaterialUniform {
+                        color: Color::srgb(1.0, 0.16, 0.16).to_linear().to_vec4(),
+                        alpha: 0.0,
+                        camera_pos: Vec3::ZERO,
+                        _pad0: 0.0,
+                    },
                 })),
                 Visibility::Hidden,
                 Transform::from_translation(Vec3::new(0.0, 0.0, -0.7)),
@@ -772,18 +778,53 @@ fn add_visuals(
 #[cfg(feature = "client")]
 fn sync_visuals(
     beamers: Query<(&BeamerComponent, &BeamerVisualRefs, &GlobalTransform)>,
+    tick: Res<common::tick::Ticker>,
     mut visuals: ParamSet<(
-        Query<&mut Visibility, With<BeamerChargeVisual>>,
+        Query<(&mut Transform, &mut Visibility), With<BeamerChargeVisual>>,
         Query<(&mut Transform, &mut Visibility), With<BeamerBeamVisual>>,
     )>,
+    charge_materials: Query<&MeshMaterial3d<FlashMaterial>, With<BeamerChargeVisual>>,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
+    mut flash_materials: ResMut<Assets<FlashMaterial>>,
 ) {
+    let camera_pos = camera
+        .single()
+        .map(GlobalTransform::translation)
+        .unwrap_or(Vec3::ZERO);
     for (beamer, refs, global_transform) in &beamers {
-        if let Ok(mut visibility) = visuals.p0().get_mut(refs.charge) {
-            *visibility = if beamer.phase == BeamPhase::Charging {
-                Visibility::Inherited
+        if let Ok((mut transform, mut visibility)) = visuals.p0().get_mut(refs.charge) {
+            if beamer.phase == BeamPhase::Charging {
+                let elapsed_ticks = tick
+                    .tick
+                    .saturating_sub(beamer.phase_started_tick)
+                    .saturating_add(1);
+                let progress = (elapsed_ticks as f32 / CHARGE_TICKS as f32).clamp(0.0, 1.0);
+                transform.scale = Vec3::ONE;
+                *visibility = Visibility::Inherited;
+                if let Ok(handle) = charge_materials.get(refs.charge) {
+                    update_flash_material(
+                        handle,
+                        &mut flash_materials,
+                        Color::srgb(1.0, 0.16, 0.16).to_linear(),
+                        18.0 * progress,
+                        18.0,
+                        camera_pos,
+                    );
+                }
             } else {
-                Visibility::Hidden
-            };
+                transform.scale = Vec3::ONE;
+                *visibility = Visibility::Hidden;
+                if let Ok(handle) = charge_materials.get(refs.charge) {
+                    update_flash_material(
+                        handle,
+                        &mut flash_materials,
+                        Color::srgb(1.0, 0.16, 0.16).to_linear(),
+                        0.0,
+                        18.0,
+                        camera_pos,
+                    );
+                }
+            }
         }
         if let Ok((mut transform, mut visibility)) = visuals.p1().get_mut(refs.beam) {
             if beamer.phase != BeamPhase::Beaming || beamer.beam_dir == Vec3::ZERO {

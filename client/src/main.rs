@@ -134,7 +134,10 @@ fn main() {
             GameState::Multiplayer,
         ))
         .add_plugins(TickSyncPlugin(GameState::Multiplayer))
-        .insert_resource(ServerAddr(server_addr))
+        .insert_resource(ServerAddr {
+            addr: server_addr,
+            lobby_id: None,
+        })
         .init_resource::<PendingExit>()
         .init_resource::<SinglePlayerConfig>()
         .init_resource::<HostedServer>()

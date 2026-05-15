@@ -188,7 +188,7 @@ impl PhysicsWorld {
                 true,
             );
         } else {
-            warn!("tried to remove_rigidbody but entity {entity} is not in entity_to_handle")
+            eprintln!("tried to remove_rigidbody but entity {entity} is not in entity_to_handle")
         }
     }
 

@@ -210,7 +210,7 @@ pub(crate) async fn send_on_connection(
                 }
             };
             if bytes.len() > MAX_UDP_SIZE {
-                bevy::log::warn!(
+                eprintln!(
                     "unreliable packet too large: {} bytes > {} for {:?}",
                     bytes.len(),
                     MAX_UDP_SIZE,

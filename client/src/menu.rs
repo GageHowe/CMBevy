@@ -523,6 +523,7 @@ fn poll_browser_fetch(browser: &mut LobbyBrowser) {
 
 fn connect_to_lobby(
     addr: &str,
+    lobby_id: Option<&str>,
     hosted: &mut HostedServer,
     server_addr: &mut ServerAddr,
     next_state: &mut NextState<GameState>,
@@ -531,7 +532,8 @@ fn connect_to_lobby(
 ) {
     if let Ok(sa) = addr.parse() {
         shutdown_session(None, None, hosted);
-        server_addr.0 = sa;
+        server_addr.addr = sa;
+        server_addr.lobby_id = lobby_id.map(ToOwned::to_owned);
         *screen = Screen::Root;
         next_state.set(GameState::Multiplayer);
         *browser = LobbyBrowser::default();
@@ -580,7 +582,21 @@ fn show_browser_screen(
             });
         if let Some(addr) = connect_to {
             queue_ui_sound(sound_queue, UI_CLICK_EVENT);
-            connect_to_lobby(&addr, hosted, server_addr, next_state, browser, screen);
+            let lobby_id = browser
+                .lobbies
+                .iter()
+                .find(|lobby| lobby.host == addr)
+                .map(|lobby| lobby.id.clone())
+                .filter(|id| !id.is_empty());
+            connect_to_lobby(
+                &addr,
+                lobby_id.as_deref(),
+                hosted,
+                server_addr,
+                next_state,
+                browser,
+                screen,
+            );
         }
     }
 
@@ -701,7 +717,8 @@ fn show_host_screen(
         match start_hosted_server(hosted, port, &map, &gametype, advertise) {
             Ok(()) => {
                 queue_ui_sound(sound_queue, UI_CLICK_EVENT);
-                server_addr.0 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+                server_addr.addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+                server_addr.lobby_id = None;
                 *screen = Screen::Root;
                 next_state.set(GameState::Multiplayer);
             }

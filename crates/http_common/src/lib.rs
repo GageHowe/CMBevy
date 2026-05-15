@@ -28,3 +28,19 @@ pub struct LobbyHeartbeat {
     pub player_count: u8,
     pub max_players: u8,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct JoinLobbyResponse {
+    pub host: Option<String>,
+    pub token: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct JoinStatusResponse {
+    pub host: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct PendingPeersResponse {
+    pub peers: Vec<String>,
+}

@@ -40,6 +40,9 @@ struct HostedLobbyHeartbeat {
     max_players: u8,
 }
 
+#[derive(Resource)]
+struct HostedLobbyPollTimer(Timer);
+
 impl Plugin for ServerSessionPlugin {
     fn build(&self, app: &mut App) {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<String>();
@@ -104,9 +107,13 @@ impl Plugin for ServerSessionPlugin {
                     timer: Timer::from_seconds(3.0, TimerMode::Repeating),
                     max_players: advertise.max_players,
                 })
+                .insert_resource(HostedLobbyPollTimer(Timer::from_seconds(
+                    0.25,
+                    TimerMode::Repeating,
+                )))
                 .init_resource::<HostedLobbyId>()
                 .add_systems(Startup, register_hosted_lobby.after(start_server))
-                .add_systems(Update, heartbeat_hosted_lobby);
+                .add_systems(Update, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
         }
     }
 }
@@ -127,7 +134,14 @@ fn register_hosted_lobby(world: &mut World) {
         .ok()
         .and_then(|resp| resp.into_json::<RegisterResponse>().ok())
         .map(|resp| resp.id);
-    world.insert_resource(HostedLobbyId(id));
+    if let Some(id) = id {
+        if let Some(quic) = world.get_resource::<QuicManager>() {
+            quic.enable_punch(id.clone());
+        }
+        world.insert_resource(HostedLobbyId(Some(id)));
+    } else {
+        world.insert_resource(HostedLobbyId(None));
+    }
 }
 
 fn heartbeat_hosted_lobby(
@@ -152,6 +166,44 @@ fn heartbeat_hosted_lobby(
         player_count,
         max_players: heartbeat.max_players,
     });
+}
+
+fn poll_hosted_lobby_peers(
+    time: Res<Time>,
+    mut timer: ResMut<HostedLobbyPollTimer>,
+    lobby_id: Res<HostedLobbyId>,
+    quic: Res<QuicManager>,
+) {
+    if !timer.0.tick(time.delta()).just_finished() {
+        return;
+    }
+    let Some(id) = lobby_id.0.as_ref() else {
+        return;
+    };
+    let Ok(peers) = fetch_pending_lobby_peers(id) else {
+        return;
+    };
+    for addr in peers {
+        quic.punch_peer(addr);
+    }
+}
+
+fn fetch_pending_lobby_peers(lobby_id: &str) -> Result<Vec<std::net::SocketAddr>, String> {
+    let response: http_common::PendingPeersResponse =
+        ureq::get(&format!(
+            "{}/lobbies/{}/punch",
+            common::config::BEACON_URL,
+            lobby_id
+        ))
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_json()
+        .map_err(|e| e.to_string())?;
+    response
+        .peers
+        .into_iter()
+        .map(|addr| addr.parse().map_err(|e| format!("invalid peer addr '{addr}': {e}")))
+        .collect()
 }
 
 fn advance_match_state_time(mut match_state: ResMut<MatchState>, time: Res<Time<Fixed>>) {
@@ -184,7 +236,7 @@ fn init_mode_config(world: &mut World) {
             "unscored" => ScoringOption::Unscored,
             "score_to_win" => config.scoring,
             other => {
-                warn!("unknown SCORING mode '{other}', keeping default");
+                eprintln!("unknown SCORING mode '{other}', keeping default");
                 config.scoring
             }
         };
@@ -201,7 +253,7 @@ fn init_mode_config(world: &mut World) {
             "team" => LeaderboardScope::Team,
             "player" => LeaderboardScope::Player,
             other => {
-                warn!("unknown LEADERBOARD_SCOPE '{other}', keeping default");
+                eprintln!("unknown LEADERBOARD_SCOPE '{other}', keeping default");
                 config.leaderboard_scope
             }
         };
