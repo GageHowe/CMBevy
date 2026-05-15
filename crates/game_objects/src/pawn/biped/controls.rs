@@ -546,7 +546,6 @@ struct InteractWorldParams<'w, 's> {
         ),
         With<crate::interaction::Interactable>,
     >,
-    pitch_pivots: Query<'w, 's, &'static GlobalTransform, With<PitchPivot>>,
     possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Possessed>>,
     weapon_states: Query<'w, 's, &'static mut crate::weapon::WeaponState>,
     camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
@@ -639,7 +638,14 @@ fn interactable_in_range(
 
 fn update_interaction_hint(
     egui_wants: Option<Res<EguiWantsInput>>,
-    player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
+    player: Query<
+        (
+            Entity,
+            &BipedPawnComponent,
+            &physics::physics_world::RigidBodyHandleComponent,
+        ),
+        With<Possessed>,
+    >,
     bindings: Res<common::ActiveBindings>,
     prompt_device: Option<Res<common::PromptDevicePreference>>,
     interactables: Query<
@@ -649,7 +655,6 @@ fn update_interaction_hint(
         ),
         With<crate::interaction::Interactable>,
     >,
-    pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
     world: Res<PhysicsWorld>,
     object_kinds: Query<&GameObjectKind>,
     weapon_q: Query<(), With<crate::weapon::WeaponComponent>>,
@@ -662,20 +667,16 @@ fn update_interaction_hint(
         hint.0 = None;
         return;
     }
-    let Ok((pawn_entity, biped)) = player.single() else {
+    let Ok((pawn_entity, biped, body_handle)) = player.single() else {
         hint.0 = None;
         return;
     };
-    let Some(pitch_e) = biped.pitch_pivot else {
+    let Some((origin, forward)) =
+        super::aim_pose(&world, body_handle, biped.look_yaw, biped.look_pitch)
+    else {
         hint.0 = None;
         return;
     };
-    let Ok(pivot_gt) = pitch_pivots.get(pitch_e) else {
-        hint.0 = None;
-        return;
-    };
-    let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
-    let forward = rot * Vec3::NEG_Z;
     let Some(target) = current_interact_target(
         pawn_entity,
         origin,
@@ -718,24 +719,31 @@ fn interact(
     bindings: Res<common::ActiveBindings>,
     ticker: Res<common::tick::Ticker>,
     mut interaction: ResMut<InteractionGate>,
-    player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
+    player: Query<
+        (
+            Entity,
+            &BipedPawnComponent,
+            &physics::physics_world::RigidBodyHandleComponent,
+        ),
+        With<Possessed>,
+    >,
     mut world: ResMut<PhysicsWorld>,
     mut sp: InteractWorldParams,
     mut quic: ResMut<net::quic::QuicManager>,
 ) {
     use common::game_state::GameState;
     let blocked = egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
-    let Ok((pawn_entity, biped)) = player.single() else {
+    let Ok((pawn_entity, biped, body_handle)) = player.single() else {
         return;
     };
     let Some(pitch_e) = biped.pitch_pivot else {
         return;
     };
-    let Ok(pivot_gt) = sp.pitch_pivots.get(pitch_e) else {
+    let Some((origin, forward)) =
+        super::aim_pose(&world, body_handle, biped.look_yaw, biped.look_pitch)
+    else {
         return;
     };
-    let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
-    let forward = rot * Vec3::NEG_Z;
     let Some(target) = current_interact_target(
         pawn_entity,
         origin,
