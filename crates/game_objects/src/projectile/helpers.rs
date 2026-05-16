@@ -12,6 +12,7 @@ use super::{Projectile, ProjectileState};
 use crate::health::{DamageCause, Health, LastDamageSource, attribute_damage};
 #[cfg(feature = "client")]
 use crate::pawn::{CameraEffector, CameraShake};
+use crate::spawn::CenterOfMassSplashDamage;
 use crate::shield::Shield;
 
 #[derive(Clone, Copy)]
@@ -317,6 +318,7 @@ pub fn tick_sphere_explosive_projectile(
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
     shield_q: &mut Query<&mut Shield>,
+    splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
     config: &ExplosiveProjectileConfig,
@@ -343,6 +345,7 @@ pub fn tick_sphere_explosive_projectile(
             health_q,
             last_damage_q,
             shield_q,
+            splash_q,
             net_ids,
             predicted,
             None,
@@ -383,6 +386,7 @@ pub fn tick_sphere_explosive_projectile(
             health_q,
             last_damage_q,
             shield_q,
+            splash_q,
             net_ids,
             predicted,
             Some((hit, hit_collider, normal.normalize_or_zero(), hit_point)),
@@ -405,6 +409,7 @@ pub fn explode_sphere_explosive_projectile(
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
     shield_q: &mut Query<&mut Shield>,
+    splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
     direct_hit_impulse: Option<(Entity, ColliderHandle, Vec3, Vec3)>,
@@ -464,6 +469,9 @@ pub fn explode_sphere_explosive_projectile(
 
     let mut predicted = predicted;
     for (entity, falloff) in affected {
+        if direct_hit != Some(entity) && !splash_q.contains(entity) {
+            continue;
+        }
         let Some(&rb_handle) = world.entity_to_handle.get(&entity) else {
             continue;
         };

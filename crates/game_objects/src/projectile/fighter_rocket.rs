@@ -11,6 +11,7 @@ use crate::{
     health::{Health, LastDamageSource},
     shield::Shield,
     spawn::AppGameObjectExt,
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 140.0;
@@ -68,6 +69,7 @@ impl Projectile for FighterRocketProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
         shield_q: &mut Query<&mut Shield>,
+        splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     ) {
         tick_inner(
             self,
@@ -79,6 +81,7 @@ impl Projectile for FighterRocketProjectile {
             health_q,
             last_damage_q,
             shield_q,
+            splash_q,
             None,
             None,
         );
@@ -127,6 +130,7 @@ fn tick_inner(
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
     shield_q: &mut Query<&mut Shield>,
+    splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
 ) {
@@ -141,6 +145,7 @@ fn tick_inner(
         health_q,
         last_damage_q,
         shield_q,
+        splash_q,
         net_ids,
         predicted,
         &CONFIG,
@@ -239,6 +244,7 @@ fn tick_predicted_projectiles(
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     mut shield_q: Query<&mut Shield>,
+    splash_q: Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Query<&NetworkID>,
     mut predicted: ResMut<PredictedCommands>,
 ) {
@@ -256,6 +262,7 @@ fn tick_predicted_projectiles(
             &mut health_q,
             &mut last_damage_q,
             &mut shield_q,
+            &splash_q,
             Some(&net_ids),
             Some(&mut predicted),
         );

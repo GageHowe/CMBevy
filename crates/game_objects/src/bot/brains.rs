@@ -29,8 +29,7 @@ impl BotBrain for HeuristicKillerBot {
 
         let up = ctx.rot * Vec3::Y;
         let noise = ((ctx.pos.x * 1.7 + ctx.pos.z * 0.9 + ctx.vel.length()).sin()).clamp(-1.0, 1.0);
-        let lead = 0.25 + noise.abs() * 0.25;
-        let aim = target.pos + target.vel * lead + up * (0.35 + noise * 0.2);
+        let aim = predicted_aim_point(ctx, target).unwrap_or(target.pos) + up * (0.35 + noise * 0.2);
         let to_target = aim - ctx.pos;
         let distance = to_target.length();
         let forward = ((distance - 9.0) / 8.0).clamp(-0.4, 1.0);
@@ -43,6 +42,45 @@ impl BotBrain for HeuristicKillerBot {
             distance < 90.0,
         )
     }
+}
+
+fn predicted_aim_point(ctx: &BotContext, target: &BotContext) -> Option<Vec3> {
+    let speed = ctx.projectile_speed?;
+    let relative_position = target.pos - ctx.pos;
+    let relative_velocity = target.vel - ctx.vel;
+    let time = solve_intercept_time(relative_position, relative_velocity, speed)?;
+    Some(target.pos + relative_velocity * time)
+}
+
+fn solve_intercept_time(
+    relative_position: Vec3,
+    relative_velocity: Vec3,
+    speed: f32,
+) -> Option<f32> {
+    let a = relative_velocity.length_squared() - speed * speed;
+    let b = 2.0 * relative_position.dot(relative_velocity);
+    let c = relative_position.length_squared();
+    if c <= f32::EPSILON {
+        return Some(0.0);
+    }
+    if a.abs() <= f32::EPSILON {
+        if b.abs() <= f32::EPSILON {
+            return None;
+        }
+        let t = -c / b;
+        return (t > 0.0).then_some(t);
+    }
+    let discriminant = b * b - 4.0 * a * c;
+    if discriminant < 0.0 {
+        return None;
+    }
+    let root = discriminant.sqrt();
+    let t0 = (-b - root) / (2.0 * a);
+    let t1 = (-b + root) / (2.0 * a);
+    [t0, t1]
+        .into_iter()
+        .filter(|t| *t > 0.0 && t.is_finite())
+        .min_by(f32::total_cmp)
 }
 
 fn output(ctx: &BotContext, aim_dir: Vec3, forward: f32, right: f32, fire: bool) -> BotOutput {

@@ -1,14 +1,15 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::{Team, bot::*, health::Health, pawn::*, weapon::*};
+use game_objects::{Team, bot::*, health::Health, pawn::*, reticle::AimReticle, weapon::*};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 
 pub(super) fn run_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
-    mut pawn_slots: Query<&mut WeaponSlots>,
+    mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
+    reticles: Query<&AimReticle>,
     mut pawns: PawnInputParams,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
@@ -17,7 +18,7 @@ pub(super) fn run_bots(
     mut held_weapons: ResMut<game_objects::pawn::HeldWeaponMap>,
     tick: Res<Ticker>,
 ) {
-    let actors = collect_contexts(&actors, &world);
+    let actors = collect_contexts(&actors, &pawn_slots.p1(), &reticles, &world);
     for (entity, mut bot) in &mut bots {
         let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
             continue;
@@ -31,7 +32,7 @@ pub(super) fn run_bots(
                 output.aim_origin,
                 output.aim_dir,
                 bot.next_temp_id(),
-                &mut pawn_slots,
+                &mut pawn_slots.p0(),
                 &mut weapon_runtime,
                 &mut held_weapons,
                 &mut commands,
@@ -42,7 +43,7 @@ pub(super) fn run_bots(
             );
         }
         if output.reload {
-            reload_active_weapon(entity, &mut pawn_slots, &mut weapon_runtime, &mut quic);
+            reload_active_weapon(entity, &mut pawn_slots.p0(), &mut weapon_runtime, &mut quic);
         }
     }
 }

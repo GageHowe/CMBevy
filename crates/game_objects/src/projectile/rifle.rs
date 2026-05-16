@@ -9,6 +9,7 @@ use crate::{
     health::{Health, LastDamageSource},
     shield::Shield,
     spawn::AppGameObjectExt,
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 600.0;
@@ -46,6 +47,7 @@ impl Projectile for RifleProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
         shield_q: &mut Query<&mut Shield>,
+        _splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(
             &mut self.lifetime,

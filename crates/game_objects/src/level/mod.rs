@@ -95,6 +95,8 @@ pub struct MapMeta {
     pub ambient_light_color: Color,
     /// Ambient fill light brightness applied to the main camera. Client-only.
     pub ambient_light_brightness: f32,
+    /// Preferred count where GC starts getting more aggressive. Clamped to engine limits.
+    pub gc_soft_cap: Option<usize>,
 }
 
 // ── scene-root marker ─────────────────────────────────────────────────────────

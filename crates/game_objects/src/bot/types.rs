@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use common::PawnInputKind;
 use physics::physics_world::{PhysicsWorld, rb_pos, rb_rot, rb_vel};
 
-use crate::{Team, health::Health};
+use crate::{Team, health::Health, pawn::WeaponSlots, reticle::AimReticle};
 
 /// Snapshot of one actor used as input to a bot brain for a single think step.
 pub struct BotContext {
@@ -11,6 +11,7 @@ pub struct BotContext {
     pub pos: Vec3,
     pub rot: Quat,
     pub vel: Vec3,
+    pub projectile_speed: Option<f32>,
     pub health: f32,
     pub visible: Vec<BotContext>,
 }
@@ -23,6 +24,7 @@ impl Clone for BotContext {
             pos: self.pos,
             rot: self.rot,
             vel: self.vel,
+            projectile_speed: self.projectile_speed,
             health: self.health,
             visible: Vec::new(),
         }
@@ -71,6 +73,8 @@ impl BotController {
 
 pub fn collect_contexts(
     actors: &Query<(Entity, &Team, &Health)>,
+    slots: &Query<&WeaponSlots>,
+    reticles: &Query<&AimReticle>,
     world: &PhysicsWorld,
 ) -> Vec<BotContext> {
     actors
@@ -86,9 +90,25 @@ pub fn collect_contexts(
                 pos: rb_pos(body),
                 rot: rb_rot(body),
                 vel: rb_vel(body),
+                projectile_speed: projectile_speed(entity, slots, reticles),
                 health: health.current,
                 visible: Vec::new(),
             })
         })
         .collect()
+}
+
+fn projectile_speed(
+    entity: Entity,
+    slots: &Query<&WeaponSlots>,
+    reticles: &Query<&AimReticle>,
+) -> Option<f32> {
+    reticles
+        .get(entity)
+        .ok()
+        .and_then(|reticle| reticle.1)
+        .or_else(|| {
+            let weapon_entity = slots.get(entity).ok()?.active_weapon()?.1;
+            reticles.get(weapon_entity).ok().and_then(|reticle| reticle.1)
+        })
 }

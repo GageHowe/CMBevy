@@ -227,8 +227,9 @@ fn run_singleplayer_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
     weapon_kinds: Query<&GameObjectKind>,
-    mut pawn_slots: Query<&mut WeaponSlots>,
+    mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
+    reticles: Query<&game_objects::reticle::AimReticle>,
     mut beamers: Query<&mut game_objects::weapon::beamer::BeamerComponent>,
     mut pawns: PawnInputParams,
     mut world: ResMut<PhysicsWorld>,
@@ -237,7 +238,7 @@ fn run_singleplayer_bots(
     mut held_weapons: ResMut<HeldWeaponMap>,
     tick: Res<Ticker>,
 ) {
-    let actors = collect_contexts(&actors, &world);
+    let actors = collect_contexts(&actors, &pawn_slots.p1(), &reticles, &world);
     for (entity, mut bot) in &mut bots {
         let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
             continue;
@@ -252,7 +253,7 @@ fn run_singleplayer_bots(
             output.aim_dir,
             bot.next_temp_id(),
             &weapon_kinds,
-            &mut pawn_slots,
+            &mut pawn_slots.p0(),
             &mut weapon_runtime,
             &mut beamers,
             &mut held_weapons,

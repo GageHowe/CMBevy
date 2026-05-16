@@ -15,6 +15,7 @@ struct GameObjectRegistration {
     on_death: GameObjectDeathFn,
     gc_after_secs: Option<f32>,
     collision_sound: Option<&'static str>,
+    splash_damage_uses_center_of_mass: bool,
 }
 
 impl GameObjectRegistration {
@@ -24,9 +25,13 @@ impl GameObjectRegistration {
             on_death: T::on_death,
             gc_after_secs: T::GC_AFTER_SECS,
             collision_sound: T::COLLISION_SOUND,
+            splash_damage_uses_center_of_mass: T::SPLASH_DAMAGE_USES_CENTER_OF_MASS,
         }
     }
 }
+
+#[derive(Component)]
+pub struct CenterOfMassSplashDamage;
 
 #[derive(Resource, Default)]
 pub struct GameObjectRegistry(Vec<(GameObjectKind, GameObjectRegistration)>);
@@ -70,6 +75,7 @@ impl AppGameObjectExt for App {
 pub trait GameObject: Default + Reflect {
     const KIND: GameObjectKind;
     const GC_AFTER_SECS: Option<f32> = None;
+    const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = true;
 
     /// the sound this plays when colliing with things.
     const COLLISION_SOUND: Option<&'static str> = None;
@@ -113,6 +119,15 @@ impl Command for SpawnGameObjectCommand {
             registry.get(self.cmd.kind.clone())
         };
         (registration.spawn)(self.entity, &self.cmd, world);
+        if registration.splash_damage_uses_center_of_mass {
+            world
+                .entity_mut(self.entity)
+                .insert(CenterOfMassSplashDamage);
+        } else {
+            world
+                .entity_mut(self.entity)
+                .remove::<CenterOfMassSplashDamage>();
+        }
         if let Some(reset_secs) = registration.gc_after_secs
             && world.get::<WorldObjectGc>(self.entity).is_none()
         {

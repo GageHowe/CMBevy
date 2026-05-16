@@ -12,6 +12,7 @@ use crate::{
     health::{Health, LastDamageSource},
     shield::Shield,
     spawn::AppGameObjectExt,
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 42.0;
@@ -79,6 +80,7 @@ impl Projectile for GrenadeLauncherProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
         shield_q: &mut Query<&mut Shield>,
+        splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     ) {
         tick_inner(
             self,
@@ -89,6 +91,7 @@ impl Projectile for GrenadeLauncherProjectile {
             health_q,
             last_damage_q,
             shield_q,
+            splash_q,
         );
     }
 
@@ -175,6 +178,7 @@ fn tick_inner(
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
     shield_q: &mut Query<&mut Shield>,
+    splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     projectile.lifetime = projectile.lifetime.saturating_sub(1);
     if projectile.lifetime > 0 {
@@ -192,6 +196,7 @@ fn tick_inner(
         health_q,
         last_damage_q,
         shield_q,
+        splash_q,
     );
 }
 
@@ -335,6 +340,7 @@ fn explode_at(
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
     shield_q: &mut Query<&mut Shield>,
+    splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     helpers::explode_sphere_explosive_projectile(
         center,
@@ -346,6 +352,7 @@ fn explode_at(
         health_q,
         last_damage_q,
         shield_q,
+        splash_q,
         None,
         None,
         None,
@@ -397,6 +404,7 @@ fn detonate_requested_projectiles(
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     mut shield_q: Query<&mut Shield>,
+    splash_q: Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     for (entity, projectile, body) in q.iter() {
         let Some(rb) = world.rigid_body_set.get(body.0) else {
@@ -411,6 +419,7 @@ fn detonate_requested_projectiles(
             &mut health_q,
             &mut last_damage_q,
             &mut shield_q,
+            &splash_q,
         );
     }
 }
@@ -428,6 +437,7 @@ fn tick_predicted_projectiles(
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     mut shield_q: Query<&mut Shield>,
+    splash_q: Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     for (entity, mut projectile, body, state) in q.iter_mut() {
         if state.temp_id == 0 {
@@ -442,6 +452,7 @@ fn tick_predicted_projectiles(
             &mut health_q,
             &mut last_damage_q,
             &mut shield_q,
+            &splash_q,
         );
     }
 }

@@ -10,6 +10,7 @@ use crate::{
     shield::Shield,
     sound::SoundEmitter,
     spawn::AppGameObjectExt,
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 500.0;
@@ -47,6 +48,7 @@ impl Projectile for HailMaryProjectile {
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
         shield_q: &mut Query<&mut Shield>,
+        _splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(
             &mut self.lifetime,

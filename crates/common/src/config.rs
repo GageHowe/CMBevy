@@ -7,6 +7,9 @@ pub const BEACON_RENDEZVOUS_PORT: u16 = 42072;
 pub const BEACON_URL: &str = "https://criticalmass.dev";
 pub const FIXED_TICK_RATE: f64 = 60.0;
 pub const RESPAWN_DELAY_SECS: f32 = 5.0;
+pub const MAX_GC_OBJECTS: usize = 500;
+pub const DEFAULT_GC_SOFT_CAP: usize = 48;
+pub const GC_OVERFLOW_STEP: usize = 12;
 
 // avoids packet fragmentation. We should ensure packets are compressed to below this byte count in most cases
 // currently unused

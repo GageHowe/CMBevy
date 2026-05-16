@@ -6,6 +6,7 @@ use physics::physics_world::*;
 use crate::{
     AuthoritySystems, GameObject,
     health::{DamageCause, Health, LastDamageSource},
+    spawn::CenterOfMassSplashDamage,
     shield::Shield,
 };
 
@@ -74,6 +75,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
         shield_q: &mut Query<&mut Shield>,
+        splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     );
 
     fn on_authoritative_fire(_dir: Vec3, _shooter: Entity, _world: &mut PhysicsWorld) {}
@@ -241,6 +243,7 @@ pub fn tick_projectiles<P: Projectile>(
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     mut shield_q: Query<&mut Shield>,
+    splash_q: Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     for (entity, mut proj, mut state, body) in q.iter_mut() {
         proj.tick(
@@ -252,6 +255,7 @@ pub fn tick_projectiles<P: Projectile>(
             &mut health_q,
             &mut last_damage_q,
             &mut shield_q,
+            &splash_q,
         );
     }
 }
