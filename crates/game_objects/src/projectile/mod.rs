@@ -6,6 +6,7 @@ use physics::physics_world::*;
 use crate::{
     AuthoritySystems, GameObject,
     health::{DamageCause, Health, LastDamageSource},
+    shield::Shield,
 };
 
 pub mod fighter_rocket;
@@ -72,6 +73,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
+        shield_q: &mut Query<&mut Shield>,
     );
 
     fn on_authoritative_fire(_dir: Vec3, _shooter: Entity, _world: &mut PhysicsWorld) {}
@@ -238,6 +240,7 @@ pub fn tick_projectiles<P: Projectile>(
     )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
+    mut shield_q: Query<&mut Shield>,
 ) {
     for (entity, mut proj, mut state, body) in q.iter_mut() {
         proj.tick(
@@ -248,6 +251,7 @@ pub fn tick_projectiles<P: Projectile>(
             &mut commands,
             &mut health_q,
             &mut last_damage_q,
+            &mut shield_q,
         );
     }
 }

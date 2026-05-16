@@ -10,6 +10,7 @@ use super::{FiredProjectile, Projectile, ProjectileState, helpers, tick_projecti
 use crate::{
     GameObject,
     health::{Health, LastDamageSource},
+    shield::Shield,
     spawn::AppGameObjectExt,
 };
 
@@ -77,8 +78,18 @@ impl Projectile for GrenadeLauncherProjectile {
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
+        shield_q: &mut Query<&mut Shield>,
     ) {
-        tick_inner(self, entity, body, world, commands, health_q, last_damage_q);
+        tick_inner(
+            self,
+            entity,
+            body,
+            world,
+            commands,
+            health_q,
+            last_damage_q,
+            shield_q,
+        );
     }
 
     fn on_authoritative_fire(dir: Vec3, shooter: Entity, world: &mut PhysicsWorld) {
@@ -163,6 +174,7 @@ fn tick_inner(
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
+    shield_q: &mut Query<&mut Shield>,
 ) {
     projectile.lifetime = projectile.lifetime.saturating_sub(1);
     if projectile.lifetime > 0 {
@@ -179,6 +191,7 @@ fn tick_inner(
         commands,
         health_q,
         last_damage_q,
+        shield_q,
     );
 }
 
@@ -321,6 +334,7 @@ fn explode_at(
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
+    shield_q: &mut Query<&mut Shield>,
 ) {
     helpers::explode_sphere_explosive_projectile(
         center,
@@ -331,6 +345,7 @@ fn explode_at(
         commands,
         health_q,
         last_damage_q,
+        shield_q,
         None,
         None,
         None,
@@ -381,6 +396,7 @@ fn detonate_requested_projectiles(
     >,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
+    mut shield_q: Query<&mut Shield>,
 ) {
     for (entity, projectile, body) in q.iter() {
         let Some(rb) = world.rigid_body_set.get(body.0) else {
@@ -394,6 +410,7 @@ fn detonate_requested_projectiles(
             &mut commands,
             &mut health_q,
             &mut last_damage_q,
+            &mut shield_q,
         );
     }
 }
@@ -410,6 +427,7 @@ fn tick_predicted_projectiles(
     )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
+    mut shield_q: Query<&mut Shield>,
 ) {
     for (entity, mut projectile, body, state) in q.iter_mut() {
         if state.temp_id == 0 {
@@ -423,6 +441,7 @@ fn tick_predicted_projectiles(
             &mut commands,
             &mut health_q,
             &mut last_damage_q,
+            &mut shield_q,
         );
     }
 }

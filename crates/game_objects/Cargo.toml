@@ -15,6 +15,7 @@ physics = { path = "../physics" }
 net = { path = "../net" }
 bevy = { workspace = true, features = ["https", "scene", "serialize", "std", "multi_threaded"] }
 rapier3d = { workspace = true }
+bitflags = { workspace = true }
 bevy_egui = { workspace = true, optional = true }
 bevy_hanabi_plugin = { path = "../bevy_hanabi", optional = true }
 postcard = { workspace = true }

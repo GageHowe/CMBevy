@@ -21,6 +21,7 @@ mod network_index;
 pub mod pawn;
 pub mod projectile;
 pub mod reticle;
+pub mod shield;
 pub mod sound;
 mod spawn;
 #[cfg(feature = "client")]
@@ -74,6 +75,7 @@ impl Plugin for GameObjectsPlugin {
         app.add_plugins(flash::FlashPlugin);
         app.add_plugins(pawn::PawnPlugin);
         app.add_plugins(projectile::ProjectilePlugin);
+        app.add_plugins(shield::ShieldPlugin);
         app.add_plugins(weapon::WeaponPlugin);
         app.add_plugins(zone_effects::ZoneEffectsPlugin);
     }

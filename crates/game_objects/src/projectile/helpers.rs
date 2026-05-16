@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use common::{GameObjectKind, PredictedCommands};
 use net::message::{NetworkID, SpawnCommand};
+use physics::collider_flags::{ColliderFlags, collider_flags};
 use physics::physics_world::*;
 use rapier3d::prelude::{
     Ball, Collider, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
@@ -11,11 +12,14 @@ use super::{Projectile, ProjectileState};
 use crate::health::{DamageCause, Health, LastDamageSource, attribute_damage};
 #[cfg(feature = "client")]
 use crate::pawn::{CameraEffector, CameraShake};
+use crate::shield::Shield;
 
 #[derive(Clone, Copy)]
 pub struct RayProjectileHit {
     pub entity: Entity,
+    pub collider: ColliderHandle,
     pub dir: Vec3,
+    pub normal: Vec3,
     pub point: Vec3,
 }
 
@@ -220,12 +224,13 @@ pub fn tick_raycast_projectile(
             });
     }
     let exclude = [entity, shooter.unwrap_or(entity)];
-    let (hit, toi) = world.cast_ray(prev, dir, step, &exclude)?;
-    commands.entity(entity).despawn();
+    let hit = world.cast_ray_detailed(prev, dir, step, &exclude)?;
     Some(RayProjectileHit {
-        entity: hit,
+        entity: hit.entity,
+        collider: hit.collider,
         dir,
-        point: prev + dir * toi,
+        normal: hit.normal,
+        point: prev + dir * hit.toi,
     })
 }
 
@@ -245,12 +250,14 @@ pub struct ExplosiveProjectileConfig {
 pub fn rocket_explosion_inherit_velocity(
     world: &PhysicsWorld,
     direct_hit: Option<Entity>,
-    direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
+    direct_hit_impulse: Option<(Entity, ColliderHandle, Vec3, Vec3)>,
 ) -> Vec3 {
     direct_hit
         .and_then(|entity| {
             let hit_point = direct_hit_impulse
-                .and_then(|(hit, _, hit_point)| if hit == entity { Some(hit_point) } else { None });
+                .and_then(
+                    |(hit, _, _, hit_point)| if hit == entity { Some(hit_point) } else { None },
+                );
             let handle = world.entity_to_handle.get(&entity).copied()?;
             let rb = world.rigid_body_set.get(handle)?;
             Some(match hit_point {
@@ -309,6 +316,7 @@ pub fn tick_sphere_explosive_projectile(
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
+    shield_q: &mut Query<&mut Shield>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
     config: &ExplosiveProjectileConfig,
@@ -334,6 +342,7 @@ pub fn tick_sphere_explosive_projectile(
             commands,
             health_q,
             last_damage_q,
+            shield_q,
             net_ids,
             predicted,
             None,
@@ -360,7 +369,7 @@ pub fn tick_sphere_explosive_projectile(
                 end: prev + dir * step,
             });
     }
-    if let Some((hit, toi, normal)) =
+    if let Some((hit, hit_collider, toi, normal)) =
         world.cast_sphere(prev, dir, config.projectile_radius, step, &exclude)
     {
         let hit_point = prev + dir * toi;
@@ -373,9 +382,10 @@ pub fn tick_sphere_explosive_projectile(
             commands,
             health_q,
             last_damage_q,
+            shield_q,
             net_ids,
             predicted,
-            Some((hit, normal.normalize_or_zero(), hit_point)),
+            Some((hit, hit_collider, normal.normalize_or_zero(), hit_point)),
             config,
             #[cfg(feature = "client")]
             shake_radius,
@@ -394,9 +404,10 @@ pub fn explode_sphere_explosive_projectile(
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
+    shield_q: &mut Query<&mut Shield>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
-    direct_hit_impulse: Option<(Entity, Vec3, Vec3)>,
+    direct_hit_impulse: Option<(Entity, ColliderHandle, Vec3, Vec3)>,
     config: &ExplosiveProjectileConfig,
     #[cfg(feature = "client")] shake_radius: f32,
     #[cfg(feature = "client")] shake_scale: f32,
@@ -460,7 +471,7 @@ pub fn explode_sphere_explosive_projectile(
             continue;
         };
         let radial_dir = (rb_pos(rb) - center).normalize_or_zero();
-        let impulse_dir = if let Some((hit, dir, _)) = direct_hit_impulse
+        let impulse_dir = if let Some((hit, _, dir, _)) = direct_hit_impulse
             && hit == entity
         {
             dir
@@ -473,21 +484,39 @@ pub fn explode_sphere_explosive_projectile(
         let impulse = impulse_dir * config.explosion_impulse * effective_mass * falloff;
         let net_id = net_ids.and_then(|net_ids| net_ids.get(entity).ok());
         let point = direct_hit_impulse.and_then(
-            |(hit, _, hit_point)| {
+            |(hit, _, _, hit_point)| {
                 if hit == entity { Some(hit_point) } else { None }
             },
         );
         if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut()) {
             if predicted.is_none() {
-                if let Ok(mut health) = health_q.get_mut(entity) {
-                    let mut damage = config.damage * falloff;
-                    if shooter == Some(entity) {
-                        damage *= config.self_damage_scale;
-                    }
-                    attribute_damage(last_damage_q, entity, shooter, DamageCause::Explosion);
-                    health.apply_damage(damage);
-                    health.apply_percent_damage(config.percent_max_health_damage * falloff);
+                if let Some((hit, hit_collider, hit_normal, _)) = direct_hit_impulse
+                    && hit == entity
+                    && apply_direct_shield_collider_damage(
+                        world,
+                        hit,
+                        hit_collider,
+                        impulse_dir,
+                        hit_normal,
+                        shield_q,
+                        config.damage,
+                    )
+                {
+                    continue;
                 }
+                let mut damage = config.damage * falloff;
+                if shooter == Some(entity) {
+                    damage *= config.self_damage_scale;
+                }
+                apply_entity_damage(
+                    entity,
+                    shooter,
+                    damage,
+                    config.percent_max_health_damage * falloff,
+                    DamageCause::Explosion,
+                    health_q,
+                    last_damage_q,
+                );
             }
         }
     }
@@ -496,17 +525,99 @@ pub fn explode_sphere_explosive_projectile(
 }
 
 pub fn apply_raycast_hit<P: Projectile>(
+    projectile: Entity,
     hit: RayProjectileHit,
     shooter: Option<Entity>,
     world: &mut PhysicsWorld,
+    commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
+    shield_q: &mut Query<&mut Shield>,
     damage: f32,
 ) {
+    if let Some(blocked) = apply_direct_shield_hit(world, hit, shield_q, damage) {
+        if blocked {
+            commands.entity(projectile).despawn();
+            return;
+        }
+    }
+    commands.entity(projectile).despawn();
     apply_hit_impulse::<P>(world, hit.entity, hit.dir, Some(hit.point));
-    if let Ok(mut health) = health_q.get_mut(hit.entity) {
-        attribute_damage(last_damage_q, hit.entity, shooter, P::DAMAGE_CAUSE);
+    apply_entity_damage(
+        hit.entity,
+        shooter,
+        damage,
+        0.0,
+        P::DAMAGE_CAUSE,
+        health_q,
+        last_damage_q,
+    );
+}
+
+fn apply_direct_shield_hit(
+    world: &PhysicsWorld,
+    hit: RayProjectileHit,
+    shield_q: &mut Query<&mut Shield>,
+    damage: f32,
+) -> Option<bool> {
+    let flags = world
+        .collider_set
+        .get(hit.collider)
+        .map(|collider| collider_flags(collider.user_data))
+        .unwrap_or_else(ColliderFlags::empty);
+    if !flags.contains(ColliderFlags::SHIELD) {
+        return Some(false);
+    }
+    if hit.dir.dot(hit.normal) >= 0.0 {
+        return Some(false);
+    }
+    let Ok(mut shield) = shield_q.get_mut(hit.entity) else {
+        return Some(true);
+    };
+    shield.apply_damage(damage);
+    Some(true)
+}
+
+fn apply_direct_shield_collider_damage(
+    world: &PhysicsWorld,
+    entity: Entity,
+    collider: ColliderHandle,
+    _dir: Vec3,
+    _normal: Vec3,
+    shield_q: &mut Query<&mut Shield>,
+    damage: f32,
+) -> bool {
+    let flags = world
+        .collider_set
+        .get(collider)
+        .map(|collider| collider_flags(collider.user_data))
+        .unwrap_or_else(ColliderFlags::empty);
+    if !flags.contains(ColliderFlags::SHIELD) {
+        return false;
+    }
+    let Ok(mut shield) = shield_q.get_mut(entity) else {
+        return true;
+    };
+    shield.apply_damage(damage);
+    true
+}
+
+fn apply_entity_damage(
+    entity: Entity,
+    attacker: Option<Entity>,
+    damage: f32,
+    percent_max_health_damage: f32,
+    cause: DamageCause,
+    health_q: &mut Query<&mut Health>,
+    last_damage_q: &mut Query<&mut LastDamageSource>,
+) {
+    if damage <= 0.0 && percent_max_health_damage <= 0.0 {
+        return;
+    }
+    if let Ok(mut health) = health_q.get_mut(entity) {
+        attribute_damage(last_damage_q, entity, attacker, cause);
         health.apply_damage(damage);
+        health.apply_percent_damage(percent_max_health_damage);
     }
 }
 

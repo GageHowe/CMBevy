@@ -7,6 +7,7 @@ use super::{Projectile, helpers, tick_projectiles};
 use crate::{
     GameObject,
     health::{Health, LastDamageSource},
+    shield::Shield,
     spawn::AppGameObjectExt,
 };
 
@@ -44,6 +45,7 @@ impl Projectile for RifleProjectile {
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
+        shield_q: &mut Query<&mut Shield>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(
             &mut self.lifetime,
@@ -57,11 +59,14 @@ impl Projectile for RifleProjectile {
             return;
         };
         helpers::apply_raycast_hit::<Self>(
+            entity,
             hit,
             self.shooter,
             world,
+            commands,
             health_q,
             last_damage_q,
+            shield_q,
             DAMAGE,
         );
     }

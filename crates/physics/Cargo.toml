@@ -14,3 +14,4 @@ common = { path = "../common" }
 bevy = { workspace = true, features = ["bevy_gizmos", "serialize", "std", "multi_threaded"] }
 rapier3d = { workspace = true }
 serde = { workspace = true }
+bitflags = { workspace = true }

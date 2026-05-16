@@ -3,6 +3,7 @@ use bevy::{
     prelude::*,
 };
 use rapier3d::prelude::{Collider, ColliderBuilder, Pose, SharedShape};
+use std::{fs, path::Path};
 // use rapier3d::
 
 /// custom asset type for convex hulls
@@ -39,7 +40,7 @@ impl AssetLoader for ConvexHullAssetLoader {
 }
 
 /// converts the string contents of a .obj file into a rapier3d Collider
-fn parse_obj_compound(text: &str, scale: f32) -> Option<Collider> {
+pub fn parse_obj_compound(text: &str, scale: f32) -> Option<Collider> {
     let s = if scale == 0.0 { 1.0 } else { scale };
     let mut shapes: Vec<(Pose, SharedShape)> = Vec::new();
     let mut verts: Vec<Vec3> = Vec::new();
@@ -67,6 +68,11 @@ fn parse_obj_compound(text: &str, scale: f32) -> Option<Collider> {
         return None;
     }
     Some(ColliderBuilder::compound(shapes).build())
+}
+
+pub fn load_convex_hull_blocking(path: impl AsRef<Path>, scale: f32) -> Option<Collider> {
+    let text = fs::read_to_string(path).ok()?;
+    parse_obj_compound(&text, scale)
 }
 
 /// plugin that registers the custom Asset and AssetLoader

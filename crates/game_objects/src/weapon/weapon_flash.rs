@@ -11,9 +11,9 @@ use crate::flash::{
 pub struct WeaponFlashPlugin;
 
 impl Plugin for WeaponFlashPlugin {
-    fn build(&self, app: &mut App) {
+    fn build(&self, _app: &mut App) {
         #[cfg(feature = "client")]
-        app.add_systems(Update, tick_weapon_flashes);
+        _app.add_systems(Update, tick_weapon_flashes);
     }
 }
 

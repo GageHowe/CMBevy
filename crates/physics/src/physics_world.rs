@@ -95,6 +95,14 @@ pub struct PhysicsWorld {
     pub entity_to_handle: HashMap<Entity, RigidBodyHandle>,
 }
 
+#[derive(Clone, Copy)]
+pub struct RayHit {
+    pub entity: Entity,
+    pub collider: ColliderHandle,
+    pub toi: f32,
+    pub normal: Vec3,
+}
+
 impl PhysicsWorld {
     pub fn body(&self, entity: Entity) -> Option<&RigidBody> {
         self.entity_to_handle
@@ -368,7 +376,7 @@ impl PhysicsWorld {
         radius: f32,
         max_distance: f32,
         exclude: &[Entity],
-    ) -> Option<(Entity, f32, Vec3)> {
+    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
         use rapier3d::parry::query::ShapeCastOptions;
         let excluded: Vec<RigidBodyHandle> = exclude
             .iter()
@@ -397,6 +405,7 @@ impl PhysicsWorld {
             let rb_handle = self.collider_set.get(ch)?.parent()?;
             Some((
                 *self.handle_to_entity.get(&rb_handle)?,
+                ch,
                 hit.time_of_impact,
                 hit.normal2,
             ))
@@ -412,6 +421,17 @@ impl PhysicsWorld {
         max_distance: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, f32)> {
+        self.cast_ray_detailed(origin, direction, max_distance, exclude)
+            .map(|hit| (hit.entity, hit.toi))
+    }
+
+    pub fn cast_ray_detailed(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        exclude: &[Entity],
+    ) -> Option<RayHit> {
         let excluded: Vec<RigidBodyHandle> = exclude
             .iter()
             .filter_map(|e| self.entity_to_handle.get(e).copied())
@@ -427,10 +447,16 @@ impl PhysicsWorld {
             filter,
         );
         let ray = Ray::new(origin, direction);
-        qp.cast_ray(&ray, max_distance, true).and_then(|(ch, toi)| {
+        qp.cast_ray_and_get_normal(&ray, max_distance, true)
+            .and_then(|(ch, intersection)| {
             let rb_handle = self.collider_set.get(ch)?.parent()?;
             let entity = self.handle_to_entity.get(&rb_handle)?;
-            Some((*entity, toi))
+            Some(RayHit {
+                entity: *entity,
+                collider: ch,
+                toi: intersection.time_of_impact,
+                normal: intersection.normal,
+            })
         })
     }
 

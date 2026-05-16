@@ -1,6 +1,7 @@
 // generic.rs — spawns arbitrary physics objects with an optional mesh and network ID.
 use bevy::prelude::*;
 use common::NetworkID;
+use physics::collider_flags::collider_flags;
 use physics::{convex_hull_asset::ConvexHullAsset, physics_world::*};
 use rapier3d::prelude::*;
 
@@ -157,6 +158,13 @@ pub fn swap_hull_colliders(
             ..
         } = &mut *physics;
         for collider_handle in old_colliders {
+            let keep = collider_set
+                .get(collider_handle)
+                .map(|collider| !collider_flags(collider.user_data).is_empty())
+                .unwrap_or(false);
+            if keep {
+                continue;
+            }
             collider_set.remove(collider_handle, island_manager, rigid_body_set, true);
         }
         collider_set.insert_with_parent(collider, body_handle, rigid_body_set);

@@ -16,12 +16,15 @@ use super::{
 };
 #[cfg(feature = "client")]
 use crate::flash::spawn_flash;
+#[cfg(feature = "client")]
+use crate::shield::spawn_box_shield_visual;
 use crate::{
     GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     reticle::AimReticle,
+    shield::attach_shield_collider,
     spawn::AppGameObjectExt,
 };
 
@@ -33,6 +36,9 @@ const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
 const MAX_TORQUE: f32 = 40000.0;
 const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
+const SHIELD_MAX_HEALTH: f32 = 300.0;
+const SHIELD_REGEN_PER_SEC: f32 = 60.0;
+const SHIELD_REGEN_DELAY_SECS: f32 = 5.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -85,22 +91,6 @@ impl GameObject for SpaceshipPawnComponent {
             ..default()
         };
         spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
-        world.entity_mut(entity).insert((
-            SpaceshipPawnComponent,
-            Health::new(SPACESHIP_MAX_HEALTH, 0.0, 0.0),
-            CollisionDamageConfig {
-                threshold_per_mass: 120.0,
-                min_threshold: 400.0,
-                damage_scale: 0.5,
-            },
-            LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
-            CollisionFxMaterial::Sparks,
-            AimReticle("textures/crosshairs/crosshair001.png", None),
-            GameObjectKind::Spaceship,
-            Transform::from(transform),
-            cmd.net_id.clone(),
-        ));
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()
@@ -118,6 +108,39 @@ impl GameObject for SpaceshipPawnComponent {
             }
             rb_handle
         };
+        #[allow(unused_mut)]
+        let mut shield = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            attach_shield_collider(
+                rb_handle,
+                ColliderBuilder::cuboid(1.9, 1.4, 3.4).build(),
+                SHIELD_MAX_HEALTH,
+                SHIELD_REGEN_PER_SEC,
+                SHIELD_REGEN_DELAY_SECS,
+                &mut physics,
+            )
+        };
+        #[cfg(feature = "client")]
+        {
+            shield.visual = Some(spawn_box_shield_visual(world, entity, Vec3::new(1.9, 1.4, 3.4)));
+        }
+        world.entity_mut(entity).insert((
+            SpaceshipPawnComponent,
+            Health::new(SPACESHIP_MAX_HEALTH, 0.0, 0.0),
+            CollisionDamageConfig {
+                threshold_per_mass: 120.0,
+                min_threshold: 400.0,
+                damage_scale: 0.5,
+            },
+            LastDamageSource::default(),
+            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
+            CollisionFxMaterial::Sparks,
+            AimReticle("textures/crosshairs/crosshair001.png", None),
+            GameObjectKind::Spaceship,
+            shield,
+            Transform::from(transform),
+            cmd.net_id.clone(),
+        ));
         attach_hull_collider(
             entity,
             rb_handle,

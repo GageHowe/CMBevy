@@ -63,7 +63,7 @@ pub fn apply_melee_hits(
         let end = biped.melee_debug_end;
         let impulse = melee_impulse(start, end);
         let dir = impulse.normalize_or_zero();
-        let Some((victim, _, _)) =
+        let Some((victim, _, _, _)) =
             world.cast_sphere(start, dir, MELEE_RADIUS, MELEE_RANGE, &[attacker])
         else {
             continue;
@@ -155,7 +155,7 @@ pub fn resolve_melee_hit(
     }
     world
         .cast_sphere(start, dir, MELEE_RADIUS, MELEE_RANGE, &[attacker])
-        .map(|(entity, _, _)| entity)
+        .map(|(entity, _, _, _)| entity)
 }
 
 pub fn validate_melee_target(

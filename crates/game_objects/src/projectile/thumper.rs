@@ -9,6 +9,7 @@ use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 use crate::{
     GameObject,
     health::{Health, LastDamageSource},
+    shield::Shield,
     spawn::AppGameObjectExt,
 };
 
@@ -69,6 +70,7 @@ impl Projectile for ThumperProjectile {
         commands: &mut Commands,
         health_q: &mut Query<&mut Health>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
+        shield_q: &mut Query<&mut Shield>,
     ) {
         tick_inner(
             self,
@@ -79,6 +81,7 @@ impl Projectile for ThumperProjectile {
             commands,
             health_q,
             last_damage_q,
+            shield_q,
             None,
             None,
         );
@@ -125,6 +128,7 @@ fn tick_inner(
     commands: &mut Commands,
     health_q: &mut Query<&mut Health>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
+    shield_q: &mut Query<&mut Shield>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
 ) {
@@ -138,6 +142,7 @@ fn tick_inner(
         commands,
         health_q,
         last_damage_q,
+        shield_q,
         net_ids,
         predicted,
         &CONFIG,
@@ -230,6 +235,7 @@ fn tick_predicted_projectiles(
     )>,
     mut health_q: Query<&mut Health>,
     mut last_damage_q: Query<&mut LastDamageSource>,
+    mut shield_q: Query<&mut Shield>,
     net_ids: Query<&NetworkID>,
     mut predicted: ResMut<PredictedCommands>,
 ) {
@@ -246,6 +252,7 @@ fn tick_predicted_projectiles(
             &mut commands,
             &mut health_q,
             &mut last_damage_q,
+            &mut shield_q,
             Some(&net_ids),
             Some(&mut predicted),
         );
