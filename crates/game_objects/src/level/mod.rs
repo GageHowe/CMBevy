@@ -111,14 +111,12 @@ pub struct LevelSceneRoot;
 pub struct Spawner {
     pub kind: common::GameObjectKind,
     pub respawn_delay_secs: f32,
-    pub gc_after_secs: Option<f32>,
 }
 impl Default for Spawner {
     fn default() -> Self {
         Self {
             kind: common::GameObjectKind::Biped,
             respawn_delay_secs: 10.0,
-            gc_after_secs: None,
         }
     }
 }
@@ -128,7 +126,6 @@ pub(crate) struct SpawnerRuntime {
     pub(crate) kind: common::GameObjectKind,
     pub(crate) starting_velocity: Vec3,
     pub(crate) respawn_delay_secs: f32,
-    pub(crate) gc_after_secs: Option<f32>,
     pub(crate) respawn_timer_secs: f32,
     pub(crate) active_entity: Option<Entity>,
 }
@@ -460,7 +457,6 @@ fn init_spawners(
             kind: spawner.kind.clone(),
             starting_velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
             respawn_delay_secs: spawner.respawn_delay_secs,
-            gc_after_secs: spawner.gc_after_secs,
             respawn_timer_secs: 0.0,
             active_entity: None,
         });
@@ -566,14 +562,13 @@ fn tick_spawners(
             &mut commands,
             &mut net_id_res,
         );
-        if let Some(gc_after_secs) = spawner.gc_after_secs {
-            commands.entity(spawn_entity).insert((
-                SpawnerGc {
+        commands.queue(move |world: &mut World| {
+            if world.get::<WorldObjectGc>(spawn_entity).is_some() {
+                world.entity_mut(spawn_entity).insert(SpawnerGc {
                     spawner: _spawner_entity,
-                },
-                WorldObjectGc::new(gc_after_secs),
-            ));
-        }
+                });
+            }
+        });
         spawner.active_entity = Some(spawn_entity);
 
         #[cfg(feature = "client")]

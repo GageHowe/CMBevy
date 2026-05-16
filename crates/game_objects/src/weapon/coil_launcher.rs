@@ -83,7 +83,7 @@ impl Weapon for CoilLauncherComponent {
 
 impl GameObject for CoilLauncherComponent {
     const KIND: GameObjectKind = GameObjectKind::CoilLauncher;
-    const GC_AFTER_SECS: Option<f32> = Some(10.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(CoilLauncherComponent::default(), world);

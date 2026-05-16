@@ -81,7 +81,7 @@ impl Weapon for ThumperComponent {
 
 impl GameObject for ThumperComponent {
     const KIND: GameObjectKind = GameObjectKind::Thumper;
-    const GC_AFTER_SECS: Option<f32> = Some(10.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(ThumperComponent::default(), world);

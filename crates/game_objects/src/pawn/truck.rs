@@ -75,7 +75,7 @@ impl VehiclePawn for TruckPawnComponent {
 
 impl GameObject for TruckPawnComponent {
     const KIND: GameObjectKind = GameObjectKind::Truck;
-    const GC_AFTER_SECS: Option<f32> = Some(300.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {

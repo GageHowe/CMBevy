@@ -82,7 +82,7 @@ impl VehiclePawn for SpaceshipPawnComponent {
 
 impl GameObject for SpaceshipPawnComponent {
     const KIND: GameObjectKind = GameObjectKind::Spaceship;
-    const GC_AFTER_SECS: Option<f32> = Some(300.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
     const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = false;
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {

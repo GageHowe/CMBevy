@@ -423,7 +423,7 @@ impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> crate
     for AbilityPickup<A>
 {
     const KIND: GameObjectKind = A::KIND;
-    const GC_AFTER_SECS: Option<f32> = Some(20.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(20.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         A::spawn_pickup(entity, cmd.position, cmd.starting_velocity, world);

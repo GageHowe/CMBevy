@@ -13,7 +13,7 @@ type GameObjectDeathFn = fn(Entity, &mut World) -> bool;
 struct GameObjectRegistration {
     spawn: SpawnGameObjectFn,
     on_death: GameObjectDeathFn,
-    gc_after_secs: Option<f32>,
+    gc_lifetime_secs: Option<f32>,
     collision_sound: Option<&'static str>,
     splash_damage_uses_center_of_mass: bool,
 }
@@ -23,7 +23,7 @@ impl GameObjectRegistration {
         Self {
             spawn: T::spawn,
             on_death: T::on_death,
-            gc_after_secs: T::GC_AFTER_SECS,
+            gc_lifetime_secs: T::gc_lifetime_secs(),
             collision_sound: T::COLLISION_SOUND,
             splash_damage_uses_center_of_mass: T::SPLASH_DAMAGE_USES_CENTER_OF_MASS,
         }
@@ -74,7 +74,7 @@ impl AppGameObjectExt for App {
 
 pub trait GameObject: Default + Reflect {
     const KIND: GameObjectKind;
-    const GC_AFTER_SECS: Option<f32> = None;
+    const GC_LIFETIME_SECS: Option<f32> = None;
     const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = true;
 
     /// the sound this plays when colliing with things.
@@ -86,6 +86,8 @@ pub trait GameObject: Default + Reflect {
     fn on_death(_entity: Entity, _world: &mut World) -> bool {
         true
     }
+
+    fn gc_lifetime_secs() -> Option<f32> { Self::GC_LIFETIME_SECS }
 }
 
 pub fn dispatch_game_object_on_death(
@@ -128,7 +130,7 @@ impl Command for SpawnGameObjectCommand {
                 .entity_mut(self.entity)
                 .remove::<CenterOfMassSplashDamage>();
         }
-        if let Some(reset_secs) = registration.gc_after_secs
+        if let Some(reset_secs) = registration.gc_lifetime_secs
             && world.get::<WorldObjectGc>(self.entity).is_none()
         {
             world

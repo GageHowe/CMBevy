@@ -110,7 +110,7 @@ impl Pawn for RocketTurretPawnComponent {
 
 impl GameObject for RocketTurretPawnComponent {
     const KIND: GameObjectKind = GameObjectKind::RocketTurret;
-    const GC_AFTER_SECS: Option<f32> = Some(300.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let mount_anchor = mount::spawn_mount_anchor(entity, MOUNT_OFFSET, world);

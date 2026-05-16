@@ -10,13 +10,12 @@ use crate::{
     GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::AppGameObjectExt,
-    spawn::CenterOfMassSplashDamage,
+    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
 };
 
 pub const SPEED: f32 = 120.0;
 pub const LIFETIME: u32 = 180;
-pub const DAMAGE: f32 = 70.0;
+pub const DAMAGE: f32 = 30.0;
 pub const EXPLOSION_RADIUS: f32 = 6.0;
 pub const EXPLOSION_IMPULSE: f32 = 15.0;
 pub const EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS: f32 = 1000.0;

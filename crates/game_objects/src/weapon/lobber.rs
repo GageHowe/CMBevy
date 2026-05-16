@@ -77,7 +77,7 @@ impl Weapon for LobberComponent {
 
 impl GameObject for LobberComponent {
     const KIND: GameObjectKind = GameObjectKind::Lobber;
-    const GC_AFTER_SECS: Option<f32> = Some(10.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(LobberComponent::default(), world);

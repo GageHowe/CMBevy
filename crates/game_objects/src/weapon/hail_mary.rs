@@ -81,7 +81,7 @@ impl Weapon for HailMaryComponent {
 
 impl GameObject for HailMaryComponent {
     const KIND: GameObjectKind = GameObjectKind::HailMary;
-    const GC_AFTER_SECS: Option<f32> = Some(10.0);
+    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         #[cfg(feature = "client")]
