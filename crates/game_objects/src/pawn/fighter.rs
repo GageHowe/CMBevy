@@ -99,7 +99,7 @@ impl GameObject for FighterPawnComponent {
         spawn_driver_mount::<FighterPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             FighterPawnComponent::default(),
-            Health::new(FIGHTER_MAX_HEALTH),
+            Health::new(FIGHTER_MAX_HEALTH, 0.0, 0.0),
             CollisionDamageConfig {
                 threshold_per_mass: 120.0,
                 min_threshold: 250.0,

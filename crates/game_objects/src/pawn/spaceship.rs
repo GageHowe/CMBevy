@@ -87,7 +87,7 @@ impl GameObject for SpaceshipPawnComponent {
         spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
-            Health::new(SPACESHIP_MAX_HEALTH),
+            Health::new(SPACESHIP_MAX_HEALTH, 0.0, 0.0),
             CollisionDamageConfig {
                 threshold_per_mass: 120.0,
                 min_threshold: 400.0,

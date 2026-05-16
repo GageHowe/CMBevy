@@ -88,7 +88,7 @@ impl GameObject for HailMaryComponent {
         let muzzle_flash = Some(weapon_flash::spawn_weapon_flash(
             world,
             entity,
-            Vec3::new(0.0, 0.0, -0.6),
+            Vec3::new(0.0, 0.0, -2.0),
             0.18,
             Color::srgb(1.0, 0.6, 0.2),
             8.0,

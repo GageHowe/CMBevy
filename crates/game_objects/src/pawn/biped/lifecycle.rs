@@ -9,7 +9,7 @@ use rapier3d::prelude::*;
 use super::*;
 use crate::{
     GameObject, GameObjectKind,
-    health::{DamageCause, Health, HealthRegen, LastDamageSource},
+    health::{DamageCause, Health, LastDamageSource},
 };
 
 impl Pawn for BipedPawnComponent {
@@ -36,10 +36,11 @@ impl GameObject for BipedPawnComponent {
         };
         world.entity_mut(entity).insert((
             WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
-            Health::new(100.0),
-            HealthRegen {
-                per_sec: BIPED_HEALTH_REGEN_PER_SEC,
-            },
+            Health::new(
+                100.0,
+                BIPED_HEALTH_REGEN_PER_SEC,
+                BIPED_HEALTH_REGEN_DELAY_SECS,
+            ),
             LastDamageSource::default(),
             GameObjectKind::Biped,
             Transform::from(transform),

@@ -132,7 +132,7 @@ impl GameObject for RocketTurretPawnComponent {
                 interact_radius: 1.4,
                 exit_offset: Vec3::new(-1.5, 0.0, 0.0),
             },
-            Health::new(TURRET_MAX_HEALTH),
+            Health::new(TURRET_MAX_HEALTH, 0.0, 0.0),
             CollisionDamageConfig {
                 threshold_per_mass: 120.0,
                 min_threshold: 250.0,

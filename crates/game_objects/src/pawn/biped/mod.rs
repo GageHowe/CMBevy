@@ -46,6 +46,7 @@ pub(super) const MAIN_RESTITUTION: f32 = 0.0;
 pub(super) const MAIN_FRICTION: f32 = 2.0;
 pub(super) const SLIDE_FRICTION: f32 = 0.1;
 pub(super) const BIPED_HEALTH_REGEN_PER_SEC: f32 = 5.0;
+pub(super) const BIPED_HEALTH_REGEN_DELAY_SECS: f32 = 5.0;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {

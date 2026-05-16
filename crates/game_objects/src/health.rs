@@ -37,12 +37,9 @@ impl Plugin for HealthPlugin {
 pub struct Health {
     pub current: f32,
     pub max: f32,
-}
-
-#[derive(Component, Clone, Copy)]
-/// Passive health regeneration rate in hit points per second.
-pub struct HealthRegen {
-    pub per_sec: f32,
+    pub regen_per_sec: f32,
+    pub regen_delay_secs: f32,
+    pub regen_delay_remaining_secs: f32,
 }
 
 #[derive(Clone, Copy, Default, Reflect)]
@@ -86,11 +83,21 @@ pub struct PendingPlayerRemovals(pub Vec<Entity>);
 pub struct PendingDeathDespawns(pub Vec<Entity>);
 
 impl Health {
-    pub fn new(max: f32) -> Self {
-        Self { current: max, max }
+    pub fn new(max: f32, regen_per_sec: f32, regen_delay_secs: f32) -> Self {
+        Self {
+            current: max,
+            max,
+            regen_per_sec,
+            regen_delay_secs,
+            regen_delay_remaining_secs: 0.0,
+        }
     }
 
     pub fn apply_damage(&mut self, amount: f32) {
+        if amount <= 0.0 || self.is_dead() {
+            return;
+        }
+        self.regen_delay_remaining_secs = self.regen_delay_secs;
         self.current = (self.current - amount).max(0.0);
     }
 
@@ -210,16 +217,20 @@ fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageS
     }
 }
 
-fn regenerate_health(time: Res<Time<Fixed>>, mut health_q: Query<(&mut Health, &HealthRegen)>) {
+fn regenerate_health(time: Res<Time<Fixed>>, mut health_q: Query<&mut Health>) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
-    for (mut health, regen) in &mut health_q {
-        if health.is_dead() || health.current >= health.max || regen.per_sec <= 0.0 {
+    for mut health in &mut health_q {
+        health.regen_delay_remaining_secs = (health.regen_delay_remaining_secs - dt).max(0.0);
+        if health.is_dead() || health.current >= health.max || health.regen_per_sec <= 0.0 {
             continue;
         }
-        health.current = (health.current + regen.per_sec * dt).min(health.max);
+        if health.regen_delay_remaining_secs > 0.0 {
+            continue;
+        }
+        health.current = (health.current + health.regen_per_sec * dt).min(health.max);
     }
 }
 
