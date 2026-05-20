@@ -109,6 +109,9 @@ fn projectile_speed(
         .and_then(|reticle| reticle.1)
         .or_else(|| {
             let weapon_entity = slots.get(entity).ok()?.active_weapon()?.1;
-            reticles.get(weapon_entity).ok().and_then(|reticle| reticle.1)
+            reticles
+                .get(weapon_entity)
+                .ok()
+                .and_then(|reticle| reticle.1)
         })
 }

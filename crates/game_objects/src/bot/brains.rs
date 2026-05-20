@@ -29,7 +29,8 @@ impl BotBrain for HeuristicKillerBot {
 
         let up = ctx.rot * Vec3::Y;
         let noise = ((ctx.pos.x * 1.7 + ctx.pos.z * 0.9 + ctx.vel.length()).sin()).clamp(-1.0, 1.0);
-        let aim = predicted_aim_point(ctx, target).unwrap_or(target.pos) + up * (0.35 + noise * 0.2);
+        let aim =
+            predicted_aim_point(ctx, target).unwrap_or(target.pos) + up * (0.35 + noise * 0.2);
         let to_target = aim - ctx.pos;
         let distance = to_target.length();
         let forward = ((distance - 9.0) / 8.0).clamp(-0.4, 1.0);

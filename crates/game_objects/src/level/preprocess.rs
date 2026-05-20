@@ -65,9 +65,7 @@ fn strip_render_components(text: &str) -> String {
         let trimmed = line.trim_start();
         if !skipping
             && RENDER_COMPONENT_PREFIXES.iter().any(|prefix| {
-                trimmed.starts_with('"')
-                    && trimmed.contains(prefix)
-                    && trimmed.contains("\":")
+                trimmed.starts_with('"') && trimmed.contains(prefix) && trimmed.contains("\":")
             })
         {
             skipping = true;

@@ -87,7 +87,9 @@ pub trait GameObject: Default + Reflect {
         true
     }
 
-    fn gc_lifetime_secs() -> Option<f32> { Self::GC_LIFETIME_SECS }
+    fn gc_lifetime_secs() -> Option<f32> {
+        Self::GC_LIFETIME_SECS
+    }
 }
 
 pub fn dispatch_game_object_on_death(

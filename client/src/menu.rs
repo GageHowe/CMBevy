@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use bevy::{app::AppExit, prelude::*};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use common::InputAction;
+use common::{InputAction, config::CRITICAL_MASS_VERSION};
 use game_objects::sound::SoundQueue;
 use http_common::{LobbyInfo, RegisterRequest};
 use session::{
@@ -283,6 +283,16 @@ fn main_menu(
             ),
         }
     });
+    egui::Area::new("main_menu_version".into())
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -12.0))
+        .show(ctx, |ui| {
+            ui.label(
+                egui::RichText::new(format!("v{CRITICAL_MASS_VERSION}"))
+                    .small()
+                    .color(egui::Color32::from_gray(180)),
+            );
+        });
 }
 
 fn go_to_screen(screen: &mut Screen, next: Screen, sound_queue: &mut SoundQueue) {

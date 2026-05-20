@@ -83,13 +83,11 @@ pub fn trigger_weapon_flash(world: &mut World, entity: Entity) {
 #[cfg(feature = "client")]
 fn tick_weapon_flashes(
     time: Res<Time>,
-    mut flashes: Query<
-        (
-            &mut WeaponFlash,
-            &MeshMaterial3d<FlashMaterial>,
-            &mut PointLight,
-        ),
-    >,
+    mut flashes: Query<(
+        &mut WeaponFlash,
+        &MeshMaterial3d<FlashMaterial>,
+        &mut PointLight,
+    )>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
     mut materials: ResMut<Assets<FlashMaterial>>,
 ) {
@@ -101,19 +99,30 @@ fn tick_weapon_flashes(
     for (mut flash, material_handle, mut light) in &mut flashes {
         if !flash.active {
             light.intensity = 0.0;
-            update_flash_material(material_handle, &mut materials, flash.color, 0.0, flash.brightness, camera_pos);
+            update_flash_material(
+                material_handle,
+                &mut materials,
+                flash.color,
+                0.0,
+                flash.brightness,
+                camera_pos,
+            );
             continue;
         }
         flash.age_secs += dt;
         let brightness = flash_decay(flash.brightness, flash.brightness_decay, flash.age_secs);
-        let light_intensity =
-            flash_decay(flash.light_intensity, flash.light_decay, flash.age_secs);
-        if brightness <= MIN_VISIBLE_BRIGHTNESS
-            && light_intensity <= MIN_VISIBLE_LIGHT_INTENSITY
-        {
+        let light_intensity = flash_decay(flash.light_intensity, flash.light_decay, flash.age_secs);
+        if brightness <= MIN_VISIBLE_BRIGHTNESS && light_intensity <= MIN_VISIBLE_LIGHT_INTENSITY {
             flash.active = false;
             light.intensity = 0.0;
-            update_flash_material(material_handle, &mut materials, flash.color, 0.0, flash.brightness, camera_pos);
+            update_flash_material(
+                material_handle,
+                &mut materials,
+                flash.color,
+                0.0,
+                flash.brightness,
+                camera_pos,
+            );
             continue;
         }
         light.intensity = light_intensity;

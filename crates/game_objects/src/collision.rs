@@ -101,10 +101,9 @@ fn collect_collision_impacts(world: Res<PhysicsWorld>, mut impacts: ResMut<Colli
             .and_then(|handle| world.handle_to_entity.get(&handle).copied());
         let position = position.unwrap_or(Vec3::ZERO);
         let relative_speed = match (entity1, entity2) {
-            (Some(entity1), Some(entity2)) => {
-                (collision_fx_velocity(&world, entity1) - collision_fx_velocity(&world, entity2))
-                    .length()
-            }
+            (Some(entity1), Some(entity2)) => (collision_fx_velocity(&world, entity1)
+                - collision_fx_velocity(&world, entity2))
+            .length(),
             (Some(entity1), None) => collision_fx_velocity(&world, entity1).length(),
             (None, Some(entity2)) => collision_fx_velocity(&world, entity2).length(),
             (None, None) => 0.0,

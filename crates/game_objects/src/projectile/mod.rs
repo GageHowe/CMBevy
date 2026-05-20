@@ -6,16 +6,16 @@ use physics::physics_world::*;
 use crate::{
     AuthoritySystems, GameObject,
     health::{DamageCause, Health, LastDamageSource},
-    spawn::CenterOfMassSplashDamage,
     shield::Shield,
+    spawn::CenterOfMassSplashDamage,
 };
 
-pub mod fighter_rocket;
+pub mod coil_launcher;
 pub mod failsafe;
+pub mod fighter_rocket;
 pub mod hail_mary;
 pub mod helpers;
 pub mod lobber;
-pub mod coil_launcher;
 pub mod pistol;
 pub mod rifle;
 pub mod thumper;

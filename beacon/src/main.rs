@@ -59,7 +59,10 @@ async fn main() {
         .route("/lobbies/register", post(beacon_routes::register))
         .route("/lobbies/{id}/heartbeat", post(beacon_routes::heartbeat))
         .route("/lobbies/{id}/join", post(beacon_routes::join))
-        .route("/lobbies/{id}/join/{token}", get(beacon_routes::join_status))
+        .route(
+            "/lobbies/{id}/join/{token}",
+            get(beacon_routes::join_status),
+        )
         .route("/lobbies/{id}/punch", get(beacon_routes::pending_peers))
         .route("/lobbies/{id}", delete(beacon_routes::delete));
 
@@ -74,9 +77,12 @@ async fn main() {
     let bind_addr = SocketAddr::from(([127, 0, 0, 1], 8000));
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
     println!("Listening on http://{bind_addr}");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {

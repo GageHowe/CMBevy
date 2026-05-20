@@ -1,9 +1,10 @@
+use std::{fs, path::Path};
+
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
 };
 use rapier3d::prelude::{Collider, ColliderBuilder, Pose, SharedShape};
-use std::{fs, path::Path};
 // use rapier3d::
 
 /// custom asset type for convex hulls

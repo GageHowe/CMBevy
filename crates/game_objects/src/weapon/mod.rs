@@ -17,12 +17,12 @@ use crate::{
     sound::SoundQueue,
 };
 
-pub mod hail_mary;
 pub mod beamer;
-pub mod helpers;
-pub mod lobber;
 pub mod coil_launcher;
 pub mod failsafe;
+pub mod hail_mary;
+pub mod helpers;
+pub mod lobber;
 pub mod pistol;
 pub mod rifle;
 pub mod smg;

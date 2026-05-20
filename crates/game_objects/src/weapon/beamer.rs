@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::pbr::MeshMaterial3d;
+use bevy::prelude::*;
 use net::quic::{Channel, ConnectionId, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
@@ -245,7 +245,10 @@ fn end_local_beam(beam: &mut BeamerComponent, ctx: &mut FireCtx, apply_cooldown:
     }
     #[cfg(feature = "client")]
     if let (Some(quic), Some(weapon_net_id)) = (ctx.quic.as_deref_mut(), ctx.net_id) {
-        quic.send_to_server(Channel::Ordered, &net::message::MsgType::EndBeam(weapon_net_id.clone()));
+        quic.send_to_server(
+            Channel::Ordered,
+            &net::message::MsgType::EndBeam(weapon_net_id.clone()),
+        );
     }
 }
 
@@ -771,7 +774,9 @@ fn add_visuals(
             .id();
         commands.entity(entity).add_child(charge);
         commands.entity(entity).add_child(beam);
-        commands.entity(entity).insert(BeamerVisualRefs { charge, beam });
+        commands
+            .entity(entity)
+            .insert(BeamerVisualRefs { charge, beam });
     }
 }
 

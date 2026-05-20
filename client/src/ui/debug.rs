@@ -1,8 +1,8 @@
 use bevy::{
     app::AppExit,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    prelude::*,
     post_process::auto_exposure::AutoExposure,
+    prelude::*,
     render::view::Hdr,
 };
 use bevy_egui::{EguiContexts, egui};
@@ -10,9 +10,7 @@ use common::tick::NetworkStats;
 use physics::physics_world::PhysicsWorld;
 use session::PendingExit;
 
-use crate::{
-    GameState, UiState, auto_exposure_debug::AutoExposureCorrection, settings::Settings,
-};
+use crate::{GameState, UiState, auto_exposure_debug::AutoExposureCorrection, settings::Settings};
 
 #[derive(Resource, Default)]
 pub struct SmoothedFps(pub Option<f32>);

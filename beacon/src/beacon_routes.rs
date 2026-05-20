@@ -127,7 +127,11 @@ pub(crate) async fn join_status(
     Path((id, token)): Path<(String, String)>,
 ) -> Result<Json<JoinStatusResponse>, StatusCode> {
     let rendezvous = rendezvous().lock().unwrap();
-    if rendezvous.tokens.get(&token).is_none_or(|value| value != &id) {
+    if rendezvous
+        .tokens
+        .get(&token)
+        .is_none_or(|value| value != &id)
+    {
         return Err(StatusCode::NOT_FOUND);
     }
     let host = rendezvous.hosts.get(&id).map(ToString::to_string);

@@ -9,8 +9,7 @@ use crate::{
     health::{DamageCause, Health, LastDamageSource},
     shield::Shield,
     sound::SoundEmitter,
-    spawn::AppGameObjectExt,
-    spawn::CenterOfMassSplashDamage,
+    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
 };
 
 pub const SPEED: f32 = 500.0;

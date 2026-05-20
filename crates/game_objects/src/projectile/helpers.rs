@@ -1,19 +1,23 @@
 use bevy::prelude::*;
 use common::{GameObjectKind, PredictedCommands};
 use net::message::{NetworkID, SpawnCommand};
-use physics::collider_flags::{ColliderFlags, collider_flags};
-use physics::physics_world::*;
+use physics::{
+    collider_flags::{ColliderFlags, collider_flags},
+    physics_world::*,
+};
 use rapier3d::prelude::{
     Ball, Collider, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
     Pose, QueryFilter, RigidBodyBuilder, Vector,
 };
 
 use super::{Projectile, ProjectileState};
-use crate::health::{DamageCause, Health, LastDamageSource, attribute_damage};
 #[cfg(feature = "client")]
 use crate::pawn::{CameraEffector, CameraShake};
-use crate::spawn::CenterOfMassSplashDamage;
-use crate::shield::Shield;
+use crate::{
+    health::{DamageCause, Health, LastDamageSource, attribute_damage},
+    shield::Shield,
+    spawn::CenterOfMassSplashDamage,
+};
 
 #[derive(Clone, Copy)]
 pub struct RayProjectileHit {
@@ -269,8 +273,8 @@ pub fn rocket_explosion_inherit_velocity(
 ) -> Vec3 {
     direct_hit
         .and_then(|entity| {
-            let hit_point = direct_hit_impulse
-                .and_then(
+            let hit_point =
+                direct_hit_impulse.and_then(
                     |(hit, _, _, hit_point)| if hit == entity { Some(hit_point) } else { None },
                 );
             let handle = world.entity_to_handle.get(&entity).copied()?;

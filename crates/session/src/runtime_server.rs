@@ -189,20 +189,22 @@ fn poll_hosted_lobby_peers(
 }
 
 fn fetch_pending_lobby_peers(lobby_id: &str) -> Result<Vec<std::net::SocketAddr>, String> {
-    let response: http_common::PendingPeersResponse =
-        ureq::get(&format!(
-            "{}/lobbies/{}/punch",
-            common::config::BEACON_URL,
-            lobby_id
-        ))
-        .call()
-        .map_err(|e| e.to_string())?
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    let response: http_common::PendingPeersResponse = ureq::get(&format!(
+        "{}/lobbies/{}/punch",
+        common::config::BEACON_URL,
+        lobby_id
+    ))
+    .call()
+    .map_err(|e| e.to_string())?
+    .into_json()
+    .map_err(|e| e.to_string())?;
     response
         .peers
         .into_iter()
-        .map(|addr| addr.parse().map_err(|e| format!("invalid peer addr '{addr}': {e}")))
+        .map(|addr| {
+            addr.parse()
+                .map_err(|e| format!("invalid peer addr '{addr}': {e}"))
+        })
         .collect()
 }
 

@@ -55,15 +55,7 @@ where
     F: FnOnce(Vec3, Vec3, Vec3, &mut Commands, &mut PhysicsWorld, Option<Entity>, u32) -> R,
 {
     let temp_id = crate::projectile::helpers::next_temp_id(ctx.id_counter.as_deref_mut());
-    fire_projectile_with_dir(
-        ctx,
-        world,
-        commands,
-        speed,
-        temp_id,
-        ctx.aim_dir,
-        spawn,
-    );
+    fire_projectile_with_dir(ctx, world, commands, speed, temp_id, ctx.aim_dir, spawn);
     temp_id
 }
 

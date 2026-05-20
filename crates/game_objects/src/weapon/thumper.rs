@@ -34,7 +34,8 @@ impl Weapon for ThumperComponent {
     const RESERVE_AMMO: u16 = RESERVE_AMMO;
     const RELOAD_TICKS: u16 = RELOAD_TICKS;
     const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
-    const PROJECTILE_KIND: net::message::GameObjectKind = net::message::GameObjectKind::ThumperProjectile;
+    const PROJECTILE_KIND: net::message::GameObjectKind =
+        net::message::GameObjectKind::ThumperProjectile;
     const FIRE_PROJECTILE: super::FireProjectileFn =
         <thumper::ThumperProjectile as crate::projectile::Projectile>::fire_authoritative;
 

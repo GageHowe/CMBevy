@@ -9,8 +9,10 @@ use rapier3d::prelude::*;
 pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
 use serde::{Deserialize, Serialize};
 
-use crate::collider_shape::AuthoredColliderShape;
-use crate::collider_flags::{ColliderFlags, collider_flags};
+use crate::{
+    collider_flags::{ColliderFlags, collider_flags},
+    collider_shape::AuthoredColliderShape,
+};
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
@@ -120,8 +122,7 @@ impl PhysicsWorld {
         ignore_shields: bool,
     ) -> bool {
         !col.is_sensor()
-            && (!ignore_shields
-                || !collider_flags(col.user_data).contains(ColliderFlags::SHIELD))
+            && (!ignore_shields || !collider_flags(col.user_data).contains(ColliderFlags::SHIELD))
             && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
     }
 
@@ -523,15 +524,15 @@ impl PhysicsWorld {
         let ray = Ray::new(origin, direction);
         qp.cast_ray_and_get_normal(&ray, max_distance, false)
             .and_then(|(ch, intersection)| {
-            let rb_handle = self.collider_set.get(ch)?.parent()?;
-            let entity = self.handle_to_entity.get(&rb_handle)?;
-            Some(RayHit {
-                entity: *entity,
-                collider: ch,
-                toi: intersection.time_of_impact,
-                normal: intersection.normal,
+                let rb_handle = self.collider_set.get(ch)?.parent()?;
+                let entity = self.handle_to_entity.get(&rb_handle)?;
+                Some(RayHit {
+                    entity: *entity,
+                    collider: ch,
+                    toi: intersection.time_of_impact,
+                    normal: intersection.normal,
+                })
             })
-        })
     }
 
     pub fn entities_intersecting_shape(

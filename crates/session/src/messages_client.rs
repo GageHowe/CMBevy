@@ -189,15 +189,22 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mut mp.spawn.commands,
             &mut mp.world,
         ),
-        MsgType::StartBeamCharge(weapon_net_id) => mp.spawn.commands.queue(move |world: &mut World| {
-            game_objects::weapon::beamer::apply_remote_start_charge(world, weapon_net_id);
-        }),
+        MsgType::StartBeamCharge(weapon_net_id) => {
+            mp.spawn.commands.queue(move |world: &mut World| {
+                game_objects::weapon::beamer::apply_remote_start_charge(world, weapon_net_id);
+            })
+        }
         MsgType::StartBeam {
             weapon: weapon_net_id,
             origin,
             dir,
         } => mp.spawn.commands.queue(move |world: &mut World| {
-            game_objects::weapon::beamer::apply_remote_start_beam(world, weapon_net_id, origin, dir);
+            game_objects::weapon::beamer::apply_remote_start_beam(
+                world,
+                weapon_net_id,
+                origin,
+                dir,
+            );
         }),
         MsgType::BeamHitReport {
             weapon: weapon_net_id,
@@ -205,7 +212,12 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             dir,
             ..
         } => mp.spawn.commands.queue(move |world: &mut World| {
-            game_objects::weapon::beamer::apply_remote_beam_report(world, weapon_net_id, origin, dir);
+            game_objects::weapon::beamer::apply_remote_beam_report(
+                world,
+                weapon_net_id,
+                origin,
+                dir,
+            );
         }),
         MsgType::EndBeam(weapon_net_id) => mp.spawn.commands.queue(move |world: &mut World| {
             game_objects::weapon::beamer::apply_remote_end_beam(world, weapon_net_id);

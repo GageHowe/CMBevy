@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+pub const CRITICAL_MASS_VERSION: &str = "0.1.0";
 pub const SERVER_BIND_ADDRESS: &str = "127.0.0.1:42070";
 /// UDP port the gameserver listens on for LAN discovery probes.
 pub const LAN_DISCOVERY_PORT: u16 = 42071;

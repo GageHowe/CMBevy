@@ -4,14 +4,9 @@ atmosphere-adjacent zones:
 */
 
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
-
 #[cfg(feature = "client")]
-use bevy::{
-    color::LinearRgba,
-    pbr::MeshMaterial3d,
-    render::render_resource::AsBindGroup,
-};
+use bevy::{color::LinearRgba, pbr::MeshMaterial3d, render::render_resource::AsBindGroup};
+use serde::{Deserialize, Serialize};
 
 pub struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
@@ -226,7 +221,11 @@ fn sync_planet_atmosphere_shells(
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<PlanetAtmosphereShell>)>,
     lights: Query<(&DirectionalLight, &GlobalTransform)>,
     mut shells: Query<
-        (&ChildOf, &MeshMaterial3d<PlanetAtmosphereMaterial>, &mut Transform),
+        (
+            &ChildOf,
+            &MeshMaterial3d<PlanetAtmosphereMaterial>,
+            &mut Transform,
+        ),
         With<PlanetAtmosphereShell>,
     >,
     mut materials: ResMut<Assets<PlanetAtmosphereMaterial>>,
@@ -267,8 +266,8 @@ fn apply_planet_atmosphere_component(
 ) {
     let color = LinearRgba::from(atmosphere.color).to_vec4();
     params.planet_radius = atmosphere.planet_radius.max(0.001);
-    params.atmosphere_radius =
-        (atmosphere.planet_radius + atmosphere.shell_thickness.max(0.001)).max(params.planet_radius + 0.001);
+    params.atmosphere_radius = (atmosphere.planet_radius + atmosphere.shell_thickness.max(0.001))
+        .max(params.planet_radius + 0.001);
     params.density = atmosphere.density.max(0.0);
     params.specular = atmosphere.specular.max(0.0);
     params.opacity = atmosphere.opacity.clamp(0.0, 4.0);

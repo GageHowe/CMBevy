@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use common::config::{DEFAULT_GC_SOFT_CAP, GC_OVERFLOW_STEP, MAX_GC_OBJECTS};
-use common::slow_update::SlowUpdate;
+use common::{
+    config::{DEFAULT_GC_SOFT_CAP, GC_OVERFLOW_STEP, MAX_GC_OBJECTS},
+    slow_update::SlowUpdate,
+};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos};
 
 use crate::AuthoritySystems;
@@ -169,8 +171,8 @@ fn cleanup_world_gc_entities(
     }
 
     let enabled_gc_count = snapshots.len();
-    let overflow_multiplier = 1.0
-        + enabled_gc_count.saturating_sub(soft_cap) as f32 / GC_OVERFLOW_STEP as f32;
+    let overflow_multiplier =
+        1.0 + enabled_gc_count.saturating_sub(soft_cap) as f32 / GC_OVERFLOW_STEP as f32;
     let mut cell_counts = HashMap::new();
     for snapshot in &snapshots {
         *cell_counts.entry(gc_cell(snapshot.pos)).or_insert(0usize) += 1;
@@ -204,8 +206,8 @@ fn cleanup_world_gc_entities(
         }
         let local_count = nearby_gc_count(&cell_counts, gc_cell(pos)).saturating_sub(1) as f32;
         let crowding_factor = 1.0 / (1.0 + local_count / GC_LOCAL_CAP);
-        let age_multiplier =
-            1.0 + (gc.last_relevant_secs / gc.max_secs).clamp(0.0, 1.0) * (GC_MAX_AGE_MULTIPLIER - 1.0);
+        let age_multiplier = 1.0
+            + (gc.last_relevant_secs / gc.max_secs).clamp(0.0, 1.0) * (GC_MAX_AGE_MULTIPLIER - 1.0);
         let drain = GC_DT_SECS
             * GC_MIN_DRAIN_PER_SEC.max(1.0 - distance_relevance * crowding_factor)
             * age_multiplier

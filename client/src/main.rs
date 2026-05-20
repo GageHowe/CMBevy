@@ -3,13 +3,13 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy::{
     log::{Level, LogPlugin},
     post_process::auto_exposure::AutoExposurePlugin,
     prelude::*,
     window::PresentMode,
 };
-use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
 use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
@@ -25,10 +25,10 @@ use reconciliation::*;
 use tick_sync::TickSyncPlugin;
 use ui::{UIPlugin, window::WindowSettingsPlugin};
 
+mod auto_exposure_debug;
 mod camera;
 mod color_compression;
 mod fullscreen_post_process;
-mod auto_exposure_debug;
 mod menu;
 mod outline;
 mod reconciliation;
@@ -115,44 +115,43 @@ fn main() {
         OutlinePlugin,
         ColorCompressionPlugin,
     ))
-        .init_state::<GameState>()
-        .init_state::<UiState>()
-        .add_plugins(MasterPlugin)
-        .add_plugins(SteamworksPlugin) // prints steam info on Startup
-        .add_plugins(SettingsPlugin)
-        .add_plugins(WindowSettingsPlugin)
-        .add_plugins(UIPlugin)
-        .add_plugins(MenuPlugin)
-        .add_plugins(HanabiEffectsPlugin)
-        .add_plugins(SoundPlugin)
-        .add_plugins(ClientSessionPlugin {
-            main_menu: GameState::MainMenu,
-            single_player: GameState::SinglePlayer,
-            multiplayer: GameState::Multiplayer,
-        })
-        .add_plugins(ReconciliationPlugin::<GameState>::new(
-            GameState::Multiplayer,
-        ))
-        .add_plugins(TickSyncPlugin(GameState::Multiplayer))
-        .insert_resource(ServerAddr {
-            addr: server_addr,
-            lobby_id: None,
-        })
-        .init_resource::<PendingExit>()
-        .init_resource::<SinglePlayerConfig>()
-        .init_resource::<HostedServer>()
-        // PendingHullColliders now managed by LevelPlugin
-        .add_systems(
-            FixedUpdate,
-            step_physics
-                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
-        )
-        .add_systems(
-            Update,
-            sync_physics_visual
-                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
-        )
-        .add_systems(Startup, spawn_camera);
+    .init_state::<GameState>()
+    .init_state::<UiState>()
+    .add_plugins(MasterPlugin)
+    .add_plugins(SteamworksPlugin) // prints steam info on Startup
+    .add_plugins(SettingsPlugin)
+    .add_plugins(WindowSettingsPlugin)
+    .add_plugins(UIPlugin)
+    .add_plugins(MenuPlugin)
+    .add_plugins(HanabiEffectsPlugin)
+    .add_plugins(SoundPlugin)
+    .add_plugins(ClientSessionPlugin {
+        main_menu: GameState::MainMenu,
+        single_player: GameState::SinglePlayer,
+        multiplayer: GameState::Multiplayer,
+    })
+    .add_plugins(ReconciliationPlugin::<GameState>::new(
+        GameState::Multiplayer,
+    ))
+    .add_plugins(TickSyncPlugin(GameState::Multiplayer))
+    .insert_resource(ServerAddr {
+        addr: server_addr,
+        lobby_id: None,
+    })
+    .init_resource::<PendingExit>()
+    .init_resource::<SinglePlayerConfig>()
+    .init_resource::<HostedServer>()
+    // PendingHullColliders now managed by LevelPlugin
+    .add_systems(
+        FixedUpdate,
+        step_physics.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+    )
+    .add_systems(
+        Update,
+        sync_physics_visual
+            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+    )
+    .add_systems(Startup, spawn_camera);
     app.add_systems(OnExit(GameState::SinglePlayer), cleanup_level);
     app.add_systems(OnExit(GameState::Multiplayer), cleanup_level);
 

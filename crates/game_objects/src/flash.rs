@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::camera::visibility::NoFrustumCulling;
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::{color::LinearRgba, pbr::MeshMaterial3d, render::render_resource::AsBindGroup};
 
@@ -273,9 +273,16 @@ fn tick_flashes(
             continue;
         }
         transform.translation += flash.velocity * dt;
-        let brightness = flash_decay(flash.initial_brightness, flash.brightness_decay, flash.age_secs);
-        light.intensity =
-            flash_decay(flash.initial_light_intensity, flash.light_decay, flash.age_secs);
+        let brightness = flash_decay(
+            flash.initial_brightness,
+            flash.brightness_decay,
+            flash.age_secs,
+        );
+        light.intensity = flash_decay(
+            flash.initial_light_intensity,
+            flash.light_decay,
+            flash.age_secs,
+        );
         light.color = flash.color.into();
         update_flash_material(
             material_handle,

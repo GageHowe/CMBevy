@@ -11,8 +11,7 @@ use crate::{
     GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::AppGameObjectExt,
-    spawn::CenterOfMassSplashDamage,
+    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
 };
 
 pub const SPEED: f32 = 60.0;
@@ -247,7 +246,9 @@ pub fn spawn(
         ..
     } = &mut *world;
     collider_set.insert_with_parent(collider, handle, rigid_body_set);
-    commands.entity(entity).insert(RigidBodyHandleComponent(handle));
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(handle));
     helpers::queue_world_fire_sound(
         commands,
         shooter,
@@ -302,7 +303,9 @@ impl GameObject for FailsafeProjectile {
             collider_set.insert_with_parent(collider, handle, rigid_body_set);
             handle
         };
-        world.entity_mut(entity).insert(RigidBodyHandleComponent(handle));
+        world
+            .entity_mut(entity)
+            .insert(RigidBodyHandleComponent(handle));
     }
 }
 
@@ -361,13 +364,17 @@ fn explode_at(
 pub struct FailsafeProjectilePlugin;
 impl Plugin for FailsafeProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<FailsafeProjectile>().add_systems(
-            FixedUpdate,
-            (tick_projectiles::<FailsafeProjectile>, detonate_requested_projectiles)
-                .chain()
-                .after(step_physics)
-                .in_set(super::AuthoritySystems),
-        );
+        app.register_game_object::<FailsafeProjectile>()
+            .add_systems(
+                FixedUpdate,
+                (
+                    tick_projectiles::<FailsafeProjectile>,
+                    detonate_requested_projectiles,
+                )
+                    .chain()
+                    .after(step_physics)
+                    .in_set(super::AuthoritySystems),
+            );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
@@ -456,6 +463,8 @@ fn add_visual(
             metallic: 0.1,
             ..default()
         });
-        commands.entity(entity).insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands
+            .entity(entity)
+            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
     }
 }

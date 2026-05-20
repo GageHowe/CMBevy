@@ -39,7 +39,8 @@ impl Weapon for FailsafeComponent {
     const RESERVE_AMMO: u16 = RESERVE_AMMO;
     const RELOAD_TICKS: u16 = RELOAD_TICKS;
     const FIRE_COOLDOWN_TICKS: u16 = COOLDOWN_TICKS as u16;
-    const PROJECTILE_KIND: net::message::GameObjectKind = net::message::GameObjectKind::FailsafeProjectile;
+    const PROJECTILE_KIND: net::message::GameObjectKind =
+        net::message::GameObjectKind::FailsafeProjectile;
     const FIRE_PROJECTILE: super::FireProjectileFn =
         <failsafe::FailsafeProjectile as crate::projectile::Projectile>::fire_authoritative;
 
@@ -71,8 +72,12 @@ impl Weapon for FailsafeComponent {
         }
         self.trigger_down = true;
 
-        let velocity =
-            crate::projectile::helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, failsafe::SPEED);
+        let velocity = crate::projectile::helpers::projectile_velocity(
+            world,
+            ctx.shooter,
+            ctx.aim_dir,
+            failsafe::SPEED,
+        );
         let shooter_velocity = crate::projectile::helpers::shooter_velocity(world, ctx.shooter);
         let temp_id = crate::projectile::helpers::next_temp_id(ctx.id_counter.as_deref_mut());
         failsafe::spawn(

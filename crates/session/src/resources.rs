@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use common::GameObjectKind;

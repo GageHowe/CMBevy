@@ -20,6 +20,7 @@ use crate::{
 
 const HOST_ANNOUNCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 const HOST_PUNCH_ATTEMPTS: usize = 50;
+const ALPN_PROTOCOL_PREFIX: &str = "critical-mass/";
 
 pub struct NetServerPlugin;
 
@@ -183,12 +184,16 @@ fn run_server_worker(
                     let _ = event_tx.send(TransportEvent::Connected(conn_id));
                 }
                 ServerCommand::EnablePunch(lobby_id) => {
-                    if let Some(socket) = punch_socket.as_ref().and_then(|sock| sock.try_clone().ok()) {
+                    if let Some(socket) =
+                        punch_socket.as_ref().and_then(|sock| sock.try_clone().ok())
+                    {
                         tokio::spawn(run_host_announce_loop(socket, lobby_id));
                     }
                 }
                 ServerCommand::Punch(addr) => {
-                    if let Some(socket) = punch_socket.as_ref().and_then(|sock| sock.try_clone().ok()) {
+                    if let Some(socket) =
+                        punch_socket.as_ref().and_then(|sock| sock.try_clone().ok())
+                    {
                         tokio::spawn(send_punch(socket, addr));
                     }
                 }
@@ -245,15 +250,24 @@ async fn send_to_targets(
 
 fn make_server_endpoint(socket: std::net::UdpSocket) -> Result<quinn::Endpoint, String> {
     ensure_rustls_crypto_provider();
-    let addr = socket.local_addr().map_err(|e| format!("local addr: {e}"))?;
+    let addr = socket
+        .local_addr()
+        .map_err(|e| format!("local addr: {e}"))?;
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into(), addr.ip().to_string()])
         .map_err(|e| format!("generate cert: {e}"))?;
     let key = rustls::pki_types::PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
     let cert_der = cert.cert.der().clone();
-    let server_crypto = rustls::ServerConfig::builder()
+    let mut server_crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(vec![cert_der], key.into())
         .map_err(|e| format!("server tls: {e}"))?;
+    server_crypto.alpn_protocols = vec![
+        format!(
+            "{ALPN_PROTOCOL_PREFIX}{}",
+            common::config::CRITICAL_MASS_VERSION
+        )
+        .into_bytes(),
+    ];
     let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(
         QuicServerConfig::try_from(server_crypto).map_err(|e| format!("server quic tls: {e}"))?,
     ));

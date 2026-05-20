@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::light::NotShadowCaster;
+use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::render::render_resource::AsBindGroup;
 use physics::{collider_flags::ColliderFlags, physics_world::PhysicsWorld};
@@ -137,11 +137,10 @@ pub fn attach_shield_collider(
     collider.set_collision_groups(no_contacts);
     collider.set_solver_groups(no_contacts);
     collider.user_data = shield_user_data();
-    let handle = world.collider_set.insert_with_parent(
-        collider,
-        body_handle,
-        &mut world.rigid_body_set,
-    );
+    let handle =
+        world
+            .collider_set
+            .insert_with_parent(collider, body_handle, &mut world.rigid_body_set);
     let mut shield = Shield::new(max_health, regen_per_sec, regen_delay_secs, double_sided);
     shield.collider = Some(handle);
     shield

@@ -10,8 +10,7 @@ use crate::{
     GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::AppGameObjectExt,
-    spawn::CenterOfMassSplashDamage,
+    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
 };
 
 pub const SPEED: f32 = 140.0;

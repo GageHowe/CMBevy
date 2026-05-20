@@ -16,6 +16,7 @@ const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(1);
 const RENDEZVOUS_POLL_DELAY: Duration = Duration::from_millis(250);
 const RENDEZVOUS_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const PUNCH_ATTEMPTS: usize = 100;
+const ALPN_PROTOCOL_PREFIX: &str = "critical-mass/";
 
 use crate::quic::{
     Channel, QuicManager, SERVER_CONN_ID, TransportEvent, drain_transport_events,
@@ -269,11 +270,14 @@ async fn start_rendezvous_join(
     event_tx: &std::sync::mpsc::Sender<TransportEvent>,
     lobby_id: &str,
 ) -> Option<(SocketAddr, String)> {
-    let response = ureq::post(&format!("{}/lobbies/{lobby_id}/join", common::config::BEACON_URL))
-        .call()
-        .ok()?
-        .into_json::<JoinLobbyResponse>()
-        .ok()?;
+    let response = ureq::post(&format!(
+        "{}/lobbies/{lobby_id}/join",
+        common::config::BEACON_URL
+    ))
+    .call()
+    .ok()?
+    .into_json::<JoinLobbyResponse>()
+    .ok()?;
     if let Some(host) = response
         .host
         .as_deref()
@@ -286,15 +290,13 @@ async fn start_rendezvous_join(
     let deadline = tokio::time::Instant::now() + RENDEZVOUS_WAIT_TIMEOUT;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(RENDEZVOUS_POLL_DELAY).await;
-        let Ok(status) =
-            ureq::get(&format!(
-                "{}/lobbies/{}/join/{}",
-                common::config::BEACON_URL,
-                lobby_id,
-                response.token
-            ))
-            .call()
-        else {
+        let Ok(status) = ureq::get(&format!(
+            "{}/lobbies/{}/join/{}",
+            common::config::BEACON_URL,
+            lobby_id,
+            response.token
+        ))
+        .call() else {
             continue;
         };
         let Ok(status) = status.into_json::<JoinStatusResponse>() else {
@@ -309,7 +311,10 @@ async fn start_rendezvous_join(
             return Some((host, response.token));
         }
     }
-    notice(event_tx, "Host NAT rendezvous timed out. Trying direct address...");
+    notice(
+        event_tx,
+        "Host NAT rendezvous timed out. Trying direct address...",
+    );
     None
 }
 
@@ -349,10 +354,17 @@ fn notice(event_tx: &std::sync::mpsc::Sender<TransportEvent>, text: impl Into<St
 
 fn make_client_config() -> quinn::ClientConfig {
     ensure_rustls_crypto_provider();
-    let client_crypto = rustls::ClientConfig::builder()
+    let mut client_crypto = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(SkipServerVerification::new())
         .with_no_client_auth();
+    client_crypto.alpn_protocols = vec![
+        format!(
+            "{ALPN_PROTOCOL_PREFIX}{}",
+            common::config::CRITICAL_MASS_VERSION
+        )
+        .into_bytes(),
+    ];
     quinn::ClientConfig::new(Arc::new(
         QuicClientConfig::try_from(client_crypto).expect("valid client quic config"),
     ))

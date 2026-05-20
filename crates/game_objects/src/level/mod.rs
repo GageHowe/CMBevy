@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+#[cfg(feature = "client")]
+use bevy::light::AmbientLight;
 use bevy::{
     prelude::*,
     scene::{DynamicSceneRoot, serde::SceneDeserializer},
@@ -20,8 +22,6 @@ use sha2::{Digest, Sha256};
 use crate::debug_draw::draw_authored_shape;
 #[cfg(feature = "client")]
 use crate::zone_effects::{ZoneEffect, ZoneEffectKind};
-#[cfg(feature = "client")]
-use bevy::light::AmbientLight;
 use crate::{
     AuthoritySystems,
     gc::{SpawnerGc, WorldObjectGc},
@@ -607,8 +607,16 @@ pub fn spawn_static_colliders(
     mut pending: ResMut<PendingHullColliders>,
     asset_server: Res<AssetServer>,
 ) {
-    for (entity, sc, material, transform, body_handle, scene_body, initial_velocity, initial_angvel) in
-        new_colliders.iter()
+    for (
+        entity,
+        sc,
+        material,
+        transform,
+        body_handle,
+        scene_body,
+        initial_velocity,
+        initial_angvel,
+    ) in new_colliders.iter()
     {
         let s = sc.scale;
         let pos = transform.translation;
