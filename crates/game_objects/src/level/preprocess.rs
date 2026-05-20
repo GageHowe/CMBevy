@@ -22,7 +22,6 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("DirectionalLight", "bevy_light::directional_light::DirectionalLight"),
     ("AreaReverbComponent", "game_objects::components::atmosphere::AreaReverbComponent"),
     ("PlanetAtmosphere", "game_objects::components::atmosphere::PlanetAtmosphere"),
-    ("BlackHole", "game_objects::components::black_hole::BlackHole"),
     ("GravitySource", "game_objects::components::gravity::GravitySource"),
     ("SnapSource", "game_objects::components::snap::SnapSource"),
 ];

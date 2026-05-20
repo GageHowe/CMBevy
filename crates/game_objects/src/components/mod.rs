@@ -1,5 +1,4 @@
 pub mod atmosphere;
-pub mod black_hole;
 pub mod gravity;
 pub mod snap;
 
