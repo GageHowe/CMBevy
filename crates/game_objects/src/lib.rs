@@ -28,7 +28,7 @@ mod spawn;
 pub mod spring_arm;
 pub mod weapon;
 pub mod zone_effects;
-pub use components::{atmosphere, gravity, snap};
+pub use components::{atmosphere, black_hole, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers};
 pub use network_index::NetworkEntityMap;

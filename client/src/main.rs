@@ -35,7 +35,9 @@ mod reconciliation;
 mod tick_sync;
 mod ui;
 use game_objects::{
-    components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
+    components::{
+        gravity::draw_gravity_radii, snap::draw_snap_radii,
+    },
     level::{cleanup_level, draw_script_zone_debug},
 };
 use master_plugin::MasterPlugin;

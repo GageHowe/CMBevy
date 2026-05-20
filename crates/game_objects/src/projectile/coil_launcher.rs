@@ -25,7 +25,7 @@ const GRAVITY_SCALE: f32 = 0.1;
 #[cfg(feature = "client")]
 pub const EXPLOSION_SHAKE_RADIUS: f32 = 6.0;
 #[cfg(feature = "client")]
-const SHAKE_SCALE: f32 = 0.5;
+const SHAKE_SCALE: f32 = 0.3;
 const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileConfig {
     projectile_radius: RADIUS,
     damage: DAMAGE,
@@ -279,15 +279,14 @@ fn add_visual(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for entity in &q {
-        let mesh = meshes.add(bevy::math::primitives::Sphere::new(0.13));
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.9, 0.8, 0.2),
-            emissive: LinearRgba::new(4.0, 3.6, 0.8, 1.0),
-            unlit: true,
-            ..default()
-        });
-        commands
-            .entity(entity)
-            .insert((Mesh3d(mesh), MeshMaterial3d(mat)));
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(bevy::math::primitives::Sphere::new(0.13))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 0.0, 0.0),
+                emissive: LinearRgba::new(4.0, 3.6, 0.8, 1.0),
+                unlit: true,
+                ..default()
+            })),
+        ));
     }
 }

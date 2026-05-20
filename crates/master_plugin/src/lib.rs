@@ -7,7 +7,10 @@ use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
 use game_objects::{
     GameObjectsPlugin,
     collision::CollisionPlugin,
-    components::{atmosphere::AtmospherePlugin, gravity::GravityPlugin, snap::SnapPlugin},
+    components::{
+        atmosphere::AtmospherePlugin, black_hole::BlackHolePlugin, gravity::GravityPlugin,
+        snap::SnapPlugin,
+    },
     generic::swap_hull_colliders,
     health::HealthPlugin,
     level::LevelPlugin,
@@ -30,6 +33,7 @@ impl Plugin for MasterPlugin {
         app.add_plugins(GravityPlugin);
         app.add_plugins(SnapPlugin);
         app.add_plugins(AtmospherePlugin);
+        app.add_plugins(BlackHolePlugin);
         app.add_plugins(ScriptingPlugin);
         app.add_plugins(GameObjectsPlugin); // includes pawns, etc
         app.add_plugins(CollisionPlugin);
