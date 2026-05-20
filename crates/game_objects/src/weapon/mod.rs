@@ -17,14 +17,15 @@ use crate::{
     sound::SoundQueue,
 };
 
-pub mod grenade_launcher;
 pub mod hail_mary;
 pub mod beamer;
 pub mod helpers;
 pub mod lobber;
 pub mod coil_launcher;
+pub mod failsafe;
 pub mod pistol;
 pub mod rifle;
+pub mod smg;
 pub mod thumper;
 pub mod weapon_flash;
 
@@ -49,12 +50,13 @@ impl Plugin for WeaponPlugin {
         app.add_plugins((
             rifle::RiflePlugin,
             pistol::PistolPlugin,
+            smg::SmgPlugin,
             beamer::BeamerPlugin,
             hail_mary::HailMaryPlugin,
             thumper::ThumperPlugin,
             lobber::LobberPlugin,
+            failsafe::FailsafePlugin,
             coil_launcher::CoilLauncherPlugin,
-            grenade_launcher::GrenadeLauncherPlugin,
             weapon_flash::WeaponFlashPlugin,
         ))
         .add_systems(FixedUpdate, tick_weapon_state);
@@ -667,11 +669,12 @@ pub fn is_weapon_kind(kind: &common::GameObjectKind) -> bool {
         common::GameObjectKind::Pistol
             | common::GameObjectKind::Beamer
             | common::GameObjectKind::Rifle
+            | common::GameObjectKind::Smg
+            | common::GameObjectKind::Failsafe
             | common::GameObjectKind::HailMary
             | common::GameObjectKind::Thumper
             | common::GameObjectKind::Lobber
             | common::GameObjectKind::CoilLauncher
-            | common::GameObjectKind::GrenadeLauncher
     )
 }
 

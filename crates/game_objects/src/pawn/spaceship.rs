@@ -39,6 +39,7 @@ const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
 const SHIELD_MAX_HEALTH: f32 = 300.0;
 const SHIELD_REGEN_PER_SEC: f32 = 60.0;
 const SHIELD_REGEN_DELAY_SECS: f32 = 5.0;
+const SHIELD_HALF_EXTENTS: Vec3 = Vec3::new(10.0, 8.0, 20.0); // forward, right, up
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -114,20 +115,31 @@ impl GameObject for SpaceshipPawnComponent {
             let mut physics = world.resource_mut::<PhysicsWorld>();
             attach_shield_collider(
                 rb_handle,
-                ColliderBuilder::cuboid(1.9, 1.4, 3.4).build(),
+                ColliderBuilder::cuboid(
+                    SHIELD_HALF_EXTENTS.x,
+                    SHIELD_HALF_EXTENTS.y,
+                    SHIELD_HALF_EXTENTS.z,
+                )
+                .build(),
                 SHIELD_MAX_HEALTH,
                 SHIELD_REGEN_PER_SEC,
                 SHIELD_REGEN_DELAY_SECS,
+                false,
                 &mut physics,
             )
         };
         #[cfg(feature = "client")]
         {
-            shield.visual = Some(spawn_box_shield_visual(world, entity, Vec3::new(1.9, 1.4, 3.4)));
+            shield.visual = Some(spawn_box_shield_visual(
+                world,
+                entity,
+                SHIELD_HALF_EXTENTS,
+                shield.double_sided,
+            ));
         }
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
-            Health::new(SPACESHIP_MAX_HEALTH, 0.0, 0.0),
+            Health::new(SPACESHIP_MAX_HEALTH, 20.0, 5.0),
             CollisionDamageConfig {
                 threshold_per_mass: 120.0,
                 min_threshold: 400.0,

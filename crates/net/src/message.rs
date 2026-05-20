@@ -121,7 +121,7 @@ pub enum MsgType {
         target: Option<NetworkID>,
     },
     EndBeam(NetworkID),
-    DetonateGrenadeRequest(NetworkID),
+    DetonateFailsafeRequest(NetworkID),
     ProjectileConfirm {
         temp_id: u32,
         net_id: NetworkID,

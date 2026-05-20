@@ -10,8 +10,7 @@ use crate::{
     GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::AppGameObjectExt,
-    spawn::CenterOfMassSplashDamage,
+    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
 };
 
 pub const SPEED: f32 = 100.0;
@@ -34,7 +33,7 @@ const CONFIG: helpers::ExplosiveProjectileConfig = helpers::ExplosiveProjectileC
     explosion_impulse: EXPLOSION_IMPULSE,
     explosion_impulse_max_effective_mass: EXPLOSION_IMPULSE_MAX_EFFECTIVE_MASS,
     self_damage_scale: SELF_DAMAGE_SCALE,
-    percent_max_health_damage: 0.2,
+    percent_max_health_damage: 0.0, // no extra percentage damage, mainly anti personnel weapon
     #[cfg(feature = "client")]
     spawn_explosion_effect: bevy_hanabi_plugin::prelude::spawn_coil_launcher_explosion_effect,
 };

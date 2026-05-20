@@ -20,9 +20,10 @@ pub struct RayProjectileHit {
     pub entity: Entity,
     pub collider: ColliderHandle,
     pub dir: Vec3,
-    pub normal: Vec3,
     pub point: Vec3,
 }
+
+const SHIELD_EXIT_EPSILON: f32 = 0.001;
 
 pub fn shooter_velocity(world: &PhysicsWorld, shooter: Option<Entity>) -> Vec3 {
     shooter
@@ -199,6 +200,7 @@ pub fn tick_raycast_projectile(
     body: &RigidBodyHandleComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
+    shield_q: &Query<&Shield>,
 ) -> Option<RayProjectileHit> {
     *lifetime = lifetime.saturating_sub(1);
     if *lifetime == 0 {
@@ -225,14 +227,26 @@ pub fn tick_raycast_projectile(
             });
     }
     let exclude = [entity, shooter.unwrap_or(entity)];
-    let hit = world.cast_ray_detailed(prev, dir, step, &exclude)?;
-    Some(RayProjectileHit {
-        entity: hit.entity,
-        collider: hit.collider,
-        dir,
-        normal: hit.normal,
-        point: prev + dir * hit.toi,
-    })
+    let mut origin = prev;
+    let mut remaining = step;
+    loop {
+        let hit = world.cast_ray_detailed(origin, dir, remaining, &exclude)?;
+        if shield_should_skip_inside_hit(world, shield_q, hit.entity, hit.collider, origin, 0.0) {
+            let advance = (hit.toi + SHIELD_EXIT_EPSILON).min(remaining);
+            origin += dir * advance;
+            remaining -= advance;
+            if remaining <= 0.0 {
+                return None;
+            }
+            continue;
+        }
+        return Some(RayProjectileHit {
+            entity: hit.entity,
+            collider: hit.collider,
+            dir,
+            point: origin + dir * hit.toi,
+        });
+    }
 }
 
 pub struct ExplosiveProjectileConfig {
@@ -372,13 +386,32 @@ pub fn tick_sphere_explosive_projectile(
                 end: prev + dir * step,
             });
     }
-    if let Some((hit, hit_collider, toi, normal)) =
-        world.cast_sphere(prev, dir, config.projectile_radius, step, &exclude)
-    {
-        let hit_point = prev + dir * toi;
+    let mut origin = prev;
+    let mut remaining = step;
+    loop {
+        let Some(hit) = world.cast_ray_detailed(origin, dir, remaining, &exclude) else {
+            return;
+        };
+        if shield_should_skip_inside_hit(
+            world,
+            &shield_q.as_readonly(),
+            hit.entity,
+            hit.collider,
+            origin,
+            0.0,
+        ) {
+            let advance = (hit.toi + SHIELD_EXIT_EPSILON).min(remaining);
+            origin += dir * advance;
+            remaining -= advance;
+            if remaining <= 0.0 {
+                return;
+            }
+            continue;
+        }
+        let hit_point = origin + dir * hit.toi;
         explode_sphere_explosive_projectile(
             hit_point,
-            Some(hit),
+            Some(hit.entity),
             entity,
             shooter,
             world,
@@ -389,13 +422,14 @@ pub fn tick_sphere_explosive_projectile(
             splash_q,
             net_ids,
             predicted,
-            Some((hit, hit_collider, normal.normalize_or_zero(), hit_point)),
+            Some((hit.entity, hit.collider, -hit.normal, hit_point)),
             config,
             #[cfg(feature = "client")]
             shake_radius,
             #[cfg(feature = "client")]
             shake_scale,
         );
+        return;
     }
 }
 
@@ -498,14 +532,12 @@ pub fn explode_sphere_explosive_projectile(
         );
         if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut()) {
             if predicted.is_none() {
-                if let Some((hit, hit_collider, hit_normal, _)) = direct_hit_impulse
+                if let Some((hit, hit_collider, _, _)) = direct_hit_impulse
                     && hit == entity
                     && apply_direct_shield_collider_damage(
                         world,
                         hit,
                         hit_collider,
-                        impulse_dir,
-                        hit_normal,
                         shield_q,
                         config.damage,
                     )
@@ -576,22 +608,16 @@ fn apply_direct_shield_hit(
     if !flags.contains(ColliderFlags::SHIELD) {
         return Some(false);
     }
-    if hit.dir.dot(hit.normal) >= 0.0 {
-        return Some(false);
-    }
     let Ok(mut shield) = shield_q.get_mut(hit.entity) else {
-        return Some(true);
+        return Some(false);
     };
-    shield.apply_damage(damage);
-    Some(true)
+    Some(shield.apply_damage(damage))
 }
 
 fn apply_direct_shield_collider_damage(
     world: &PhysicsWorld,
     entity: Entity,
     collider: ColliderHandle,
-    _dir: Vec3,
-    _normal: Vec3,
     shield_q: &mut Query<&mut Shield>,
     damage: f32,
 ) -> bool {
@@ -604,10 +630,34 @@ fn apply_direct_shield_collider_damage(
         return false;
     }
     let Ok(mut shield) = shield_q.get_mut(entity) else {
-        return true;
+        return false;
     };
-    shield.apply_damage(damage);
-    true
+    shield.apply_damage(damage)
+}
+
+fn shield_should_skip_inside_hit(
+    world: &PhysicsWorld,
+    shield_q: &Query<&Shield>,
+    entity: Entity,
+    collider: ColliderHandle,
+    center: Vec3,
+    radius: f32,
+) -> bool {
+    let Ok(shield) = shield_q.get(entity) else {
+        return false;
+    };
+    if shield.double_sided {
+        return false;
+    }
+    let Some(collider) = world.collider_set.get(collider) else {
+        return false;
+    };
+    collider_flags(collider.user_data).contains(ColliderFlags::SHIELD)
+        && collider.shape().distance_to_point(
+            collider.position(),
+            Vector::new(center.x, center.y, center.z),
+            true,
+        ) <= radius + SHIELD_EXIT_EPSILON
 }
 
 fn apply_entity_damage(

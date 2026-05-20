@@ -317,6 +317,11 @@ fn fire_singleplayer_bot_weapon(
     let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
         return;
     };
+    let dir = if weapon_kinds.get(weapon_entity).ok() == Some(&GameObjectKind::Smg) {
+        game_objects::weapon::smg::spread_dir(dir)
+    } else {
+        dir
+    };
     let _ = game_objects::weapon::fire_authoritative_with_replication(
         shooter,
         weapon_entity,

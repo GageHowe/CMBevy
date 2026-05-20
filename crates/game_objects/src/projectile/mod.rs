@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub mod fighter_rocket;
-pub mod grenade_launcher;
+pub mod failsafe;
 pub mod hail_mary;
 pub mod helpers;
 pub mod lobber;
@@ -44,7 +44,7 @@ impl Plugin for ProjectilePlugin {
             rifle::RifleProjectilePlugin,
             hail_mary::HailMaryProjectilePlugin,
             fighter_rocket::FighterRocketProjectilePlugin,
-            grenade_launcher::GrenadeLauncherProjectilePlugin,
+            failsafe::FailsafeProjectilePlugin,
             lobber::LobberProjectilePlugin,
             coil_launcher::CoilLauncherProjectilePlugin,
             thumper::ThumperProjectilePlugin,

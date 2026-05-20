@@ -10,6 +10,7 @@ pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
 use serde::{Deserialize, Serialize};
 
 use crate::collider_shape::AuthoredColliderShape;
+use crate::collider_flags::{ColliderFlags, collider_flags};
 
 /// Collision group for player bodies (capsule + foot sphere).
 pub const GROUP_PLAYER: Group = Group::GROUP_1;
@@ -104,6 +105,26 @@ pub struct RayHit {
 }
 
 impl PhysicsWorld {
+    fn excluded_handles(&self, exclude: &[Entity]) -> Vec<RigidBodyHandle> {
+        exclude
+            .iter()
+            .filter_map(|e| self.entity_to_handle.get(e).copied())
+            .collect()
+    }
+
+    fn collider_matches_query(
+        &self,
+        _ch: ColliderHandle,
+        col: &Collider,
+        excluded: &[RigidBodyHandle],
+        ignore_shields: bool,
+    ) -> bool {
+        !col.is_sensor()
+            && (!ignore_shields
+                || !collider_flags(col.user_data).contains(ColliderFlags::SHIELD))
+            && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+    }
+
     pub fn body(&self, entity: Entity) -> Option<&RigidBody> {
         self.entity_to_handle
             .get(&entity)
@@ -377,13 +398,33 @@ impl PhysicsWorld {
         max_distance: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
+        self.cast_sphere_filtered(origin, direction, radius, max_distance, exclude, false)
+    }
+
+    pub fn cast_sphere_ignoring_shields(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        radius: f32,
+        max_distance: f32,
+        exclude: &[Entity],
+    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
+        self.cast_sphere_filtered(origin, direction, radius, max_distance, exclude, true)
+    }
+
+    fn cast_sphere_filtered(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        radius: f32,
+        max_distance: f32,
+        exclude: &[Entity],
+        ignore_shields: bool,
+    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
         use rapier3d::parry::query::ShapeCastOptions;
-        let excluded: Vec<RigidBodyHandle> = exclude
-            .iter()
-            .filter_map(|e| self.entity_to_handle.get(e).copied())
-            .collect();
-        let pred = |_: ColliderHandle, col: &Collider| {
-            !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+        let excluded = self.excluded_handles(exclude);
+        let pred = |ch: ColliderHandle, col: &Collider| {
+            self.collider_matches_query(ch, col, &excluded, ignore_shields)
         };
         let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(
@@ -399,7 +440,11 @@ impl PhysicsWorld {
             &iso,
             vel,
             &shape,
-            ShapeCastOptions::with_max_time_of_impact(max_distance),
+            ShapeCastOptions {
+                max_time_of_impact: max_distance,
+                stop_at_penetration: false,
+                ..default()
+            },
         )
         .and_then(|(ch, hit)| {
             let rb_handle = self.collider_set.get(ch)?.parent()?;
@@ -425,6 +470,17 @@ impl PhysicsWorld {
             .map(|hit| (hit.entity, hit.toi))
     }
 
+    pub fn cast_ray_ignoring_shields(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        exclude: &[Entity],
+    ) -> Option<(Entity, f32)> {
+        self.cast_ray_detailed_ignoring_shields(origin, direction, max_distance, exclude)
+            .map(|hit| (hit.entity, hit.toi))
+    }
+
     pub fn cast_ray_detailed(
         &self,
         origin: Vec3,
@@ -432,12 +488,30 @@ impl PhysicsWorld {
         max_distance: f32,
         exclude: &[Entity],
     ) -> Option<RayHit> {
-        let excluded: Vec<RigidBodyHandle> = exclude
-            .iter()
-            .filter_map(|e| self.entity_to_handle.get(e).copied())
-            .collect();
-        let pred = |_: ColliderHandle, col: &Collider| {
-            !col.is_sensor() && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+        self.cast_ray_detailed_filtered(origin, direction, max_distance, exclude, false)
+    }
+
+    pub fn cast_ray_detailed_ignoring_shields(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        exclude: &[Entity],
+    ) -> Option<RayHit> {
+        self.cast_ray_detailed_filtered(origin, direction, max_distance, exclude, true)
+    }
+
+    fn cast_ray_detailed_filtered(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        exclude: &[Entity],
+        ignore_shields: bool,
+    ) -> Option<RayHit> {
+        let excluded = self.excluded_handles(exclude);
+        let pred = |ch: ColliderHandle, col: &Collider| {
+            self.collider_matches_query(ch, col, &excluded, ignore_shields)
         };
         let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(
@@ -447,7 +521,7 @@ impl PhysicsWorld {
             filter,
         );
         let ray = Ray::new(origin, direction);
-        qp.cast_ray_and_get_normal(&ray, max_distance, true)
+        qp.cast_ray_and_get_normal(&ray, max_distance, false)
             .and_then(|(ch, intersection)| {
             let rb_handle = self.collider_set.get(ch)?.parent()?;
             let entity = self.handle_to_entity.get(&rb_handle)?;

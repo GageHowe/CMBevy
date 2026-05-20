@@ -57,6 +57,7 @@ impl Projectile for RifleProjectile {
             body,
             world,
             commands,
+            &shield_q.as_readonly(),
         ) else {
             return;
         };

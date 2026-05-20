@@ -236,8 +236,8 @@ fn process_server_message(
             &mut sp.weapon_runtime,
             quic,
         ),
-        MsgType::DetonateGrenadeRequest(weapon_net_id) => {
-            game_objects::weapon::grenade_launcher::handle_detonate_grenade_request(
+        MsgType::DetonateFailsafeRequest(weapon_net_id) => {
+            game_objects::weapon::failsafe::handle_detonate_failsafe_request(
                 conn_id,
                 weapon_net_id,
                 registry,

@@ -616,7 +616,8 @@ fn current_interact_target(
         return Some(InteractTarget::Mount(parent_entity));
     }
 
-    let (hit_entity, _distance) = world.cast_ray(origin, forward, 4.0, &[pawn_entity])?;
+    let (hit_entity, _distance) =
+        world.cast_ray_ignoring_shields(origin, forward, 4.0, &[pawn_entity])?;
     let (net_id, interactable) = interactables.get(hit_entity).ok()?;
     if !interactable_in_range(world, pawn_entity, hit_entity, interactable.range) {
         return None;

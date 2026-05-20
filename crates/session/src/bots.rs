@@ -8,6 +8,7 @@ pub(super) fn run_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
     mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
+    weapon_kinds: Query<&game_objects::GameObjectKind>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     reticles: Query<&AimReticle>,
     mut pawns: PawnInputParams,
@@ -32,6 +33,7 @@ pub(super) fn run_bots(
                 output.aim_origin,
                 output.aim_dir,
                 bot.next_temp_id(),
+                &weapon_kinds,
                 &mut pawn_slots.p0(),
                 &mut weapon_runtime,
                 &mut held_weapons,
@@ -53,6 +55,7 @@ pub(super) fn fire_active_weapon(
     origin: Vec3,
     dir: Vec3,
     temp_id: u32,
+    weapon_kinds: &Query<&game_objects::GameObjectKind>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     held_weapons: &mut game_objects::pawn::HeldWeaponMap,
@@ -74,6 +77,11 @@ pub(super) fn fire_active_weapon(
         return;
     };
     let kind = config.projectile_kind.clone();
+    let dir = if weapon_kinds.get(weapon_entity).ok() == Some(&game_objects::GameObjectKind::Smg) {
+        game_objects::weapon::smg::spread_dir(dir)
+    } else {
+        dir
+    };
     game_objects::weapon::fire_authoritative_with_replication(
         shooter,
         weapon_entity,

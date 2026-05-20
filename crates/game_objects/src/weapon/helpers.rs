@@ -32,6 +32,18 @@ pub fn queue_fire_sound(sound: Option<&mut SoundQueue>, local_event: &'static st
     sound.play_2d(local_event);
 }
 
+pub fn apply_spread(aim_dir: Vec3, spread_radians: f32) -> Vec3 {
+    let aim_dir = aim_dir.normalize_or_zero();
+    if spread_radians <= 0.0 || aim_dir == Vec3::ZERO {
+        return aim_dir;
+    }
+    let right = aim_dir.any_orthonormal_vector();
+    let up = aim_dir.cross(right).normalize_or_zero();
+    let yaw = fastrand::f32() * 2.0 * spread_radians - spread_radians;
+    let pitch = fastrand::f32() * 2.0 * spread_radians - spread_radians;
+    (aim_dir + right * yaw.tan() + up * pitch.tan()).normalize_or_zero()
+}
+
 pub fn fire_projectile<F, R>(
     ctx: &mut FireCtx,
     world: &mut PhysicsWorld,
@@ -42,9 +54,31 @@ pub fn fire_projectile<F, R>(
 where
     F: FnOnce(Vec3, Vec3, Vec3, &mut Commands, &mut PhysicsWorld, Option<Entity>, u32) -> R,
 {
-    let velocity =
-        crate::projectile::helpers::projectile_velocity(world, ctx.shooter, ctx.aim_dir, speed);
     let temp_id = crate::projectile::helpers::next_temp_id(ctx.id_counter.as_deref_mut());
+    fire_projectile_with_dir(
+        ctx,
+        world,
+        commands,
+        speed,
+        temp_id,
+        ctx.aim_dir,
+        spawn,
+    );
+    temp_id
+}
+
+pub fn fire_projectile_with_dir<F, R>(
+    ctx: &mut FireCtx,
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+    speed: f32,
+    temp_id: u32,
+    dir: Vec3,
+    spawn: F,
+) where
+    F: FnOnce(Vec3, Vec3, Vec3, &mut Commands, &mut PhysicsWorld, Option<Entity>, u32) -> R,
+{
+    let velocity = crate::projectile::helpers::projectile_velocity(world, ctx.shooter, dir, speed);
     let shooter_velocity = crate::projectile::helpers::shooter_velocity(world, ctx.shooter);
     let _ = spawn(
         ctx.origin,
@@ -62,9 +96,8 @@ where
         ctx.weapon_config.projectile_kind.clone(),
         temp_id,
         ctx.origin,
-        ctx.aim_dir,
+        dir,
     );
-    temp_id
 }
 
 #[cfg(feature = "client")]
