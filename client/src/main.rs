@@ -32,6 +32,7 @@ mod fullscreen_post_process;
 mod menu;
 mod outline;
 mod reconciliation;
+mod solari;
 mod tick_sync;
 mod ui;
 use game_objects::{
@@ -49,6 +50,7 @@ use session::{
     draw_server_state,
 };
 use settings::{Settings, SettingsPlugin};
+use solari::SolariTogglePlugin;
 use steam::SteamworksPlugin;
 // use game_objects::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
 mod settings;
@@ -116,6 +118,7 @@ fn main() {
         AutoExposureDebugPlugin,
         OutlinePlugin,
         ColorCompressionPlugin,
+        SolariTogglePlugin,
     ))
     .init_state::<GameState>()
     .init_state::<UiState>()

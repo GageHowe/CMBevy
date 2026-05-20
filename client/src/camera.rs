@@ -1,12 +1,13 @@
 use bevy::{
-    camera::{Camera, Camera3d, ClearColorConfig, PerspectiveProjection, Projection},
+    camera::{Camera, Camera3d, CameraMainTextureUsages, ClearColorConfig, PerspectiveProjection, Projection},
     color::Color,
     core_pipeline::{
-        prepass::{DepthPrepass, NormalPrepass},
+        prepass::{DeferredPrepass, DepthPrepass, NormalPrepass},
         tonemapping::Tonemapping,
     },
     math::Vec3,
     prelude::*,
+    render::render_resource::TextureUsages,
 };
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
 // use bevy::post_process::effect_stack::ChromaticAberration;
@@ -20,6 +21,7 @@ pub fn spawn_camera(mut commands: Commands) {
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..Default::default()
         },
+        CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
         AmbientLight {
             // MapMeta overrides this on map load; keep startup neutral so authored maps own it.
             brightness: 0.0,
@@ -46,6 +48,7 @@ pub fn spawn_camera(mut commands: Commands) {
         Tonemapping::AcesFitted, // punchy and dark/contrasty, maybe too much so
         // Tonemapping::Reinhard, // also washed out
         // Tonemapping::AgX, // good middle ground
+        DeferredPrepass,
         DepthPrepass,
         NormalPrepass,
         // MotionVectorPrepass, // required by MotionBlur and TAA

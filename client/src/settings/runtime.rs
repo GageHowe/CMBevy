@@ -5,6 +5,7 @@ use bevy::{
     post_process::motion_blur::MotionBlur,
     prelude::*,
     render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
+    solari::prelude::SolariLighting,
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
@@ -74,7 +75,8 @@ pub fn apply_settings(
 
     directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
     for mut directional_light in &mut directional_lights {
-        directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+        directional_light.shadows_enabled =
+            !settings.raytracing && !matches!(settings.shadow_quality, ShadowQuality::Off);
     }
 }
 
@@ -100,6 +102,12 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
         camera.insert(bevy::anti_alias::smaa::Smaa::default());
     } else {
         camera.remove::<bevy::anti_alias::smaa::Smaa>();
+    }
+
+    if settings.raytracing {
+        camera.insert(SolariLighting::default());
+    } else {
+        camera.remove::<SolariLighting>();
     }
 
     if settings.auto_exposure {
@@ -150,27 +158,31 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
         camera.remove::<ColorCompressionSettings>();
     }
 
-    match settings.ssao_quality {
-        SsaoQuality::Off => {
-            camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
-        }
-        SsaoQuality::Medium => {
-            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Medium,
-                ..default()
-            });
-        }
-        SsaoQuality::High => {
-            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::High,
-                ..default()
-            });
-        }
-        SsaoQuality::Ultra => {
-            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
-                ..default()
-            });
+    if settings.raytracing {
+        camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
+    } else {
+        match settings.ssao_quality {
+            SsaoQuality::Off => {
+                camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
+            }
+            SsaoQuality::Medium => {
+                camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                    quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Medium,
+                    ..default()
+                });
+            }
+            SsaoQuality::High => {
+                camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                    quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::High,
+                    ..default()
+                });
+            }
+            SsaoQuality::Ultra => {
+                camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                    quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
+                    ..default()
+                });
+            }
         }
     }
 

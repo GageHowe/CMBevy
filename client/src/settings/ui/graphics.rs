@@ -67,21 +67,31 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Shadow quality").on_hover_text("Controls directional shadow map quality. Off disables sun shadows entirely.");
-                egui::ComboBox::from_id_salt("shadow_quality_combo")
-                    .selected_text(match settings.shadow_quality {
-                        ShadowQuality::Off => "Off",
-                        ShadowQuality::Low => "Low",
-                        ShadowQuality::Medium => "Medium",
-                        ShadowQuality::High => "High",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Off, "Off");
-                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Low, "Low");
-                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Medium, "Medium");
-                        ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::High, "High");
-                    });
+                ui.label("Raytracing (EXPERIMENTAL)").on_hover_text(
+                    "Experimental Solari raytraced lighting. Client-only, heavy, and currently noisy in motion.",
+                );
+                ui.checkbox(&mut settings.raytracing, "");
             });
+
+            if settings.raytracing {
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label("Shadow quality").on_hover_text("Controls directional shadow map quality. Off disables sun shadows entirely.");
+                    egui::ComboBox::from_id_salt("shadow_quality_combo")
+                        .selected_text(match settings.shadow_quality {
+                            ShadowQuality::Off => "Off",
+                            ShadowQuality::Low => "Low",
+                            ShadowQuality::Medium => "Medium",
+                            ShadowQuality::High => "High",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Off, "Off");
+                            ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Low, "Low");
+                            ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::Medium, "Medium");
+                            ui.selectable_value(&mut settings.shadow_quality, ShadowQuality::High, "High");
+                        });
+                });
+            }
         });
 
     egui::CollapsingHeader::new("Post Processing").default_open(true).show(ui, |ui| {
@@ -122,22 +132,24 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
         }
 
-        ui.horizontal(|ui| {
-            ui.label("SSAO").on_hover_text("GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.");
-            egui::ComboBox::from_id_salt("ssao_quality_combo")
-                .selected_text(match settings.ssao_quality {
-                    SsaoQuality::Off => "Off",
-                    SsaoQuality::Medium => "Medium",
-                    SsaoQuality::High => "High",
-                    SsaoQuality::Ultra => "Ultra",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Off, "Off");
-                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Medium, "Medium");
-                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
-                    ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
-                });
-        });
+        if !settings.raytracing {
+            ui.horizontal(|ui| {
+                ui.label("SSAO").on_hover_text("GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.");
+                egui::ComboBox::from_id_salt("ssao_quality_combo")
+                    .selected_text(match settings.ssao_quality {
+                        SsaoQuality::Off => "Off",
+                        SsaoQuality::Medium => "Medium",
+                        SsaoQuality::High => "High",
+                        SsaoQuality::Ultra => "Ultra",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Off, "Off");
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Medium, "Medium");
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::High, "High");
+                        ui.selectable_value(&mut settings.ssao_quality, SsaoQuality::Ultra, "Ultra");
+                    });
+            });
+        }
 
         ui.horizontal(|ui| {
             ui.label("Gamma").on_hover_text("Nonlinear brightness shaping applied through Bevy color grading.");
