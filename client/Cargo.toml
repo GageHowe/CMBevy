@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-bevy = { workspace = true, features = ["3d", "jpeg", "tga", "bevy_solari"] }
+bevy = { workspace = true, features = ["3d", "jpeg", "tga"] }
 bevy_egui = { workspace = true }
 zstd = { workspace = true }
 rapier3d = { workspace = true }
@@ -27,3 +27,4 @@ scripting = { path = "../crates/scripting", features = ["client"] }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
 session = { path = "../crates/session", features = ["client"] }
 bevy_hanabi_plugin = { path = "../crates/bevy_hanabi" }
+bevy_luna = { path = "../../bevy_raytrace" }

@@ -31,8 +31,8 @@ mod color_compression;
 mod fullscreen_post_process;
 mod menu;
 mod outline;
+mod raytrace;
 mod reconciliation;
-mod solari;
 mod tick_sync;
 mod ui;
 use game_objects::{
@@ -45,12 +45,12 @@ use master_plugin::MasterPlugin;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
 use physics::physics_world::{step_physics, sync_physics_visual};
+use raytrace::RaytraceTogglePlugin;
 use session::{
     ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig,
     draw_server_state,
 };
 use settings::{Settings, SettingsPlugin};
-use solari::SolariTogglePlugin;
 use steam::SteamworksPlugin;
 // use game_objects::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
 mod settings;
@@ -118,7 +118,7 @@ fn main() {
         AutoExposureDebugPlugin,
         OutlinePlugin,
         ColorCompressionPlugin,
-        SolariTogglePlugin,
+        RaytraceTogglePlugin,
     ))
     .init_state::<GameState>()
     .init_state::<UiState>()

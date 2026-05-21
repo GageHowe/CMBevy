@@ -68,7 +68,7 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
 
             ui.horizontal(|ui| {
                 ui.label("Raytracing (EXPERIMENTAL)").on_hover_text(
-                    "Experimental Solari raytraced lighting. Client-only, heavy, and currently noisy in motion.",
+                    "Experimental hardware raytraced shadow replacement. Client-only and heavier than normal shadow maps.",
                 );
                 ui.checkbox(&mut settings.raytracing, "");
             });

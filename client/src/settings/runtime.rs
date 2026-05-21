@@ -5,10 +5,10 @@ use bevy::{
     post_process::motion_blur::MotionBlur,
     prelude::*,
     render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
-    solari::prelude::SolariLighting,
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
+use bevy_luna::prelude::{RaytraceMode, RaytraceSettings};
 use common::{ActiveBindings, PromptDevicePreference};
 use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
@@ -28,6 +28,15 @@ pub fn apply_settings(
     mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
     mut egui_context_settings: Query<&mut EguiContextSettings, With<PrimaryEguiContext>>,
 ) {
+    commands.insert_resource(RaytraceSettings {
+        mode: if settings.raytracing {
+            RaytraceMode::RaytracedShadows
+        } else {
+            RaytraceMode::Bevy
+        },
+        ..default()
+    });
+
     commands.insert_resource(PromptDevicePreference(settings.prompt_device_mode));
     sensitivity.base = settings.mouse_sensitivity;
     sensitivity.zoom_blend = settings.zoom_sensitivity_blend;
@@ -74,9 +83,10 @@ pub fn apply_settings(
     }
 
     directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
-    for mut directional_light in &mut directional_lights {
-        directional_light.shadows_enabled =
-            !settings.raytracing && !matches!(settings.shadow_quality, ShadowQuality::Off);
+    if !settings.raytracing {
+        for mut directional_light in &mut directional_lights {
+            directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+        }
     }
 }
 
@@ -104,15 +114,9 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
         camera.remove::<bevy::anti_alias::smaa::Smaa>();
     }
 
-    if settings.raytracing {
-        camera.insert(SolariLighting::default());
-    } else {
-        camera.remove::<SolariLighting>();
-    }
-
     if settings.auto_exposure {
         camera.insert(bevy::post_process::auto_exposure::AutoExposure {
-            range: -2.0..=0.0,
+            range: -3.0..=0.0,
             // speed_brighten: 1.5,
             filter: 0.0..=0.99,
             // filter: 0.10..=0.90,
