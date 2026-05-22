@@ -105,6 +105,7 @@ impl EquippedAbility {
                 let entity = world.spawn_empty().id();
                 let cmd = SpawnCommand {
                     net_id,
+                    parent_net_id: None,
                     position: pos,
                     starting_velocity: vel,
                     shooter_velocity: Vec3::ZERO,

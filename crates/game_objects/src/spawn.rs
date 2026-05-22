@@ -7,12 +7,13 @@ use net::message::SpawnCommand;
 use crate::gc::WorldObjectGc;
 
 type SpawnGameObjectFn = fn(Entity, &SpawnCommand, &mut World);
-type GameObjectDeathFn = fn(Entity, &mut World) -> bool;
+type GameObjectDeathFn = fn(Entity, &mut World);
 
 #[derive(Clone, Copy)]
 struct GameObjectRegistration {
     spawn: SpawnGameObjectFn,
     on_death: GameObjectDeathFn,
+    despawn_on_death: bool,
     gc_lifetime_secs: Option<f32>,
     collision_sound: Option<&'static str>,
     splash_damage_uses_center_of_mass: bool,
@@ -23,6 +24,7 @@ impl GameObjectRegistration {
         Self {
             spawn: T::spawn,
             on_death: T::on_death,
+            despawn_on_death: T::DESPAWN_ON_DEATH,
             gc_lifetime_secs: T::gc_lifetime_secs(),
             collision_sound: T::COLLISION_SOUND,
             splash_damage_uses_center_of_mass: T::SPLASH_DAMAGE_USES_CENTER_OF_MASS,
@@ -56,6 +58,10 @@ impl GameObjectRegistry {
     pub fn collision_sound(&self, kind: GameObjectKind) -> Option<&'static str> {
         self.get(kind).collision_sound
     }
+
+    pub fn despawns_on_death(&self, kind: GameObjectKind) -> bool {
+        self.get(kind).despawn_on_death
+    }
 }
 
 pub trait AppGameObjectExt {
@@ -75,17 +81,16 @@ impl AppGameObjectExt for App {
 pub trait GameObject: Default + Reflect {
     const KIND: GameObjectKind;
     const GC_LIFETIME_SECS: Option<f32> = None;
+    const DESPAWN_ON_DEATH: bool = true;
     const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = true;
 
     /// the sound this plays when colliing with things.
     const COLLISION_SOUND: Option<&'static str> = None;
     /// responsible for enacting all side effects that spawn this entity.
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
-    /// callback that is called when entities' health drops to 0, before they are despawned.
+    /// callback that is called when entities' health drops to 0.
     /// responsible for particle effects, debris, cleanup, etc.
-    fn on_death(_entity: Entity, _world: &mut World) -> bool {
-        true
-    }
+    fn on_death(_entity: Entity, _world: &mut World) {}
 
     fn gc_lifetime_secs() -> Option<f32> {
         Self::GC_LIFETIME_SECS
@@ -101,7 +106,8 @@ pub fn dispatch_game_object_on_death(
         let registry = world.resource::<GameObjectRegistry>();
         registry.get(kind)
     };
-    (registration.on_death)(entity, world)
+    (registration.on_death)(entity, world);
+    registration.despawn_on_death
 }
 
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.
@@ -117,12 +123,21 @@ impl Command for SpawnGameObjectCommand {
         // can use its presence as a guard to skip already-spawned entities.
         world
             .entity_mut(self.entity)
-            .insert(self.cmd.net_id.clone());
+            .insert((self.cmd.net_id.clone(), self.cmd.kind.clone()));
         let registration = {
             let registry = world.resource::<GameObjectRegistry>();
             registry.get(self.cmd.kind.clone())
         };
         (registration.spawn)(self.entity, &self.cmd, world);
+        if let Some(parent_net_id) = &self.cmd.parent_net_id {
+            let parent = world
+                .query::<(Entity, &net::message::NetworkID)>()
+                .iter(world)
+                .find_map(|(entity, net_id)| (net_id == parent_net_id).then_some(entity));
+            if let Some(parent) = parent {
+                world.entity_mut(parent).add_child(self.entity);
+            }
+        }
         if registration.splash_damage_uses_center_of_mass {
             world
                 .entity_mut(self.entity)

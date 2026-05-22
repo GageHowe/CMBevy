@@ -1,5 +1,3 @@
-//! This is NOT finished and NOT to be used yet
-
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
@@ -17,33 +15,46 @@ use super::{
 use crate::{
     GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
+    generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     spawn::AppGameObjectExt,
 };
 
+const HULL_PATH: &str = "collision/hovercraft.obj";
 #[cfg(feature = "client")]
-const MODEL_PATH: &str = "models/kenney-prototypes/shape-cube-recentered.glb#Scene0";
-const HALF_EXTENTS: Vec3 = Vec3::new(1.2, 0.45, 2.0);
-const TRUCK_MAX_HEALTH: f32 = 1200.0;
-const DRIVE_FORCE: f32 = 220.0;
-const BRAKE_FORCE: f32 = 320.0;
-const SIDEWAYS_GRIP: f32 = 45.0;
-const STEER_TORQUE: f32 = 28.0;
+const MODEL_PATH: &str = "models/hovercraft.glb#Scene0";
+const HALF_EXTENTS: Vec3 = Vec3::new(1.5, 0.35, 2.4);
+const HOVER_HEIGHT: f32 = 1.6;
+const HOVER_RAY_LENGTH: f32 = 2.6;
+const HOVER_FORCE: f32 = 170.0;
+const HOVER_DAMPING: f32 = 22.0;
+const DRIVE_FORCE: f32 = 140.0;
+const BRAKE_FORCE: f32 = 180.0;
+const SIDEWAYS_GRIP: f32 = 28.0;
+const STEER_TORQUE: f32 = 18.0;
+const UPRIGHT_TORQUE: f32 = 110.0;
+const HOVERCRAFT_MAX_HEALTH: f32 = 1000.0;
+const HOVER_POINTS: [Vec3; 4] = [
+    Vec3::new(-1.1, 0.0, -1.8),
+    Vec3::new(1.1, 0.0, -1.8),
+    Vec3::new(-1.1, 0.0, 1.8),
+    Vec3::new(1.1, 0.0, 1.8),
+];
 
-pub struct TruckPlugin;
-impl Plugin for TruckPlugin {
+pub struct HovercraftPlugin;
+impl Plugin for HovercraftPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<TruckPawnComponent>();
+        app.register_game_object::<HovercraftPawnComponent>();
         #[cfg(not(feature = "client"))]
         let _ = app;
         #[cfg(feature = "client")]
         app.add_systems(
             FixedPreUpdate,
             (
-                gather_truck_input
+                gather_hovercraft_input
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
-                move_pawns::<TruckPawnComponent>().in_set(MovePawnsSet),
+                move_pawns::<HovercraftPawnComponent>().in_set(MovePawnsSet),
             )
                 .chain(),
         );
@@ -51,9 +62,9 @@ impl Plugin for TruckPlugin {
 }
 
 #[derive(Component, Default, Reflect)]
-pub struct TruckPawnComponent;
+pub struct HovercraftPawnComponent;
 
-impl Pawn for TruckPawnComponent {
+impl Pawn for HovercraftPawnComponent {
     fn apply_input(
         &mut self,
         world: &mut PhysicsWorld,
@@ -61,20 +72,20 @@ impl Pawn for TruckPawnComponent {
         input: PawnInputKind,
     ) {
         if let PawnInputKind::Truck(input) = input {
-            apply_truck_movement(world, body, input, self);
+            apply_hovercraft_movement(world, body, input);
         }
     }
 }
 
-impl VehiclePawn for TruckPawnComponent {
-    const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 4.0, 8.0);
-    const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(-0.45, 0.75, 0.2);
+impl VehiclePawn for HovercraftPawnComponent {
+    const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 4.5, 9.0);
+    const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.9, -0.2);
     const DRIVER_INTERACT_RADIUS: f32 = 1.2;
-    const EXIT_OFFSET: Vec3 = Vec3::new(-1.4, 0.0, 0.0);
+    const EXIT_OFFSET: Vec3 = Vec3::new(-1.6, 0.0, 0.0);
 }
 
-impl GameObject for TruckPawnComponent {
-    const KIND: GameObjectKind = GameObjectKind::Truck;
+impl GameObject for HovercraftPawnComponent {
+    const KIND: GameObjectKind = GameObjectKind::Hovercraft;
     const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
@@ -83,19 +94,19 @@ impl GameObject for TruckPawnComponent {
             rotation: cmd.rotation.into(),
             ..default()
         };
-        spawn_driver_mount::<TruckPawnComponent>(entity, world);
+        spawn_driver_mount::<HovercraftPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
-            TruckPawnComponent,
-            Health::new(TRUCK_MAX_HEALTH, 0.0, 0.0),
+            HovercraftPawnComponent,
+            Health::new(HOVERCRAFT_MAX_HEALTH, 0.0, 0.0),
             CollisionDamageConfig {
                 threshold_per_mass: 90.0,
                 min_threshold: 250.0,
                 damage_scale: 0.45,
             },
             LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<TruckPawnComponent>(),
+            VehicleComponent::for_vehicle::<HovercraftPawnComponent>(),
             CollisionFxMaterial::Sparks,
-            GameObjectKind::Truck,
+            GameObjectKind::Hovercraft,
             Transform::from(transform),
             cmd.net_id.clone(),
         ));
@@ -108,24 +119,22 @@ impl GameObject for TruckPawnComponent {
                     cmd.starting_velocity.y,
                     cmd.starting_velocity.z,
                 ))
-                .linear_damping(0.2)
-                .angular_damping(2.2)
+                .angular_damping(2.8)
                 .build();
             let rb_handle = physics.insert_body(entity, rb);
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
             }
-            let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
-                .friction(1.0)
-                .build();
-            let PhysicsWorld {
-                collider_set,
-                rigid_body_set,
-                ..
-            } = &mut *physics;
-            collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
             rb_handle
         };
+        attach_hull_collider(
+            entity,
+            rb_handle,
+            HULL_PATH,
+            1.0,
+            ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z),
+            world,
+        );
         world
             .entity_mut(entity)
             .insert(RigidBodyHandleComponent(rb_handle));
@@ -144,7 +153,7 @@ impl GameObject for TruckPawnComponent {
 }
 
 #[cfg(feature = "client")]
-fn gather_truck_input(
+fn gather_hovercraft_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
@@ -152,7 +161,7 @@ fn gather_truck_input(
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
-    mut pawns: Query<&mut Possessed, With<TruckPawnComponent>>,
+    mut pawns: Query<&mut Possessed, With<HovercraftPawnComponent>>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
         return;
@@ -216,13 +225,13 @@ fn gather_truck_input(
     possessed.push(PawnInputKind::Truck(input));
 }
 
-pub fn apply_truck_movement(
+pub fn apply_hovercraft_movement(
     world: &mut PhysicsWorld,
     body_handle: &RigidBodyHandleComponent,
     input: common::TruckInput,
-    _truck: &mut TruckPawnComponent,
 ) {
-    let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
+    let entity = world.handle_to_entity.get(&body_handle.0).copied();
+    let Some(body) = world.rigid_body_set.get(body_handle.0) else {
         return;
     };
     if !body.is_enabled() {
@@ -231,32 +240,85 @@ pub fn apply_truck_movement(
 
     let rotation = body.rotation();
     let forward = rotation * -Vector3::Z;
-    let right = rotation * Vector3::X;
     let up = rotation * Vector3::Y;
     let velocity = body.linvel();
-    if !forward.is_finite()
-        || !right.is_finite()
-        || !up.is_finite()
-        || !Vec3::new(velocity.x, velocity.y, velocity.z).is_finite()
-    {
-        body.set_linvel(Vector3::ZERO, true);
-        body.set_angvel(Vector3::ZERO, true);
-        return;
+    let angvel = body.angvel();
+    let center = rb_pos(body);
+    let body_rotation = rb_rot(body);
+
+    let mut hit_count = 0.0;
+    let mut normal_sum = Vec3::ZERO;
+    let mut hover_impulses = Vec::with_capacity(HOVER_POINTS.len());
+    for point in HOVER_POINTS {
+        let world_point = center + body_rotation * point;
+        let Some(hit) = entity.and_then(|entity| {
+            world.cast_ray_detailed_ignoring_shields(world_point, -up, HOVER_RAY_LENGTH, &[entity])
+        }) else {
+            continue;
+        };
+        let compression = ((HOVER_HEIGHT - hit.toi) / HOVER_HEIGHT).clamp(0.0, 1.0);
+        if compression <= 0.0 {
+            continue;
+        }
+        let point_vel = Vec3::new(velocity.x, velocity.y, velocity.z)
+            + Vec3::new(angvel.x, angvel.y, angvel.z).cross(world_point - center);
+        let vertical_speed = point_vel.dot(Vec3::new(up.x, up.y, up.z));
+        let lift = compression * HOVER_FORCE - vertical_speed * HOVER_DAMPING;
+        if lift <= 0.0 {
+            continue;
+        }
+        hover_impulses.push((world_point, Vector3::new(up.x, up.y, up.z) * lift));
+        normal_sum += hit.normal;
+        hit_count += 1.0;
     }
-    let forward_speed = velocity.dot(forward);
-    let sideways_speed = velocity.dot(right);
-    body.apply_impulse(forward * (input.throttle * DRIVE_FORCE), false);
-    body.apply_impulse(-right * (sideways_speed * SIDEWAYS_GRIP), true);
-    body.apply_impulse(
-        -(forward * forward_speed + right * sideways_speed) * (input.brake * BRAKE_FORCE),
-        true,
-    );
+
+    let support_normal = if hit_count > 0.0 {
+        normal_sum / hit_count
+    } else {
+        Vec3::new(up.x, up.y, up.z)
+    }
+    .normalize_or_zero();
+    let plane_forward = (Vec3::new(forward.x, forward.y, forward.z)
+        - support_normal * Vec3::new(forward.x, forward.y, forward.z).dot(support_normal))
+    .normalize_or_zero();
+    let plane_right = support_normal.cross(plane_forward).normalize_or_zero();
+    let body_vel = Vec3::new(velocity.x, velocity.y, velocity.z);
+    let forward_speed = body_vel.dot(plane_forward);
+    let sideways_speed = body_vel.dot(plane_right);
+    let steer_axis = Vector3::new(support_normal.x, support_normal.y, support_normal.z);
     let steer_dir = if forward_speed.abs() > 0.5 {
         forward_speed.signum()
     } else {
         input.throttle.signum()
     };
+    let upright_axis = Vec3::new(up.x, up.y, up.z).cross(support_normal);
+    let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
+        return;
+    };
+    for (point, impulse) in hover_impulses {
+        body.apply_impulse_at_point(impulse, Vector3::new(point.x, point.y, point.z), true);
+    }
+    body.apply_impulse(
+        Vector3::new(plane_forward.x, plane_forward.y, plane_forward.z) * (input.throttle * DRIVE_FORCE),
+        true,
+    );
+    body.apply_impulse(
+        -Vector3::new(plane_right.x, plane_right.y, plane_right.z) * (sideways_speed * SIDEWAYS_GRIP),
+        true,
+    );
+    body.apply_impulse(
+        -(Vector3::new(plane_forward.x, plane_forward.y, plane_forward.z) * forward_speed
+            + Vector3::new(plane_right.x, plane_right.y, plane_right.z) * sideways_speed)
+            * (input.brake * BRAKE_FORCE),
+        true,
+    );
     if steer_dir != 0.0 {
-        body.apply_torque_impulse(up * (input.steer * STEER_TORQUE * steer_dir), true);
+        body.apply_torque_impulse(steer_axis * (input.steer * steer_dir * STEER_TORQUE), true);
+    }
+    if upright_axis != Vec3::ZERO {
+        body.apply_torque_impulse(
+            Vector3::new(upright_axis.x, upright_axis.y, upright_axis.z) * UPRIGHT_TORQUE,
+            true,
+        );
     }
 }

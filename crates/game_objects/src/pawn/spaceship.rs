@@ -16,15 +16,13 @@ use super::{
 };
 #[cfg(feature = "client")]
 use crate::flash::spawn_flash;
-#[cfg(feature = "client")]
-use crate::shield::spawn_box_shield_visual;
 use crate::{
     GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     reticle::AimReticle,
-    shield::attach_shield_collider,
+    shield::spawn_attached_spaceship_shield,
     spawn::AppGameObjectExt,
 };
 
@@ -36,10 +34,6 @@ const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
 const MAX_TORQUE: f32 = 40000.0;
 const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
-const SHIELD_MAX_HEALTH: f32 = 300.0;
-const SHIELD_REGEN_PER_SEC: f32 = 60.0;
-const SHIELD_REGEN_DELAY_SECS: f32 = 5.0;
-const SHIELD_HALF_EXTENTS: Vec3 = Vec3::new(10.0, 8.0, 20.0); // forward, right, up
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -110,33 +104,6 @@ impl GameObject for SpaceshipPawnComponent {
             }
             rb_handle
         };
-        #[allow(unused_mut)]
-        let mut shield = {
-            let mut physics = world.resource_mut::<PhysicsWorld>();
-            attach_shield_collider(
-                rb_handle,
-                ColliderBuilder::cuboid(
-                    SHIELD_HALF_EXTENTS.x,
-                    SHIELD_HALF_EXTENTS.y,
-                    SHIELD_HALF_EXTENTS.z,
-                )
-                .build(),
-                SHIELD_MAX_HEALTH,
-                SHIELD_REGEN_PER_SEC,
-                SHIELD_REGEN_DELAY_SECS,
-                false,
-                &mut physics,
-            )
-        };
-        #[cfg(feature = "client")]
-        {
-            shield.visual = Some(spawn_box_shield_visual(
-                world,
-                entity,
-                SHIELD_HALF_EXTENTS,
-                shield.double_sided,
-            ));
-        }
         world.entity_mut(entity).insert((
             SpaceshipPawnComponent,
             Health::new(SPACESHIP_MAX_HEALTH, 20.0, 5.0),
@@ -150,7 +117,6 @@ impl GameObject for SpaceshipPawnComponent {
             CollisionFxMaterial::Sparks,
             AimReticle("textures/crosshairs/crosshair001.png", None),
             GameObjectKind::Spaceship,
-            shield,
             Transform::from(transform),
             cmd.net_id.clone(),
         ));
@@ -165,6 +131,7 @@ impl GameObject for SpaceshipPawnComponent {
         world
             .entity_mut(entity)
             .insert(RigidBodyHandleComponent(rb_handle));
+        let _ = spawn_attached_spaceship_shield(&cmd.net_id, world);
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
@@ -174,7 +141,7 @@ impl GameObject for SpaceshipPawnComponent {
         }
     }
 
-    fn on_death(entity: Entity, world: &mut World) -> bool {
+    fn on_death(entity: Entity, world: &mut World) {
         #[cfg(feature = "client")]
         {
             let (position, velocity) = world
@@ -208,7 +175,6 @@ impl GameObject for SpaceshipPawnComponent {
             );
         }
         super::vehicle::handle_vehicle_death(entity, world);
-        true
     }
 }
 

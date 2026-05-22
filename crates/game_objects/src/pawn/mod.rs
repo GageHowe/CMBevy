@@ -3,6 +3,7 @@ pub mod biped;
 pub mod biped_ability;
 mod camera_effects;
 pub mod fighter;
+pub mod hovercraft;
 pub mod mount;
 pub mod rocket_turret;
 pub mod spaceship;
@@ -22,6 +23,7 @@ use common::GameObjectKind;
 use common::PredictedCommands;
 pub use common::{BipedInput, PawnInputKind, RocketTurretInput, SpaceshipInput, TruckInput};
 pub use fighter::FighterPawnComponent;
+pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
 use net::{
     message::{MsgType, NetworkID},
@@ -265,6 +267,7 @@ impl Plugin for PawnPlugin {
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
         app.add_plugins(fighter::FighterPlugin);
+        app.add_plugins(hovercraft::HovercraftPlugin);
         app.add_plugins(mount::MountPlugin);
         app.add_plugins(rocket_turret::RocketTurretPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
@@ -329,6 +332,7 @@ pub struct PawnInputParams<'w, 's> {
     bipeds: Query<'w, 's, &'static mut biped::BipedPawnComponent>,
     spaceships: Query<'w, 's, &'static mut spaceship::SpaceshipPawnComponent>,
     trucks: Query<'w, 's, &'static mut truck::TruckPawnComponent>,
+    hovercrafts: Query<'w, 's, &'static mut hovercraft::HovercraftPawnComponent>,
     rocket_turrets: Query<'w, 's, &'static mut rocket_turret::RocketTurretPawnComponent>,
 }
 
@@ -369,15 +373,22 @@ impl<'w, 's> PawnInputParams<'w, 's> {
                 (true, None)
             }
             PawnInputKind::Truck(input) => {
-                let Ok(mut truck) = self.trucks.get_mut(entity) else {
+                if let Ok(mut truck) = self.trucks.get_mut(entity) {
+                    truck::apply_truck_movement(
+                        world,
+                        &RigidBodyHandleComponent(handle),
+                        input,
+                        &mut truck,
+                    );
+                } else if self.hovercrafts.get_mut(entity).is_ok() {
+                    hovercraft::apply_hovercraft_movement(
+                        world,
+                        &RigidBodyHandleComponent(handle),
+                        input,
+                    );
+                } else {
                     return (false, None);
-                };
-                truck::apply_truck_movement(
-                    world,
-                    &RigidBodyHandleComponent(handle),
-                    input,
-                    &mut truck,
-                );
+                }
                 (true, None)
             }
             PawnInputKind::RocketTurret(input) => {

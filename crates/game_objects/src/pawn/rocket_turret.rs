@@ -177,13 +177,13 @@ impl GameObject for RocketTurretPawnComponent {
         }
     }
 
-    fn on_death(entity: Entity, world: &mut World) -> bool {
+    fn on_death(entity: Entity, world: &mut World) {
         let biped_net_id = world
             .get::<CharacterMount>(entity)
             .and_then(|mount| mount.occupant)
             .and_then(|biped_entity| world.get::<net::message::NetworkID>(biped_entity).cloned());
         let Some(biped_entity) = mount::handle_mount_parent_death(entity, world) else {
-            return true;
+            return;
         };
         world.entity_mut(biped_entity).remove::<mount::Mounted>();
         #[cfg(feature = "client")]
@@ -204,7 +204,6 @@ impl GameObject for RocketTurretPawnComponent {
                 super::broadcast_mount_state(&mut quic, &biped_net_id, None);
             }
         }
-        true
     }
 }
 

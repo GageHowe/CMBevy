@@ -11,6 +11,7 @@ use bevy::{
     window::PresentMode,
 };
 use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
+use bevy_luna::prelude::RaytracePlugins;
 use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
@@ -31,7 +32,6 @@ mod color_compression;
 mod fullscreen_post_process;
 mod menu;
 mod outline;
-mod raytrace;
 mod reconciliation;
 mod tick_sync;
 mod ui;
@@ -45,7 +45,6 @@ use master_plugin::MasterPlugin;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
 use physics::physics_world::{step_physics, sync_physics_visual};
-use raytrace::RaytraceTogglePlugin;
 use session::{
     ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig,
     draw_server_state,
@@ -118,7 +117,7 @@ fn main() {
         AutoExposureDebugPlugin,
         OutlinePlugin,
         ColorCompressionPlugin,
-        RaytraceTogglePlugin,
+        RaytracePlugins,
     ))
     .init_state::<GameState>()
     .init_state::<UiState>()

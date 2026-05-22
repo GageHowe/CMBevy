@@ -590,6 +590,7 @@ fn spawn_restarted_player(
     };
     let spawn_cmd = SpawnCommand {
         net_id: net_id.clone(),
+        parent_net_id: None,
         position: spawn_pos,
         starting_velocity: spawn_vel,
         shooter_velocity: Vec3::ZERO,

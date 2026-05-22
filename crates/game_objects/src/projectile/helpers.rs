@@ -204,7 +204,7 @@ pub fn tick_raycast_projectile(
     body: &RigidBodyHandleComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
-    shield_q: &Query<&Shield>,
+    shield_q: &Query<(Entity, &Shield, &Health)>,
 ) -> Option<RayProjectileHit> {
     *lifetime = lifetime.saturating_sub(1);
     if *lifetime == 0 {
@@ -333,9 +333,9 @@ pub fn tick_sphere_explosive_projectile(
     body: &RigidBodyHandleComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
-    health_q: &mut Query<&mut Health>,
+    health_q: &mut Query<&mut Health, Without<Shield>>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
@@ -444,9 +444,9 @@ pub fn explode_sphere_explosive_projectile(
     shooter: Option<Entity>,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
-    health_q: &mut Query<&mut Health>,
+    health_q: &mut Query<&mut Health, Without<Shield>>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
     predicted: Option<&mut PredictedCommands>,
@@ -574,9 +574,9 @@ pub fn apply_raycast_hit<P: Projectile>(
     shooter: Option<Entity>,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
-    health_q: &mut Query<&mut Health>,
+    health_q: &mut Query<&mut Health, Without<Shield>>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     damage: f32,
 ) {
     if let Some(blocked) = apply_direct_shield_hit(world, hit, shield_q, damage) {
@@ -601,7 +601,7 @@ pub fn apply_raycast_hit<P: Projectile>(
 fn apply_direct_shield_hit(
     world: &PhysicsWorld,
     hit: RayProjectileHit,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     damage: f32,
 ) -> Option<bool> {
     let flags = world
@@ -612,17 +612,24 @@ fn apply_direct_shield_hit(
     if !flags.contains(ColliderFlags::SHIELD) {
         return Some(false);
     }
-    let Ok(mut shield) = shield_q.get_mut(hit.entity) else {
+    let Some(shield_entity) = shield_entity_for_collider(hit.collider, &shield_q.as_readonly()) else {
         return Some(false);
     };
-    Some(shield.apply_damage(damage))
+    let Ok((_, _, mut charge)) = shield_q.get_mut(shield_entity) else {
+        return Some(false);
+    };
+    if charge.is_dead() {
+        return Some(false);
+    }
+    charge.apply_damage(damage);
+    Some(true)
 }
 
 fn apply_direct_shield_collider_damage(
     world: &PhysicsWorld,
-    entity: Entity,
+    _entity: Entity,
     collider: ColliderHandle,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     damage: f32,
 ) -> bool {
     let flags = world
@@ -633,24 +640,34 @@ fn apply_direct_shield_collider_damage(
     if !flags.contains(ColliderFlags::SHIELD) {
         return false;
     }
-    let Ok(mut shield) = shield_q.get_mut(entity) else {
+    let Some(shield_entity) = shield_entity_for_collider(collider, &shield_q.as_readonly()) else {
         return false;
     };
-    shield.apply_damage(damage)
+    let Ok((_, _, mut charge)) = shield_q.get_mut(shield_entity) else {
+        return false;
+    };
+    if charge.is_dead() {
+        return false;
+    }
+    charge.apply_damage(damage);
+    true
 }
 
 fn shield_should_skip_inside_hit(
     world: &PhysicsWorld,
-    shield_q: &Query<&Shield>,
-    entity: Entity,
+    shield_q: &Query<(Entity, &Shield, &Health)>,
+    _entity: Entity,
     collider: ColliderHandle,
     center: Vec3,
     radius: f32,
 ) -> bool {
-    let Ok(shield) = shield_q.get(entity) else {
+    let Some(shield_entity) = shield_entity_for_collider(collider, shield_q) else {
         return false;
     };
-    if shield.double_sided {
+    let Ok((_, shield, charge)) = shield_q.get(shield_entity) else {
+        return false;
+    };
+    if charge.is_dead() || shield.double_sided {
         return false;
     }
     let Some(collider) = world.collider_set.get(collider) else {
@@ -664,13 +681,22 @@ fn shield_should_skip_inside_hit(
         ) <= radius + SHIELD_EXIT_EPSILON
 }
 
+fn shield_entity_for_collider(
+    collider: ColliderHandle,
+    shield_q: &Query<(Entity, &Shield, &Health)>,
+) -> Option<Entity> {
+    shield_q.iter().find_map(|(entity, shield, _)| {
+        (shield.collider == Some(collider)).then_some(entity)
+    })
+}
+
 fn apply_entity_damage(
     entity: Entity,
     attacker: Option<Entity>,
     damage: f32,
     percent_max_health_damage: f32,
     cause: DamageCause,
-    health_q: &mut Query<&mut Health>,
+    health_q: &mut Query<&mut Health, Without<Shield>>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
 ) {
     if damage <= 0.0 && percent_max_health_damage <= 0.0 {

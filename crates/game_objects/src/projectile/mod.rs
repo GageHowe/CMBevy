@@ -72,9 +72,9 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
-        health_q: &mut Query<&mut Health>,
+        health_q: &mut Query<&mut Health, Without<Shield>>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
-        shield_q: &mut Query<&mut Shield>,
+        shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
         splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     );
 
@@ -111,6 +111,7 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
             net_id: net_id.clone(),
             spawn_cmd: SpawnCommand {
                 net_id,
+                parent_net_id: None,
                 position: origin,
                 starting_velocity,
                 shooter_velocity,
@@ -240,9 +241,9 @@ pub fn tick_projectiles<P: Projectile>(
         &mut ProjectileState,
         &RigidBodyHandleComponent,
     )>,
-    mut health_q: Query<&mut Health>,
+    mut health_q: Query<&mut Health, Without<Shield>>,
     mut last_damage_q: Query<&mut LastDamageSource>,
-    mut shield_q: Query<&mut Shield>,
+    mut shield_q: Query<(Entity, &Shield, &mut Health)>,
     splash_q: Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     for (entity, mut proj, mut state, body) in q.iter_mut() {

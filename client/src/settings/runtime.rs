@@ -85,7 +85,8 @@ pub fn apply_settings(
     directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
     if !settings.raytracing {
         for mut directional_light in &mut directional_lights {
-            directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+            directional_light.shadows_enabled =
+                !matches!(settings.shadow_quality, ShadowQuality::Off);
         }
     }
 }
@@ -118,8 +119,7 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
         camera.insert(bevy::post_process::auto_exposure::AutoExposure {
             range: -3.0..=0.0,
             // speed_brighten: 1.5,
-            filter: 0.0..=0.99,
-            // filter: 0.10..=0.90,
+            filter: 0.1..=0.9,
             // speed_darken: 0.75,
             ..default()
         });

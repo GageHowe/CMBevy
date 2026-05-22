@@ -15,7 +15,7 @@ use crate::GameObjectKind;
 /// Marker shared by drivable vehicles.
 #[derive(Component, Reflect)]
 pub struct VehicleComponent {
-    /// Third-person camera offset used while this vehicle is possessed.
+    /// Third-person local-space camera offset used while this vehicle is possessed.
     pub camera_offset: Vec3,
 }
 

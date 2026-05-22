@@ -104,6 +104,7 @@ fn process_weapon_grants(world: &mut World) {
                 common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
             let spawn_cmd = net::message::SpawnCommand {
                 net_id: weapon_id.clone(),
+                parent_net_id: None,
                 position: pos,
                 starting_velocity: Vec3::ZERO,
                 shooter_velocity: Vec3::ZERO,

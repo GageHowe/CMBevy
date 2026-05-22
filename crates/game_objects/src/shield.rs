@@ -3,19 +3,31 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::render::render_resource::AsBindGroup;
-use physics::{collider_flags::ColliderFlags, physics_world::PhysicsWorld};
-use rapier3d::prelude::{
-    Collider, ColliderHandle, Group, InteractionGroups, InteractionTestMode, RigidBodyHandle,
+use common::{GameObjectKind, NetworkID, NetworkIDResource, tick::Ticker};
+#[cfg(feature = "client")]
+use common::game_state::GameState;
+use physics::{
+    collider_flags::ColliderFlags,
+    physics_world::{PhysicsWorld, RigidBodyHandleComponent},
 };
+use rapier3d::prelude::{
+    Collider, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
+    RigidBodyHandle,
+};
+
+use crate::{
+    GameObject,
+    health::Health,
+    spawn::AppGameObjectExt,
+};
+
+const SPACESHIP_SHIELD_MAX_HEALTH: f32 = 300.0;
+const SPACESHIP_SHIELD_REGEN_PER_SEC: f32 = 60.0;
+const SPACESHIP_SHIELD_REGEN_DELAY_SECS: f32 = 5.0;
+pub const SPACESHIP_SHIELD_HALF_EXTENTS: Vec3 = Vec3::new(10.0, 8.0, 20.0);
 
 #[derive(Component, Clone, Copy)]
 pub struct Shield {
-    pub current: f32,
-    pub max: f32,
-    pub regen_per_sec: f32,
-    pub regen_delay_secs: f32,
-    pub regen_delay_remaining_secs: f32,
-    pub enabled: bool,
     pub double_sided: bool,
     pub collider: Option<ColliderHandle>,
     #[cfg(feature = "client")]
@@ -23,44 +35,23 @@ pub struct Shield {
 }
 
 impl Shield {
-    pub fn new(max: f32, regen_per_sec: f32, regen_delay_secs: f32, double_sided: bool) -> Self {
+    pub fn new(double_sided: bool) -> Self {
         Self {
-            current: max,
-            max,
-            regen_per_sec,
-            regen_delay_secs,
-            regen_delay_remaining_secs: 0.0,
-            enabled: true,
             double_sided,
             collider: None,
             #[cfg(feature = "client")]
             visual: None,
         }
     }
-
-    pub fn apply_damage(&mut self, damage: f32) -> bool {
-        if !self.enabled || damage <= 0.0 {
-            return false;
-        }
-        self.regen_delay_remaining_secs = self.regen_delay_secs;
-        self.current = (self.current - damage).max(0.0);
-        if self.current <= 0.0 {
-            self.enabled = false;
-        }
-        true
-    }
 }
 
 pub struct ShieldPlugin;
 impl Plugin for ShieldPlugin {
     fn build(&self, app: &mut App) {
+        app.register_game_object::<SpaceshipShieldComponent>();
         #[cfg(feature = "client")]
         app.add_plugins(bevy::pbr::MaterialPlugin::<ShieldMaterial>::default())
             .add_systems(Update, tick_shield_materials);
-        app.add_systems(
-            FixedUpdate,
-            regenerate_shields.in_set(crate::AuthoritySystems),
-        );
         app.add_systems(FixedUpdate, sync_shield_colliders);
         #[cfg(feature = "client")]
         app.add_systems(FixedUpdate, sync_shield_visuals);
@@ -126,9 +117,6 @@ pub fn shield_user_data() -> u128 {
 pub fn attach_shield_collider(
     body_handle: RigidBodyHandle,
     mut collider: Collider,
-    max_health: f32,
-    regen_per_sec: f32,
-    regen_delay_secs: f32,
     double_sided: bool,
     world: &mut PhysicsWorld,
 ) -> Shield {
@@ -141,60 +129,44 @@ pub fn attach_shield_collider(
         world
             .collider_set
             .insert_with_parent(collider, body_handle, &mut world.rigid_body_set);
-    let mut shield = Shield::new(max_health, regen_per_sec, regen_delay_secs, double_sided);
+    let mut shield = Shield::new(double_sided);
     shield.collider = Some(handle);
     shield
 }
 
-fn regenerate_shields(time: Res<Time<Fixed>>, mut shields: Query<&mut Shield>) {
-    let dt = time.delta_secs();
-    if dt <= 0.0 {
-        return;
-    }
-    for mut shield in &mut shields {
-        shield.regen_delay_remaining_secs = (shield.regen_delay_remaining_secs - dt).max(0.0);
-        if shield.current >= shield.max || shield.regen_per_sec <= 0.0 {
-            continue;
-        }
-        if shield.regen_delay_remaining_secs > 0.0 {
-            continue;
-        }
-        shield.current = (shield.current + shield.regen_per_sec * dt).min(shield.max);
-        if shield.current > 0.0 {
-            shield.enabled = true;
-        }
-    }
+fn shield_enabled(health: &Health) -> bool {
+    !health.is_dead()
 }
 
 pub fn sync_shield_colliders(
     world: ResMut<PhysicsWorld>,
-    shields: Query<&Shield, Changed<Shield>>,
+    shields: Query<(&Shield, &Health), Or<(Changed<Shield>, Changed<Health>)>>,
 ) {
     let mut world = world;
-    for shield in shields.iter() {
+    for (shield, health) in shields.iter() {
         let Some(handle) = shield.collider else {
             continue;
         };
         let Some(collider) = world.collider_set.get_mut(handle) else {
             continue;
         };
-        collider.set_enabled(shield.enabled);
+        collider.set_enabled(shield_enabled(health));
     }
 }
 
 #[cfg(feature = "client")]
 fn sync_shield_visuals(
     mut visibility_q: Query<&mut Visibility>,
-    shields: Query<&Shield, Changed<Shield>>,
+    shields: Query<(&Shield, &Health), Or<(Changed<Shield>, Changed<Health>)>>,
 ) {
-    for shield in shields.iter() {
+    for (shield, health) in shields.iter() {
         let Some(visual) = shield.visual else {
             continue;
         };
         let Ok(mut visibility) = visibility_q.get_mut(visual) else {
             continue;
         };
-        *visibility = if shield.enabled {
+        *visibility = if shield_enabled(health) {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -264,4 +236,117 @@ pub fn spawn_box_shield_visual(
         .id();
     world.entity_mut(parent).add_child(visual);
     visual
+}
+
+#[derive(Component, Default, Reflect)]
+pub struct SpaceshipShieldComponent;
+
+impl GameObject for SpaceshipShieldComponent {
+    const KIND: GameObjectKind = GameObjectKind::SpaceshipShield;
+    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
+    const DESPAWN_ON_DEATH: bool = false;
+    const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = false;
+
+    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let Some(parent_net_id) = cmd.parent_net_id.as_ref() else {
+            return;
+        };
+        let parent = world
+            .query::<(Entity, &NetworkID)>()
+            .iter(world)
+            .find_map(|(entity, net_id)| (net_id == parent_net_id).then_some(entity));
+        let Some(parent) = parent else {
+            return;
+        };
+        let Some(body_handle) = world
+            .get::<RigidBodyHandleComponent>(parent)
+            .map(|handle| handle.0)
+        else {
+            return;
+        };
+        #[allow(unused_mut)]
+        let mut shield = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            attach_shield_collider(
+                body_handle,
+                ColliderBuilder::cuboid(
+                    SPACESHIP_SHIELD_HALF_EXTENTS.x,
+                    SPACESHIP_SHIELD_HALF_EXTENTS.y,
+                    SPACESHIP_SHIELD_HALF_EXTENTS.z,
+                )
+                .build(),
+                false,
+                &mut physics,
+            )
+        };
+        #[cfg(feature = "client")]
+        {
+            shield.visual = Some(spawn_box_shield_visual(
+                world,
+                entity,
+                SPACESHIP_SHIELD_HALF_EXTENTS,
+                shield.double_sided,
+            ));
+        }
+        world.entity_mut(entity).insert((
+            SpaceshipShieldComponent,
+            Health::new(
+                SPACESHIP_SHIELD_MAX_HEALTH,
+                SPACESHIP_SHIELD_REGEN_PER_SEC,
+                SPACESHIP_SHIELD_REGEN_DELAY_SECS,
+            ),
+            shield,
+            Transform::default(),
+            cmd.net_id.clone(),
+        ));
+    }
+}
+
+fn should_spawn_local_shield(_world: &World) -> bool {
+    #[cfg(feature = "client")]
+    {
+        _world
+            .get_resource::<State<GameState>>()
+            .is_none_or(|state| *state.get() != GameState::Multiplayer)
+    }
+    #[cfg(not(feature = "client"))]
+    {
+        true
+    }
+}
+
+pub fn spawn_attached_spaceship_shield(
+    parent_net_id: &NetworkID,
+    world: &mut World,
+) -> Option<Entity> {
+    if !should_spawn_local_shield(world) {
+        return None;
+    }
+    let tick = world.get_resource::<Ticker>().map_or(0, |ticker| ticker.tick);
+    let net_id = NetworkID(world.get_resource_mut::<NetworkIDResource>()?.next());
+    let entity = world.spawn_empty().id();
+    let cmd = net::message::SpawnCommand {
+        net_id: net_id.clone(),
+        parent_net_id: Some(parent_net_id.clone()),
+        position: Vec3::ZERO,
+        starting_velocity: Vec3::ZERO,
+        shooter_velocity: Vec3::ZERO,
+        rotation: Quat::IDENTITY,
+        server_tick: tick,
+        kind: GameObjectKind::SpaceshipShield,
+    };
+    crate::SpawnGameObjectCommand {
+        entity,
+        cmd: cmd.clone(),
+    }
+    .apply(world);
+    #[cfg(not(feature = "client"))]
+    if let Some(mut quic) = world.get_resource_mut::<net::quic::QuicManager>() {
+        quic.send(
+            net::quic::SendTarget::All,
+            net::quic::Channel::Ordered,
+            &net::message::MsgType::SpawnCommand(cmd),
+        );
+    }
+    Some(entity)
 }

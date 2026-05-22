@@ -6,7 +6,7 @@ use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, 
 #[cfg(feature = "client")]
 use crate::NetworkEntityMap;
 use crate::{
-    SpawnGameObjectCommand,
+    SpawnGameObjectCommand, dispatch_game_object_on_death,
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
 };
 
@@ -22,6 +22,7 @@ pub fn spawn_game_object(
     let net_id = NetworkID(net_ids.next());
     let cmd = SpawnCommand {
         net_id: net_id.clone(),
+        parent_net_id: None,
         position,
         starting_velocity,
         shooter_velocity: Vec3::ZERO,
@@ -155,12 +156,21 @@ pub fn apply_despawn(
             });
         }
     }
-    if let Ok(mut entity_commands) = commands.get_entity(entity) {
-        entity_commands.queue_silenced(|entity: EntityWorldMut| {
-            entity.despawn();
-            Ok::<(), bevy::ecs::world::error::EntityMutableFetchError>(())
-        });
-    }
+    commands.queue(move |world: &mut World| {
+        if !world.entities().contains(entity) {
+            return;
+        }
+        if let Some(kind) = world.get::<GameObjectKind>(entity).cloned()
+            && world
+                .get::<crate::health::Health>(entity)
+                .is_some_and(crate::health::Health::is_dead)
+        {
+            dispatch_game_object_on_death(kind, entity, world);
+        }
+        if world.entities().contains(entity) {
+            world.entity_mut(entity).despawn();
+        }
+    });
 }
 
 pub fn pick_spawn_point(

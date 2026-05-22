@@ -87,7 +87,7 @@ impl GameObject for BipedPawnComponent {
         spawn_visuals(entity, world);
     }
 
-    fn on_death(entity: Entity, world: &mut World) -> bool {
+    fn on_death(entity: Entity, world: &mut World) {
         #[cfg(feature = "client")]
         if world.get::<Possessed>(entity).is_some() {
             super::detach_camera(world);
@@ -184,7 +184,6 @@ impl GameObject for BipedPawnComponent {
                 );
             }
         }
-        true
     }
 }
 

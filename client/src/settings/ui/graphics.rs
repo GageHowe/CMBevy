@@ -67,8 +67,8 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Raytracing (EXPERIMENTAL)").on_hover_text(
-                    "Experimental hardware raytraced shadow replacement. Client-only and heavier than normal shadow maps.",
+                ui.label("Raytraced shadows (EXPERIMENTAL)").on_hover_text(
+                    "An experimental hardware raytraced shadow replacement",
                 );
                 ui.checkbox(&mut settings.raytracing, "");
             });

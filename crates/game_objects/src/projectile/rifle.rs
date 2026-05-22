@@ -43,9 +43,9 @@ impl Projectile for RifleProjectile {
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
-        health_q: &mut Query<&mut Health>,
+        health_q: &mut Query<&mut Health, Without<Shield>>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
-        shield_q: &mut Query<&mut Shield>,
+        shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
         _splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     ) {
         let Some(hit) = helpers::tick_raycast_projectile(

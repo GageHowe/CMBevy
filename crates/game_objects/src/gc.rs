@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use common::{
+    NetworkID,
     config::{DEFAULT_GC_SOFT_CAP, GC_OVERFLOW_STEP, MAX_GC_OBJECTS},
     slow_update::SlowUpdate,
 };
@@ -144,6 +145,8 @@ fn cleanup_world_gc_entities(
     mut gc_q: Query<
         (
             Entity,
+            Option<&crate::GameObjectKind>,
+            Option<&NetworkID>,
             &RigidBodyHandleComponent,
             Option<&SpawnerGc>,
             &mut WorldObjectGc,
@@ -156,7 +159,7 @@ fn cleanup_world_gc_entities(
     let soft_cap = state.soft_cap();
     let mut snapshots = Vec::new();
 
-    for (entity, body, _spawner_gc, _gc) in &mut gc_q {
+    for (entity, _kind, _net_id, body, _spawner_gc, _gc) in &mut gc_q {
         let Some(rb) = physics.rigid_body_set.get(body.0) else {
             continue;
         };
@@ -179,7 +182,7 @@ fn cleanup_world_gc_entities(
     }
     let mut cull_candidates = Vec::new();
 
-    for (entity, body, spawner_gc, mut gc) in &mut gc_q {
+    for (entity, kind, net_id, body, spawner_gc, mut gc) in &mut gc_q {
         let Some(rb) = physics.rigid_body_set.get(body.0) else {
             continue;
         };
@@ -222,7 +225,11 @@ fn cleanup_world_gc_entities(
         }
 
         state.notify_spawner_despawn(spawner_gc, entity);
-        eprintln!("gc despawned world entity {entity}");
+        eprintln!(
+            "gc despawned entity={entity} kind={:?} net_id={:?}",
+            kind.cloned(),
+            net_id.map(|id| id.0)
+        );
         commands.entity(entity).despawn();
     }
 
@@ -244,10 +251,15 @@ fn cleanup_world_gc_entities(
         if protected.get(&candidate.entity).copied().unwrap_or(false) {
             continue;
         }
-        if let Ok((_, _, spawner_gc, _)) = gc_q.get_mut(candidate.entity) {
+        if let Ok((_, kind, net_id, _, spawner_gc, _)) = gc_q.get_mut(candidate.entity) {
             state.notify_spawner_despawn(spawner_gc, candidate.entity);
+            eprintln!(
+                "gc hard-cap despawned entity={} kind={:?} net_id={:?}",
+                candidate.entity,
+                kind.cloned(),
+                net_id.map(|id| id.0)
+            );
         }
-        eprintln!("gc hard-cap despawned world entity {}", candidate.entity);
         commands.entity(candidate.entity).despawn();
         culled += 1;
     }

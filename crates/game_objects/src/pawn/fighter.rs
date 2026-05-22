@@ -158,9 +158,8 @@ impl GameObject for FighterPawnComponent {
         }
     }
 
-    fn on_death(entity: Entity, world: &mut World) -> bool {
+    fn on_death(entity: Entity, world: &mut World) {
         super::vehicle::handle_vehicle_death(entity, world);
-        true
     }
 }
 

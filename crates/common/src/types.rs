@@ -99,8 +99,10 @@ pub enum GameObjectKind {
     #[default]
     Biped,
     Spaceship,
+    SpaceshipShield,
     Fighter,
     Truck,
+    Hovercraft,
     RocketTurret,
     Planet,
     Pistol,
@@ -130,8 +132,10 @@ impl GameObjectKind {
         Some(match name {
             "biped" => Self::Biped,
             "spaceship" => Self::Spaceship,
+            "spaceship_shield" => Self::SpaceshipShield,
             "fighter" => Self::Fighter,
             "truck" => Self::Truck,
+            "hovercraft" => Self::Hovercraft,
             "rocket_turret" => Self::RocketTurret,
             "planet" => Self::Planet,
             "pistol" => Self::Pistol,

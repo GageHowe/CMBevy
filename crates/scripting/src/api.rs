@@ -334,6 +334,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
             let cmd = SpawnCommand {
                 net_id,
+                parent_net_id: None,
                 position: pos,
                 starting_velocity: vel,
                 shooter_velocity: Vec3::ZERO,

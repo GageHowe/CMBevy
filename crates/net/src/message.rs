@@ -34,6 +34,8 @@ pub struct JoinAccepted {
 pub struct SpawnCommand {
     /// Network id the spawned object should own once it exists on the receiver.
     pub net_id: NetworkID,
+    /// Optional network id of the parent entity this object should attach under.
+    pub parent_net_id: Option<NetworkID>,
     /// Initial world-space translation.
     pub position: Vec3,
     /// Initial world-space linear velocity of the spawned object itself.

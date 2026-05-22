@@ -20,7 +20,7 @@ impl Projectile for TetherHookProjectile {
         _body: &RigidBodyHandleComponent,
         _world: &mut PhysicsWorld,
         _commands: &mut Commands,
-        _health_q: &mut Query<&mut Health>,
+        _health_q: &mut Query<&mut Health, Without<Shield>>,
     ) {
     }
 

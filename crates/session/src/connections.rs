@@ -29,7 +29,9 @@ pub(super) fn handle_connected(
         Entity,
         &NetworkID,
         &GameObjectKind,
-        &RigidBodyHandleComponent,
+        Option<&RigidBodyHandleComponent>,
+        Option<&ChildOf>,
+        Option<&Transform>,
     )>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     pawn_slots: &Query<&mut WeaponSlots>,
@@ -64,34 +66,51 @@ pub(super) fn handle_connected(
         .flat_map(|s| s.slots.iter().map(|slot| slot.0.as_ref()))
         .flatten()
         .collect();
-    for (entity, net_id, kind, rb) in spawnables.iter() {
-        if held_ids.contains(net_id) {
-            continue;
-        }
-        let Some(body) = world.rigid_body_set.get(rb.0) else {
-            continue;
-        };
-        quic.send(
-            SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::SpawnCommand(SpawnCommand {
-                net_id: net_id.clone(),
-                position: rb_pos(body),
-                starting_velocity: rb_vel(body),
-                shooter_velocity: Vec3::ZERO,
-                rotation: rb_rot(body),
-                server_tick: tick,
-                kind: kind.clone(),
-            }),
-        );
-        if game_objects::weapon::is_weapon_kind(kind)
-            && let Ok((state, _)) = weapon_runtime.get_mut(entity)
-        {
+    for child_pass in [false, true] {
+        for (entity, net_id, kind, rb, child_of, transform) in spawnables.iter() {
+            if held_ids.contains(net_id) {
+                continue;
+            }
+            if child_of.is_some() != child_pass {
+                continue;
+            }
+            let (parent_net_id, position, starting_velocity, rotation) = if let Some(rb) = rb {
+                let Some(body) = world.rigid_body_set.get(rb.0) else {
+                    continue;
+                };
+                (None, rb_pos(body), rb_vel(body), rb_rot(body))
+            } else {
+                let Some(transform) = transform else {
+                    continue;
+                };
+                let parent_net_id = child_of.and_then(|child_of| {
+                    entity_net_ids.get(child_of.parent()).ok().cloned()
+                });
+                (parent_net_id, transform.translation, Vec3::ZERO, transform.rotation)
+            };
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &MsgType::WeaponState(net_id.clone(), *state),
+                &MsgType::SpawnCommand(SpawnCommand {
+                    net_id: net_id.clone(),
+                    parent_net_id,
+                    position,
+                    starting_velocity,
+                    shooter_velocity: Vec3::ZERO,
+                    rotation,
+                    server_tick: tick,
+                    kind: kind.clone(),
+                }),
             );
+            if game_objects::weapon::is_weapon_kind(kind)
+                && let Ok((state, _)) = weapon_runtime.get_mut(entity)
+            {
+                quic.send(
+                    SendTarget::One(conn_id),
+                    Channel::Ordered,
+                    &MsgType::WeaponState(net_id.clone(), *state),
+                );
+            }
         }
     }
     for (biped_net_id, mounted) in mounted_bipeds.iter() {

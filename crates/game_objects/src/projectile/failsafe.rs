@@ -77,9 +77,9 @@ impl Projectile for FailsafeProjectile {
         body: &RigidBodyHandleComponent,
         world: &mut PhysicsWorld,
         commands: &mut Commands,
-        health_q: &mut Query<&mut Health>,
+        health_q: &mut Query<&mut Health, Without<Shield>>,
         last_damage_q: &mut Query<&mut LastDamageSource>,
-        shield_q: &mut Query<&mut Shield>,
+        shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
         splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     ) {
         tick_inner(
@@ -135,6 +135,7 @@ impl Projectile for FailsafeProjectile {
             net_id: net_id.clone(),
             spawn_cmd: SpawnCommand {
                 net_id,
+                parent_net_id: None,
                 position: origin,
                 starting_velocity: velocity,
                 shooter_velocity,
@@ -174,9 +175,9 @@ fn tick_inner(
     body: &RigidBodyHandleComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
-    health_q: &mut Query<&mut Health>,
+    health_q: &mut Query<&mut Health, Without<Shield>>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     projectile.lifetime = projectile.lifetime.saturating_sub(1);
@@ -334,9 +335,9 @@ fn explode_at(
     shooter: Option<Entity>,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
-    health_q: &mut Query<&mut Health>,
+    health_q: &mut Query<&mut Health, Without<Shield>>,
     last_damage_q: &mut Query<&mut LastDamageSource>,
-    shield_q: &mut Query<&mut Shield>,
+    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     helpers::explode_sphere_explosive_projectile(
@@ -391,9 +392,9 @@ fn detonate_requested_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     q: Query<(Entity, &FailsafeProjectile, &RigidBodyHandleComponent), With<PendingDetonation>>,
-    mut health_q: Query<&mut Health>,
+    mut health_q: Query<&mut Health, Without<Shield>>,
     mut last_damage_q: Query<&mut LastDamageSource>,
-    mut shield_q: Query<&mut Shield>,
+    mut shield_q: Query<(Entity, &Shield, &mut Health)>,
     splash_q: Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     for (entity, projectile, body) in q.iter() {
@@ -424,9 +425,9 @@ fn tick_predicted_projectiles(
         &RigidBodyHandleComponent,
         &mut ProjectileState,
     )>,
-    mut health_q: Query<&mut Health>,
+    mut health_q: Query<&mut Health, Without<Shield>>,
     mut last_damage_q: Query<&mut LastDamageSource>,
-    mut shield_q: Query<&mut Shield>,
+    mut shield_q: Query<(Entity, &Shield, &mut Health)>,
     splash_q: Query<(), With<CenterOfMassSplashDamage>>,
 ) {
     for (entity, mut projectile, body, state) in q.iter_mut() {

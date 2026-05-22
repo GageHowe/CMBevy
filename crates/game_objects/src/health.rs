@@ -2,6 +2,7 @@ use bevy::prelude::*;
 #[cfg(feature = "client")]
 use net::message::NetworkID;
 use physics::physics_world::PhysicsWorld;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     AuthoritySystems,
@@ -33,13 +34,73 @@ impl Plugin for HealthPlugin {
 }
 
 #[derive(Component, Clone, Copy)]
-/// Current and maximum hit points for a damageable entity.
-pub struct Health {
+pub struct HealthPool {
     pub current: f32,
     pub max: f32,
     pub regen_per_sec: f32,
     pub regen_delay_secs: f32,
     pub regen_delay_remaining_secs: f32,
+}
+
+impl HealthPool {
+    pub fn new(max: f32, regen_per_sec: f32, regen_delay_secs: f32) -> Self {
+        Self {
+            current: max,
+            max,
+            regen_per_sec,
+            regen_delay_secs,
+            regen_delay_remaining_secs: 0.0,
+        }
+    }
+
+    pub fn apply_damage(&mut self, amount: f32) {
+        if amount <= 0.0 || self.is_depleted() {
+            return;
+        }
+        self.regen_delay_remaining_secs = self.regen_delay_secs;
+        self.current = (self.current - amount).max(0.0);
+    }
+
+    pub fn apply_percent_damage(&mut self, fraction: f32) {
+        self.apply_damage(self.max * fraction);
+    }
+
+    pub fn is_depleted(&self) -> bool {
+        self.current <= 0.0
+    }
+
+    pub fn regenerate(&mut self, dt: f32) {
+        self.regen_delay_remaining_secs = (self.regen_delay_remaining_secs - dt).max(0.0);
+        if self.current >= self.max || self.regen_per_sec <= 0.0 {
+            return;
+        }
+        if self.regen_delay_remaining_secs > 0.0 {
+            return;
+        }
+        self.current = (self.current + self.regen_per_sec * dt).min(self.max);
+    }
+
+    pub fn set_current(&mut self, current: f32) {
+        self.current = current.clamp(0.0, self.max);
+    }
+}
+
+#[derive(Component, Clone, Copy)]
+/// Current and maximum hit points for a damageable entity.
+pub struct Health(pub HealthPool);
+
+impl Deref for Health {
+    type Target = HealthPool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Health {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Clone, Copy, Default, Reflect)]
@@ -82,32 +143,25 @@ pub struct PendingPlayerRemovals(pub Vec<Entity>);
 /// Deferred despawn queue used to avoid despawning mid-death-processing.
 pub struct PendingDeathDespawns(pub Vec<Entity>);
 
+#[derive(Component)]
+struct DeathHandled;
+
 impl Health {
     pub fn new(max: f32, regen_per_sec: f32, regen_delay_secs: f32) -> Self {
-        Self {
-            current: max,
-            max,
-            regen_per_sec,
-            regen_delay_secs,
-            regen_delay_remaining_secs: 0.0,
-        }
+        Self(HealthPool::new(max, regen_per_sec, regen_delay_secs))
     }
 
     pub fn apply_damage(&mut self, amount: f32) {
-        if amount <= 0.0 || self.is_dead() {
-            return;
-        }
-        self.regen_delay_remaining_secs = self.regen_delay_secs;
-        self.current = (self.current - amount).max(0.0);
+        self.0.apply_damage(amount);
     }
 
     /// Deals damage equal to `fraction` of current max health (e.g. 0.2 = 20%).
     pub fn apply_percent_damage(&mut self, fraction: f32) {
-        self.apply_damage(self.max * fraction);
+        self.0.apply_percent_damage(fraction);
     }
 
     pub fn is_dead(&self) -> bool {
-        self.current <= 0.0
+        self.0.is_depleted()
     }
 }
 
@@ -194,10 +248,9 @@ pub fn apply_health_update(
     let Some(entity) = networked.get(net_id) else {
         return;
     };
-    let Ok(mut health) = health_q.get_mut(entity) else {
-        return;
-    };
-    health.current = current;
+    if let Ok(mut health) = health_q.get_mut(entity) {
+        health.set_current(current);
+    }
 }
 
 fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageSource>) {
@@ -217,32 +270,47 @@ fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageS
     }
 }
 
-fn regenerate_health(time: Res<Time<Fixed>>, mut health_q: Query<&mut Health>) {
+fn regenerate_health(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut health_q: Query<(Entity, &mut Health, Option<&common::GameObjectKind>, Has<DeathHandled>)>,
+    registry: Res<crate::spawn::GameObjectRegistry>,
+) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
-    for mut health in &mut health_q {
-        health.regen_delay_remaining_secs = (health.regen_delay_remaining_secs - dt).max(0.0);
-        if health.is_dead() || health.current >= health.max || health.regen_per_sec <= 0.0 {
+    for (entity, mut health, kind, death_handled) in &mut health_q {
+        let should_despawn_on_death = kind
+            .cloned()
+            .is_none_or(|kind| registry.despawns_on_death(kind));
+        if health.is_dead() && should_despawn_on_death {
             continue;
         }
-        if health.regen_delay_remaining_secs > 0.0 {
-            continue;
+        let was_dead = health.is_dead();
+        health.regenerate(dt);
+        if death_handled && was_dead && !health.is_dead() {
+            commands.entity(entity).remove::<DeathHandled>();
         }
-        health.current = (health.current + health.regen_per_sec * dt).min(health.max);
     }
 }
 
-/// calls GameObject::on_death for objects that have been killed, and despawns if it returns true
+/// calls GameObject::on_death for objects that have been killed, then despawns if configured
 pub fn handle_deaths(world: &mut World) {
     let dead: Vec<(Entity, Option<common::GameObjectKind>)> = {
         let mut q = world
-            .query_filtered::<(Entity, &Health, Option<&common::GameObjectKind>), Changed<Health>>(
-            );
+            .query_filtered::<
+                (
+                    Entity,
+                    &Health,
+                    Option<&common::GameObjectKind>,
+                    Has<DeathHandled>,
+                ),
+                Changed<Health>,
+            >();
         q.iter(world)
-            .filter(|(_, health, _)| health.is_dead())
-            .map(|(entity, _, kind)| (entity, kind.cloned()))
+            .filter(|(_, health, _, death_handled)| health.is_dead() && !death_handled)
+            .map(|(entity, _, kind, _)| (entity, kind.cloned()))
             .collect()
     };
 
@@ -250,6 +318,8 @@ pub fn handle_deaths(world: &mut World) {
         if !world.entities().contains(entity) {
             continue;
         }
+
+        world.entity_mut(entity).insert(DeathHandled);
 
         let should_despawn = kind
             .clone()
