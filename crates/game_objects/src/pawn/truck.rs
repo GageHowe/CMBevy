@@ -95,9 +95,7 @@ impl GameObject for TruckPawnComponent {
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<TruckPawnComponent>(),
             CollisionFxMaterial::Sparks,
-            GameObjectKind::Truck,
             Transform::from(transform),
-            cmd.net_id.clone(),
         ));
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();

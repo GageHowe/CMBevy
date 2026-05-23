@@ -13,8 +13,6 @@ use super::{
     BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
     PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
     mount::{CharacterMount, Mounted, ray_hits_mount},
-    rocket_turret::RocketTurretPawnComponent,
-    vehicle::VehicleComponent,
 };
 use crate::{
     GameObjectKind,
@@ -549,12 +547,7 @@ struct InteractWorldParams<'w, 's> {
     possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Possessed>>,
     weapon_states: Query<'w, 's, &'static mut crate::weapon::WeaponState>,
     camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
-    mount_net_ids: Query<
-        'w,
-        's,
-        &'static net::message::NetworkID,
-        Or<(With<VehicleComponent>, With<RocketTurretPawnComponent>)>,
-    >,
+    mount_net_ids: Query<'w, 's, &'static net::message::NetworkID, With<CharacterMount>>,
     object_kinds: Query<'w, 's, &'static GameObjectKind>,
     pickup_fns: Query<'w, 's, &'static crate::pawn::biped_ability::OnPickup>,
     mounts: ParamSet<

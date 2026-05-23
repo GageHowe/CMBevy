@@ -166,7 +166,6 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             local_net_id.as_ref(),
             &mp.networked,
             &mut mp.biped_q.p2(),
-            &mut mp.rocket_turrets,
         ),
         MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => {
             game_objects::pawn::biped_ability::apply_pickup_message(

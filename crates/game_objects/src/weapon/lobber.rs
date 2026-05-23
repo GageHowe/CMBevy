@@ -85,7 +85,6 @@ impl GameObject for LobberComponent {
             entity,
             cmd,
             world,
-            GameObjectKind::Lobber,
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,

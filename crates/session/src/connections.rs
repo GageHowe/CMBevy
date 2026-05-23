@@ -13,6 +13,56 @@ use crate::{
     resources::*,
 };
 
+fn send_existing_spawnable(
+    conn_id: ConnectionId,
+    entity: Entity,
+    net_id: &NetworkID,
+    kind: &GameObjectKind,
+    rb: Option<&RigidBodyHandleComponent>,
+    child_of: Option<&ChildOf>,
+    transform: Option<&Transform>,
+    entity_net_ids: &Query<&NetworkID>,
+    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
+    quic: &mut QuicManager,
+    world: &PhysicsWorld,
+    tick: u64,
+) {
+    let Some(spawn_cmd) = (|| {
+        let (parent_net_id, position, starting_velocity, rotation) = if let Some(rb) = rb {
+            let body = world.rigid_body_set.get(rb.0)?;
+            (None, rb_pos(body), rb_vel(body), rb_rot(body))
+        } else {
+            let transform = transform?;
+            let parent_net_id =
+                child_of.and_then(|child_of| entity_net_ids.get(child_of.parent()).ok().cloned());
+            (parent_net_id, transform.translation, Vec3::ZERO, transform.rotation)
+        };
+        Some(game_objects::lifecycle::make_spawn_command(
+            net_id.clone(),
+            kind.clone(),
+            parent_net_id,
+            position,
+            starting_velocity,
+            Vec3::ZERO,
+            rotation,
+            tick,
+        ))
+    })() else {
+        return;
+    };
+    game_objects::lifecycle::send_spawn_command(
+        quic,
+        SendTarget::One(conn_id),
+        Channel::Ordered,
+        spawn_cmd,
+    );
+    if game_objects::weapon::is_weapon_kind(kind)
+        && let Ok((state, _)) = weapon_runtime.get_mut(entity)
+    {
+        game_objects::weapon::send_weapon_state(quic, SendTarget::One(conn_id), net_id, *state);
+    }
+}
+
 pub(super) fn handle_connected(
     conn_id: ConnectionId,
     quic: &mut QuicManager,
@@ -74,53 +124,31 @@ pub(super) fn handle_connected(
             if child_of.is_some() != child_pass {
                 continue;
             }
-            let (parent_net_id, position, starting_velocity, rotation) = if let Some(rb) = rb {
-                let Some(body) = world.rigid_body_set.get(rb.0) else {
-                    continue;
-                };
-                (None, rb_pos(body), rb_vel(body), rb_rot(body))
-            } else {
-                let Some(transform) = transform else {
-                    continue;
-                };
-                let parent_net_id = child_of.and_then(|child_of| {
-                    entity_net_ids.get(child_of.parent()).ok().cloned()
-                });
-                (parent_net_id, transform.translation, Vec3::ZERO, transform.rotation)
-            };
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &MsgType::SpawnCommand(SpawnCommand {
-                    net_id: net_id.clone(),
-                    parent_net_id,
-                    position,
-                    starting_velocity,
-                    shooter_velocity: Vec3::ZERO,
-                    rotation,
-                    server_tick: tick,
-                    kind: kind.clone(),
-                }),
+            send_existing_spawnable(
+                conn_id,
+                entity,
+                net_id,
+                kind,
+                rb,
+                child_of,
+                transform,
+                entity_net_ids,
+                weapon_runtime,
+                quic,
+                world,
+                tick,
             );
-            if game_objects::weapon::is_weapon_kind(kind)
-                && let Ok((state, _)) = weapon_runtime.get_mut(entity)
-            {
-                quic.send(
-                    SendTarget::One(conn_id),
-                    Channel::Ordered,
-                    &MsgType::WeaponState(net_id.clone(), *state),
-                );
-            }
         }
     }
     for (biped_net_id, mounted) in mounted_bipeds.iter() {
         let Ok(parent_net_id) = entity_net_ids.get(mounted.0) else {
             continue;
         };
-        quic.send(
+        game_objects::pawn::send_mount_state(
+            quic,
             SendTarget::One(conn_id),
-            Channel::Ordered,
-            &MsgType::MountState(biped_net_id.clone(), Some(parent_net_id.clone())),
+            biped_net_id,
+            Some(parent_net_id),
         );
     }
     spawn_player(

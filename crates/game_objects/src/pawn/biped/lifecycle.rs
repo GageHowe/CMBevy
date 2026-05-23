@@ -42,10 +42,8 @@ impl GameObject for BipedPawnComponent {
                 BIPED_HEALTH_REGEN_DELAY_SECS,
             ),
             LastDamageSource::default(),
-            GameObjectKind::Biped,
             Transform::from(transform),
             BipedPawnComponent::default(),
-            cmd.net_id.clone(),
         ));
 
         let (rb_handle, collider_handle) = {

@@ -86,7 +86,6 @@ impl GameObject for RifleComponent {
             entity,
             cmd,
             world,
-            GameObjectKind::Rifle,
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,

@@ -83,6 +83,11 @@ impl HealthPool {
     pub fn set_current(&mut self, current: f32) {
         self.current = current.clamp(0.0, self.max);
     }
+
+    pub fn restore_full(&mut self) {
+        self.current = self.max;
+        self.regen_delay_remaining_secs = 0.0;
+    }
 }
 
 #[derive(Component, Clone, Copy)]
@@ -162,6 +167,10 @@ impl Health {
 
     pub fn is_dead(&self) -> bool {
         self.0.is_depleted()
+    }
+
+    pub fn restore_full(&mut self) {
+        self.0.restore_full();
     }
 }
 
@@ -323,7 +332,7 @@ pub fn handle_deaths(world: &mut World) {
 
         let should_despawn = kind
             .clone()
-            .is_none_or(|kind| run_death_callback(kind, entity, world));
+            .is_none_or(|kind| dispatch_entity_death(kind, entity, world));
         if !should_despawn || !world.entities().contains(entity) {
             continue;
         }
@@ -347,7 +356,11 @@ fn flush_pending_death_despawns(world: &mut World) {
     }
 }
 
-fn run_death_callback(kind: common::GameObjectKind, entity: Entity, world: &mut World) -> bool {
+pub fn dispatch_entity_death(
+    kind: common::GameObjectKind,
+    entity: Entity,
+    world: &mut World,
+) -> bool {
     dispatch_game_object_on_death(kind, entity, world)
 }
 

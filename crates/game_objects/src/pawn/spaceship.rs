@@ -116,9 +116,7 @@ impl GameObject for SpaceshipPawnComponent {
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
             CollisionFxMaterial::Sparks,
             AimReticle("textures/crosshairs/crosshair001.png", None),
-            GameObjectKind::Spaceship,
             Transform::from(transform),
-            cmd.net_id.clone(),
         ));
         attach_hull_collider(
             entity,

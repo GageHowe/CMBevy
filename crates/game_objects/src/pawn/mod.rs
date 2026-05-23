@@ -5,7 +5,6 @@ mod camera_effects;
 pub mod fighter;
 pub mod hovercraft;
 pub mod mount;
-pub mod rocket_turret;
 pub mod spaceship;
 pub mod truck;
 pub mod vehicle;
@@ -21,7 +20,7 @@ pub use camera_effects::{CameraEffector, CameraShake};
 use common::GameObjectKind;
 #[cfg(feature = "client")]
 use common::PredictedCommands;
-pub use common::{BipedInput, PawnInputKind, RocketTurretInput, SpaceshipInput, TruckInput};
+pub use common::{BipedInput, PawnInputKind, SpaceshipInput, TruckInput};
 pub use fighter::FighterPawnComponent;
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
@@ -30,7 +29,6 @@ use net::{
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
-pub use rocket_turret::RocketTurretPawnComponent;
 pub use spaceship::SpaceshipPawnComponent;
 pub use truck::TruckPawnComponent;
 pub use vehicle::VehicleComponent;
@@ -141,6 +139,10 @@ pub fn possess_pawn(
     quic: &mut QuicManager,
 ) {
     registry.set_controlled_pawn(conn_id, entity, net_id.clone());
+    send_possess(quic, conn_id, net_id);
+}
+
+pub fn send_possess(quic: &mut QuicManager, conn_id: ConnectionId, net_id: &NetworkID) {
     quic.send(
         SendTarget::One(conn_id),
         Channel::Ordered,
@@ -148,14 +150,14 @@ pub fn possess_pawn(
     );
 }
 
-/// Broadcasts whether a character is mounted to a controllable parent.
-pub fn broadcast_mount_state(
+pub fn send_mount_state(
     quic: &mut QuicManager,
+    target: SendTarget,
     biped_net_id: &NetworkID,
     parent_net_id: Option<&NetworkID>,
 ) {
     quic.send(
-        SendTarget::All,
+        target,
         Channel::Ordered,
         &net::message::MsgType::MountState(biped_net_id.clone(), parent_net_id.cloned()),
     );
@@ -165,7 +167,6 @@ pub fn broadcast_mount_state(
 pub fn broadcast_dirty_look_updates(
     quic: &mut QuicManager,
     biped_looks: &mut Query<(&NetworkID, &mut biped::BipedPawnComponent)>,
-    rocket_turret_looks: &mut Query<(&NetworkID, &mut rocket_turret::RocketTurretPawnComponent)>,
 ) {
     for (net_id, mut biped) in biped_looks.iter_mut() {
         if !biped.look_sync_dirty {
@@ -176,17 +177,6 @@ pub fn broadcast_dirty_look_updates(
             SendTarget::All,
             Channel::Unreliable,
             &MsgType::PawnLook(net_id.clone(), biped.look_yaw, biped.look_pitch),
-        );
-    }
-    for (net_id, mut turret) in rocket_turret_looks.iter_mut() {
-        if !turret.look_sync_dirty {
-            continue;
-        }
-        turret.look_sync_dirty = false;
-        quic.send(
-            SendTarget::All,
-            Channel::Unreliable,
-            &MsgType::PawnLook(net_id.clone(), turret.yaw, turret.pitch),
         );
     }
 }
@@ -200,7 +190,6 @@ pub fn apply_remote_pawn_look(
     local_net_id: Option<&NetworkID>,
     networked: &crate::NetworkEntityMap,
     bipeds: &mut Query<&mut biped::BipedPawnComponent>,
-    rocket_turrets: &mut Query<&mut rocket_turret::RocketTurretPawnComponent>,
 ) {
     if local_net_id == Some(net_id) {
         return;
@@ -208,13 +197,11 @@ pub fn apply_remote_pawn_look(
     let Some(entity) = networked.get(net_id) else {
         return;
     };
-    if let Ok(mut biped) = bipeds.get_mut(entity) {
-        biped.look_yaw = yaw;
-        biped.look_pitch = pitch;
-    } else if let Ok(mut turret) = rocket_turrets.get_mut(entity) {
-        turret.yaw = yaw;
-        turret.pitch = pitch;
-    }
+    let Ok(mut biped) = bipeds.get_mut(entity) else {
+        return;
+    };
+    biped.look_yaw = yaw;
+    biped.look_pitch = pitch;
 }
 
 #[cfg(feature = "client")]
@@ -269,7 +256,6 @@ impl Plugin for PawnPlugin {
         app.add_plugins(fighter::FighterPlugin);
         app.add_plugins(hovercraft::HovercraftPlugin);
         app.add_plugins(mount::MountPlugin);
-        app.add_plugins(rocket_turret::RocketTurretPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(truck::TruckPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
@@ -333,7 +319,6 @@ pub struct PawnInputParams<'w, 's> {
     spaceships: Query<'w, 's, &'static mut spaceship::SpaceshipPawnComponent>,
     trucks: Query<'w, 's, &'static mut truck::TruckPawnComponent>,
     hovercrafts: Query<'w, 's, &'static mut hovercraft::HovercraftPawnComponent>,
-    rocket_turrets: Query<'w, 's, &'static mut rocket_turret::RocketTurretPawnComponent>,
 }
 
 impl<'w, 's> PawnInputParams<'w, 's> {
@@ -389,13 +374,6 @@ impl<'w, 's> PawnInputParams<'w, 's> {
                 } else {
                     return (false, None);
                 }
-                (true, None)
-            }
-            PawnInputKind::RocketTurret(input) => {
-                let Ok(mut turret) = self.rocket_turrets.get_mut(entity) else {
-                    return (false, None);
-                };
-                rocket_turret::apply_rocket_turret_input(&mut turret, input);
                 (true, None)
             }
         }

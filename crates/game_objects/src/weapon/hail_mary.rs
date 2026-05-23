@@ -110,7 +110,6 @@ impl GameObject for HailMaryComponent {
             entity,
             cmd,
             world,
-            GameObjectKind::HailMary,
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,

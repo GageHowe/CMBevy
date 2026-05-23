@@ -10,6 +10,7 @@ use super::{FiredProjectile, Projectile, ProjectileState, helpers, tick_projecti
 use crate::{
     GameObject,
     health::{Health, LastDamageSource},
+    lifecycle::make_spawn_command,
     shield::Shield,
     spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
 };
@@ -133,16 +134,16 @@ impl Projectile for FailsafeProjectile {
         commands.entity(entity).insert(net_id.clone());
         Some(FiredProjectile {
             net_id: net_id.clone(),
-            spawn_cmd: SpawnCommand {
+            spawn_cmd: make_spawn_command(
                 net_id,
-                parent_net_id: None,
-                position: origin,
-                starting_velocity: velocity,
+                <Self as Projectile>::KIND,
+                None,
+                origin,
+                velocity,
                 shooter_velocity,
-                rotation: Quat::IDENTITY,
-                server_tick: tick,
-                kind: <Self as Projectile>::KIND,
-            },
+                Quat::IDENTITY,
+                tick,
+            ),
         })
     }
 
@@ -265,14 +266,12 @@ impl GameObject for FailsafeProjectile {
 
     fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         world.entity_mut(entity).insert((
-            cmd.kind.clone(),
             FailsafeProjectile::default(),
             ProjectileState {
                 temp_id: 0,
                 shooter_velocity: cmd.shooter_velocity,
             },
             Transform::from_translation(cmd.position),
-            cmd.net_id.clone(),
             GravityScale(GRAVITY_SCALE),
         ));
         let handle = {

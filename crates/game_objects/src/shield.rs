@@ -17,7 +17,9 @@ use rapier3d::prelude::{
 
 use crate::{
     GameObject,
+    find_entity_by_net_id,
     health::Health,
+    lifecycle::make_spawn_command,
     spawn::AppGameObjectExt,
 };
 
@@ -251,10 +253,7 @@ impl GameObject for SpaceshipShieldComponent {
         let Some(parent_net_id) = cmd.parent_net_id.as_ref() else {
             return;
         };
-        let parent = world
-            .query::<(Entity, &NetworkID)>()
-            .iter(world)
-            .find_map(|(entity, net_id)| (net_id == parent_net_id).then_some(entity));
+        let parent = find_entity_by_net_id(world, parent_net_id);
         let Some(parent) = parent else {
             return;
         };
@@ -297,7 +296,6 @@ impl GameObject for SpaceshipShieldComponent {
             ),
             shield,
             Transform::default(),
-            cmd.net_id.clone(),
         ));
     }
 }
@@ -325,16 +323,16 @@ pub fn spawn_attached_spaceship_shield(
     let tick = world.get_resource::<Ticker>().map_or(0, |ticker| ticker.tick);
     let net_id = NetworkID(world.get_resource_mut::<NetworkIDResource>()?.next());
     let entity = world.spawn_empty().id();
-    let cmd = net::message::SpawnCommand {
-        net_id: net_id.clone(),
-        parent_net_id: Some(parent_net_id.clone()),
-        position: Vec3::ZERO,
-        starting_velocity: Vec3::ZERO,
-        shooter_velocity: Vec3::ZERO,
-        rotation: Quat::IDENTITY,
-        server_tick: tick,
-        kind: GameObjectKind::SpaceshipShield,
-    };
+    let cmd = make_spawn_command(
+        net_id.clone(),
+        GameObjectKind::SpaceshipShield,
+        Some(parent_net_id.clone()),
+        Vec3::ZERO,
+        Vec3::ZERO,
+        Vec3::ZERO,
+        Quat::IDENTITY,
+        tick,
+    );
     crate::SpawnGameObjectCommand {
         entity,
         cmd: cmd.clone(),
@@ -342,10 +340,11 @@ pub fn spawn_attached_spaceship_shield(
     .apply(world);
     #[cfg(not(feature = "client"))]
     if let Some(mut quic) = world.get_resource_mut::<net::quic::QuicManager>() {
-        quic.send(
+        crate::lifecycle::send_spawn_command(
+            &mut quic,
             net::quic::SendTarget::All,
             net::quic::Channel::Ordered,
-            &net::message::MsgType::SpawnCommand(cmd),
+            cmd,
         );
     }
     Some(entity)

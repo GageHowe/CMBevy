@@ -192,7 +192,6 @@ impl GameObject for BeamerComponent {
             entity,
             cmd,
             world,
-            GameObjectKind::Beamer,
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
@@ -427,11 +426,7 @@ pub fn handle_beam_hit_report(
     if weapon_state.ammo_in_mag == 0 {
         beamer.phase = BeamPhase::Idle;
         super::start_reload(&mut weapon_state, weapon_config);
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &net::message::MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
-        );
+        super::send_weapon_state(quic, SendTarget::All, &weapon_net_id, *weapon_state);
         quic.send(
             SendTarget::AllExcept(conn_id),
             Channel::Ordered,
@@ -465,11 +460,7 @@ pub fn handle_beam_hit_report(
         }
     }
 
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &net::message::MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
-    );
+    super::send_weapon_state(quic, SendTarget::All, &weapon_net_id, *weapon_state);
     quic.send(
         SendTarget::AllExcept(conn_id),
         Channel::Unordered,
@@ -515,11 +506,7 @@ pub fn handle_end_beam_request(
     beamer.beam_dir = Vec3::ZERO;
     if let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
         weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &net::message::MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
-        );
+        super::send_weapon_state(quic, SendTarget::All, &weapon_net_id, *weapon_state);
     }
     quic.send(
         SendTarget::AllExcept(conn_id),
@@ -546,11 +533,7 @@ pub fn interrupt_server_beam(
     beamer.beam_dir = Vec3::ZERO;
     if let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
         weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &net::message::MsgType::WeaponState(weapon_net_id.clone(), *weapon_state),
-        );
+        super::send_weapon_state(quic, SendTarget::All, &weapon_net_id, *weapon_state);
     }
     quic.send(
         SendTarget::All,

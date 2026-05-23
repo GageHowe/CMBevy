@@ -1,7 +1,17 @@
 # AGENTS.md
 
-This file is for getting a fresh Codex/Claude/OpenCode instance productive quickly and keeping it aligned with the intended architecture.
+This file is for getting a fresh LLM instance productive quickly and keeping it aligned with the intended architecture.
 
+## hard requirements
+* Never use Local unless for data we'll definitely want to keep in between games.
+* If you don't understand something I ask, look it up or clarify.
+* No special-case systems. We're trying to minimize Update overhead.
+* Linear damping is banned.
+* Use #[cfg(feature = client)] and GameState to gate functionality. Keep all rendering out of the headless gameserver.
+* Refactoring changes should reduce the total LOC size of the codebase, not increase it, with very few exceptions.
+* Do not create wrappers if they don't justify the indirection.
+
+## rules
 * Read as many files as you need to understand the codebase.
 * If code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing/removing it. DO NOT delete todos.
 * Use minimal words/tokens.
@@ -24,9 +34,6 @@ This file is for getting a fresh Codex/Claude/OpenCode instance productive quick
 * We need both single-player and multiplayer to work without fuss.
 * If a cleanup makes a generic subsystem smaller and pushes object-specific behavior back to the object implementation, that is usually a good cleanup.
 
-## codebase requirements
-* 
-
 ## efficiency
 * Drop pleasantries, filler, hedging, niceties, repetition, and "if you want,..."
 
@@ -36,10 +43,3 @@ This file is for getting a fresh Codex/Claude/OpenCode instance productive quick
 - Keep responsibilities local.
 - Avoid cleverness.
 - Avoid new types unless they earn their cost.
-
-## hard requirements
-* Never use Local unless for data we'll definitely want to keep in between games.
-* If you don't understand something I ask, look it up or clarify.
-* No special-case systems. We're trying to minimize Update overhead.
-* Linear damping is BANNED.
-* Use #[cfg(feature = client)] and GameState to gate functionality. Keep all rendering out of the headless gameserver.

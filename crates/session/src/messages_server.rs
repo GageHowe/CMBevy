@@ -111,7 +111,6 @@ fn process_server_message(
                 &mut sp.pawn_slots,
                 &sp.net_ids,
                 &sp.vehicles,
-                &sp.rocket_turrets,
                 &sp.interactables,
                 &mut sp.mounts,
                 &sp.mount_anchor_transforms,

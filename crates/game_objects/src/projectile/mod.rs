@@ -6,6 +6,7 @@ use physics::physics_world::*;
 use crate::{
     AuthoritySystems, GameObject,
     health::{DamageCause, Health, LastDamageSource},
+    lifecycle::make_spawn_command,
     shield::Shield,
     spawn::CenterOfMassSplashDamage,
 };
@@ -109,16 +110,16 @@ pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + Ga
         commands.entity(entity).insert(net_id.clone());
         Some(FiredProjectile {
             net_id: net_id.clone(),
-            spawn_cmd: SpawnCommand {
+            spawn_cmd: make_spawn_command(
                 net_id,
-                parent_net_id: None,
-                position: origin,
+                <Self as Projectile>::KIND,
+                None,
+                origin,
                 starting_velocity,
                 shooter_velocity,
-                rotation: Quat::IDENTITY,
-                server_tick: tick,
-                kind: <Self as Projectile>::KIND,
-            },
+                Quat::IDENTITY,
+                tick,
+            ),
         })
     }
 

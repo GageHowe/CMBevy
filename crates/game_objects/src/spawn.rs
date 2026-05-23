@@ -110,6 +110,18 @@ pub fn dispatch_game_object_on_death(
     registration.despawn_on_death
 }
 
+pub fn find_entity_by_net_id(world: &mut World, net_id: &net::message::NetworkID) -> Option<Entity> {
+    if let Some(networked) = world.get_resource::<crate::NetworkEntityMap>()
+        && let Some(entity) = networked.get_entity(net_id)
+    {
+        return Some(entity);
+    }
+    world
+        .query::<(Entity, &net::message::NetworkID)>()
+        .iter(world)
+        .find_map(|(entity, entity_net_id)| (entity_net_id == net_id).then_some(entity))
+}
+
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.
 /// Queue via `commands.queue(SpawnGameObjectCommand { entity, cmd })`.
 pub struct SpawnGameObjectCommand {
@@ -130,11 +142,7 @@ impl Command for SpawnGameObjectCommand {
         };
         (registration.spawn)(self.entity, &self.cmd, world);
         if let Some(parent_net_id) = &self.cmd.parent_net_id {
-            let parent = world
-                .query::<(Entity, &net::message::NetworkID)>()
-                .iter(world)
-                .find_map(|(entity, net_id)| (net_id == parent_net_id).then_some(entity));
-            if let Some(parent) = parent {
+            if let Some(parent) = find_entity_by_net_id(world, parent_net_id) {
                 world.entity_mut(parent).add_child(self.entity);
             }
         }

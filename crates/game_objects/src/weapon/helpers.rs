@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use common::{GameObjectKind, NetworkID};
+#[cfg(feature = "client")]
+use common::GameObjectKind;
+use common::NetworkID;
 use physics::physics_world::*;
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
@@ -164,7 +166,6 @@ pub fn insert_generic_weapon(
     entity: Entity,
     cmd: &net::message::SpawnCommand,
     world: &mut World,
-    kind: GameObjectKind,
     _model_path: &'static str,
     crosshair_path: &'static str,
     prediction_projectile_speed: Option<f32>,
@@ -173,14 +174,12 @@ pub fn insert_generic_weapon(
     world.entity_mut(entity).insert((
         WeaponComponent,
         AimReticle(crosshair_path, prediction_projectile_speed),
-        kind,
         crate::interaction::Interactable { range: 2.0 },
         Transform {
             translation: cmd.position,
             rotation: cmd.rotation,
             scale: Vec3::ONE,
         },
-        cmd.net_id.clone(),
         weapon,
     ));
     #[cfg(feature = "client")]

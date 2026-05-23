@@ -1,10 +1,7 @@
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
-use net::{
-    message::{MsgType, NetworkID},
-    quic::{Channel, QuicManager, SendTarget},
-};
+use net::{message::NetworkID, quic::{QuicManager, SendTarget}};
 
 #[cfg(feature = "client")]
 use super::*;
@@ -69,8 +66,6 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
     let Some(biped_entity) = mount::handle_mount_parent_death(vehicle_entity, world) else {
         return;
     };
-
-    world.entity_mut(biped_entity).remove::<mount::Mounted>();
     crate::health::copy_last_damage_source(world, vehicle_entity, biped_entity);
 
     #[cfg(feature = "client")]
@@ -80,65 +75,13 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
         .get_resource::<PlayerRegistry>()
         .and_then(|registry| registry.conn_id_for_character(biped_entity));
     if let (Some(conn_id), Some(biped_net_id)) = (conn_id, biped_net_id) {
-        if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
-            registry.set_controlled_pawn(conn_id, biped_entity, biped_net_id.clone());
-        }
-        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &MsgType::Possess(biped_net_id.clone()),
-            );
-            super::broadcast_mount_state(&mut quic, &biped_net_id, None);
-        }
-    }
-}
-
-pub fn handle_server_interact(
-    conn_id: net::quic::ConnectionId,
-    controlled: Entity,
-    character: Entity,
-    character_net_id: &NetworkID,
-    target: Entity,
-    target_net_id: &NetworkID,
-    registry: &mut PlayerRegistry,
-    quic: &mut QuicManager,
-    world: &mut physics::physics_world::PhysicsWorld,
-    net_ids: &Query<&NetworkID>,
-    vehicles: &Query<&VehicleComponent>,
-    mounts: &mut Query<&mut mount::CharacterMount>,
-    anchor_transforms: &Query<&Transform>,
-    commands: &mut Commands,
-) {
-    if !vehicles.contains(target) {
-        return;
-    }
-    let Ok(mut driver_mount) = mounts.get_mut(target) else {
-        return;
-    };
-
-    match mount::handle_mount_interact(
-        controlled,
-        character,
-        target,
-        world,
-        &mut driver_mount,
-        anchor_transforms,
-    ) {
-        Some(mount::MountInteractResult::Unmounted(biped_entity)) => {
-            let Ok(biped_net_id) = net_ids.get(biped_entity) else {
+        world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
+            let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
                 return;
             };
-            commands.entity(biped_entity).remove::<mount::Mounted>();
-            super::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
-            super::broadcast_mount_state(quic, biped_net_id, None);
-        }
-        Some(mount::MountInteractResult::Mounted) => {
-            commands.entity(character).insert(mount::Mounted(target));
-            super::possess_pawn(conn_id, target, target_net_id, registry, quic);
-            super::broadcast_mount_state(quic, character_net_id, Some(target_net_id));
-        }
-        None => {}
+            super::possess_pawn(conn_id, biped_entity, &biped_net_id, &mut registry, &mut quic);
+            super::send_mount_state(&mut quic, SendTarget::All, &biped_net_id, None);
+        });
     }
 }
 

@@ -106,9 +106,7 @@ impl GameObject for HovercraftPawnComponent {
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<HovercraftPawnComponent>(),
             CollisionFxMaterial::Sparks,
-            GameObjectKind::Hovercraft,
             Transform::from(transform),
-            cmd.net_id.clone(),
         ));
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();

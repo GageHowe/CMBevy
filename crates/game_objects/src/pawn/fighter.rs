@@ -112,9 +112,7 @@ impl GameObject for FighterPawnComponent {
                 "textures/crosshairs/crosshair001.png",
                 Some(crate::projectile::fighter_rocket::SPEED),
             ),
-            GameObjectKind::Fighter,
             Transform::from(transform),
-            cmd.net_id.clone(),
         ));
         let rb_handle = {
             let mut physics = world.resource_mut::<PhysicsWorld>();
@@ -329,10 +327,11 @@ fn fire_fighters(
             continue;
         };
         if let Some(quic) = quic.as_deref_mut() {
-            quic.send(
+            crate::lifecycle::send_spawn_command(
+                quic,
                 net::quic::SendTarget::All,
                 net::quic::Channel::Unordered,
-                &net::message::MsgType::SpawnCommand(fired.spawn_cmd),
+                fired.spawn_cmd,
             );
         }
     }

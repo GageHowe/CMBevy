@@ -576,10 +576,11 @@ fn tick_spawners(
         #[cfg(not(feature = "client"))]
         {
             if let Some(quic) = quic.as_mut() {
-                quic.send(
+                crate::lifecycle::send_spawn_command(
+                    quic,
                     net::quic::SendTarget::All,
                     net::quic::Channel::Ordered,
-                    &net::message::MsgType::SpawnCommand(spawn_cmd),
+                    spawn_cmd,
                 );
             }
         }

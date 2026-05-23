@@ -131,7 +131,6 @@ impl GameObject for FailsafeComponent {
             entity,
             cmd,
             world,
-            GameObjectKind::Failsafe,
             <Self as Weapon>::MODEL_PATH,
             <Self as Weapon>::CROSSHAIR_PATH,
             <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,

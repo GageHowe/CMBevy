@@ -1,9 +1,6 @@
 use bevy::prelude::*;
 use game_objects::{
-    pawn::{
-        HeldWeaponMap, PawnInputKind, PlayerRegistry, WeaponSlots, biped_ability::OnPickup,
-        vehicle::*,
-    },
+    pawn::{biped_ability::OnPickup, *},
     weapon::{WeaponConfig, WeaponState},
     *,
 };
@@ -95,7 +92,6 @@ pub(super) fn handle_interact(
     pawn_slots: &mut Query<&mut WeaponSlots>,
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
-    rocket_turrets: &Query<&game_objects::pawn::RocketTurretPawnComponent>,
     interactables: &Query<&game_objects::interaction::Interactable>,
     mounts: &mut Query<&mut game_objects::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
@@ -119,27 +115,7 @@ pub(super) fn handle_interact(
         .and_then(|input| game_objects::pawn::aim_dir(world, character, Some(input)))
         .unwrap_or_else(|| body_forward(world, character));
 
-    if vehicles.contains(target) {
-        game_objects::pawn::vehicle::handle_server_interact(
-            conn_id,
-            controlled,
-            character,
-            &character_net_id,
-            target,
-            &target_net_id,
-            registry,
-            quic,
-            world,
-            net_ids,
-            vehicles,
-            mounts,
-            mount_anchor_transforms,
-            commands,
-        );
-        return;
-    }
-
-    if rocket_turrets.contains(target) {
+    if vehicles.contains(target) || mounts.contains(target) {
         game_objects::pawn::mount::handle_server_interact(
             conn_id,
             controlled,

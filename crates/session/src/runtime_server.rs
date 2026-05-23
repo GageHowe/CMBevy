@@ -413,10 +413,11 @@ fn process_console_commands(
                             game_objects::bot::HeuristicKillerBot,
                         ),
                     ));
-                    quic.send(
+                    game_objects::lifecycle::send_spawn_command(
+                        &mut quic,
                         SendTarget::All,
                         Channel::Ordered,
-                        &MsgType::SpawnCommand(spawn_cmd),
+                        spawn_cmd,
                     );
                 }
                 println!("spawned bot on team {}", team + 1);
@@ -541,19 +542,16 @@ fn reset_existing_player(
 ) {
     if let Some(mounted) = world.get::<Mounted>(character_entity).copied() {
         let _ = game_objects::pawn::mount::handle_mount_parent_death(mounted.0, world);
-        world.entity_mut(character_entity).remove::<Mounted>();
-        game_objects::pawn::broadcast_mount_state(
+        game_objects::pawn::send_mount_state(
             &mut world.resource_mut::<QuicManager>(),
+            SendTarget::All,
             &character_net_id,
             None,
         );
     }
 
     if let Some(mut health) = world.get_mut::<Health>(character_entity) {
-        health.current = health.max;
-    }
-    if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
-        registry.set_controlled_pawn(conn_id, character_entity, character_net_id.clone());
+        health.restore_full();
     }
     world.entity_mut(character_entity).insert(team);
     world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
@@ -566,11 +564,18 @@ fn reset_existing_player(
             Vec3::ZERO,
         );
     });
-    world.resource_mut::<QuicManager>().send(
-        SendTarget::One(conn_id),
-        Channel::Ordered,
-        &MsgType::Possess(character_net_id),
-    );
+    world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
+        let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
+            return;
+        };
+        game_objects::pawn::possess_pawn(
+            conn_id,
+            character_entity,
+            &character_net_id,
+            &mut registry,
+            &mut quic,
+        );
+    });
 }
 
 fn spawn_restarted_player(
@@ -588,16 +593,16 @@ fn spawn_restarted_player(
         };
         NetworkID(net_ids.next())
     };
-    let spawn_cmd = SpawnCommand {
-        net_id: net_id.clone(),
-        parent_net_id: None,
-        position: spawn_pos,
-        starting_velocity: spawn_vel,
-        shooter_velocity: Vec3::ZERO,
-        rotation: spawn_rot,
-        server_tick: tick,
-        kind: GameObjectKind::Biped,
-    };
+    let spawn_cmd = game_objects::lifecycle::make_spawn_command(
+        net_id.clone(),
+        GameObjectKind::Biped,
+        None,
+        spawn_pos,
+        spawn_vel,
+        Vec3::ZERO,
+        spawn_rot,
+        tick,
+    );
     let entity = world.spawn_empty().id();
     SpawnGameObjectCommand {
         entity,
@@ -612,28 +617,27 @@ fn spawn_restarted_player(
         .unwrap_or_default();
     if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
         for other_conn_id in existing_conn_ids {
-            quic.send(
+            game_objects::lifecycle::send_spawn_command(
+                &mut quic,
                 SendTarget::One(other_conn_id),
                 Channel::Ordered,
-                &MsgType::SpawnCommand(spawn_cmd.clone()),
+                spawn_cmd.clone(),
             );
         }
-        quic.send(
+        game_objects::lifecycle::send_spawn_command(
+            &mut quic,
             SendTarget::One(conn_id),
             Channel::Ordered,
-            &MsgType::SpawnCommand(spawn_cmd),
+            spawn_cmd,
         );
     }
-    if let Some(mut registry) = world.get_resource_mut::<PlayerRegistry>() {
+    world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
+        let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
+            return;
+        };
         registry.register_character(conn_id, entity, net_id.clone());
-        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &MsgType::Possess(net_id),
-            );
-        }
-    }
+        game_objects::pawn::send_possess(&mut quic, conn_id, &net_id);
+    });
 }
 
 fn apply_inputs(

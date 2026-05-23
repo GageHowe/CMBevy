@@ -6,9 +6,31 @@ use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, 
 #[cfg(feature = "client")]
 use crate::NetworkEntityMap;
 use crate::{
-    SpawnGameObjectCommand, dispatch_game_object_on_death,
+    SpawnGameObjectCommand,
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
 };
+
+pub fn make_spawn_command(
+    net_id: NetworkID,
+    kind: GameObjectKind,
+    parent_net_id: Option<NetworkID>,
+    position: Vec3,
+    starting_velocity: Vec3,
+    shooter_velocity: Vec3,
+    rotation: Quat,
+    server_tick: u64,
+) -> SpawnCommand {
+    SpawnCommand {
+        net_id,
+        parent_net_id,
+        position,
+        starting_velocity,
+        shooter_velocity,
+        rotation,
+        server_tick,
+        kind,
+    }
+}
 
 pub fn spawn_game_object(
     kind: GameObjectKind,
@@ -20,16 +42,16 @@ pub fn spawn_game_object(
     net_ids: &mut NetworkIDResource,
 ) -> (Entity, NetworkID, SpawnCommand) {
     let net_id = NetworkID(net_ids.next());
-    let cmd = SpawnCommand {
-        net_id: net_id.clone(),
-        parent_net_id: None,
+    let cmd = make_spawn_command(
+        net_id.clone(),
+        kind,
+        None,
         position,
         starting_velocity,
-        shooter_velocity: Vec3::ZERO,
+        Vec3::ZERO,
         rotation,
         server_tick,
-        kind,
-    };
+    );
     let entity = commands.spawn_empty().id();
     queue_spawn_command_on(entity, cmd.clone(), commands);
     (entity, net_id, cmd)
@@ -45,6 +67,27 @@ pub fn queue_spawn_command(cmd: SpawnCommand, commands: &mut Commands) -> (Entit
 
 pub fn queue_spawn_command_on(entity: Entity, cmd: SpawnCommand, commands: &mut Commands) {
     commands.queue(SpawnGameObjectCommand { entity, cmd });
+}
+
+pub fn send_spawn_command(
+    quic: &mut net::quic::QuicManager,
+    target: net::quic::SendTarget,
+    channel: net::quic::Channel,
+    cmd: SpawnCommand,
+) {
+    quic.send(target, channel, &net::message::MsgType::SpawnCommand(cmd));
+}
+
+pub fn send_despawn_command(
+    quic: &mut net::quic::QuicManager,
+    target: net::quic::SendTarget,
+    net_id: NetworkID,
+) {
+    quic.send(
+        target,
+        net::quic::Channel::Ordered,
+        &net::message::MsgType::DespawnCommand(net_id),
+    );
 }
 
 #[cfg(feature = "client")]
@@ -95,6 +138,23 @@ pub fn apply_possess(
     commands
         .entity(entity)
         .insert(crate::pawn::Possessed::new(128));
+}
+
+#[cfg(feature = "client")]
+fn despawn_networked_entity(entity: Entity, world: &mut World) {
+    if !world.entities().contains(entity) {
+        return;
+    }
+    if let Some(kind) = world.get::<GameObjectKind>(entity).cloned()
+        && world
+            .get::<crate::health::Health>(entity)
+            .is_some_and(crate::health::Health::is_dead)
+    {
+        crate::health::dispatch_entity_death(kind, entity, world);
+    }
+    if world.entities().contains(entity) {
+        world.entity_mut(entity).despawn();
+    }
 }
 
 #[cfg(feature = "client")]
@@ -156,21 +216,7 @@ pub fn apply_despawn(
             });
         }
     }
-    commands.queue(move |world: &mut World| {
-        if !world.entities().contains(entity) {
-            return;
-        }
-        if let Some(kind) = world.get::<GameObjectKind>(entity).cloned()
-            && world
-                .get::<crate::health::Health>(entity)
-                .is_some_and(crate::health::Health::is_dead)
-        {
-            dispatch_game_object_on_death(kind, entity, world);
-        }
-        if world.entities().contains(entity) {
-            world.entity_mut(entity).despawn();
-        }
-    });
+    commands.queue(move |world: &mut World| despawn_networked_entity(entity, world));
 }
 
 pub fn pick_spawn_point(

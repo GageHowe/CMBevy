@@ -32,19 +32,21 @@ pub(super) fn spawn_player(
     commands.entity(entity).insert(team);
 
     for other_conn_id in registry.controlled_conn_ids() {
-        quic.send(
+        game_objects::lifecycle::send_spawn_command(
+            quic,
             SendTarget::One(other_conn_id),
             Channel::Ordered,
-            &MsgType::SpawnCommand(spawn_cmd.clone()),
+            spawn_cmd.clone(),
         );
     }
-    quic.send(
+    game_objects::lifecycle::send_spawn_command(
+        quic,
         SendTarget::One(conn_id),
         Channel::Ordered,
-        &MsgType::SpawnCommand(spawn_cmd),
+        spawn_cmd,
     );
-    game_objects::pawn::possess_pawn(conn_id, entity, &net_id, registry, quic);
-    registry.register_character(conn_id, entity, net_id);
+    registry.register_character(conn_id, entity, net_id.clone());
+    game_objects::pawn::send_possess(quic, conn_id, &net_id);
     eprintln!("GameServer: spawned {kind_debug} for conn {conn_id}");
 }
 
@@ -114,10 +116,6 @@ pub fn broadcast_tick(
         &NetworkID,
         &mut game_objects::pawn::biped::BipedPawnComponent,
     )>,
-    mut rocket_turret_looks: Query<(
-        &NetworkID,
-        &mut game_objects::pawn::RocketTurretPawnComponent,
-    )>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,
@@ -134,11 +132,7 @@ pub fn broadcast_tick(
             &MsgType::State(state_for_client),
         );
     }
-    game_objects::pawn::broadcast_dirty_look_updates(
-        &mut quic,
-        &mut biped_looks,
-        &mut rocket_turret_looks,
-    );
+    game_objects::pawn::broadcast_dirty_look_updates(&mut quic, &mut biped_looks);
 }
 
 /// Broadcasts a compact scoreboard snapshot at a lower frequency than the main physics tick.

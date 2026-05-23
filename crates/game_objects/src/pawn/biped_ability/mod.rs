@@ -9,7 +9,7 @@ use net::message::NetworkID;
 use net::quic::{Channel, QuicManager};
 #[cfg(not(feature = "client"))]
 use net::{
-    message::{NetworkID, SpawnCommand},
+    message::NetworkID,
     quic::{Channel, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
@@ -19,6 +19,8 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 use crate::SpawnGameObjectCommand;
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
+#[cfg(not(feature = "client"))]
+use crate::lifecycle::make_spawn_command;
 use crate::{GameObjectKind, pawn::biped::BipedPawnComponent, spawn::AppGameObjectExt};
 pub mod fx;
 pub mod implementors;
@@ -103,26 +105,27 @@ impl EquippedAbility {
                 .map(|mut r| NetworkID(r.next()))
             {
                 let entity = world.spawn_empty().id();
-                let cmd = SpawnCommand {
+                let cmd = make_spawn_command(
                     net_id,
-                    parent_net_id: None,
-                    position: pos,
-                    starting_velocity: vel,
-                    shooter_velocity: Vec3::ZERO,
-                    rotation: Quat::IDENTITY,
-                    server_tick: world.resource::<common::tick::Ticker>().tick,
-                    kind: self.kind.clone(),
-                };
+                    self.kind.clone(),
+                    None,
+                    pos,
+                    vel,
+                    Vec3::ZERO,
+                    Quat::IDENTITY,
+                    world.resource::<common::tick::Ticker>().tick,
+                );
                 SpawnGameObjectCommand {
                     entity,
                     cmd: cmd.clone(),
                 }
                 .apply(world);
                 if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                    quic.send(
+                    crate::lifecycle::send_spawn_command(
+                        &mut quic,
                         SendTarget::All,
                         Channel::Ordered,
-                        &net::message::MsgType::SpawnCommand(cmd),
+                        cmd,
                     );
                 }
                 return;
@@ -310,11 +313,7 @@ pub fn interact_pickup(
         Channel::Ordered,
         &net::message::MsgType::AbilityPickup(character_net_id, target_net_id.clone()),
     );
-    quic.send(
-        net::quic::SendTarget::All,
-        Channel::Ordered,
-        &net::message::MsgType::DespawnCommand(target_net_id),
-    );
+    crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, target_net_id);
     true
 }
 
@@ -428,9 +427,7 @@ impl<A: BipedAbility + Reflect + Send + bevy::reflect::TypePath + 'static> crate
 
     fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         A::spawn_pickup(entity, cmd.position, cmd.starting_velocity, world);
-        world
-            .entity_mut(entity)
-            .insert((cmd.net_id.clone(), pickup_callback::<A>()));
+        world.entity_mut(entity).insert(pickup_callback::<A>());
     }
 }
 

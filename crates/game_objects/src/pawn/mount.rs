@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use net::{
     message::NetworkID,
-    quic::{ConnectionId, QuicManager},
+    quic::{ConnectionId, QuicManager, SendTarget},
 };
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
@@ -249,12 +249,17 @@ pub fn handle_server_interact(
             };
             commands.entity(biped_entity).remove::<Mounted>();
             crate::pawn::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
-            crate::pawn::broadcast_mount_state(quic, biped_net_id, None);
+            crate::pawn::send_mount_state(quic, SendTarget::All, biped_net_id, None);
         }
         Some(MountInteractResult::Mounted) => {
             commands.entity(character).insert(Mounted(target));
             crate::pawn::possess_pawn(conn_id, target, target_net_id, registry, quic);
-            crate::pawn::broadcast_mount_state(quic, character_net_id, Some(target_net_id));
+            crate::pawn::send_mount_state(
+                quic,
+                SendTarget::All,
+                character_net_id,
+                Some(target_net_id),
+            );
         }
         None => {}
     }
@@ -427,12 +432,14 @@ pub fn handle_mount_parent_death(parent_entity: Entity, world: &mut World) -> Op
     let Some(anchor_transform) = world.get::<Transform>(anchor).cloned() else {
         return None;
     };
-    world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
+    let biped_entity = world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
         let Some(mut mount) = world.get_mut::<CharacterMount>(parent_entity) else {
             return None;
         };
         unmount_character(&mut physics, parent_entity, &mut mount, &anchor_transform)
-    })
+    })?;
+    world.entity_mut(biped_entity).remove::<Mounted>();
+    Some(biped_entity)
 }
 
 #[cfg(feature = "client")]

@@ -34,6 +34,7 @@ pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumb
 pub use network_index::NetworkEntityMap;
 pub use spawn::{
     GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death,
+    find_entity_by_net_id,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -102,9 +103,5 @@ fn on_remove_networked_entity(
     let Some(quic) = quic.as_mut() else {
         return;
     };
-    quic.send(
-        net::quic::SendTarget::All,
-        net::quic::Channel::Ordered,
-        &net::message::MsgType::DespawnCommand(net_id),
-    );
+    crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, net_id);
 }

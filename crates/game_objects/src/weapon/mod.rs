@@ -63,6 +63,19 @@ impl Plugin for WeaponPlugin {
     }
 }
 
+pub fn send_weapon_state(
+    quic: &mut QuicManager,
+    target: SendTarget,
+    weapon_net_id: &NetworkID,
+    weapon_state: WeaponState,
+) {
+    quic.send(
+        target,
+        Channel::Ordered,
+        &net::message::MsgType::WeaponState(weapon_net_id.clone(), weapon_state),
+    );
+}
+
 /// Marker component present on every weapon entity regardless of type.
 #[derive(Component)]
 pub struct WeaponComponent;
@@ -353,11 +366,7 @@ pub fn handle_fire_request(
         Some(conn_id),
     ) {
         if let Ok((weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &net::message::MsgType::WeaponState(weapon_net_id, *weapon_state),
-            );
+            send_weapon_state(quic, SendTarget::One(conn_id), &weapon_net_id, *weapon_state);
         }
     }
 }
@@ -402,17 +411,19 @@ pub fn fire_authoritative_with_replication(
     let Some(quic) = quic else {
         return true;
     };
-    quic.send(
+    send_weapon_state(
+        quic,
         SendTarget::All,
-        Channel::Ordered,
-        &net::message::MsgType::WeaponState(fired.weapon_net_id.clone(), fired.weapon_state),
+        &fired.weapon_net_id,
+        fired.weapon_state,
     );
     match owner_conn {
         Some(conn_id) => {
-            quic.send(
+            crate::lifecycle::send_spawn_command(
+                quic,
                 SendTarget::AllExcept(conn_id),
                 Channel::Unordered,
-                &net::message::MsgType::SpawnCommand(fired.fired.spawn_cmd),
+                fired.fired.spawn_cmd,
             );
             quic.send(
                 SendTarget::One(conn_id),
@@ -423,10 +434,11 @@ pub fn fire_authoritative_with_replication(
                 },
             );
         }
-        None => quic.send(
+        None => crate::lifecycle::send_spawn_command(
+            quic,
             SendTarget::All,
             Channel::Unordered,
-            &net::message::MsgType::SpawnCommand(fired.fired.spawn_cmd),
+            fired.fired.spawn_cmd,
         ),
     }
     true
@@ -458,14 +470,15 @@ pub fn handle_reload_request(
         return;
     };
     let started = start_reload(&mut weapon_state, weapon_config);
-    quic.send(
+    send_weapon_state(
+        quic,
         if started {
             SendTarget::All
         } else {
             SendTarget::One(conn_id)
         },
-        Channel::Ordered,
-        &net::message::MsgType::WeaponState(weapon_net_id, *weapon_state),
+        &weapon_net_id,
+        *weapon_state,
     );
 }
 
@@ -500,11 +513,7 @@ pub fn handle_set_active_slot_request(
         return;
     };
     cancel_reload(&mut weapon_state);
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &net::message::MsgType::WeaponState(old_weapon_id, *weapon_state),
-    );
+    send_weapon_state(quic, SendTarget::All, &old_weapon_id, *weapon_state);
 }
 
 pub fn handle_drop_request(

@@ -120,9 +120,5 @@ pub(super) fn reload_active_weapon(
         return;
     };
     game_objects::weapon::start_reload(&mut weapon_state, weapon_config);
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &MsgType::WeaponState(weapon_net_id, *weapon_state),
-    );
+    game_objects::weapon::send_weapon_state(quic, SendTarget::All, &weapon_net_id, *weapon_state);
 }

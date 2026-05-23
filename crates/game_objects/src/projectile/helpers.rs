@@ -126,14 +126,12 @@ pub fn insert_remote_projectile(
     fire_sound: &'static str,
 ) {
     world.entity_mut(entity).insert((
-        cmd.kind.clone(),
         projectile,
         ProjectileState {
             temp_id: 0,
             shooter_velocity: cmd.shooter_velocity,
         },
         Transform::from_translation(cmd.position),
-        cmd.net_id.clone(),
     ));
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
