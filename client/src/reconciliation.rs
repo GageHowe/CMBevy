@@ -11,7 +11,7 @@ use game_objects::{
         gravity::{GravitySource, apply_gravity_impulses},
         snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
-    pawn::{GatherInputSet, Mounted, Pawn, Possessed, biped::BipedPawnComponent},
+    pawn::{GatherInputSet, Mounted, Possessed, biped::BipedPawnComponent},
 };
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
@@ -255,8 +255,6 @@ fn maybe_reconcile(
                         &handle,
                         &mut biped,
                     );
-                } else {
-                    biped.apply_input(&mut world, &handle, tick.input.clone());
                 }
             }
             for impulse in tick.impulses.iter().cloned() {

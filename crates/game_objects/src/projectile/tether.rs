@@ -1,5 +1,4 @@
 use super::Projectile;
-use crate::GameObject;
 use crate::health::Health;
 use crate::weapon::tether::{self, TetherSide};
 use bevy::prelude::*;
@@ -66,16 +65,12 @@ impl Projectile for TetherHookProjectile {
     }
 }
 
-impl GameObject for TetherHookProjectile {
-    const KIND: GameObjectKind = GameObjectKind::TetherHookProjectile;
-
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-        world.entity_mut(entity).insert((
-            GameObjectKind::TetherHookProjectile,
-            TetherHookProjectile,
-            Transform::from_translation(cmd.position),
-        ));
-    }
+pub fn spawn_remote_tether_hook(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+    world.entity_mut(entity).insert((
+        GameObjectKind::TetherHookProjectile,
+        TetherHookProjectile,
+        Transform::from_translation(cmd.position),
+    ));
 }
 
 pub struct TetherHookProjectilePlugin;

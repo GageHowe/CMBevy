@@ -8,11 +8,10 @@ use rapier3d::prelude::*;
 
 use super::{FiredProjectile, Projectile, ProjectileState, helpers, tick_projectiles};
 use crate::{
-    GameObject,
     health::{Health, LastDamageSource},
     lifecycle::make_spawn_command,
     shield::Shield,
-    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 60.0;
@@ -261,10 +260,7 @@ pub fn spawn(
     entity
 }
 
-impl GameObject for FailsafeProjectile {
-    const KIND: GameObjectKind = GameObjectKind::FailsafeProjectile;
-
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+pub fn spawn_remote_failsafe(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         world.entity_mut(entity).insert((
             FailsafeProjectile::default(),
             ProjectileState {
@@ -306,7 +302,7 @@ impl GameObject for FailsafeProjectile {
         world
             .entity_mut(entity)
             .insert(RigidBodyHandleComponent(handle));
-    }
+        crate::insert_spawn_metadata(entity, world, None, true, None, true);
 }
 
 pub fn detonate_latest_for_weapon(world: &mut World, weapon: Entity) {
@@ -364,8 +360,7 @@ fn explode_at(
 pub struct FailsafeProjectilePlugin;
 impl Plugin for FailsafeProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<FailsafeProjectile>()
-            .add_systems(
+        app.add_systems(
                 FixedUpdate,
                 (
                     tick_projectiles::<FailsafeProjectile>,

@@ -5,7 +5,7 @@ use rapier3d::prelude::*;
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
-use crate::{GameObject, GameObjectKind, projectile::lobber, spawn::AppGameObjectExt};
+use crate::projectile::lobber;
 
 pub const COOLDOWN_TICKS: u32 = 45;
 pub const MAGAZINE_SIZE: u16 = 1;
@@ -14,9 +14,7 @@ pub const RELOAD_TICKS: u16 = 95;
 
 pub struct LobberPlugin;
 impl Plugin for LobberPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<LobberComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -75,27 +73,23 @@ impl Weapon for LobberComponent {
     }
 }
 
-impl GameObject for LobberComponent {
-    const KIND: GameObjectKind = GameObjectKind::Lobber;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_lobber(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(LobberComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <LobberComponent as Weapon>::MODEL_PATH,
+            <LobberComponent as Weapon>::CROSSHAIR_PATH,
+            <LobberComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <LobberComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.06, 0.55),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }

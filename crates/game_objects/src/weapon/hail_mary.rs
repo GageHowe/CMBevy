@@ -7,16 +7,14 @@ use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 use crate::projectile::helpers as projectile_helpers;
 #[cfg(feature = "client")]
 use crate::weapon::weapon_flash;
-use crate::{GameObject, GameObjectKind, projectile::hail_mary, spawn::AppGameObjectExt};
+use crate::projectile::hail_mary;
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
 
 pub struct HailMaryPlugin;
 impl Plugin for HailMaryPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -79,11 +77,7 @@ impl Weapon for HailMaryComponent {
     }
 }
 
-impl GameObject for HailMaryComponent {
-    const KIND: GameObjectKind = GameObjectKind::HailMary;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_hail_mary(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         #[cfg(feature = "client")]
         let muzzle_flash = Some(weapon_flash::spawn_weapon_flash(
             world,
@@ -110,17 +104,17 @@ impl GameObject for HailMaryComponent {
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <HailMaryComponent as Weapon>::MODEL_PATH,
+            <HailMaryComponent as Weapon>::CROSSHAIR_PATH,
+            <HailMaryComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <HailMaryComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }

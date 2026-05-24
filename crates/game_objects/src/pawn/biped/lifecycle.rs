@@ -8,27 +8,10 @@ use rapier3d::prelude::*;
 
 use super::*;
 use crate::{
-    GameObject, GameObjectKind,
     health::{DamageCause, Health, LastDamageSource},
 };
 
-impl Pawn for BipedPawnComponent {
-    fn apply_input(
-        &mut self,
-        world: &mut PhysicsWorld,
-        body: &RigidBodyHandleComponent,
-        input: PawnInputKind,
-    ) {
-        if let PawnInputKind::Biped(input) = input {
-            super::apply_biped_movement(world, body, input, self);
-        }
-    }
-}
-
-impl GameObject for BipedPawnComponent {
-    const KIND: GameObjectKind = GameObjectKind::Biped;
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_biped(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
             translation: cmd.position.into(),
             rotation: cmd.rotation.into(),
@@ -81,11 +64,12 @@ impl GameObject for BipedPawnComponent {
             }
         }
 
+        crate::insert_spawn_metadata(entity, world, None, true, None, true);
         #[cfg(feature = "client")]
         spawn_visuals(entity, world);
-    }
+}
 
-    fn on_death(entity: Entity, world: &mut World) {
+pub fn on_biped_death(entity: Entity, world: &mut World) {
         #[cfg(feature = "client")]
         if world.get::<Possessed>(entity).is_some() {
             super::detach_camera(world);
@@ -182,7 +166,6 @@ impl GameObject for BipedPawnComponent {
                 );
             }
         }
-    }
 }
 
 #[cfg(feature = "client")]

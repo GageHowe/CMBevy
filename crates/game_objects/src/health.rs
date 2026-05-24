@@ -282,17 +282,13 @@ fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageS
 fn regenerate_health(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut health_q: Query<(Entity, &mut Health, Option<&common::GameObjectKind>, Has<DeathHandled>)>,
-    registry: Res<crate::spawn::GameObjectRegistry>,
+    mut health_q: Query<(Entity, &mut Health, Has<crate::DespawnOnDeath>, Has<DeathHandled>)>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
-    for (entity, mut health, kind, death_handled) in &mut health_q {
-        let should_despawn_on_death = kind
-            .cloned()
-            .is_none_or(|kind| registry.despawns_on_death(kind));
+    for (entity, mut health, should_despawn_on_death, death_handled) in &mut health_q {
         if health.is_dead() && should_despawn_on_death {
             continue;
         }
@@ -304,7 +300,7 @@ fn regenerate_health(
     }
 }
 
-/// calls GameObject::on_death for objects that have been killed, then despawns if configured
+/// runs object-specific death cleanup for killed entities, then despawns if configured
 pub fn handle_deaths(world: &mut World) {
     let dead: Vec<(Entity, Option<common::GameObjectKind>)> = {
         let mut q = world
@@ -331,8 +327,10 @@ pub fn handle_deaths(world: &mut World) {
         world.entity_mut(entity).insert(DeathHandled);
 
         let should_despawn = kind
-            .clone()
-            .is_none_or(|kind| dispatch_entity_death(kind, entity, world));
+            .is_none_or(|kind| {
+                dispatch_entity_death(kind.clone(), entity, world);
+                world.get::<crate::DespawnOnDeath>(entity).is_some()
+            });
         if !should_despawn || !world.entities().contains(entity) {
             continue;
         }
@@ -360,7 +358,7 @@ pub fn dispatch_entity_death(
     kind: common::GameObjectKind,
     entity: Entity,
     world: &mut World,
-) -> bool {
+) {
     dispatch_game_object_on_death(kind, entity, world)
 }
 

@@ -4,7 +4,7 @@ use net::message::*;
 use physics::physics_world::*;
 
 use crate::{
-    AuthoritySystems, GameObject,
+    AuthoritySystems,
     health::{DamageCause, Health, LastDamageSource},
     lifecycle::make_spawn_command,
     shield::Shield,
@@ -55,8 +55,7 @@ impl Plugin for ProjectilePlugin {
 
 /// Per-projectile-type behavior. Analogous to Weapon / Pawn.
 /// The implementing type IS the component (fields: shooter, lifetime, etc.).
-/// Requires GameObject so spawn-from-SpawnCommand is also defined per type.
-pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
+pub trait Projectile: Component<Mutability = bevy::ecs::component::Mutable> {
     /// the GameObjectKind enum member this type corresponds to
     const KIND: GameObjectKind;
     /// relative fire speed of projectile
@@ -231,7 +230,7 @@ pub fn draw_projectile_debug<P: Component>(
     }
 }
 
-/// Generic tick system. Analogous to move_pawns<T>.
+/// Generic tick system for projectile components.
 /// Server-only; each projectile plugin registers with run_if(in_state(GameState::SinglePlayer)) on client.
 pub fn tick_projectiles<P: Projectile>(
     mut world: ResMut<PhysicsWorld>,

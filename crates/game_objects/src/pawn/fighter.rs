@@ -8,18 +8,15 @@ use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
-    *,
-};
+use super::vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount};
+#[cfg(feature = "client")]
+use super::{GatherInputSet, MouseSensitivity, MovePawnsSet, PawnInputKind, Possessed};
 use crate::{
-    GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     projectile::{Projectile, fighter_rocket::FighterRocketProjectile},
     reticle::AimReticle,
-    spawn::AppGameObjectExt,
 };
 
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
@@ -40,8 +37,7 @@ const MUZZLE_LENGTH: f32 = 2.0;
 pub struct FighterPlugin;
 impl Plugin for FighterPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<FighterPawnComponent>()
-            .add_systems(FixedUpdate, tick_fighter_cooldowns)
+        app.add_systems(FixedUpdate, tick_fighter_cooldowns)
             .add_systems(FixedUpdate, fire_fighters.after(step_physics));
         #[cfg(not(feature = "client"))]
         let _ = app;
@@ -52,7 +48,7 @@ impl Plugin for FighterPlugin {
                 gather_fighter_input
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
-                move_pawns::<FighterPawnComponent>().in_set(MovePawnsSet),
+                move_fighters.in_set(MovePawnsSet),
             )
                 .chain(),
         );
@@ -66,31 +62,13 @@ pub struct FighterPawnComponent {
     pub want_fire: bool,
 }
 
-impl Pawn for FighterPawnComponent {
-    fn apply_input(
-        &mut self,
-        world: &mut PhysicsWorld,
-        body: &RigidBodyHandleComponent,
-        input: PawnInputKind,
-    ) {
-        if let PawnInputKind::Spaceship(i) = input {
-            self.want_fire = i.ability1;
-            apply_fighter_movement(world, body, i);
-        }
-    }
-}
-
 impl VehiclePawn for FighterPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 6.0, 15.0);
     const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.35, -0.9);
     const DRIVER_INTERACT_RADIUS: f32 = 0.6;
 }
 
-impl GameObject for FighterPawnComponent {
-    const KIND: GameObjectKind = GameObjectKind::Fighter;
-    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_fighter(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
             translation: cmd.position.into(),
             rotation: cmd.rotation.into(),
@@ -142,6 +120,7 @@ impl GameObject for FighterPawnComponent {
         world
             .entity_mut(entity)
             .insert(RigidBodyHandleComponent(rb_handle));
+        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
         #[cfg(feature = "client")]
         {
             let scene = world.resource::<AssetServer>().load(MODEL_PATH);
@@ -154,11 +133,10 @@ impl GameObject for FighterPawnComponent {
                 .id();
             world.entity_mut(entity).add_child(visual);
         }
-    }
+}
 
-    fn on_death(entity: Entity, world: &mut World) {
+pub fn on_fighter_death(entity: Entity, world: &mut World) {
         super::vehicle::handle_vehicle_death(entity, world);
-    }
 }
 
 #[cfg(feature = "client")]
@@ -372,4 +350,22 @@ pub fn apply_fighter_movement(
         torque *= MAX_TORQUE / torque_mag;
     }
     body.apply_torque_impulse(torque, true);
+}
+
+#[cfg(feature = "client")]
+fn move_fighters(
+    mut world: ResMut<PhysicsWorld>,
+    mut pawns: Query<(
+        &mut Possessed,
+        &RigidBodyHandleComponent,
+        &mut FighterPawnComponent,
+    )>,
+) {
+    for (mut possessed, handle, mut fighter) in &mut pawns {
+        let Some(PawnInputKind::Spaceship(input)) = possessed.consume() else {
+            continue;
+        };
+        fighter.want_fire = input.ability1;
+        apply_fighter_movement(&mut world, handle, input);
+    }
 }

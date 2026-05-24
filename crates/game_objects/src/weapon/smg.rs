@@ -5,7 +5,7 @@ use rapier3d::prelude::ColliderBuilder;
 use super::{FireCtx, Weapon, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::projectile::helpers as projectile_helpers;
-use crate::{GameObject, GameObjectKind, projectile::rifle, spawn::AppGameObjectExt};
+use crate::projectile::rifle;
 
 pub const COOLDOWN_TICKS: u32 = 4;
 pub const MAGAZINE_SIZE: u16 = 36;
@@ -20,9 +20,7 @@ pub fn spread_dir(aim_dir: Vec3) -> Vec3 {
 pub struct SmgPlugin;
 
 impl Plugin for SmgPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<SmgComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -75,27 +73,23 @@ impl Weapon for SmgComponent {
     }
 }
 
-impl GameObject for SmgComponent {
-    const KIND: GameObjectKind = GameObjectKind::Smg;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_smg(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(SmgComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <SmgComponent as Weapon>::MODEL_PATH,
+            <SmgComponent as Weapon>::CROSSHAIR_PATH,
+            <SmgComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <SmgComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.18, 0.05, 0.35),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }

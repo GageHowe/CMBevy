@@ -5,7 +5,7 @@ use rapier3d::prelude::ColliderBuilder;
 use super::{FireCtx, Weapon, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
-use crate::{GameObject, GameObjectKind, projectile::thumper, spawn::AppGameObjectExt};
+use crate::projectile::thumper;
 
 pub const COOLDOWN_TICKS: u32 = 18;
 pub const MAGAZINE_SIZE: u16 = 6;
@@ -15,9 +15,7 @@ pub const RELOAD_TICKS: u16 = 80;
 pub struct ThumperPlugin;
 
 impl Plugin for ThumperPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<ThumperComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -80,27 +78,23 @@ impl Weapon for ThumperComponent {
     }
 }
 
-impl GameObject for ThumperComponent {
-    const KIND: GameObjectKind = GameObjectKind::Thumper;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_thumper(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(ThumperComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <ThumperComponent as Weapon>::MODEL_PATH,
+            <ThumperComponent as Weapon>::CROSSHAIR_PATH,
+            <ThumperComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <ThumperComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }

@@ -5,7 +5,7 @@ use rapier3d::prelude::*;
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
-use crate::{GameObject, GameObjectKind, projectile::coil_launcher, spawn::AppGameObjectExt};
+use crate::projectile::coil_launcher;
 
 pub const COOLDOWN_TICKS: u32 = 60;
 pub const MAGAZINE_SIZE: u16 = 4;
@@ -14,9 +14,7 @@ pub const RELOAD_TICKS: u16 = 180;
 
 pub struct CoilLauncherPlugin;
 impl Plugin for CoilLauncherPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<CoilLauncherComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -81,27 +79,23 @@ impl Weapon for CoilLauncherComponent {
     }
 }
 
-impl GameObject for CoilLauncherComponent {
-    const KIND: GameObjectKind = GameObjectKind::CoilLauncher;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_coil_launcher(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(CoilLauncherComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <CoilLauncherComponent as Weapon>::MODEL_PATH,
+            <CoilLauncherComponent as Weapon>::CROSSHAIR_PATH,
+            <CoilLauncherComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <CoilLauncherComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }

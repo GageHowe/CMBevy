@@ -34,8 +34,6 @@ pub use truck::TruckPawnComponent;
 pub use vehicle::VehicleComponent;
 pub use weapon_slots::WeaponSlots;
 
-use crate::GameObject;
-
 /// Tracks two different pawn identities per connection.
 ///
 /// `controlled_by_conn` is the pawn currently receiving that client's inputs.
@@ -302,16 +300,6 @@ impl InteractionGate {
 /// UI-facing interaction prompt text for the locally controlled player.
 pub struct InteractionHint(pub Option<String>);
 
-/// Common interface implemented by all possessable controllable objects.
-pub trait Pawn: Component<Mutability = bevy::ecs::component::Mutable> + GameObject {
-    fn apply_input(
-        &mut self,
-        world: &mut PhysicsWorld,
-        body: &RigidBodyHandleComponent,
-        input: PawnInputKind,
-    );
-}
-
 #[derive(SystemParam)]
 /// Server-side helper that dispatches serialized pawn inputs to the right pawn component type.
 pub struct PawnInputParams<'w, 's> {
@@ -506,22 +494,9 @@ impl Possessed {
 /// System set covering local input gathering for pawns.
 pub struct GatherInputSet;
 
-/// System set covering all `move_pawns` systems. Use for ordering against pawn movement.
+/// System set covering all local pawn movement systems. Use for ordering against pawn movement.
 #[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MovePawnsSet;
-
-/// generic input consumption function for all pawn types
-pub fn move_pawns<T: Pawn>()
--> impl Fn(ResMut<PhysicsWorld>, Query<(&mut Possessed, &RigidBodyHandleComponent, &mut T)>) {
-    |mut world, mut pawns| {
-        for (mut possessed, handle, mut component) in pawns.iter_mut() {
-            let Some(input) = possessed.consume() else {
-                continue;
-            };
-            component.apply_input(&mut world, handle, input);
-        }
-    }
-}
 
 /// Peeks the newest buffered input, stamps it with the current tick,
 /// records it for replay, and sends it serialized over the unreliable channel.

@@ -5,7 +5,7 @@ use net::{message::NetworkID, quic::{QuicManager, SendTarget}};
 
 #[cfg(feature = "client")]
 use super::*;
-use super::{Pawn, PlayerRegistry, mount};
+use super::{PlayerRegistry, mount};
 #[cfg(feature = "client")]
 use crate::GameObjectKind;
 
@@ -25,7 +25,7 @@ impl VehicleComponent {
 }
 
 /// Vehicle-specific tuning required by the generic driver-mount helper.
-pub trait VehiclePawn: Pawn {
+pub trait VehiclePawn: Component {
     const CAMERA_OFFSET: Vec3;
     const DRIVER_MOUNT_OFFSET: Vec3;
     const DRIVER_INTERACT_RADIUS: f32 = 1.0;

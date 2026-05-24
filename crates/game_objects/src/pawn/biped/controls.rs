@@ -808,10 +808,24 @@ fn interact(
             hit_entity,
             net_id: interact_net_id,
         } => {
-            if let Ok(&crate::pawn::biped_ability::OnPickup(f)) = sp.pickup_fns.get(hit_entity) {
+            if let Ok(crate::pawn::biped_ability::OnPickup(kind)) = sp.pickup_fns.get(hit_entity) {
                 match state.get() {
                     GameState::SinglePlayer => {
-                        f(pawn_entity, hit_entity, forward, &mut sp.commands)
+                        sp.commands.queue({
+                            let kind = kind.clone();
+                            move |world: &mut World| {
+                                let _ = crate::pawn::biped_ability::swap_ability_kind(
+                                    pawn_entity,
+                                    kind,
+                                    forward.normalize_or_zero()
+                                        * crate::pawn::biped_ability::DROP_SPEED,
+                                    world,
+                                );
+                                if let Ok(entity) = world.get_entity_mut(hit_entity) {
+                                    entity.despawn();
+                                }
+                            }
+                        })
                     }
                     GameState::Multiplayer => {
                         if let Some(interact_net_id) = interact_net_id {

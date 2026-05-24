@@ -3,7 +3,7 @@ use physics::physics_world::{PhysicsWorld, rb_vel};
 
 #[cfg(feature = "client")]
 use crate::{
-    GameObjectKind, GameObjectRegistry,
+    CollisionSound,
     collision::{CollisionImpactSet, CollisionImpacts},
 };
 
@@ -72,8 +72,7 @@ pub struct SoundEmitter {
 #[cfg(feature = "client")]
 pub fn play_collision_sounds(
     impacts: Res<CollisionImpacts>,
-    kinds: Query<&GameObjectKind>,
-    registry: Res<GameObjectRegistry>,
+    sounds: Query<&CollisionSound>,
     world: Res<PhysicsWorld>,
     mut sound_queue: Option<ResMut<SoundQueue>>,
 ) {
@@ -85,10 +84,7 @@ pub fn play_collision_sounds(
         if !impact.is_new {
             continue;
         }
-        let Ok(kind) = kinds.get(impact.entity) else {
-            continue;
-        };
-        let Some(event) = registry.collision_sound(kind.clone()) else {
+        let Ok(sound) = sounds.get(impact.entity) else {
             continue;
         };
         let gain = collision_sound_gain(impact.impulse);
@@ -96,7 +92,7 @@ pub fn play_collision_sounds(
             continue;
         }
         sound_queue.play_3d_with_gain(
-            event,
+            sound.0,
             impact.position,
             entity_velocity(&world, Some(impact.entity)),
             gain,

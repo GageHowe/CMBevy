@@ -5,7 +5,7 @@ use rapier3d::prelude::ColliderBuilder;
 use super::{FireCtx, Weapon, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::projectile::helpers as projectile_helpers;
-use crate::{GameObject, GameObjectKind, projectile::rifle, spawn::AppGameObjectExt};
+use crate::projectile::rifle;
 
 pub const COOLDOWN_TICKS: u32 = 8;
 pub const MAGAZINE_SIZE: u16 = 30;
@@ -15,9 +15,7 @@ const ZOOMED_KICK_SCALE: f32 = 0.3;
 
 pub struct RiflePlugin;
 impl Plugin for RiflePlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<RifleComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -76,27 +74,23 @@ pub fn fire_rifle_projectile(
     }
 }
 
-impl GameObject for RifleComponent {
-    const KIND: GameObjectKind = GameObjectKind::Rifle;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_rifle(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(RifleComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <RifleComponent as Weapon>::MODEL_PATH,
+            <RifleComponent as Weapon>::CROSSHAIR_PATH,
+            <RifleComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <RifleComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.05, 0.4),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }

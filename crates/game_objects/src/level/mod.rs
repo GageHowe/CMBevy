@@ -437,7 +437,7 @@ impl Plugin for LevelPlugin {
         }
 
         // Keep authored scene data as small marker components and route all runtime setup
-        // through the existing imperative GameObject spawn path.
+        // through the existing imperative spawn path.
         app.add_systems(Update, init_spawners);
         app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySystems));
     }

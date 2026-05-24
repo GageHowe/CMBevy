@@ -10,15 +10,12 @@ use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
-    *,
-};
+use super::vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount};
+#[cfg(feature = "client")]
+use super::{GatherInputSet, MovePawnsSet, PawnInputKind, Possessed};
 use crate::{
-    GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
     health::{CollisionDamageConfig, Health, LastDamageSource},
-    spawn::AppGameObjectExt,
 };
 
 #[cfg(feature = "client")]
@@ -33,7 +30,6 @@ const STEER_TORQUE: f32 = 28.0;
 pub struct TruckPlugin;
 impl Plugin for TruckPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<TruckPawnComponent>();
         #[cfg(not(feature = "client"))]
         let _ = app;
         #[cfg(feature = "client")]
@@ -43,7 +39,7 @@ impl Plugin for TruckPlugin {
                 gather_truck_input
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
-                move_pawns::<TruckPawnComponent>().in_set(MovePawnsSet),
+                move_trucks.in_set(MovePawnsSet),
             )
                 .chain(),
         );
@@ -53,19 +49,6 @@ impl Plugin for TruckPlugin {
 #[derive(Component, Default, Reflect)]
 pub struct TruckPawnComponent;
 
-impl Pawn for TruckPawnComponent {
-    fn apply_input(
-        &mut self,
-        world: &mut PhysicsWorld,
-        body: &RigidBodyHandleComponent,
-        input: PawnInputKind,
-    ) {
-        if let PawnInputKind::Truck(input) = input {
-            apply_truck_movement(world, body, input, self);
-        }
-    }
-}
-
 impl VehiclePawn for TruckPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 4.0, 8.0);
     const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(-0.45, 0.75, 0.2);
@@ -73,11 +56,7 @@ impl VehiclePawn for TruckPawnComponent {
     const EXIT_OFFSET: Vec3 = Vec3::new(-1.4, 0.0, 0.0);
 }
 
-impl GameObject for TruckPawnComponent {
-    const KIND: GameObjectKind = GameObjectKind::Truck;
-    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_truck(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
             translation: cmd.position.into(),
             rotation: cmd.rotation.into(),
@@ -134,11 +113,11 @@ impl GameObject for TruckPawnComponent {
                 .entity_mut(entity)
                 .insert((SceneRoot(scene), Visibility::default()));
         }
-    }
+        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
+}
 
-    fn on_death(entity: Entity, world: &mut World) {
+pub fn on_truck_death(entity: Entity, world: &mut World) {
         super::vehicle::handle_vehicle_death(entity, world);
-    }
 }
 
 #[cfg(feature = "client")]
@@ -256,5 +235,18 @@ pub fn apply_truck_movement(
     };
     if steer_dir != 0.0 {
         body.apply_torque_impulse(up * (input.steer * STEER_TORQUE * steer_dir), true);
+    }
+}
+
+#[cfg(feature = "client")]
+fn move_trucks(
+    mut world: ResMut<PhysicsWorld>,
+    mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent, &mut TruckPawnComponent)>,
+) {
+    for (mut possessed, handle, mut truck) in &mut pawns {
+        let Some(PawnInputKind::Truck(input)) = possessed.consume() else {
+            continue;
+        };
+        apply_truck_movement(&mut world, handle, input, &mut truck);
     }
 }

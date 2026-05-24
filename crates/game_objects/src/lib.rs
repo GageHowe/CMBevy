@@ -33,8 +33,8 @@ pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers};
 pub use network_index::NetworkEntityMap;
 pub use spawn::{
-    GameObject, GameObjectRegistry, SpawnGameObjectCommand, dispatch_game_object_on_death,
-    find_entity_by_net_id,
+    CenterOfMassSplashDamage, CollisionSound, DespawnOnDeath, SpawnGameObjectCommand,
+    dispatch_game_object_on_death, find_entity_by_net_id, insert_spawn_metadata,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -45,7 +45,6 @@ pub struct GameObjectsPlugin;
 impl Plugin for GameObjectsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
-            .init_resource::<spawn::GameObjectRegistry>()
             .register_type::<net::message::NetworkID>()
             .register_type::<Team>()
             .init_resource::<messages::GameMessages>()

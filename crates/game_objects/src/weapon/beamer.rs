@@ -9,10 +9,9 @@ use super::{FireCtx, Weapon, WeaponState, apply_zoom, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::flash::{FlashMaterial, FlashMaterialUniform, update_flash_material};
 use crate::{
-    GameObject, GameObjectKind, NetworkEntityMap,
+    NetworkEntityMap,
     health::{DamageCause, Health, LastDamageSource, attribute_damage},
     pawn::{PlayerRegistry, WeaponSlots},
-    spawn::AppGameObjectExt,
 };
 
 pub const MAGAZINE_SIZE: u16 = 80;
@@ -57,10 +56,9 @@ impl Default for BeamerComponent {
 
 pub struct BeamerPlugin;
 impl Plugin for BeamerPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<BeamerComponent>();
+    fn build(&self, _app: &mut App) {
         #[cfg(feature = "client")]
-        app.add_systems(Update, (add_visuals, sync_visuals));
+        _app.add_systems(Update, (add_visuals, sync_visuals));
     }
 }
 
@@ -182,29 +180,25 @@ impl Weapon for BeamerComponent {
     }
 }
 
-impl GameObject for BeamerComponent {
-    const KIND: GameObjectKind = GameObjectKind::Beamer;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let weapon = weapon_bundle(BeamerComponent::default(), world);
-        helpers::insert_generic_weapon(
-            entity,
-            cmd,
-            world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
-            weapon,
-        );
-        helpers::make_generic_weapon_physics(
-            entity,
-            cmd,
-            <Self as Weapon>::COLLIDER_PATH,
-            ColliderBuilder::cuboid(0.2, 0.05, 0.4),
-            world,
-        );
-    }
+pub fn spawn_beamer(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+    let weapon = weapon_bundle(BeamerComponent::default(), world);
+    helpers::insert_generic_weapon(
+        entity,
+        cmd,
+        world,
+        <BeamerComponent as Weapon>::MODEL_PATH,
+        <BeamerComponent as Weapon>::CROSSHAIR_PATH,
+        <BeamerComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
+        weapon,
+    );
+    helpers::make_generic_weapon_physics(
+        entity,
+        cmd,
+        <BeamerComponent as Weapon>::COLLIDER_PATH,
+        ColliderBuilder::cuboid(0.2, 0.05, 0.4),
+        world,
+    );
+    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }
 
 fn unused_fire_projectile(

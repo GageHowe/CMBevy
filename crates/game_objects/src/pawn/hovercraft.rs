@@ -8,16 +8,13 @@ use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
-    *,
-};
+use super::vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount};
+#[cfg(feature = "client")]
+use super::{GatherInputSet, MovePawnsSet, PawnInputKind, Possessed};
 use crate::{
-    GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
-    spawn::AppGameObjectExt,
 };
 
 const HULL_PATH: &str = "collision/hovercraft.obj";
@@ -44,7 +41,6 @@ const HOVER_POINTS: [Vec3; 4] = [
 pub struct HovercraftPlugin;
 impl Plugin for HovercraftPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HovercraftPawnComponent>();
         #[cfg(not(feature = "client"))]
         let _ = app;
         #[cfg(feature = "client")]
@@ -54,7 +50,7 @@ impl Plugin for HovercraftPlugin {
                 gather_hovercraft_input
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
-                move_pawns::<HovercraftPawnComponent>().in_set(MovePawnsSet),
+                move_hovercrafts.in_set(MovePawnsSet),
             )
                 .chain(),
         );
@@ -64,19 +60,6 @@ impl Plugin for HovercraftPlugin {
 #[derive(Component, Default, Reflect)]
 pub struct HovercraftPawnComponent;
 
-impl Pawn for HovercraftPawnComponent {
-    fn apply_input(
-        &mut self,
-        world: &mut PhysicsWorld,
-        body: &RigidBodyHandleComponent,
-        input: PawnInputKind,
-    ) {
-        if let PawnInputKind::Truck(input) = input {
-            apply_hovercraft_movement(world, body, input);
-        }
-    }
-}
-
 impl VehiclePawn for HovercraftPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 4.5, 9.0);
     const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.9, -0.2);
@@ -84,11 +67,7 @@ impl VehiclePawn for HovercraftPawnComponent {
     const EXIT_OFFSET: Vec3 = Vec3::new(-1.6, 0.0, 0.0);
 }
 
-impl GameObject for HovercraftPawnComponent {
-    const KIND: GameObjectKind = GameObjectKind::Hovercraft;
-    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_hovercraft(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
             translation: cmd.position.into(),
             rotation: cmd.rotation.into(),
@@ -143,11 +122,11 @@ impl GameObject for HovercraftPawnComponent {
                 .entity_mut(entity)
                 .insert((SceneRoot(scene), Visibility::default()));
         }
-    }
+        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
+}
 
-    fn on_death(entity: Entity, world: &mut World) {
+pub fn on_hovercraft_death(entity: Entity, world: &mut World) {
         super::vehicle::handle_vehicle_death(entity, world);
-    }
 }
 
 #[cfg(feature = "client")]
@@ -318,5 +297,18 @@ pub fn apply_hovercraft_movement(
             Vector3::new(upright_axis.x, upright_axis.y, upright_axis.z) * UPRIGHT_TORQUE,
             true,
         );
+    }
+}
+
+#[cfg(feature = "client")]
+fn move_hovercrafts(
+    mut world: ResMut<PhysicsWorld>,
+    mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent), With<HovercraftPawnComponent>>,
+) {
+    for (mut possessed, handle) in &mut pawns {
+        let Some(PawnInputKind::Truck(input)) = possessed.consume() else {
+            continue;
+        };
+        apply_hovercraft_movement(&mut world, handle, input);
     }
 }

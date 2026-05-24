@@ -7,10 +7,9 @@ use super::{FireCtx, Weapon, helpers, weapon_bundle};
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
 use crate::{
-    GameObject, GameObjectKind, NetworkEntityMap,
+    NetworkEntityMap,
     pawn::{PlayerRegistry, WeaponSlots},
     projectile::failsafe,
-    spawn::AppGameObjectExt,
 };
 
 pub const COOLDOWN_TICKS: u32 = 45;
@@ -20,9 +19,7 @@ pub const RELOAD_TICKS: u16 = 95;
 
 pub struct FailsafePlugin;
 impl Plugin for FailsafePlugin {
-    fn build(&self, app: &mut App) {
-        app.register_game_object::<FailsafeComponent>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
 #[derive(Component, Default, Reflect)]
@@ -121,29 +118,25 @@ impl Weapon for FailsafeComponent {
     }
 }
 
-impl GameObject for FailsafeComponent {
-    const KIND: GameObjectKind = GameObjectKind::Failsafe;
-    const GC_LIFETIME_SECS: Option<f32> = Some(10.0);
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_failsafe(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let weapon = weapon_bundle(FailsafeComponent::default(), world);
         helpers::insert_generic_weapon(
             entity,
             cmd,
             world,
-            <Self as Weapon>::MODEL_PATH,
-            <Self as Weapon>::CROSSHAIR_PATH,
-            <Self as Weapon>::PREDICTION_PROJECTILE_SPEED,
+            <FailsafeComponent as Weapon>::MODEL_PATH,
+            <FailsafeComponent as Weapon>::CROSSHAIR_PATH,
+            <FailsafeComponent as Weapon>::PREDICTION_PROJECTILE_SPEED,
             weapon,
         );
         helpers::make_generic_weapon_physics(
             entity,
             cmd,
-            <Self as Weapon>::COLLIDER_PATH,
+            <FailsafeComponent as Weapon>::COLLIDER_PATH,
             ColliderBuilder::cuboid(0.2, 0.06, 0.55),
             world,
         );
-    }
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }
 
 pub fn request_detonate_local(commands: &mut Commands, weapon_entity: Entity) {

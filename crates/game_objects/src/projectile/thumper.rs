@@ -7,10 +7,9 @@ use physics::physics_world::*;
 
 use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 use crate::{
-    GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 120.0;
@@ -190,10 +189,7 @@ pub fn spawn(
     entity
 }
 
-impl GameObject for ThumperProjectile {
-    const KIND: GameObjectKind = GameObjectKind::ThumperProjectile;
-
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+pub fn spawn_remote_thumper(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
@@ -202,14 +198,14 @@ impl GameObject for ThumperProjectile {
             RADIUS,
             "event:/Weapons/SniperShot",
         );
-    }
+        crate::insert_spawn_metadata(entity, world, None, true, None, true);
 }
 
 pub struct ThumperProjectilePlugin;
 
 impl Plugin for ThumperProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<ThumperProjectile>().add_systems(
+        app.add_systems(
             FixedUpdate,
             tick_projectiles::<ThumperProjectile>
                 .after(step_physics)

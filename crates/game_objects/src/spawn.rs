@@ -1,116 +1,68 @@
-//! Central spawn dispatch for the reflected game object types shared across the game.
+//! Central spawn dispatch for replicated game object kinds.
 
-use bevy::prelude::{App, Command, Resource, *};
+use bevy::prelude::{Command, *};
 use common::GameObjectKind;
 use net::message::SpawnCommand;
 
 use crate::gc::WorldObjectGc;
 
-type SpawnGameObjectFn = fn(Entity, &SpawnCommand, &mut World);
-type GameObjectDeathFn = fn(Entity, &mut World);
-
-#[derive(Clone, Copy)]
-struct GameObjectRegistration {
-    spawn: SpawnGameObjectFn,
-    on_death: GameObjectDeathFn,
-    despawn_on_death: bool,
-    gc_lifetime_secs: Option<f32>,
-    collision_sound: Option<&'static str>,
-    splash_damage_uses_center_of_mass: bool,
-}
-
-impl GameObjectRegistration {
-    fn of<T: GameObject>() -> Self {
-        Self {
-            spawn: T::spawn,
-            on_death: T::on_death,
-            despawn_on_death: T::DESPAWN_ON_DEATH,
-            gc_lifetime_secs: T::gc_lifetime_secs(),
-            collision_sound: T::COLLISION_SOUND,
-            splash_damage_uses_center_of_mass: T::SPLASH_DAMAGE_USES_CENTER_OF_MASS,
-        }
-    }
-}
-
 #[derive(Component)]
 pub struct CenterOfMassSplashDamage;
 
-#[derive(Resource, Default)]
-pub struct GameObjectRegistry(Vec<(GameObjectKind, GameObjectRegistration)>);
+#[derive(Component, Clone, Copy)]
+pub struct DespawnOnDeath;
 
-impl GameObjectRegistry {
-    pub fn register<T: GameObject>(&mut self) {
-        if self.0.iter().any(|(kind, _)| *kind == T::KIND) {
-            panic!("GameObjectKind::{:?} registered more than once", T::KIND);
-        }
-        self.0.push((T::KIND, GameObjectRegistration::of::<T>()));
-    }
+#[derive(Component, Clone, Copy)]
+pub struct CollisionSound(pub &'static str);
 
-    fn get(&self, kind: GameObjectKind) -> GameObjectRegistration {
-        *self
-            .0
-            .iter()
-            .find(|(registered_kind, _)| *registered_kind == kind)
-            .map(|(_, registration)| registration)
-            .unwrap_or_else(|| panic!("GameObjectKind::{kind:?} is not registered"))
-    }
-
-    pub fn collision_sound(&self, kind: GameObjectKind) -> Option<&'static str> {
-        self.get(kind).collision_sound
-    }
-
-    pub fn despawns_on_death(&self, kind: GameObjectKind) -> bool {
-        self.get(kind).despawn_on_death
-    }
-}
-
-pub trait AppGameObjectExt {
-    fn register_game_object<T: GameObject>(&mut self) -> &mut Self;
-}
-
-impl AppGameObjectExt for App {
-    fn register_game_object<T: GameObject>(&mut self) -> &mut Self {
-        self.init_resource::<GameObjectRegistry>();
-        self.world_mut()
-            .resource_mut::<GameObjectRegistry>()
-            .register::<T>();
-        self
-    }
-}
-
-pub trait GameObject: Default + Reflect {
-    const KIND: GameObjectKind;
-    const GC_LIFETIME_SECS: Option<f32> = None;
-    const DESPAWN_ON_DEATH: bool = true;
-    const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = true;
-
-    /// the sound this plays when colliing with things.
-    const COLLISION_SOUND: Option<&'static str> = None;
-    /// responsible for enacting all side effects that spawn this entity.
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World);
-    /// callback that is called when entities' health drops to 0.
-    /// responsible for particle effects, debris, cleanup, etc.
-    fn on_death(_entity: Entity, _world: &mut World) {}
-
-    fn gc_lifetime_secs() -> Option<f32> {
-        Self::GC_LIFETIME_SECS
-    }
-}
-
-pub fn dispatch_game_object_on_death(
-    kind: GameObjectKind,
+pub fn insert_spawn_metadata(
     entity: Entity,
     world: &mut World,
-) -> bool {
-    let registration = {
-        let registry = world.resource::<GameObjectRegistry>();
-        registry.get(kind)
-    };
-    (registration.on_death)(entity, world);
-    registration.despawn_on_death
+    gc_lifetime_secs: Option<f32>,
+    despawn_on_death: bool,
+    collision_sound: Option<&'static str>,
+    use_center_of_mass_splash_damage: bool,
+) {
+    let mut entity = world.entity_mut(entity);
+    if despawn_on_death {
+        entity.insert(DespawnOnDeath);
+    } else {
+        entity.remove::<DespawnOnDeath>();
+    }
+    if let Some(sound) = collision_sound {
+        entity.insert(CollisionSound(sound));
+    } else {
+        entity.remove::<CollisionSound>();
+    }
+    if use_center_of_mass_splash_damage {
+        entity.insert(CenterOfMassSplashDamage);
+    } else {
+        entity.remove::<CenterOfMassSplashDamage>();
+    }
+    if let Some(reset_secs) = gc_lifetime_secs {
+        if entity.get::<WorldObjectGc>().is_none() {
+            entity.insert(WorldObjectGc::new(reset_secs));
+        }
+    } else {
+        entity.remove::<WorldObjectGc>();
+    }
 }
 
-pub fn find_entity_by_net_id(world: &mut World, net_id: &net::message::NetworkID) -> Option<Entity> {
+pub fn dispatch_game_object_on_death(kind: GameObjectKind, entity: Entity, world: &mut World) {
+    match kind {
+        GameObjectKind::Biped => crate::pawn::biped::on_biped_death(entity, world),
+        GameObjectKind::Spaceship => crate::pawn::spaceship::on_spaceship_death(entity, world),
+        GameObjectKind::Fighter => crate::pawn::fighter::on_fighter_death(entity, world),
+        GameObjectKind::Truck => crate::pawn::truck::on_truck_death(entity, world),
+        GameObjectKind::Hovercraft => crate::pawn::hovercraft::on_hovercraft_death(entity, world),
+        _ => {}
+    }
+}
+
+pub fn find_entity_by_net_id(
+    world: &mut World,
+    net_id: &net::message::NetworkID,
+) -> Option<Entity> {
     if let Some(networked) = world.get_resource::<crate::NetworkEntityMap>()
         && let Some(entity) = networked.get_entity(net_id)
     {
@@ -122,6 +74,61 @@ pub fn find_entity_by_net_id(world: &mut World, net_id: &net::message::NetworkID
         .find_map(|(entity, entity_net_id)| (entity_net_id == net_id).then_some(entity))
 }
 
+fn spawn_game_object(kind: GameObjectKind, entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+    match kind {
+        GameObjectKind::Biped => crate::pawn::biped::spawn_biped(entity, cmd, world),
+        GameObjectKind::Spaceship => crate::pawn::spaceship::spawn_spaceship(entity, cmd, world),
+        GameObjectKind::SpaceshipShield => {
+            crate::shield::spawn_spaceship_shield(entity, cmd, world)
+        }
+        GameObjectKind::Fighter => crate::pawn::fighter::spawn_fighter(entity, cmd, world),
+        GameObjectKind::Truck => crate::pawn::truck::spawn_truck(entity, cmd, world),
+        GameObjectKind::Hovercraft => crate::pawn::hovercraft::spawn_hovercraft(entity, cmd, world),
+        GameObjectKind::Planet | GameObjectKind::Shotgun => {
+            panic!("GameObjectKind::{kind:?} has no spawn implementation");
+        }
+        GameObjectKind::Pistol => crate::weapon::pistol::spawn_pistol(entity, cmd, world),
+        GameObjectKind::Beamer => crate::weapon::beamer::spawn_beamer(entity, cmd, world),
+        GameObjectKind::Rifle => crate::weapon::rifle::spawn_rifle(entity, cmd, world),
+        GameObjectKind::Smg => crate::weapon::smg::spawn_smg(entity, cmd, world),
+        GameObjectKind::Failsafe => crate::weapon::failsafe::spawn_failsafe(entity, cmd, world),
+        GameObjectKind::HailMary => crate::weapon::hail_mary::spawn_hail_mary(entity, cmd, world),
+        GameObjectKind::Thumper => crate::weapon::thumper::spawn_thumper(entity, cmd, world),
+        GameObjectKind::Lobber => crate::weapon::lobber::spawn_lobber(entity, cmd, world),
+        GameObjectKind::CoilLauncher => {
+            crate::weapon::coil_launcher::spawn_coil_launcher(entity, cmd, world)
+        }
+        GameObjectKind::HailMaryProjectile => {
+            crate::projectile::hail_mary::spawn_remote_hail_mary(entity, cmd, world)
+        }
+        GameObjectKind::ThumperProjectile => {
+            crate::projectile::thumper::spawn_remote_thumper(entity, cmd, world)
+        }
+        GameObjectKind::FailsafeProjectile => {
+            crate::projectile::failsafe::spawn_remote_failsafe(entity, cmd, world)
+        }
+        GameObjectKind::PistolProjectile => {
+            crate::projectile::pistol::spawn_remote_pistol(entity, cmd, world)
+        }
+        GameObjectKind::RifleProjectile => {
+            crate::projectile::rifle::spawn_remote_rifle(entity, cmd, world)
+        }
+        GameObjectKind::LobberProjectile => {
+            crate::projectile::lobber::spawn_remote_lobber(entity, cmd, world)
+        }
+        GameObjectKind::CoilLauncherProjectile => {
+            crate::projectile::coil_launcher::spawn_remote_coil_launcher(entity, cmd, world)
+        }
+        GameObjectKind::FighterRocketProjectile => {
+            crate::projectile::fighter_rocket::spawn_remote_fighter_rocket(entity, cmd, world)
+        }
+        GameObjectKind::Jetpack => {
+            crate::pawn::biped_ability::spawn_jetpack_pickup(entity, cmd, world)
+        }
+        GameObjectKind::Dash => crate::pawn::biped_ability::spawn_dash_pickup(entity, cmd, world),
+    }
+}
+
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.
 /// Queue via `commands.queue(SpawnGameObjectCommand { entity, cmd })`.
 pub struct SpawnGameObjectCommand {
@@ -131,36 +138,14 @@ pub struct SpawnGameObjectCommand {
 
 impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
-        // Insert NetworkID before type-specific spawn so the on_add hook for GameObjectKind
-        // can use its presence as a guard to skip already-spawned entities.
         world
             .entity_mut(self.entity)
             .insert((self.cmd.net_id.clone(), self.cmd.kind.clone()));
-        let registration = {
-            let registry = world.resource::<GameObjectRegistry>();
-            registry.get(self.cmd.kind.clone())
-        };
-        (registration.spawn)(self.entity, &self.cmd, world);
-        if let Some(parent_net_id) = &self.cmd.parent_net_id {
-            if let Some(parent) = find_entity_by_net_id(world, parent_net_id) {
-                world.entity_mut(parent).add_child(self.entity);
-            }
-        }
-        if registration.splash_damage_uses_center_of_mass {
-            world
-                .entity_mut(self.entity)
-                .insert(CenterOfMassSplashDamage);
-        } else {
-            world
-                .entity_mut(self.entity)
-                .remove::<CenterOfMassSplashDamage>();
-        }
-        if let Some(reset_secs) = registration.gc_lifetime_secs
-            && world.get::<WorldObjectGc>(self.entity).is_none()
+        spawn_game_object(self.cmd.kind.clone(), self.entity, &self.cmd, world);
+        if let Some(parent_net_id) = &self.cmd.parent_net_id
+            && let Some(parent) = find_entity_by_net_id(world, parent_net_id)
         {
-            world
-                .entity_mut(self.entity)
-                .insert(WorldObjectGc::new(reset_secs));
+            world.entity_mut(parent).add_child(self.entity);
         }
     }
 }

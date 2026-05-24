@@ -10,20 +10,17 @@ use bevy_hanabi_plugin::prelude::spawn_spaceship_death_explosion_effect;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
-    *,
-};
+use super::vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount};
+#[cfg(feature = "client")]
+use super::{GatherInputSet, MouseSensitivity, MovePawnsSet, PawnInputKind, Possessed};
 #[cfg(feature = "client")]
 use crate::flash::spawn_flash;
 use crate::{
-    GameObject, GameObjectKind,
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
     health::{CollisionDamageConfig, Health, LastDamageSource},
     reticle::AimReticle,
     shield::spawn_attached_spaceship_shield,
-    spawn::AppGameObjectExt,
 };
 
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
@@ -37,37 +34,25 @@ const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
-    fn build(&self, _app: &mut App) {
-        _app.register_game_object::<SpaceshipPawnComponent>();
+    fn build(&self, app: &mut App) {
         #[cfg(feature = "client")]
-        _app.add_systems(
+        app.add_systems(
             FixedPreUpdate,
             (
                 gather_spaceship_input
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(GatherInputSet),
-                move_pawns::<SpaceshipPawnComponent>().in_set(MovePawnsSet),
+                move_spaceships.in_set(MovePawnsSet),
             )
                 .chain(),
         );
+        #[cfg(not(feature = "client"))]
+        let _ = app;
     }
 }
 
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipPawnComponent;
-
-impl Pawn for SpaceshipPawnComponent {
-    fn apply_input(
-        &mut self,
-        world: &mut PhysicsWorld,
-        body: &RigidBodyHandleComponent,
-        input: PawnInputKind,
-    ) {
-        if let PawnInputKind::Spaceship(i) = input {
-            apply_spaceship_movement(world, body, i, self);
-        }
-    }
-}
 
 impl VehiclePawn for SpaceshipPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
@@ -75,12 +60,7 @@ impl VehiclePawn for SpaceshipPawnComponent {
     const DRIVER_INTERACT_RADIUS: f32 = 0.8;
 }
 
-impl GameObject for SpaceshipPawnComponent {
-    const KIND: GameObjectKind = GameObjectKind::Spaceship;
-    const GC_LIFETIME_SECS: Option<f32> = Some(300.0);
-    const SPLASH_DAMAGE_USES_CENTER_OF_MASS: bool = false;
-
-    fn spawn(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_spaceship(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
         let transform = Transform {
             translation: cmd.position.into(),
             rotation: cmd.rotation.into(),
@@ -137,9 +117,10 @@ impl GameObject for SpaceshipPawnComponent {
                 .entity_mut(entity)
                 .insert((SceneRoot(scene), Visibility::default()));
         }
-    }
+        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
+}
 
-    fn on_death(entity: Entity, world: &mut World) {
+pub fn on_spaceship_death(entity: Entity, world: &mut World) {
         #[cfg(feature = "client")]
         {
             let (position, velocity) = world
@@ -173,7 +154,6 @@ impl GameObject for SpaceshipPawnComponent {
             );
         }
         super::vehicle::handle_vehicle_death(entity, world);
-    }
 }
 
 #[cfg(feature = "client")]
@@ -328,4 +308,21 @@ pub fn apply_spaceship_movement(
         torque *= MAX_TORQUE / torque_mag;
     }
     body.apply_torque_impulse(torque, true);
+}
+
+#[cfg(feature = "client")]
+fn move_spaceships(
+    mut world: ResMut<PhysicsWorld>,
+    mut pawns: Query<(
+        &mut Possessed,
+        &RigidBodyHandleComponent,
+        &mut SpaceshipPawnComponent,
+    )>,
+) {
+    for (mut possessed, handle, mut spaceship) in &mut pawns {
+        let Some(PawnInputKind::Spaceship(input)) = possessed.consume() else {
+            continue;
+        };
+        apply_spaceship_movement(&mut world, handle, input, &mut spaceship);
+    }
 }

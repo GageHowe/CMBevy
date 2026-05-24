@@ -8,10 +8,9 @@ use physics::physics_world::*;
 use super::rifle;
 use super::{Projectile, helpers, tick_projectiles};
 use crate::{
-    GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 600.0;
@@ -140,10 +139,7 @@ pub fn spawn(
     entity
 }
 
-impl GameObject for PistolProjectile {
-    const KIND: GameObjectKind = GameObjectKind::PistolProjectile;
-
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+pub fn spawn_remote_pistol(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
@@ -155,13 +151,13 @@ impl GameObject for PistolProjectile {
             RADIUS,
             "event:/Weapons/RifleShot",
         );
-    }
+        crate::insert_spawn_metadata(entity, world, None, true, None, true);
 }
 
 pub struct PistolProjectilePlugin;
 impl Plugin for PistolProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<PistolProjectile>().add_systems(
+        app.add_systems(
             FixedUpdate,
             tick_projectiles::<PistolProjectile>
                 .after(step_physics)

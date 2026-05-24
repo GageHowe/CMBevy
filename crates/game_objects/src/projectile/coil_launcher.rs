@@ -7,10 +7,9 @@ use physics::physics_world::*;
 
 use super::{Projectile, ProjectileState, helpers, tick_projectiles};
 use crate::{
-    GameObject,
     health::{Health, LastDamageSource},
     shield::Shield,
-    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 100.0;
@@ -192,10 +191,7 @@ pub fn spawn(
     entity
 }
 
-impl GameObject for CoilLauncherProjectile {
-    const KIND: GameObjectKind = GameObjectKind::CoilLauncherProjectile;
-
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+pub fn spawn_remote_coil_launcher(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
@@ -208,14 +204,13 @@ impl GameObject for CoilLauncherProjectile {
             "event:/Weapons/SniperShot",
         );
         world.entity_mut(entity).insert(GravityScale(GRAVITY_SCALE));
-    }
+        crate::insert_spawn_metadata(entity, world, None, true, None, true);
 }
 
 pub struct CoilLauncherProjectilePlugin;
 impl Plugin for CoilLauncherProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<CoilLauncherProjectile>()
-            .add_systems(
+        app.add_systems(
                 FixedUpdate,
                 tick_projectiles::<CoilLauncherProjectile>
                     .after(step_physics)

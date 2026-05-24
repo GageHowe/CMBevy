@@ -5,11 +5,10 @@ use physics::physics_world::*;
 
 use super::{Projectile, helpers, tick_projectiles};
 use crate::{
-    GameObject,
     health::{DamageCause, Health, LastDamageSource},
     shield::Shield,
     sound::SoundEmitter,
-    spawn::{AppGameObjectExt, CenterOfMassSplashDamage},
+    spawn::CenterOfMassSplashDamage,
 };
 
 pub const SPEED: f32 = 500.0;
@@ -160,10 +159,7 @@ pub fn spawn(
 
 /// Spawns a Hail Mary projectile when a SpawnCommand arrives (other clients receiving server broadcast).
 /// starting_velocity already includes the shooter's velocity, computed server-side.
-impl GameObject for HailMaryProjectile {
-    const KIND: GameObjectKind = GameObjectKind::HailMaryProjectile;
-
-    fn spawn(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+pub fn spawn_remote_hail_mary(entity: Entity, cmd: &SpawnCommand, world: &mut World) {
         helpers::insert_remote_projectile(
             entity,
             cmd,
@@ -196,14 +192,13 @@ impl GameObject for HailMaryProjectile {
                 .id();
             world.entity_mut(entity).add_child(light);
         }
-    }
+        crate::insert_spawn_metadata(entity, world, None, true, None, true);
 }
 
 pub struct HailMaryProjectilePlugin;
 impl Plugin for HailMaryProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<HailMaryProjectile>()
-            .add_systems(
+        app.add_systems(
                 FixedUpdate,
                 tick_projectiles::<HailMaryProjectile>
                     .after(step_physics)

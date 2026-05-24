@@ -2,7 +2,6 @@ use bevy::{prelude::*, transform::TransformSystems};
 use rapier3d::prelude::*;
 
 use super::*;
-use crate::spawn::AppGameObjectExt;
 
 #[cfg(feature = "client")]
 mod controls;
@@ -13,6 +12,7 @@ mod movement;
 
 #[cfg(feature = "client")]
 pub(crate) use controls::consume_fixed_press;
+pub use lifecycle::{on_biped_death, spawn_biped};
 #[cfg(feature = "client")]
 pub use look::draw_biped_debug;
 #[cfg(feature = "client")]
@@ -81,8 +81,7 @@ pub struct BipedPawnComponent {
 pub struct BipedPlugin;
 impl Plugin for BipedPlugin {
     fn build(&self, app: &mut App) {
-        app.register_game_object::<BipedPawnComponent>()
-            .init_resource::<MouseSensitivity>();
+        app.init_resource::<MouseSensitivity>();
         app.add_systems(FixedUpdate, look::update_slide_camera);
         #[cfg(feature = "client")]
         {
