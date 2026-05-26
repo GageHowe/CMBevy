@@ -1,5 +1,5 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
-use common::{GameObjectKind, tick::Ticker};
+use common::tick::Ticker;
 use game_objects::{
     Team,
     bot::{BotController, collect_contexts},
@@ -209,7 +209,7 @@ fn respawn_singleplayer(
         return;
     };
     let (entity, _, _) = spawn_game_object(
-        GameObjectKind::Biped,
+        net::message::SpawnType::Biped,
         position,
         rotation,
         velocity,
@@ -226,7 +226,7 @@ fn respawn_singleplayer(
 fn run_singleplayer_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
-    weapon_kinds: Query<&GameObjectKind>,
+    smgs: Query<(), With<game_objects::weapon::smg::SmgComponent>>,
     mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     reticles: Query<&game_objects::reticle::AimReticle>,
@@ -252,7 +252,7 @@ fn run_singleplayer_bots(
             output.aim_origin,
             output.aim_dir,
             bot.next_temp_id(),
-            &weapon_kinds,
+            &smgs,
             &mut pawn_slots.p0(),
             &mut weapon_runtime,
             &mut beamers,
@@ -271,7 +271,7 @@ fn fire_singleplayer_bot_weapon(
     origin: Vec3,
     dir: Vec3,
     temp_id: u32,
-    weapon_kinds: &Query<&GameObjectKind>,
+    smgs: &Query<(), With<game_objects::weapon::smg::SmgComponent>>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     beamers: &mut Query<&mut game_objects::weapon::beamer::BeamerComponent>,
@@ -289,7 +289,7 @@ fn fire_singleplayer_bot_weapon(
     }) else {
         return;
     };
-    if weapon_kinds.get(weapon_entity).ok() == Some(&GameObjectKind::Beamer) {
+    if beamers.contains(weapon_entity) {
         if want_fire {
             game_objects::weapon::beamer::tick_singleplayer_beam(
                 weapon_entity,
@@ -314,10 +314,10 @@ fn fire_singleplayer_bot_weapon(
     if !want_fire {
         return;
     }
-    let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
+    let Ok((_, _)) = weapon_runtime.get_mut(weapon_entity) else {
         return;
     };
-    let dir = if weapon_kinds.get(weapon_entity).ok() == Some(&GameObjectKind::Smg) {
+    let dir = if smgs.contains(weapon_entity) {
         game_objects::weapon::smg::spread_dir(dir)
     } else {
         dir
@@ -326,7 +326,6 @@ fn fire_singleplayer_bot_weapon(
         shooter,
         weapon_entity,
         &weapon_net_id,
-        config.projectile_kind.clone(),
         temp_id,
         origin,
         dir,
@@ -337,7 +336,6 @@ fn fire_singleplayer_bot_weapon(
         world,
         net_ids,
         None,
-        tick,
         None,
     );
 }

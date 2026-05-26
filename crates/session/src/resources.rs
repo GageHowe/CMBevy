@@ -1,35 +1,28 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-#[cfg(feature = "client")]
-use common::GameObjectKind;
 #[cfg(not(feature = "client"))]
 use game_objects::NetworkEntityMap;
 #[cfg(not(feature = "client"))]
 use game_objects::level::SpawnPoint;
-#[cfg(not(feature = "client"))]
-use game_objects::pawn::VehicleComponent;
-#[cfg(feature = "client")]
-use game_objects::pawn::WeaponSlots;
-#[cfg(feature = "client")]
-use game_objects::pawn::biped::BipedPawnComponent;
-#[cfg(not(feature = "client"))]
-use game_objects::pawn::{BipedPawnComponent, WeaponSlots};
-#[cfg(not(feature = "client"))]
-use game_objects::pawn::{CharacterMount, HeldWeaponMap, Mounted, PawnInputKind};
-#[cfg(feature = "client")]
-use game_objects::pawn::{CharacterMount, Mounted, Possessed};
 #[cfg(feature = "client")]
 use game_objects::projectile::{PredictedProjectileMap, ProjectileState};
-#[cfg(feature = "client")]
-use game_objects::weapon::WeaponState;
 #[cfg(not(feature = "client"))]
 use game_objects::weapon::{WeaponConfig, WeaponState};
-#[cfg(not(feature = "client"))]
-use net::message::GameObjectKind;
 use net::message::{NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
 use net::quic::ConnectionId;
+use ::pawn as pawn_crate;
+#[cfg(not(feature = "client"))]
+use ::pawn::VehicleComponent;
+#[cfg(feature = "client")]
+use ::pawn::WeaponSlots;
+#[cfg(feature = "client")]
+use ::pawn::biped::BipedPawnComponent;
+#[cfg(not(feature = "client"))]
+use ::pawn::{BipedPawnComponent, CharacterMount, HeldWeaponMap, Mounted, PawnInputKind, WeaponSlots};
+#[cfg(feature = "client")]
+use ::pawn::{CharacterMount, Mounted, Possessed};
 
 #[cfg(feature = "client")]
 #[derive(Resource, Clone)]
@@ -124,15 +117,14 @@ pub(crate) struct ClientMessageParams<'w, 's> {
         ),
     >,
     pub networked: Res<'w, game_objects::NetworkEntityMap>,
-    pub health_q: Query<'w, 's, &'static mut game_objects::health::Health>,
     pub camera: Query<'w, 's, Entity, With<Camera3d>>,
     pub projectile_q: Query<'w, 's, (Entity, &'static ProjectileState)>,
     pub predicted_projectiles: ResMut<'w, PredictedProjectileMap>,
-    pub object_kinds: Query<'w, 's, &'static GameObjectKind>,
+    pub interaction_names: Query<'w, 's, &'static game_objects::interaction::InteractionName>,
+    pub pickup_fns: Query<'w, 's, &'static pawn_crate::biped_ability::OnPickup>,
     pub mounted: Query<'w, 's, &'static Mounted>,
     pub mounts: Query<'w, 's, &'static CharacterMount>,
     pub mount_anchor_transforms: Query<'w, 's, &'static Transform>,
-    pub weapon_states: Query<'w, 's, &'static mut WeaponState>,
     pub pending_weapon_pickups: ResMut<'w, PendingWeaponPickups>,
 }
 
@@ -208,7 +200,6 @@ pub struct ServerMessageParams<'w, 's> {
         (
             Entity,
             &'static NetworkID,
-            &'static GameObjectKind,
             Option<&'static physics::physics_world::RigidBodyHandleComponent>,
             Option<&'static ChildOf>,
             Option<&'static Transform>,
@@ -227,5 +218,24 @@ pub struct ServerMessageParams<'w, 's> {
     pub beamers: Query<'w, 's, &'static mut game_objects::weapon::beamer::BeamerComponent>,
     pub health_q: Query<'w, 's, &'static mut game_objects::health::Health>,
     pub last_damage_q: Query<'w, 's, &'static mut game_objects::health::LastDamageSource>,
-    pub on_pickup_q: Query<'w, 's, &'static game_objects::pawn::biped_ability::OnPickup>,
+    pub on_pickup_q: Query<'w, 's, &'static pawn_crate::biped_ability::OnPickup>,
+    pub biped_spawnables: Query<'w, 's, (), With<pawn_crate::BipedPawnComponent>>,
+    pub spaceship_spawnables: Query<'w, 's, (), With<pawn_crate::SpaceshipPawnComponent>>,
+    pub fighter_spawnables: Query<'w, 's, (), With<pawn_crate::FighterPawnComponent>>,
+    pub truck_spawnables: Query<'w, 's, (), With<pawn_crate::TruckPawnComponent>>,
+    pub hovercraft_spawnables: Query<'w, 's, (), With<pawn_crate::HovercraftPawnComponent>>,
+    pub shield_spawnables: Query<'w, 's, (), With<game_objects::shield::Shield>>,
+    pub pistol_spawnables: Query<'w, 's, (), With<game_objects::weapon::pistol::PistolComponent>>,
+    pub beamer_spawnables: Query<'w, 's, (), With<game_objects::weapon::beamer::BeamerComponent>>,
+    pub rifle_spawnables: Query<'w, 's, (), With<game_objects::weapon::rifle::RifleComponent>>,
+    pub smg_spawnables: Query<'w, 's, (), With<game_objects::weapon::smg::SmgComponent>>,
+    pub hail_mary_spawnables:
+        Query<'w, 's, (), With<game_objects::weapon::hail_mary::HailMaryComponent>>,
+    pub thumper_spawnables:
+        Query<'w, 's, (), With<game_objects::weapon::thumper::ThumperComponent>>,
+    pub lobber_spawnables: Query<'w, 's, (), With<game_objects::weapon::lobber::LobberComponent>>,
+    pub coil_launcher_spawnables:
+        Query<'w, 's, (), With<game_objects::weapon::coil_launcher::CoilLauncherComponent>>,
+    pub interaction_name_spawnables:
+        Query<'w, 's, &'static game_objects::interaction::InteractionName>,
 }

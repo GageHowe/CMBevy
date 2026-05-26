@@ -12,6 +12,7 @@ common = { path = "../crates/common" }
 physics = { path = "../crates/physics" }
 net = { path = "../crates/net", features = ["server"] }
 game_objects = { path = "../crates/game_objects" }
+pawn = { path = "../crates/pawn" }
 scripting = { path = "../crates/scripting" }
 master_plugin = { path = "../crates/master_plugin", features = ["server"] }
 bevy = { workspace = true, features = ["bevy_log", "multi_threaded", "std"] }

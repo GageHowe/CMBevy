@@ -3,10 +3,67 @@ use bevy::{
     prelude::*,
 };
 pub use common::{
-    BodyState, GameObjectKind, LeaderboardScope, NetworkID, NetworkIDResource, PawnInputKind,
-    ScoringOption, SimulationState, WeaponState,
+    BodyState, LeaderboardScope, NetworkID, NetworkIDResource, PawnInputKind, ScoringOption,
+    SimulationState, WeaponState,
 };
 use serde::{Deserialize, Serialize};
+
+pub use crate::replication::ComponentUpdate;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Default, Reflect)]
+#[serde(rename_all = "snake_case")]
+#[reflect(Default)]
+pub enum SpawnType {
+    #[default]
+    Biped,
+    Spaceship,
+    SpaceshipShield,
+    Fighter,
+    Truck,
+    Hovercraft,
+    Planet,
+    Shotgun,
+    Pistol,
+    Beamer,
+    Rifle,
+    Smg,
+    Failsafe,
+    HailMary,
+    Thumper,
+    Lobber,
+    CoilLauncher,
+    TetherGun,
+    Jetpack,
+    Dash,
+}
+
+impl SpawnType {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "biped" => Self::Biped,
+            "spaceship" => Self::Spaceship,
+            "spaceship_shield" | "shield" => Self::SpaceshipShield,
+            "fighter" => Self::Fighter,
+            "truck" => Self::Truck,
+            "hovercraft" => Self::Hovercraft,
+            "planet" => Self::Planet,
+            "shotgun" => Self::Shotgun,
+            "pistol" => Self::Pistol,
+            "beamer" => Self::Beamer,
+            "rifle" => Self::Rifle,
+            "smg" => Self::Smg,
+            "failsafe" => Self::Failsafe,
+            "hail_mary" | "hailmary" => Self::HailMary,
+            "thumper" => Self::Thumper,
+            "lobber" => Self::Lobber,
+            "coil_launcher" | "coillauncher" => Self::CoilLauncher,
+            "tether_gun" | "tethergun" => Self::TetherGun,
+            "jetpack" => Self::Jetpack,
+            "dash" => Self::Dash,
+            _ => return None,
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -36,18 +93,16 @@ pub struct SpawnCommand {
     pub net_id: NetworkID,
     /// Optional network id of the parent entity this object should attach under.
     pub parent_net_id: Option<NetworkID>,
-    /// Initial world-space translation.
     pub position: Vec3,
-    /// Initial world-space linear velocity of the spawned object itself.
     pub starting_velocity: Vec3,
-    /// Inherited platform/shooter velocity used by some projectile logic.
+    /// Inherited platform/shooter velocity used by some projectile logic. (TODO: remove this if possible, just have callers add it to velocity, or get velocity from local)
     pub shooter_velocity: Vec3,
     /// Initial world-space rotation.
     pub rotation: Quat,
     /// Authoritative server tick the spawn occurred on.
     pub server_tick: u64,
     /// Concrete game object type to instantiate.
-    pub kind: GameObjectKind,
+    pub spawn_type: SpawnType,
 }
 
 /// Compact replicated scoreboard data used by the client HUD.
@@ -105,10 +160,16 @@ pub enum MsgType {
     MeleeHitRequest(NetworkID),
     FireRequest {
         weapon: NetworkID,
-        kind: GameObjectKind,
         temp_id: u32,
         origin: Vec3,
         dir: Vec3,
+    },
+    ProjectileSpawn {
+        weapon: NetworkID,
+        net_id: NetworkID,
+        position: Vec3,
+        starting_velocity: Vec3,
+        shooter_velocity: Vec3,
     },
     StartBeamCharge(NetworkID),
     StartBeam {
@@ -129,15 +190,13 @@ pub enum MsgType {
         net_id: NetworkID,
     },
     HitResult(Vec3, Vec3, Option<NetworkID>),
-    /// server -> client: "this entity has this health"
-    HealthUpdate(NetworkID, f32),
     TimePing(u64),
     TimePong(u64),
     OnscreenMessage(String),
     JetpackFx(NetworkID, bool),
     DashFx(NetworkID, Vec3),
     AbilityPickup(NetworkID, NetworkID),
-    WeaponState(NetworkID, WeaponState),
+    ComponentUpdate(ComponentUpdate),
     Scoreboard(ScoreboardSnapshot),
     MapHash(String),
     FileData(String, Vec<u8>),

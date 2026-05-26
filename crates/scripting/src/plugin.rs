@@ -2,10 +2,11 @@
 
 use bevy::prelude::*;
 use game_objects::{
+    SpawnType,
     health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths},
-    pawn::PlayerRegistry,
 };
 use mlua::prelude::Lua;
+use pawn::PlayerRegistry;
 
 use crate::{
     api::register_script_functions,
@@ -19,7 +20,7 @@ pub(crate) struct PendingWeaponGrants(pub Vec<WeaponGrant>);
 
 pub(crate) struct WeaponGrant {
     pub owner: Entity,
-    pub kind: common::GameObjectKind,
+    pub spawn_type: SpawnType,
     pub weapon: Option<(Entity, common::NetworkID, net::message::SpawnCommand)>,
 }
 
@@ -72,13 +73,13 @@ fn eval_script_fixed_update(world: &mut World) {
 
 fn process_weapon_grants(world: &mut World) {
     use game_objects::{
-        SpawnGameObjectCommand, interaction::Interactable, pawn::WeaponSlots,
-        weapon::helpers::give_world_weapon,
+        SpawnGameObjectCommand, interaction::Interactable, weapon::helpers::give_world_weapon,
     };
     use net::{
         message::MsgType,
         quic::{Channel, QuicManager, SendTarget},
     };
+    use ::pawn::{HeldWeaponMap, WeaponSlots};
     use physics::physics_world::{PhysicsWorld, rb_pos};
 
     let mut grants = world
@@ -110,7 +111,7 @@ fn process_weapon_grants(world: &mut World) {
                 shooter_velocity: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
                 server_tick: tick,
-                kind: grant.kind.clone(),
+                spawn_type: grant.spawn_type,
             };
             let weapon_entity = world.spawn_empty().id();
             SpawnGameObjectCommand {
@@ -141,7 +142,7 @@ fn process_weapon_grants(world: &mut World) {
             .is_some_and(|quic| quic.client_connected)
         {
             let Some(parent) = world
-                .get::<game_objects::pawn::biped::BipedPawnComponent>(grant.owner)
+                .get::<pawn::biped::BipedPawnComponent>(grant.owner)
                 .and_then(|biped| biped.pitch_pivot)
             else {
                 grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
@@ -161,7 +162,7 @@ fn process_weapon_grants(world: &mut World) {
         if !ok {
             continue;
         }
-        if let Some(mut held) = world.get_resource_mut::<game_objects::pawn::HeldWeaponMap>() {
+        if let Some(mut held) = world.get_resource_mut::<HeldWeaponMap>() {
             held.0.insert(weapon_id.clone(), grant.owner);
         }
         world.entity_mut(weapon_entity).remove::<Interactable>();

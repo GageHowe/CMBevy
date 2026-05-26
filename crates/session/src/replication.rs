@@ -1,20 +1,19 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
 use game_objects::{
-    health::Health,
     lifecycle::spawn_game_object,
     mode::ModeConfig,
     pawn::{HeldWeaponMap, PlayerRegistry, WeaponSlots},
     *,
 };
-use net::{message::*, quic::*};
+use net::{message::*, quic::*, replication};
 use physics::physics_world::*;
 
 use crate::resources::*;
 
 pub(super) fn spawn_player(
     conn_id: ConnectionId,
-    kind: GameObjectKind,
+    spawn_type: SpawnType,
     team: Team,
     spawn_pos: Vec3,
     spawn_rot: Quat,
@@ -25,9 +24,9 @@ pub(super) fn spawn_player(
     commands: &mut Commands,
     tick: u64,
 ) {
-    let kind_debug = format!("{kind:?}");
+    let kind_debug = format!("{spawn_type:?}");
     let (entity, net_id, spawn_cmd) = spawn_game_object(
-        kind, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
+        spawn_type, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
     );
     commands.entity(entity).insert(team);
 
@@ -92,16 +91,17 @@ pub(super) fn kill_player(
     let _ = net_id;
 }
 
-/// Broadcasts authoritative health changes for any networked entity whose health changed this frame.
-pub fn broadcast_health_updates(
-    mut quic: ResMut<QuicManager>,
-    health_q: Query<(&Health, &NetworkID), Changed<Health>>,
-) {
-    for (health, net_id) in health_q.iter() {
+pub fn broadcast_component_updates(world: &mut World) {
+    let updates = replication::collect_changed_component_updates(world);
+    if updates.is_empty() {
+        return;
+    }
+    let mut quic = world.resource_mut::<QuicManager>();
+    for update in updates {
         quic.send(
             SendTarget::All,
             Channel::Ordered,
-            &MsgType::HealthUpdate(net_id.clone(), health.current),
+            &MsgType::ComponentUpdate(update),
         );
     }
 }

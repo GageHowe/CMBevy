@@ -2,6 +2,7 @@
 pub mod clientonly;
 pub mod message;
 pub mod quic;
+pub mod replication;
 #[cfg(not(feature = "client"))]
 pub mod serveronly;
 

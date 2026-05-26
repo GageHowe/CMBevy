@@ -66,7 +66,7 @@ impl QuicManager {
             tx,
             rx: Mutex::new(event_rx),
         });
-        println!("QUIC server listening on {addr}");
+        println!("Starting QUIC server on {addr}");
     }
 
     pub fn enable_punch(&self, lobby_id: String) {

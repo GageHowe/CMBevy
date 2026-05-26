@@ -11,6 +11,7 @@ client = ["game_objects/client"]
 
 [dependencies]
 game_objects = { path = "../game_objects" }
+pawn = { path = "../pawn" }
 common = { path = "../common" }
 net = { path = "../net" }
 physics = { path = "../physics" }

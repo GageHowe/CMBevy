@@ -12,22 +12,19 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 * Do not create wrappers if they don't justify the indirection.
 
 ## rules
-* Read as many files as you need to understand the codebase.
+* Prefer glob imports over verbose manual imports.
+* Inline wrapper functions if they have many inputs/outputs, unless when it would to duplication.
 * If code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing/removing it. DO NOT delete todos.
 * Use minimal words/tokens.
-* State assumptions briefly.
-* If detail is necessary for correctness, include it.
 * When fixing bugs:
   * Find root cause, exact fix, minimal patch.
-* When implementing new features:
-  * Make MVP, no extra features.
-  * No hacks.
-  * No new structs when old struct do fine.
+* No new structs unless absolutely necessary.
 * Everything should be clean and minimal. Every line of code counts against you.
-* Decouple unrelated systems.
 * Don't use bevy's events/messages.
 * Simplicity: Simplicity and decoupling is everything. I prefer simple-looking imperative code over functional programming or clever one-liners.
 * Schedules: Use Update sparingly to keep framerate fast. Use SlowUpdate for things that don't have to happen each FixedUpdate.
+* No CCD.
+* for imports used for one package and not another, prefer `#[allow(unused_imports)]` over `#[cfg(feature = "<package>")]` 
 
 * When finished with a task, use make to build, addressing warnings (and test if necessary)
 * All movement and physics should be relative. When attaching, detaching, or spawning anything, it should inherit the velocity of its owner.

@@ -2,27 +2,21 @@ use bevy::prelude::*;
 use game_objects::{
     level::{LevelBytes, SpawnPoint},
     pawn::{HeldWeaponMap, Mounted, PendingRespawns, PlayerRegistry, WeaponSlots},
-    weapon::{WeaponConfig, WeaponState},
 };
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 use scripting::ScriptConfig;
 
-use crate::{
-    replication::{kill_player, slots_to_held, spawn_player},
-    resources::*,
-};
+use crate::replication::{kill_player, slots_to_held, spawn_player};
 
 fn send_existing_spawnable(
     conn_id: ConnectionId,
-    entity: Entity,
     net_id: &NetworkID,
-    kind: &GameObjectKind,
+    spawn_type: SpawnType,
     rb: Option<&RigidBodyHandleComponent>,
     child_of: Option<&ChildOf>,
     transform: Option<&Transform>,
     entity_net_ids: &Query<&NetworkID>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     quic: &mut QuicManager,
     world: &PhysicsWorld,
     tick: u64,
@@ -39,7 +33,7 @@ fn send_existing_spawnable(
         };
         Some(game_objects::lifecycle::make_spawn_command(
             net_id.clone(),
-            kind.clone(),
+            spawn_type,
             parent_net_id,
             position,
             starting_velocity,
@@ -56,10 +50,72 @@ fn send_existing_spawnable(
         Channel::Ordered,
         spawn_cmd,
     );
-    if game_objects::weapon::is_weapon_kind(kind)
-        && let Ok((state, _)) = weapon_runtime.get_mut(entity)
-    {
-        game_objects::weapon::send_weapon_state(quic, SendTarget::One(conn_id), net_id, *state);
+}
+
+fn spawn_type_for_entity(
+    entity: Entity,
+    biped_spawnables: &Query<(), With<game_objects::pawn::BipedPawnComponent>>,
+    spaceship_spawnables: &Query<(), With<game_objects::pawn::SpaceshipPawnComponent>>,
+    fighter_spawnables: &Query<(), With<game_objects::pawn::FighterPawnComponent>>,
+    truck_spawnables: &Query<(), With<game_objects::pawn::TruckPawnComponent>>,
+    hovercraft_spawnables: &Query<(), With<game_objects::pawn::HovercraftPawnComponent>>,
+    shield_spawnables: &Query<(), With<game_objects::shield::Shield>>,
+    pistol_spawnables: &Query<(), With<game_objects::weapon::pistol::PistolComponent>>,
+    beamer_spawnables: &Query<(), With<game_objects::weapon::beamer::BeamerComponent>>,
+    rifle_spawnables: &Query<(), With<game_objects::weapon::rifle::RifleComponent>>,
+    smg_spawnables: &Query<(), With<game_objects::weapon::smg::SmgComponent>>,
+    hail_mary_spawnables: &Query<(), With<game_objects::weapon::hail_mary::HailMaryComponent>>,
+    thumper_spawnables: &Query<(), With<game_objects::weapon::thumper::ThumperComponent>>,
+    lobber_spawnables: &Query<(), With<game_objects::weapon::lobber::LobberComponent>>,
+    coil_launcher_spawnables: &Query<(), With<game_objects::weapon::coil_launcher::CoilLauncherComponent>>,
+    interaction_names: &Query<&game_objects::interaction::InteractionName>,
+) -> Option<SpawnType> {
+    if biped_spawnables.contains(entity) {
+        return Some(SpawnType::Biped);
+    }
+    if spaceship_spawnables.contains(entity) {
+        return Some(SpawnType::Spaceship);
+    }
+    if fighter_spawnables.contains(entity) {
+        return Some(SpawnType::Fighter);
+    }
+    if truck_spawnables.contains(entity) {
+        return Some(SpawnType::Truck);
+    }
+    if hovercraft_spawnables.contains(entity) {
+        return Some(SpawnType::Hovercraft);
+    }
+    if shield_spawnables.contains(entity) {
+        return Some(SpawnType::SpaceshipShield);
+    }
+    if pistol_spawnables.contains(entity) {
+        return Some(SpawnType::Pistol);
+    }
+    if beamer_spawnables.contains(entity) {
+        return Some(SpawnType::Beamer);
+    }
+    if rifle_spawnables.contains(entity) {
+        return Some(SpawnType::Rifle);
+    }
+    if smg_spawnables.contains(entity) {
+        return Some(SpawnType::Smg);
+    }
+    if hail_mary_spawnables.contains(entity) {
+        return Some(SpawnType::HailMary);
+    }
+    if thumper_spawnables.contains(entity) {
+        return Some(SpawnType::Thumper);
+    }
+    if lobber_spawnables.contains(entity) {
+        return Some(SpawnType::Lobber);
+    }
+    if coil_launcher_spawnables.contains(entity) {
+        return Some(SpawnType::CoilLauncher);
+    }
+    match interaction_names.get(entity).ok().map(|name| name.0) {
+        Some("Jetpack") => Some(SpawnType::Jetpack),
+        Some("Dash") => Some(SpawnType::Dash),
+        _ => None,
     }
 }
 
@@ -78,16 +134,29 @@ pub(super) fn handle_connected(
     spawnables: &Query<(
         Entity,
         &NetworkID,
-        &GameObjectKind,
         Option<&RigidBodyHandleComponent>,
         Option<&ChildOf>,
         Option<&Transform>,
     )>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     pawn_slots: &Query<&mut WeaponSlots>,
     entity_net_ids: &Query<&NetworkID>,
     mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
-) -> bool {
+    biped_spawnables: &Query<(), With<game_objects::pawn::BipedPawnComponent>>,
+    spaceship_spawnables: &Query<(), With<game_objects::pawn::SpaceshipPawnComponent>>,
+    fighter_spawnables: &Query<(), With<game_objects::pawn::FighterPawnComponent>>,
+    truck_spawnables: &Query<(), With<game_objects::pawn::TruckPawnComponent>>,
+    hovercraft_spawnables: &Query<(), With<game_objects::pawn::HovercraftPawnComponent>>,
+    shield_spawnables: &Query<(), With<game_objects::shield::Shield>>,
+    pistol_spawnables: &Query<(), With<game_objects::weapon::pistol::PistolComponent>>,
+    beamer_spawnables: &Query<(), With<game_objects::weapon::beamer::BeamerComponent>>,
+    rifle_spawnables: &Query<(), With<game_objects::weapon::rifle::RifleComponent>>,
+    smg_spawnables: &Query<(), With<game_objects::weapon::smg::SmgComponent>>,
+    hail_mary_spawnables: &Query<(), With<game_objects::weapon::hail_mary::HailMaryComponent>>,
+    thumper_spawnables: &Query<(), With<game_objects::weapon::thumper::ThumperComponent>>,
+    lobber_spawnables: &Query<(), With<game_objects::weapon::lobber::LobberComponent>>,
+    coil_launcher_spawnables: &Query<(), With<game_objects::weapon::coil_launcher::CoilLauncherComponent>>,
+    interaction_names: &Query<&game_objects::interaction::InteractionName>,
+) -> Option<Vec<(Entity, NetworkID)>> {
     let mut teams = spawn_points
         .iter()
         .map(|(_, sp, _, _)| sp.team)
@@ -108,7 +177,7 @@ pub(super) fn handle_connected(
         registry.controlled_count(),
     ) else {
         eprintln!("conn {conn_id}: server ready but no spawn point resolved");
-        return false;
+        return None;
     };
 
     let held_ids: std::collections::HashSet<&NetworkID> = pawn_slots
@@ -116,28 +185,48 @@ pub(super) fn handle_connected(
         .flat_map(|s| s.slots.iter().map(|slot| slot.0.as_ref()))
         .flatten()
         .collect();
+    let mut snapshots = Vec::new();
     for child_pass in [false, true] {
-        for (entity, net_id, kind, rb, child_of, transform) in spawnables.iter() {
+        for (entity, net_id, rb, child_of, transform) in spawnables.iter() {
             if held_ids.contains(net_id) {
                 continue;
             }
             if child_of.is_some() != child_pass {
                 continue;
             }
+            let Some(spawn_type) = spawn_type_for_entity(
+                entity,
+                biped_spawnables,
+                spaceship_spawnables,
+                fighter_spawnables,
+                truck_spawnables,
+                hovercraft_spawnables,
+                shield_spawnables,
+                pistol_spawnables,
+                beamer_spawnables,
+                rifle_spawnables,
+                smg_spawnables,
+                hail_mary_spawnables,
+                thumper_spawnables,
+                lobber_spawnables,
+                coil_launcher_spawnables,
+                interaction_names,
+            ) else {
+                continue;
+            };
             send_existing_spawnable(
                 conn_id,
-                entity,
                 net_id,
-                kind,
+                spawn_type,
                 rb,
                 child_of,
                 transform,
                 entity_net_ids,
-                weapon_runtime,
                 quic,
                 world,
                 tick,
             );
+            snapshots.push((entity, net_id.clone()));
         }
     }
     for (biped_net_id, mounted) in mounted_bipeds.iter() {
@@ -153,7 +242,7 @@ pub(super) fn handle_connected(
     }
     spawn_player(
         conn_id,
-        GameObjectKind::Biped,
+        SpawnType::Biped,
         game_objects::Team(team),
         sp,
         sr,
@@ -164,7 +253,7 @@ pub(super) fn handle_connected(
         commands,
         tick,
     );
-    true
+    Some(snapshots)
 }
 
 pub(super) fn send_connection_files(
@@ -228,46 +317,5 @@ pub(super) fn handle_disconnected(
             commands,
             world,
         );
-    }
-}
-
-pub(super) fn flush_pending_connections(
-    quic: &mut QuicManager,
-    registry: &mut PlayerRegistry,
-    pending_connections: &mut PendingConnections,
-    net_ids: &mut NetworkIDResource,
-    sp: &mut ServerMessageParams<'_, '_>,
-    tick: u64,
-) {
-    let pending_conn_ids: Vec<_> = pending_connections.0.iter().copied().collect();
-    for conn_id in pending_conn_ids {
-        if registry.controlled_pawn(conn_id).is_some() {
-            pending_connections.0.remove(&conn_id);
-            continue;
-        }
-        if let Some(reason) = sp.level_ready.reason() {
-            eprintln!("pending conn {conn_id}: server world not ready: {reason}");
-            continue;
-        }
-        if handle_connected(
-            conn_id,
-            quic,
-            registry,
-            net_ids,
-            &mut sp.commands,
-            &sp.world,
-            tick,
-            &sp.spawn_points,
-            &sp.parent_transforms,
-            &sp.parent_parents,
-            &sp.parent_bodies,
-            &sp.spawnables,
-            &mut sp.weapon_runtime,
-            &sp.pawn_slots,
-            &sp.net_ids,
-            &sp.mounted_bipeds,
-        ) {
-            pending_connections.0.remove(&conn_id);
-        }
     }
 }

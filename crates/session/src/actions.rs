@@ -1,10 +1,11 @@
 use bevy::prelude::*;
 use game_objects::{
-    pawn::{biped_ability::OnPickup, *},
     weapon::{WeaponConfig, WeaponState},
     *,
 };
 use net::{message::*, quic::*};
+use ::pawn::{HeldWeaponMap, PlayerRegistry, VehicleComponent, WeaponSlots, biped_ability::OnPickup};
+use ::pawn as pawn_crate;
 use physics::physics_world::*;
 
 use crate::resources::*;
@@ -38,7 +39,7 @@ pub(super) fn apply_melee_hit_requests(
     registry: Res<PlayerRegistry>,
     networked: Res<NetworkEntityMap>,
     mut world: ResMut<PhysicsWorld>,
-    mut bipeds: Query<&mut game_objects::pawn::BipedPawnComponent>,
+    mut bipeds: Query<&mut pawn_crate::BipedPawnComponent>,
     mut health_q: Query<&mut game_objects::health::Health>,
     mut last_damage_q: Query<&mut game_objects::health::LastDamageSource>,
 ) {
@@ -58,12 +59,12 @@ pub(super) fn apply_melee_hit_requests(
         }
         let start = biped.melee_debug_start;
         let end = biped.melee_debug_end;
-        if !game_objects::pawn::biped::validate_melee_target(
+        if !pawn_crate::biped::validate_melee_target(
             &mut world, attacker, target, start, end,
         ) {
             continue;
         }
-        let impulse = game_objects::pawn::biped::melee_impulse(start, end);
+        let impulse = pawn_crate::biped::melee_impulse(start, end);
         world.apply_game_impulse(attacker, -impulse, None, None);
         if let Ok(mut health) = health_q.get_mut(target) {
             game_objects::health::attribute_damage(
@@ -72,7 +73,7 @@ pub(super) fn apply_melee_hit_requests(
                 Some(attacker),
                 game_objects::health::DamageCause::Unknown,
             );
-            health.apply_damage(game_objects::pawn::biped::MELEE_DAMAGE);
+            health.apply_damage(pawn_crate::biped::MELEE_DAMAGE);
         }
         world.apply_game_impulse(target, impulse, None, None);
         biped.melee_debug_ticks = 0;
@@ -93,7 +94,7 @@ pub(super) fn handle_interact(
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
     interactables: &Query<&game_objects::interaction::Interactable>,
-    mounts: &mut Query<&mut game_objects::pawn::CharacterMount>,
+    mounts: &mut Query<&mut pawn_crate::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     commands: &mut Commands,
     on_pickup_q: &Query<&OnPickup>,
@@ -112,11 +113,11 @@ pub(super) fn handle_interact(
         .0
         .get(&conn_id)
         .map(|(_, input)| input)
-        .and_then(|input| game_objects::pawn::aim_dir(world, character, Some(input)))
+        .and_then(|input| pawn_crate::aim_dir(world, character, Some(input)))
         .unwrap_or_else(|| body_forward(world, character));
 
     if vehicles.contains(target) || mounts.contains(target) {
-        game_objects::pawn::mount::handle_server_interact(
+        pawn_crate::mount::handle_server_interact(
             conn_id,
             controlled,
             character,
@@ -134,7 +135,7 @@ pub(super) fn handle_interact(
         return;
     }
 
-    if game_objects::pawn::biped_ability::interact_pickup(
+    if pawn_crate::biped_ability::interact_pickup(
         conn_id,
         character,
         character_net_id.clone(),
@@ -179,5 +180,5 @@ pub(super) fn handle_drop_ability(
     commands: &mut Commands,
     drop_dir: Vec3,
 ) {
-    game_objects::pawn::biped_ability::handle_drop_request(conn_id, registry, commands, drop_dir);
+    pawn_crate::biped_ability::handle_drop_request(conn_id, registry, commands, drop_dir);
 }

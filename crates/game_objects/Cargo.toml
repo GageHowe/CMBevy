@@ -3,6 +3,9 @@ name = "game_objects"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+path = "../lib.rs"
+
 [features]
 client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:bevy_hanabi_plugin", "dep:noise-functions"]
 

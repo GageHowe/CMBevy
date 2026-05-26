@@ -17,7 +17,7 @@ use scripting::{ScriptConfig, get_script_global};
 
 use crate::{
     actions::apply_melee_hit_requests,
-    replication::{broadcast_health_updates, broadcast_scoreboard, broadcast_tick, spawn_player},
+    replication::{broadcast_component_updates, broadcast_scoreboard, broadcast_tick, spawn_player},
     resources::*,
 };
 
@@ -92,7 +92,7 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,
-                broadcast_health_updates
+                broadcast_component_updates
                     .after(step_physics)
                     .before(broadcast_tick),
             )
@@ -100,6 +100,10 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(
                 FixedUpdate,
                 broadcast_tick.after(game_objects::health::handle_deaths),
+            )
+            .add_systems(
+                FixedPreUpdate,
+                crate::messages_server::flush_pending_connections.after(crate::on_message),
             );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobbyAdvertise(advertise.clone()))
@@ -290,7 +294,7 @@ fn tick_respawns(
     physics: Res<PhysicsWorld>,
 ) {
     let dt = time.delta_secs();
-    let ready: Vec<(ConnectionId, GameObjectKind, Team)> = pending
+    let ready: Vec<(ConnectionId, SpawnType, Team)> = pending
         .0
         .iter_mut()
         .filter_map(|(&id, (t, k, team))| {
@@ -398,7 +402,7 @@ fn process_console_commands(
                     )
                 {
                     let (entity, _, spawn_cmd) = game_objects::lifecycle::spawn_game_object(
-                        GameObjectKind::Biped,
+                        SpawnType::Biped,
                         pos,
                         rot,
                         vel,
@@ -595,7 +599,7 @@ fn spawn_restarted_player(
     };
     let spawn_cmd = game_objects::lifecycle::make_spawn_command(
         net_id.clone(),
-        GameObjectKind::Biped,
+        SpawnType::Biped,
         None,
         spawn_pos,
         spawn_vel,

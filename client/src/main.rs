@@ -17,10 +17,7 @@ use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
 use game_objects::{
     pawn::{self, biped::draw_melee_debug, mount::draw_mount_debug, *},
-    projectile::{
-        coil_launcher::CoilLauncherProjectile, hail_mary::HailMaryProjectile,
-        lobber::LobberProjectile, rifle::*, *,
-    },
+    projectile::*,
 };
 use reconciliation::*;
 use tick_sync::TickSyncPlugin;
@@ -184,10 +181,7 @@ fn main() {
     app.add_systems(
         FixedUpdate,
         (
-            draw_projectile_debug::<HailMaryProjectile>(Color::srgba(1.0, 0.3, 0.1, 0.9)),
-            draw_projectile_debug::<LobberProjectile>(Color::srgba(1.0, 0.5, 0.2, 0.9)),
-            draw_projectile_debug::<CoilLauncherProjectile>(Color::srgba(1.0, 0.9, 0.2, 0.9)),
-            draw_projectile_debug::<RifleProjectile>(Color::srgba(1.0, 0.9, 0.2, 0.9)),
+            draw_projectile_debug,
             draw_projectile_raycast_debug,
         )
             .after(step_physics)

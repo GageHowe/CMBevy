@@ -8,7 +8,7 @@ pub(super) fn run_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
     mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
-    weapon_kinds: Query<&game_objects::GameObjectKind>,
+    smgs: Query<(), With<game_objects::weapon::smg::SmgComponent>>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     reticles: Query<&AimReticle>,
     mut pawns: PawnInputParams,
@@ -33,7 +33,7 @@ pub(super) fn run_bots(
                 output.aim_origin,
                 output.aim_dir,
                 bot.next_temp_id(),
-                &weapon_kinds,
+                &smgs,
                 &mut pawn_slots.p0(),
                 &mut weapon_runtime,
                 &mut held_weapons,
@@ -55,7 +55,7 @@ pub(super) fn fire_active_weapon(
     origin: Vec3,
     dir: Vec3,
     temp_id: u32,
-    weapon_kinds: &Query<&game_objects::GameObjectKind>,
+    smgs: &Query<(), With<game_objects::weapon::smg::SmgComponent>>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     held_weapons: &mut game_objects::pawn::HeldWeaponMap,
@@ -63,7 +63,7 @@ pub(super) fn fire_active_weapon(
     world: &mut PhysicsWorld,
     net_ids: &mut NetworkIDResource,
     quic: &mut QuicManager,
-    tick: u64,
+    _tick: u64,
 ) {
     let Some((weapon_net_id, weapon_entity)) = ({
         let Ok(slots) = pawn_slots.get_mut(shooter) else {
@@ -73,11 +73,10 @@ pub(super) fn fire_active_weapon(
     }) else {
         return;
     };
-    let Ok((_, config)) = weapon_runtime.get_mut(weapon_entity) else {
+    let Ok((_, _)) = weapon_runtime.get_mut(weapon_entity) else {
         return;
     };
-    let kind = config.projectile_kind.clone();
-    let dir = if weapon_kinds.get(weapon_entity).ok() == Some(&game_objects::GameObjectKind::Smg) {
+    let dir = if smgs.contains(weapon_entity) {
         game_objects::weapon::smg::spread_dir(dir)
     } else {
         dir
@@ -86,7 +85,6 @@ pub(super) fn fire_active_weapon(
         shooter,
         weapon_entity,
         &weapon_net_id,
-        kind,
         temp_id,
         origin,
         dir,
@@ -97,7 +95,6 @@ pub(super) fn fire_active_weapon(
         world,
         net_ids,
         Some(quic),
-        tick,
         None,
     );
 }
@@ -106,9 +103,9 @@ pub(super) fn reload_active_weapon(
     shooter: Entity,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    quic: &mut QuicManager,
+    _quic: &mut QuicManager,
 ) {
-    let Some((weapon_net_id, weapon_entity)) = ({
+    let Some((_weapon_net_id, weapon_entity)) = ({
         let Ok(slots) = pawn_slots.get_mut(shooter) else {
             return;
         };
@@ -120,5 +117,4 @@ pub(super) fn reload_active_weapon(
         return;
     };
     game_objects::weapon::start_reload(&mut weapon_state, weapon_config);
-    game_objects::weapon::send_weapon_state(quic, SendTarget::All, &weapon_net_id, *weapon_state);
 }

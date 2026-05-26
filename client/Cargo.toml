@@ -23,6 +23,7 @@ http_common = { path = "../crates/http_common" }
 physics = { path = "../crates/physics" }
 net = { path = "../crates/net", features = ["client"] }
 game_objects = { path = "../crates/game_objects", features = ["client"] }
+pawn = { path = "../crates/pawn", features = ["client"] }
 scripting = { path = "../crates/scripting", features = ["client"] }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
 session = { path = "../crates/session", features = ["client"] }

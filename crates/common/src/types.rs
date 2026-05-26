@@ -39,7 +39,6 @@ pub struct BodyState {
 }
 
 /// networked message for a set of rigidbodies.
-/// stable, do not touch.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SimulationState {
     pub tick: u64,
@@ -77,91 +76,10 @@ impl Default for ScoringOption {
 }
 
 /// Chooses which counter set the HUD leaderboard should render for the active mode.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect, Default)]
 pub enum LeaderboardScope {
     None,
+    #[default]
     Player,
     Team,
-}
-
-impl Default for LeaderboardScope {
-    fn default() -> Self {
-        Self::Player
-    }
-}
-
-/// update this as needed; it's a "Master List" defines types of game objects that can be spawned
-/// this needs to stay in common since both net and game_objects access it
-#[derive(Debug, PartialEq, Clone, Component, Serialize, Deserialize, Reflect, Default)]
-#[reflect(Component, Default)]
-/// Enumerates all spawnable replicated gameplay objects shared across binaries.
-pub enum GameObjectKind {
-    #[default]
-    Biped,
-    Spaceship,
-    SpaceshipShield,
-    Fighter,
-    Truck,
-    Hovercraft,
-    Planet,
-    Pistol,
-    Beamer,
-    Rifle,
-    Smg,
-    Failsafe,
-    Shotgun,
-    HailMary,
-    HailMaryProjectile,
-    Thumper,
-    ThumperProjectile,
-    FailsafeProjectile,
-    PistolProjectile,
-    RifleProjectile,
-    Lobber,
-    LobberProjectile,
-    CoilLauncher,
-    CoilLauncherProjectile,
-    FighterRocketProjectile,
-    Jetpack,
-    Dash,
-}
-
-impl GameObjectKind {
-    pub fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "biped" => Self::Biped,
-            "spaceship" => Self::Spaceship,
-            "spaceship_shield" => Self::SpaceshipShield,
-            "fighter" => Self::Fighter,
-            "truck" => Self::Truck,
-            "hovercraft" => Self::Hovercraft,
-            "planet" => Self::Planet,
-            "pistol" => Self::Pistol,
-            "beamer" => Self::Beamer,
-            "rifle" => Self::Rifle,
-            "smg" => Self::Smg,
-            "failsafe" => Self::Failsafe,
-            "shotgun" => Self::Shotgun,
-            "hail_mary" => Self::HailMary,
-            "thumper" => Self::Thumper,
-            "rpg" => Self::Lobber,
-            "coil_launcher" => Self::CoilLauncher,
-            "jetpack" => Self::Jetpack,
-            "dash" => Self::Dash,
-            _ => return None,
-        })
-    }
-
-    /// splits CamelCase name -> "Camel Case"
-    pub fn interaction_name(&self) -> String {
-        let debug = format!("{self:?}");
-        let mut out = String::with_capacity(debug.len() + 4);
-        for (i, ch) in debug.chars().enumerate() {
-            if i > 0 && ch.is_ascii_uppercase() {
-                out.push(' ');
-            }
-            out.push(ch);
-        }
-        out
-    }
 }

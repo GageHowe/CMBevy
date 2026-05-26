@@ -1,18 +1,17 @@
 use bevy::{prelude::*, state::state::FreelyMutableState};
-use common::{
-    GameObjectKind,
-    tick::{NetworkStats, Ticker},
-};
+use common::tick::{NetworkStats, Ticker};
 use game_objects::{
-    NetworkEntityMap, health,
-    pawn::{Possessed, WeaponSlots, biped::BipedPawnComponent},
+    NetworkEntityMap,
     projectile,
-    weapon::{self, helpers as weapon_helpers},
+    weapon::helpers as weapon_helpers,
 };
 use net::{
     message::{MsgType, NetworkID},
     quic::QuicManager,
+    replication,
 };
+use ::pawn::{Possessed, WeaponSlots, biped::BipedPawnComponent};
+use ::pawn as pawn_crate;
 use physics::physics_world::PhysicsWorld;
 
 use crate::{
@@ -101,7 +100,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 .get(&net_id)
                 .map(|(entity, _)| *entity)
                 .or_else(|| mp.networked.get(&net_id))
-                && mp.object_kinds.get(entity).ok() == Some(&GameObjectKind::Biped)
+                && mp.biped_q.p1().contains(entity)
             {
                 local_character.0 = Some(net_id.clone());
             }
@@ -116,13 +115,13 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             );
         }
         MsgType::MountState(biped_net_id, parent_net_id) => {
-            game_objects::pawn::mount::apply_mount_state(
+            pawn_crate::mount::apply_mount_state(
                 &biped_net_id,
                 parent_net_id.as_ref(),
                 local_net_id.as_ref(),
                 just_spawned,
                 &mp.networked,
-                &mp.object_kinds,
+                &mp.interaction_names,
                 &mp.mounted,
                 &mp.mounts,
                 &mp.mount_anchor_transforms,
@@ -150,7 +149,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 &mp.networked,
                 &mp.camera,
                 &mut mp.biped_q,
-                &mp.object_kinds,
+                &mp.interaction_names,
                 &mut mp.spawn.commands,
                 &mut mp.world,
             ) {
@@ -159,7 +158,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                     .push((weapon_id, carrier_net_id));
             }
         }
-        MsgType::PawnLook(net_id, yaw, pitch) => game_objects::pawn::apply_remote_pawn_look(
+        MsgType::PawnLook(net_id, yaw, pitch) => pawn_crate::apply_remote_pawn_look(
             &net_id,
             yaw,
             pitch,
@@ -168,12 +167,12 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mut mp.biped_q.p2(),
         ),
         MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => {
-            game_objects::pawn::biped_ability::apply_pickup_message(
+            pawn_crate::biped_ability::apply_pickup_message(
                 &carrier_net_id,
                 &pickup_net_id,
                 local_net_id.as_ref(),
                 &mp.networked,
-                &mp.object_kinds,
+                &mp.pickup_fns,
                 &mut mp.spawn.commands,
             )
         }
@@ -229,19 +228,41 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mp.projectile_q,
             &mut mp.spawn.commands,
         ),
-        MsgType::HealthUpdate(net_id, current) => {
-            health::apply_health_update(&net_id, current, &mp.networked, &mut mp.health_q)
-        }
-        MsgType::WeaponState(net_id, state) => {
-            let is_local_weapon = mp
-                .biped_q
-                .p0()
-                .single()
-                .ok()
-                .map_or(false, |(slots, _)| slots.contains_net_id(&net_id));
-            if !is_local_weapon {
-                weapon::apply_weapon_state(&net_id, state, &mp.networked, &mut mp.weapon_states);
+        MsgType::ProjectileSpawn {
+            weapon,
+            net_id,
+            position,
+            starting_velocity,
+            shooter_velocity,
+        } => mp.spawn.commands.queue(move |world: &mut World| {
+            game_objects::weapon::spawn_remote_projectile(
+                &weapon,
+                net_id,
+                position,
+                starting_velocity,
+                shooter_velocity,
+                world,
+            );
+        }),
+        MsgType::ComponentUpdate(update) => {
+            let biped_q = mp.biped_q.p0();
+            let is_local_weapon = biped_q.single().ok();
+            let is_local_weapon_update = update.component_type_path
+                == replication::component_type_path::<common::WeaponState>()
+                && is_local_weapon.map_or(false, |(slots, _)| slots.contains_net_id(&update.net_id));
+            if is_local_weapon_update {
+                return;
             }
+            let Some(entity) = just_spawned
+                .get(&update.net_id)
+                .map(|(entity, _)| *entity)
+                .or_else(|| mp.networked.get(&update.net_id))
+            else {
+                return;
+            };
+            mp.spawn.commands.queue(move |world: &mut World| {
+                replication::apply_component_update(entity, &update, world);
+            });
         }
         MsgType::Pong(text) => {
             info!("Client: Got PONG \"{text}\"");
@@ -261,17 +282,17 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
         MsgType::FileData(name, compressed) => {
             handle_file_data(name, compressed, &mut mp.spawn.commands)
         }
-        MsgType::JetpackFx(net_id, active) => game_objects::pawn::biped_ability::queue_remote_fx(
+        MsgType::JetpackFx(net_id, active) => pawn_crate::biped_ability::queue_remote_fx(
             &net_id,
-            game_objects::pawn::biped_ability::AbilityFx::Jetpack(active),
+            pawn_crate::biped_ability::AbilityFx::Jetpack(active),
             local_net_id.as_ref(),
             &mp.networked,
             &mp.world,
             &mut mp.spawn.commands,
         ),
-        MsgType::DashFx(net_id, dir) => game_objects::pawn::biped_ability::queue_remote_fx(
+        MsgType::DashFx(net_id, dir) => pawn_crate::biped_ability::queue_remote_fx(
             &net_id,
-            game_objects::pawn::biped_ability::AbilityFx::Dash(dir),
+            pawn_crate::biped_ability::AbilityFx::Dash(dir),
             local_net_id.as_ref(),
             &mp.networked,
             &mp.world,
@@ -291,7 +312,7 @@ pub(crate) fn retry_weapon_pickups(
         Query<&BipedPawnComponent>,
         Query<&mut BipedPawnComponent>,
     )>,
-    object_kinds: Query<&GameObjectKind>,
+    interaction_names: Query<&game_objects::interaction::InteractionName>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
 ) {
@@ -304,7 +325,7 @@ pub(crate) fn retry_weapon_pickups(
             &networked,
             &camera,
             &mut biped_q,
-            &object_kinds,
+            &interaction_names,
             &mut commands,
             &mut world,
         ) {

@@ -1,7 +1,22 @@
 #cargo-features = ["codegen-backend"]
 
 [workspace]
-members = ["crates/*", "gameserver", "client", "beacon", "tools/*"]
+members = [
+    "crates/bevy_hanabi",
+    "crates/common",
+    "crates/game_objects",
+    "crates/http_common",
+    "crates/master_plugin",
+    "crates/net",
+    "crates/pawn",
+    "crates/physics",
+    "crates/scripting",
+    "crates/session",
+    "gameserver",
+    "client",
+    "beacon",
+    "tools/*",
+]
 resolver = "3"
 
 [workspace.lints.rust]

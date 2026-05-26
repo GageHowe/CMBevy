@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemState, prelude::*};
 use common::tick::Ticker;
 use game_objects::{
     level::LevelBytes,
@@ -41,15 +41,98 @@ pub fn on_message(
             tick.tick,
         );
     });
+}
 
-    flush_pending_connections(
-        &mut quic,
-        &mut registry,
-        &mut pending_connections,
-        &mut net_ids,
-        &mut sp,
-        tick.tick,
-    );
+pub fn flush_pending_connections(world: &mut World) {
+    let mut snapshots = Vec::new();
+    {
+        let mut state: SystemState<(
+            ResMut<QuicManager>,
+            ResMut<PlayerRegistry>,
+            ResMut<PendingConnections>,
+            ResMut<NetworkIDResource>,
+            ServerMessageParams<'_, '_>,
+            Res<Ticker>,
+        )> = SystemState::new(world);
+        let (mut quic, mut registry, mut pending_connections, mut net_ids, mut sp, tick) =
+            state.get_mut(world);
+        let pending_conn_ids: Vec<_> = pending_connections.0.iter().copied().collect();
+        for conn_id in pending_conn_ids {
+            if registry.controlled_pawn(conn_id).is_some() {
+                pending_connections.0.remove(&conn_id);
+                continue;
+            }
+            if let Some(reason) = sp.level_ready.reason() {
+                eprintln!("pending conn {conn_id}: server world not ready: {reason}");
+                continue;
+            }
+            let Some(entity_snapshots) = handle_connected(
+                conn_id,
+                &mut quic,
+                &mut registry,
+                &mut net_ids,
+                &mut sp.commands,
+                &sp.world,
+                tick.tick,
+                &sp.spawn_points,
+                &sp.parent_transforms,
+                &sp.parent_parents,
+                &sp.parent_bodies,
+                &sp.spawnables,
+                &sp.pawn_slots,
+                &sp.net_ids,
+                &sp.mounted_bipeds,
+                &sp.biped_spawnables,
+                &sp.spaceship_spawnables,
+                &sp.fighter_spawnables,
+                &sp.truck_spawnables,
+                &sp.hovercraft_spawnables,
+                &sp.shield_spawnables,
+                &sp.pistol_spawnables,
+                &sp.beamer_spawnables,
+                &sp.rifle_spawnables,
+                &sp.smg_spawnables,
+                &sp.hail_mary_spawnables,
+                &sp.thumper_spawnables,
+                &sp.lobber_spawnables,
+                &sp.coil_launcher_spawnables,
+                &sp.interaction_name_spawnables,
+            ) else {
+                continue;
+            };
+            snapshots.extend(
+                entity_snapshots
+                    .into_iter()
+                    .map(|(entity, net_id)| (conn_id, entity, net_id)),
+            );
+            pending_connections.0.remove(&conn_id);
+        }
+        state.apply(world);
+    }
+    if snapshots.is_empty() {
+        return;
+    }
+    let replication = world.resource::<net::replication::ReplicationRegistry>();
+    let updates = snapshots
+        .into_iter()
+        .flat_map(|(conn_id, entity, net_id)| {
+            net::replication::collect_entity_component_updates(
+                world.entity(entity),
+                &net_id,
+                &replication,
+            )
+            .into_iter()
+            .map(move |update| (conn_id, update))
+        })
+        .collect::<Vec<_>>();
+    let mut quic = world.resource_mut::<QuicManager>();
+    for (conn_id, update) in updates {
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::ComponentUpdate(update),
+        );
+    }
 }
 
 fn process_server_message(
@@ -153,14 +236,12 @@ fn process_server_message(
         ),
         MsgType::FireRequest {
             weapon: weapon_net_id,
-            kind,
             temp_id,
             origin,
             dir,
         } => game_objects::weapon::handle_fire_request(
             conn_id,
             weapon_net_id,
-            kind,
             temp_id,
             origin,
             dir,
@@ -173,7 +254,6 @@ fn process_server_message(
             &mut sp.world,
             net_ids,
             quic,
-            tick,
         ),
         MsgType::StartBeamCharge(weapon_net_id) => {
             game_objects::weapon::beamer::handle_start_charge_request(
@@ -235,16 +315,7 @@ fn process_server_message(
             &mut sp.weapon_runtime,
             quic,
         ),
-        MsgType::DetonateFailsafeRequest(weapon_net_id) => {
-            game_objects::weapon::failsafe::handle_detonate_failsafe_request(
-                conn_id,
-                weapon_net_id,
-                registry,
-                &sp.all_networked,
-                &sp.pawn_slots,
-                &mut sp.commands,
-            )
-        }
+        MsgType::DetonateFailsafeRequest(_) => {}
         MsgType::TimePing(bits) => {
             quic.send(
                 SendTarget::One(conn_id),

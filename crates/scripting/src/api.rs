@@ -4,7 +4,6 @@ use bevy::{
     ecs::system::{Command, SystemState},
     prelude::*,
 };
-use common::{GameObjectKind, NetworkID, NetworkIDResource};
 use game_objects::{
     SpawnGameObjectCommand, Team,
     bot::{BotController, HeuristicKillerBot},
@@ -12,13 +11,14 @@ use game_objects::{
     level::{ScriptZone, SpawnPoint, parented_world_pose},
     messages::push_world,
     mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
-    pawn::{PlayerRegistry, WeaponSlots},
 };
 use mlua::prelude::*;
 use net::{
-    message::{MsgType, SpawnCommand},
+    message::{MsgType, SpawnCommand, SpawnType},
     quic::{Channel, QuicManager, SendTarget},
 };
+use common::{NetworkID, NetworkIDResource};
+use ::pawn::{PlayerRegistry, WeaponSlots};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
@@ -311,14 +311,14 @@ pub(crate) fn register_script_functions(world: &mut World) {
             {
                 return Ok(None);
             }
-            let kind =
-                GameObjectKind::from_name(kind.as_deref().unwrap_or("biped")).filter(|kind| {
+            let spawn_type =
+                SpawnType::from_name(kind.as_deref().unwrap_or("biped")).filter(|spawn_type| {
                     matches!(
-                        kind,
-                        GameObjectKind::Biped | GameObjectKind::Spaceship | GameObjectKind::Fighter
+                        spawn_type,
+                        SpawnType::Biped | SpawnType::Spaceship | SpawnType::Fighter
                     )
                 });
-            let Some(kind) = kind else {
+            let Some(spawn_type) = spawn_type else {
                 println!("script spawn_pawn failed: invalid kind {kind:?}");
                 return Ok(None);
             };
@@ -340,7 +340,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 shooter_velocity: Vec3::ZERO,
                 rotation: rot,
                 server_tick: tick,
-                kind,
+                spawn_type,
             };
             let entity = world.spawn_empty().id();
             SpawnGameObjectCommand {
@@ -405,7 +405,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 return Ok(false);
             }
             let Some(kind) =
-                GameObjectKind::from_name(&kind).filter(game_objects::weapon::is_weapon_kind)
+                SpawnType::from_name(&kind).filter(game_objects::weapon::is_weapon_kind)
             else {
                 return Ok(false);
             };
@@ -419,7 +419,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 .0
                 .push(WeaponGrant {
                     owner,
-                    kind,
+                    spawn_type: kind,
                     weapon: None,
                 });
             Ok(true)
