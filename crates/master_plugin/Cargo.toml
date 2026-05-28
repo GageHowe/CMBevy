@@ -11,7 +11,7 @@ client = ["net/client", "scripting/client"]
 server = ["net/server"]
 
 [dependencies]
-game_objects = { path = "../game_objects" }
+gameplay = { path = "../gameplay" }
 scripting = { path = "../scripting" }
 common = { path = "../common" }
 physics = { path = "../physics" }

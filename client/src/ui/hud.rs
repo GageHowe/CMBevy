@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use game_objects::{
+use gameplay::{
     health::Health,
     messages::{GameMessages, MESSAGE_TTL_SECS},
     pawn::{InteractionHint, Possessed, WeaponSlots, biped::BipedPawnComponent},
@@ -14,7 +14,7 @@ pub fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Poss
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let fraction = (health.current / health.max).clamp(0.0, 1.0);
+    let fraction = (health.current as f32 / health.max as f32).clamp(0.0, 1.0);
     let bar_color = if fraction > 0.5 {
         egui::Color32::from_rgb(80, 200, 80)
     } else if fraction > 0.25 {

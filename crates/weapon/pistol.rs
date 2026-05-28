@@ -68,7 +68,6 @@ fn update_pistol(
         return;
     }
     weapon.trigger_down = true;
-
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
     projectile::apply_recoil(SHOOTER_IMPULSE, MASS_SCALED_SHOOTER_IMPULSE, ctx, world, 0.6);
@@ -111,6 +110,7 @@ pub fn spawn_pistol(entity: Entity, cmd: &net::message::SpawnCommand, world: &mu
         helpers::insert_generic_weapon(
             entity,
             cmd,
+            "pistol",
             world,
             CONFIG.display_name,
             CONFIG.model_path,

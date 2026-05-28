@@ -1,19 +1,19 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::{
+use gameplay::{
     lifecycle::spawn_game_object,
     mode::ModeConfig,
     pawn::{HeldWeaponMap, PlayerRegistry, WeaponSlots},
     *,
 };
-use net::{message::*, quic::*, replication};
+use net::{message::*, quic::*};
 use physics::physics_world::*;
 
 use crate::resources::*;
 
 pub(super) fn spawn_player(
     conn_id: ConnectionId,
-    spawn_type: SpawnType,
+    spawn_name: &str,
     team: Team,
     spawn_pos: Vec3,
     spawn_rot: Quat,
@@ -24,28 +24,33 @@ pub(super) fn spawn_player(
     commands: &mut Commands,
     tick: u64,
 ) {
-    let kind_debug = format!("{spawn_type:?}");
+    let kind_debug = spawn_name.to_string();
     let (entity, net_id, spawn_cmd) = spawn_game_object(
-        spawn_type, spawn_pos, spawn_rot, spawn_vel, tick, commands, net_ids,
+        spawn_name,
+        Some(spawn_pos),
+        Some(spawn_rot),
+        Some(spawn_vel),
+        None,
+        tick,
+        commands,
+        net_ids,
     );
     commands.entity(entity).insert(team);
 
     for other_conn_id in registry.controlled_conn_ids() {
-        game_objects::lifecycle::send_spawn_command(
-            quic,
+        quic.send(
             SendTarget::One(other_conn_id),
             Channel::Ordered,
-            spawn_cmd.clone(),
+            &MsgType::SpawnCommand(spawn_cmd.clone()),
         );
     }
-    game_objects::lifecycle::send_spawn_command(
-        quic,
+    quic.send(
         SendTarget::One(conn_id),
         Channel::Ordered,
-        spawn_cmd,
+        &MsgType::SpawnCommand(spawn_cmd),
     );
     registry.register_character(conn_id, entity, net_id.clone());
-    game_objects::pawn::send_possess(quic, conn_id, &net_id);
+    gameplay::pawn::send_possess(quic, conn_id, &net_id);
     eprintln!("GameServer: spawned {kind_debug} for conn {conn_id}");
 }
 
@@ -74,7 +79,7 @@ pub(super) fn kill_player(
         .unwrap_or((Vec3::ZERO, Vec3::ZERO));
     for (wid, weapon_entity) in held_weapons {
         held_weapon_map.0.remove(&wid);
-        game_objects::weapon::helpers::place_world_weapon(
+        gameplay::weapon::helpers::place_world_weapon(
             world,
             weapon_entity,
             drop_pos,
@@ -91,21 +96,6 @@ pub(super) fn kill_player(
     let _ = net_id;
 }
 
-pub fn broadcast_component_updates(world: &mut World) {
-    let updates = replication::collect_changed_component_updates(world);
-    if updates.is_empty() {
-        return;
-    }
-    let mut quic = world.resource_mut::<QuicManager>();
-    for update in updates {
-        quic.send(
-            SendTarget::All,
-            Channel::Ordered,
-            &MsgType::ComponentUpdate(update),
-        );
-    }
-}
-
 /// Broadcasts the authoritative physics snapshot and any dirty pawn look state for the current tick.
 pub fn broadcast_tick(
     mut quic: ResMut<QuicManager>,
@@ -114,7 +104,7 @@ pub fn broadcast_tick(
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
     mut biped_looks: Query<(
         &NetworkID,
-        &mut game_objects::pawn::biped::BipedPawnComponent,
+        &mut gameplay::pawn::biped::BipedPawnComponent,
     )>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
@@ -132,7 +122,7 @@ pub fn broadcast_tick(
             &MsgType::State(state_for_client),
         );
     }
-    game_objects::pawn::broadcast_dirty_look_updates(&mut quic, &mut biped_looks);
+    gameplay::pawn::broadcast_dirty_look_updates(&mut quic, &mut biped_looks);
 }
 
 /// Broadcasts a compact scoreboard snapshot at a lower frequency than the main physics tick.
@@ -141,8 +131,8 @@ pub fn broadcast_scoreboard(
     tick: Res<Ticker>,
     registry: Res<PlayerRegistry>,
     teams_q: Query<&Team>,
-    player_numbers: Res<game_objects::mode::PlayerNumbers>,
-    team_numbers: Res<game_objects::mode::TeamNumbers>,
+    player_numbers: Res<gameplay::mode::PlayerNumbers>,
+    team_numbers: Res<gameplay::mode::TeamNumbers>,
     mode: Option<Res<ModeConfig>>,
 ) {
     if tick.tick % 15 != 0 {

@@ -1,12 +1,9 @@
 //! Wires the scripting runtime into Bevy schedules and keeps the Lua VM hot-reloaded.
 
 use bevy::prelude::*;
-use game_objects::{
-    SpawnType,
-    health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths},
-};
+use gameplay::health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths};
 use mlua::prelude::Lua;
-use pawn::PlayerRegistry;
+use gameplay::pawn::PlayerRegistry;
 
 use crate::{
     api::register_script_functions,
@@ -20,7 +17,7 @@ pub(crate) struct PendingWeaponGrants(pub Vec<WeaponGrant>);
 
 pub(crate) struct WeaponGrant {
     pub owner: Entity,
-    pub spawn_type: SpawnType,
+    pub spawn_name: String,
     pub weapon: Option<(Entity, common::NetworkID, net::message::SpawnCommand)>,
 }
 
@@ -72,14 +69,12 @@ fn eval_script_fixed_update(world: &mut World) {
 }
 
 fn process_weapon_grants(world: &mut World) {
-    use game_objects::{
-        SpawnGameObjectCommand, interaction::Interactable, weapon::helpers::give_world_weapon,
-    };
+    use gameplay::{SpawnGameObjectCommand, interaction::Interactable};
     use net::{
         message::MsgType,
         quic::{Channel, QuicManager, SendTarget},
     };
-    use ::pawn::{HeldWeaponMap, WeaponSlots};
+    use gameplay::pawn::{HeldWeaponMap, WeaponSlots};
     use physics::physics_world::{PhysicsWorld, rb_pos};
 
     let mut grants = world
@@ -103,16 +98,10 @@ fn process_weapon_grants(world: &mut World) {
             };
             let weapon_id =
                 common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
-            let spawn_cmd = net::message::SpawnCommand {
-                net_id: weapon_id.clone(),
-                parent_net_id: None,
-                position: pos,
-                starting_velocity: Vec3::ZERO,
-                shooter_velocity: Vec3::ZERO,
-                rotation: Quat::IDENTITY,
-                server_tick: tick,
-                spawn_type: grant.spawn_type,
-            };
+            let spawn_cmd =
+                net::message::SpawnCommand::new(weapon_id.clone(), grant.spawn_name.clone(), tick)
+                    .position(pos)
+                    .rotation(Quat::IDENTITY);
             let weapon_entity = world.spawn_empty().id();
             SpawnGameObjectCommand {
                 entity: weapon_entity,
@@ -142,7 +131,7 @@ fn process_weapon_grants(world: &mut World) {
             .is_some_and(|quic| quic.client_connected)
         {
             let Some(parent) = world
-                .get::<pawn::biped::BipedPawnComponent>(grant.owner)
+                .get::<gameplay::pawn::biped::BipedPawnComponent>(grant.owner)
                 .and_then(|biped| biped.pitch_pivot)
             else {
                 grant.weapon = Some((weapon_entity, weapon_id, spawn_cmd));
@@ -157,7 +146,11 @@ fn process_weapon_grants(world: &mut World) {
             let Some(mut slots) = world.get_mut::<WeaponSlots>(grant.owner) else {
                 return false;
             };
-            give_world_weapon(&mut physics, &mut slots, weapon_entity, weapon_id.clone())
+            if slots.assign_pickup(weapon_id.clone(), weapon_entity).is_none() {
+                return false;
+            }
+            physics.set_body_enabled(weapon_entity, false);
+            true
         });
         if !ok {
             continue;
@@ -169,11 +162,7 @@ fn process_weapon_grants(world: &mut World) {
         #[cfg(feature = "client")]
         if let Some(parent) = local_parent {
             let mut commands = world.commands();
-            game_objects::weapon::helpers::attach_remote_viewmodel(
-                &mut commands,
-                weapon_entity,
-                parent,
-            );
+            gameplay::weapon::helpers::attach_viewmodel(&mut commands, weapon_entity, parent, true);
         }
         let owner_net_id = world.get::<common::NetworkID>(grant.owner).cloned();
         if let (Some(owner_net_id), Some(mut quic)) =

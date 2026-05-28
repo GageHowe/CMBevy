@@ -31,7 +31,7 @@ const THRUST: f32 = 2000.0;
 const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
 const MAX_TORQUE: f32 = 40000.0;
-const SPACESHIP_MAX_HEALTH: f32 = 1500.0;
+const SPACESHIP_MAX_HEALTH: i32 = 1500;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -62,9 +62,13 @@ impl VehiclePawn for SpaceshipPawnComponent {
 }
 
 pub fn spawn_spaceship(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let position = cmd.position_or_zero();
+        let rotation = cmd.rotation_or_identity();
+        let velocity = cmd.velocity_or_zero();
+        let angular_velocity = cmd.angular_velocity_or_zero();
         let transform = Transform {
-            translation: cmd.position.into(),
-            rotation: cmd.rotation.into(),
+            translation: position,
+            rotation,
             ..default()
         };
         spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
@@ -72,22 +76,32 @@ pub fn spawn_spaceship(entity: Entity, cmd: &net::message::SpawnCommand, world: 
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
-                .linvel(Vector3::new(
-                    cmd.starting_velocity.x,
-                    cmd.starting_velocity.y,
-                    cmd.starting_velocity.z,
-                ))
+                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
                 .angular_damping(0.5)
                 .build();
             let rb_handle = physics.insert_body(entity, rb);
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
+                rb.set_angvel(
+                    Vector3::new(
+                        angular_velocity.x,
+                        angular_velocity.y,
+                        angular_velocity.z,
+                    ),
+                    true,
+                );
             }
             rb_handle
         };
         world.entity_mut(entity).insert((
+            crate::SpawnReplicated("spaceship"),
             SpaceshipPawnComponent,
-            Health::new(SPACESHIP_MAX_HEALTH, 20.0, 5.0).with_death(on_spaceship_death),
+            Health::new(
+                SPACESHIP_MAX_HEALTH,
+                20,
+                common::config::FIXED_TICK_RATE as u16 * 5,
+            )
+            .with_death(on_spaceship_death),
             CollisionDamageConfig {
                 threshold_per_mass: 120.0,
                 min_threshold: 400.0,

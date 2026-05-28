@@ -119,6 +119,7 @@ pub fn spawn_lobber(entity: Entity, cmd: &net::message::SpawnCommand, world: &mu
         helpers::insert_generic_weapon(
             entity,
             cmd,
+            "lobber",
             world,
             CONFIG.display_name,
             CONFIG.model_path,

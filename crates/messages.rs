@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use std::collections::VecDeque;
+
 use bevy::prelude::*;
 
 pub const MESSAGE_TTL_SECS: f64 = 6.0;
@@ -11,8 +14,9 @@ pub struct GameMessage {
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
-pub struct GameMessages(pub Vec<GameMessage>);
+pub struct GameMessages(pub VecDeque<GameMessage>);
 
+// why is this differenciation necessary?
 #[cfg(not(feature = "client"))]
 #[derive(Resource, Default)]
 pub struct GameMessages;
@@ -28,15 +32,19 @@ pub fn push_world(_world: &mut World, text: impl Into<String>) {
     {
         let now = _world.resource::<Time>().elapsed_secs_f64();
         let mut messages = _world.resource_mut::<GameMessages>();
-        messages.0.push(GameMessage {
+        messages.0.push_back(GameMessage {
             text,
             created_at: now,
         });
+
+        // clear excessive messages
         if messages.0.len() > 16 {
             messages.0.remove(0);
         }
     }
-    #[cfg(not(feature = "client"))]
+
+    // on server debug mode, do debug prints
+    #[cfg(all(debug_assertions, not(feature = "client")))]
     {
         eprintln!("{text}");
     }

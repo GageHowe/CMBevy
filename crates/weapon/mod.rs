@@ -3,9 +3,8 @@ pub use common::WeaponState;
 #[cfg(feature = "client")]
 use net::message::WeaponState as NetWeaponState;
 use net::{
-    message::{NetworkID, SpawnType},
+    message::NetworkID,
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
-    replication::ReplicationAppExt,
 };
 use physics::physics_world::PhysicsWorld;
 
@@ -17,7 +16,6 @@ use crate::{
 
 pub mod beamer;
 pub mod coil_launcher;
-pub mod failsafe;
 pub mod hail_mary;
 pub mod helpers;
 pub mod lobber;
@@ -32,8 +30,15 @@ pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.replicate_component::<WeaponState>()
-            .add_plugins((beamer::BeamerPlugin, weapon_flash::WeaponFlashPlugin))
+        crate::register_spawnable(app, "pistol", pistol::spawn_pistol);
+        crate::register_spawnable(app, "beamer", beamer::spawn_beamer);
+        crate::register_spawnable(app, "rifle", rifle::spawn_rifle);
+        crate::register_spawnable(app, "smg", smg::spawn_smg);
+        crate::register_spawnable(app, "hail_mary", hail_mary::spawn_hail_mary);
+        crate::register_spawnable(app, "thumper", thumper::spawn_thumper);
+        crate::register_spawnable(app, "lobber", lobber::spawn_lobber);
+        crate::register_spawnable(app, "coil_launcher", coil_launcher::spawn_coil_launcher);
+        app.add_plugins((beamer::BeamerPlugin, weapon_flash::WeaponFlashPlugin))
             .add_systems(FixedUpdate, tick_weapon_state);
         #[cfg(feature = "client")]
         app.add_systems(
@@ -62,14 +67,40 @@ pub fn send_weapon_state(
     quic.send(
         target,
         Channel::Ordered,
-        &net::message::MsgType::ComponentUpdate(
-            net::replication::component_update_for::<WeaponState, _>(
-                weapon_net_id.clone(),
-                &weapon_state,
-            )
-            .unwrap(),
-        ),
+        &net::message::MsgType::WeaponState(weapon_net_id.clone(), weapon_state),
     );
+}
+
+pub fn send_entity_weapon_state(
+    quic: &mut QuicManager,
+    target: SendTarget,
+    entity: bevy::ecs::world::EntityRef<'_>,
+    weapon_net_id: &NetworkID,
+) {
+    let Some(weapon_state) = entity.get::<WeaponState>() else {
+        return;
+    };
+    send_weapon_state(quic, target, weapon_net_id, *weapon_state);
+}
+
+pub fn broadcast_dirty_weapon_states(
+    mut quic: ResMut<QuicManager>,
+    weapon_q: Query<(&NetworkID, Ref<WeaponState>)>,
+) {
+    for (net_id, weapon_state) in &weapon_q {
+        if !weapon_state.is_changed() {
+            continue;
+        }
+        send_weapon_state(&mut quic, SendTarget::All, net_id, *weapon_state);
+    }
+}
+
+pub fn apply_weapon_state_world(entity: Entity, weapon_state: WeaponState, world: &mut World) {
+    if let Some(mut state) = world.get_mut::<WeaponState>(entity) {
+        *state = weapon_state;
+    } else if world.entities().contains(entity) {
+        world.entity_mut(entity).insert(weapon_state);
+    }
 }
 
 /// Marker component present on every weapon entity regardless of type.
@@ -100,10 +131,10 @@ pub struct WeaponConfig {
 }
 
 #[cfg(feature = "client")]
-#[derive(Clone, Copy)]
+#[derive(Component, Clone, Copy)]
+#[component(storage = "SparseSet")]
 /// Per-tick fire request forwarded from a possessed pawn to its active weapon.
 pub struct WeaponFireInput {
-    pub weapon: Entity,
     pub want_fire: bool,
     pub want_alt_fire: bool,
     pub alt_fire_pressed: bool,
@@ -128,33 +159,21 @@ pub struct FiredHeldWeapon {
 /// All context a weapon's fixed_update may need: input buttons and output channels.
 /// Fields are optional so weapons compile and behave correctly on the server (no sound/camera).
 pub struct FireCtx<'a> {
-    /// Weapon entity currently executing its fire/update logic.
-    pub weapon: Entity,
     pub want_fire: bool,
     pub want_alt_fire: bool,
-    pub alt_fire_pressed: bool,
     pub reload_pressed: bool,
     pub origin: Vec3,
     pub aim_dir: Vec3,
     pub shooter: Option<Entity>,
     pub tick: u64,
-    /// NetworkID of the weapon entity — used to tell the server what fired.
     pub net_id: Option<&'a NetworkID>,
-    /// NetworkID of the pawn carrying the weapon — included in fire packets so other clients can find the ghost.
     pub shooter_net_id: Option<&'a NetworkID>,
-    /// Push to play a one-shot sound this frame.
     pub sound: Option<&'a mut SoundQueue>,
-    /// Local player camera; None on server or before possession.
     pub camera: Option<&'a mut CameraEffector>,
-    /// QUIC manager for sending Fire messages; None in singleplayer.
     pub quic: Option<&'a mut net::quic::QuicManager>,
-    /// Projectile id counter for client-side prediction; None in singleplayer / on server.
     pub id_counter: Option<&'a mut u32>,
-    /// Local predicted command history so weapons can replay non-input impulses during reconciliation.
     pub predicted: Option<&'a mut common::PredictedCommands>,
-    /// Mutable authoritative/predicted state for this weapon instance.
     pub weapon_state: &'a mut WeaponState,
-    /// Static weapon config copied in so fire code can use it without extra queries.
     pub weapon_config: WeaponConfig,
 }
 
@@ -175,7 +194,13 @@ pub fn weapon_bundle<W: Component>(weapon: W, config: WeaponConfig) -> impl Bund
 
 #[cfg(feature = "client")]
 pub fn drive_weapon_inputs<W: Component<Mutability = bevy::ecs::component::Mutable>>(
-    weapons: &mut Query<(Entity, &mut W, &mut WeaponState, &WeaponConfig, &PendingWeaponInput)>,
+    weapons: &mut Query<(
+        Entity,
+        &mut W,
+        &mut WeaponState,
+        &WeaponConfig,
+        &PendingWeaponInput,
+    )>,
     net_ids: Query<&NetworkID>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
@@ -196,10 +221,8 @@ pub fn drive_weapon_inputs<W: Component<Mutability = bevy::ecs::component::Mutab
             None
         };
         let mut ctx = FireCtx {
-            weapon: weapon_entity,
             want_fire: input.want_fire,
             want_alt_fire: input.want_alt_fire,
-            alt_fire_pressed: input.alt_fire_pressed,
             reload_pressed: input.reload_pressed,
             origin: input.origin,
             aim_dir: input.aim_dir,
@@ -332,7 +355,12 @@ pub fn handle_fire_request(
         Some(conn_id),
     ) {
         if let Ok((weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
-            send_weapon_state(quic, SendTarget::One(conn_id), &weapon_net_id, *weapon_state);
+            send_weapon_state(
+                quic,
+                SendTarget::One(conn_id),
+                &weapon_net_id,
+                *weapon_state,
+            );
         }
     }
 }
@@ -421,9 +449,8 @@ pub fn spawn_remote_projectile(
     let Some(weapon_entity) = crate::find_entity_by_net_id(world, weapon_net_id) else {
         return;
     };
-    let Some(projectile_entity) =
-        crate::find_entity_by_net_id(world, &projectile_net_id)
-            .or_else(|| Some(world.spawn((projectile_net_id.clone(),)).id()))
+    let Some(projectile_entity) = crate::find_entity_by_net_id(world, &projectile_net_id)
+        .or_else(|| Some(world.spawn((projectile_net_id.clone(),)).id()))
     else {
         return;
     };
@@ -473,7 +500,12 @@ pub fn handle_reload_request(
     };
     let started = start_reload(&mut weapon_state, weapon_config);
     if !started {
-        send_weapon_state(quic, SendTarget::One(conn_id), &weapon_net_id, *weapon_state);
+        send_weapon_state(
+            quic,
+            SendTarget::One(conn_id),
+            &weapon_net_id,
+            *weapon_state,
+        );
     }
 }
 
@@ -575,7 +607,9 @@ pub fn handle_interact_pickup_request(
     );
 }
 
-pub fn apply_zoom(ctx: &mut FireCtx) -> f32 {
+pub fn apply_zoom(
+    ctx: &mut FireCtx,
+) -> f32 {
     let Some(cam) = ctx.camera.as_mut() else {
         return 0.0;
     };
@@ -652,21 +686,6 @@ pub fn consume_round(state: &mut WeaponState, config: &WeaponConfig) -> bool {
         start_reload(state, config);
     }
     true
-}
-
-pub fn is_weapon_kind(kind: &SpawnType) -> bool {
-    matches!(
-        kind,
-        SpawnType::Pistol
-            | SpawnType::Beamer
-            | SpawnType::Rifle
-            | SpawnType::Smg
-            | SpawnType::Failsafe
-            | SpawnType::HailMary
-            | SpawnType::Thumper
-            | SpawnType::Lobber
-            | SpawnType::CoilLauncher
-    )
 }
 
 #[cfg(feature = "client")]

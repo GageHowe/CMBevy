@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, bevy::prelude::States, Default)]
 pub enum GameState {
     #[default]
-    MainMenu,
+    NotPlaying,
     SinglePlayer,
     Multiplayer,
     Editor,

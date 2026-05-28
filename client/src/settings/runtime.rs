@@ -10,7 +10,7 @@ use bevy::{
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
 use bevy_luna::prelude::{RaytraceMode, RaytraceSettings};
 use common::{ActiveBindings, PromptDevicePreference};
-use game_objects::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
+use gameplay::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
 
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};

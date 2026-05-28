@@ -25,8 +25,6 @@ pub const HAIL_MARY_SPEED: f32 = 500.0;
 pub const LOBBER_SPEED: f32 = 60.0;
 pub const THUMPER_SPEED: f32 = 120.0;
 pub const COIL_LAUNCHER_SPEED: f32 = 100.0;
-pub const FIGHTER_ROCKET_SPEED: f32 = 140.0;
-pub const FAILSAFE_SPEED: f32 = 60.0;
 
 const SHIELD_EXIT_EPSILON: f32 = 0.001;
 const DEFAULT_SENSOR_RADIUS: f32 = 0.03;

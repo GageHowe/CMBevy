@@ -100,6 +100,7 @@ pub fn spawn_smg(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut W
         helpers::insert_generic_weapon(
             entity,
             cmd,
+            "smg",
             world,
             CONFIG.display_name,
             CONFIG.model_path,

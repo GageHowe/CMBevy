@@ -494,20 +494,17 @@ fn biped_fire(
             &net::message::MsgType::ReloadWeapon(weapon_net_id.clone()),
         );
     }
-    commands.entity(weapon_entity).insert(PendingWeaponInput(
-        WeaponFireInput {
-            weapon: weapon_entity,
-            want_fire,
-            want_alt_fire: !blocked
-                && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
-            alt_fire_pressed,
-            reload_pressed,
-            origin,
-            aim_dir,
-            shooter: pawn_entity,
-            tick: ticker.tick,
-        },
-    ));
+    commands.entity(weapon_entity).insert(PendingWeaponInput(WeaponFireInput {
+        want_fire,
+        want_alt_fire: !blocked
+            && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
+        alt_fire_pressed,
+        reload_pressed,
+        origin,
+        aim_dir,
+        shooter: pawn_entity,
+        tick: ticker.tick,
+    }));
     let Ok(weapon_state) = weapon_states.get(weapon_entity) else {
         return;
     };

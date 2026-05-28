@@ -6,7 +6,7 @@ use bevy::render::render_resource::AsBindGroup;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
 use common::{NetworkID, NetworkIDResource, tick::Ticker};
-use net::message::SpawnType;
+use net::message::SpawnCommand;
 use physics::{
     collider_flags::ColliderFlags,
     physics_world::{PhysicsWorld, RigidBodyHandleComponent},
@@ -19,12 +19,11 @@ use rapier3d::prelude::{
 use crate::{
     find_entity_by_net_id,
     health::Health,
-    lifecycle::make_spawn_command,
 };
 
-const SPACESHIP_SHIELD_MAX_HEALTH: f32 = 300.0;
-const SPACESHIP_SHIELD_REGEN_PER_SEC: f32 = 60.0;
-const SPACESHIP_SHIELD_REGEN_DELAY_SECS: f32 = 5.0;
+const SPACESHIP_SHIELD_MAX_HEALTH: i32 = 300;
+const SPACESHIP_SHIELD_REGEN_PER_SECOND: i32 = 60;
+const SPACESHIP_SHIELD_REGEN_DELAY_TICKS: u16 = common::config::FIXED_TICK_RATE as u16 * 5;
 pub const SPACESHIP_SHIELD_HALF_EXTENTS: Vec3 = Vec3::new(10.0, 8.0, 20.0);
 
 #[derive(Component, Clone, Copy)]
@@ -49,6 +48,7 @@ impl Shield {
 pub struct ShieldPlugin;
 impl Plugin for ShieldPlugin {
     fn build(&self, app: &mut App) {
+        crate::register_spawnable(app, "spaceship_shield", spawn_spaceship_shield);
         #[cfg(feature = "client")]
         app.add_plugins(bevy::pbr::MaterialPlugin::<ShieldMaterial>::default())
             .add_systems(Update, tick_shield_materials);
@@ -279,11 +279,12 @@ pub fn spawn_spaceship_shield(entity: Entity, cmd: &net::message::SpawnCommand, 
         ));
     }
     world.entity_mut(entity).insert((
+        crate::SpawnReplicated("spaceship_shield"),
         SpaceshipShieldComponent,
         Health::new(
             SPACESHIP_SHIELD_MAX_HEALTH,
-            SPACESHIP_SHIELD_REGEN_PER_SEC,
-            SPACESHIP_SHIELD_REGEN_DELAY_SECS,
+            SPACESHIP_SHIELD_REGEN_PER_SECOND,
+            SPACESHIP_SHIELD_REGEN_DELAY_TICKS,
         ),
         shield,
         Transform::default(),
@@ -314,16 +315,10 @@ pub fn spawn_attached_spaceship_shield(
     let tick = world.get_resource::<Ticker>().map_or(0, |ticker| ticker.tick);
     let net_id = NetworkID(world.get_resource_mut::<NetworkIDResource>()?.next());
     let entity = world.spawn_empty().id();
-    let cmd = make_spawn_command(
-        net_id.clone(),
-        SpawnType::SpaceshipShield,
-        Some(parent_net_id.clone()),
-        Vec3::ZERO,
-        Vec3::ZERO,
-        Vec3::ZERO,
-        Quat::IDENTITY,
-        tick,
-    );
+    let cmd = SpawnCommand::new(net_id.clone(), "spaceship_shield", tick)
+        .parent(parent_net_id.clone())
+        .position(Vec3::ZERO)
+        .rotation(Quat::IDENTITY);
     crate::SpawnGameObjectCommand {
         entity,
         cmd: cmd.clone(),
@@ -331,11 +326,10 @@ pub fn spawn_attached_spaceship_shield(
     .apply(world);
     #[cfg(not(feature = "client"))]
     if let Some(mut quic) = world.get_resource_mut::<net::quic::QuicManager>() {
-        crate::lifecycle::send_spawn_command(
-            &mut quic,
+        quic.send(
             net::quic::SendTarget::All,
             net::quic::Channel::Ordered,
-            cmd,
+            &net::message::MsgType::SpawnCommand(cmd),
         );
     }
     Some(entity)

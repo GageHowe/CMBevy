@@ -3,13 +3,12 @@ use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
 use super::super::{AbilityFx, AbilitySpec, BipedAbilityState, drain_meter};
-use crate::SpawnType;
 
 const THRUST: f32 = 0.5;
 const DRAIN: f32 = 1.5;
 
 pub const JETPACK: AbilitySpec = AbilitySpec {
-    spawn_type: SpawnType::Jetpack,
+    spawn_name: "jetpack",
     meter_max: 100.0,
     meter_regen: 0.4,
     apply_input: apply_jetpack_input,

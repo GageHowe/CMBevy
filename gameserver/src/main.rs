@@ -20,7 +20,7 @@ fn parse_args() -> io::Result<(SocketAddr, String, String, Option<RegisterReques
             "no maps found in assets/maps"
         ))?
     );
-    let mut gametype = game_objects::level::default_asset_dir()
+    let mut gametype = gameplay::level::default_asset_dir()
         .join("gametypes")
         .join(first_asset_name("gametypes", "lua").ok_or_else(|| {
             io::Error::new(
@@ -72,7 +72,7 @@ fn parse_args() -> io::Result<(SocketAddr, String, String, Option<RegisterReques
 }
 
 fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
-    let asset_dir = game_objects::level::default_asset_dir();
+    let asset_dir = gameplay::level::default_asset_dir();
     let mut names: Vec<String> = std::fs::read_dir(asset_dir.join(dir))
         .ok()?
         .filter_map(|entry| entry.ok())
@@ -89,6 +89,8 @@ fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
 }
 
 /// Responds to UDP "discover" probes so LAN clients can find this server.
+/// should we put this on the existing tokio runtime? seems like a performance drain
+/// to have this busy wait on a thread
 fn start_lan_discovery(quic_port: u16) {
     let port_str = quic_port.to_string();
     std::thread::spawn(move || {
@@ -123,7 +125,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy::asset::AssetPlugin {
-            file_path: game_objects::level::default_asset_dir()
+            file_path: gameplay::level::default_asset_dir()
                 .to_string_lossy()
                 .into_owned(),
             ..default()

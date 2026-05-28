@@ -1,7 +1,8 @@
 use std::ops::{Deref, DerefMut};
 
 use bevy::prelude::*;
-use net::replication::ReplicationAppExt;
+use common::config::FIXED_TICK_RATE;
+use net::{message::MsgType, quic::*};
 use physics::physics_world::PhysicsWorld;
 use serde::{Deserialize, Serialize};
 
@@ -10,21 +11,14 @@ use crate::{
     collision::{CollisionImpactSet, CollisionImpacts},
 };
 
-const DAMAGE_ATTRIBUTION_WINDOW_SECS: f32 = 6.0;
+const FIXED_TICK_RATE_I32: i32 = FIXED_TICK_RATE as i32;
+const DAMAGE_ATTRIBUTION_WINDOW_TICKS: u16 = (FIXED_TICK_RATE as u16) * 6;
 
 /// Registers shared health, regen, damage, and death handling systems.
 pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingDeathDespawns>();
-        app.replicate_component_with::<Health, HealthPool>(
-            |health| health.pool,
-            |health, pool| health.pool = pool,
-            |pool| Health {
-                pool,
-                on_death: None,
-            },
-        );
         app.add_systems(
             FixedUpdate,
             (
@@ -43,21 +37,39 @@ impl Plugin for HealthPlugin {
 
 #[derive(Component, Clone, Copy, Serialize, Deserialize)]
 pub struct HealthPool {
-    pub current: f32,
-    pub max: f32,
-    pub regen_per_sec: f32,
-    pub regen_delay_secs: f32,
-    pub regen_delay_remaining_secs: f32,
+    pub current: i32,
+    pub max: i32,
+    pub regen_per_tick_num: i32,
+    pub regen_delay_ticks: u16,
+    pub regen_delay_remaining_ticks: u16,
+    pub regen_accum: i32,
+    pub damage_accum_millis: i32,
+}
+
+impl Default for HealthPool {
+    fn default() -> Self {
+        Self {
+            current: 100,
+            max: 100,
+            regen_per_tick_num: 2,
+            regen_delay_ticks: FIXED_TICK_RATE as u16 * 2,
+            regen_delay_remaining_ticks: 0,
+            regen_accum: 0,
+            damage_accum_millis: 0,
+        }
+    }
 }
 
 impl HealthPool {
-    pub fn new(max: f32, regen_per_sec: f32, regen_delay_secs: f32) -> Self {
+    pub fn new(max: i32, regen_per_tick_num: i32, regen_delay_ticks: u16) -> Self {
         Self {
             current: max,
             max,
-            regen_per_sec,
-            regen_delay_secs,
-            regen_delay_remaining_secs: 0.0,
+            regen_per_tick_num,
+            regen_delay_ticks,
+            regen_delay_remaining_ticks: 0,
+            regen_accum: 0,
+            damage_accum_millis: 0,
         }
     }
 
@@ -65,37 +77,43 @@ impl HealthPool {
         if amount <= 0.0 || self.is_depleted() {
             return;
         }
-        self.regen_delay_remaining_secs = self.regen_delay_secs;
-        self.current = (self.current - amount).max(0.0);
+        self.regen_delay_remaining_ticks = self.regen_delay_ticks;
+        self.regen_accum = 0;
+        let damage_millis = self.damage_accum_millis + (amount * 1000.0).round() as i32;
+        self.damage_accum_millis = damage_millis % 1000;
+        self.current = (self.current - damage_millis / 1000).max(0);
     }
 
     pub fn apply_percent_damage(&mut self, fraction: f32) {
-        self.apply_damage(self.max * fraction);
+        self.apply_damage(self.max as f32 * fraction);
     }
 
     pub fn is_depleted(&self) -> bool {
-        self.current <= 0.0
+        self.current <= 0
     }
 
-    pub fn regenerate(&mut self, dt: f32) {
-        self.regen_delay_remaining_secs = (self.regen_delay_remaining_secs - dt).max(0.0);
-        if self.current >= self.max || self.regen_per_sec <= 0.0 {
+    pub fn regenerate(&mut self) {
+        self.regen_delay_remaining_ticks = self.regen_delay_remaining_ticks.saturating_sub(1);
+        if self.current >= self.max || self.regen_per_tick_num <= 0 {
             return;
         }
-        if self.regen_delay_remaining_secs > 0.0 {
+        if self.regen_delay_remaining_ticks > 0 {
             return;
         }
-
-        self.current = (self.current + self.regen_per_sec * dt).min(self.max);
+        self.regen_accum += self.regen_per_tick_num;
+        self.current = (self.current + self.regen_accum / FIXED_TICK_RATE_I32).min(self.max);
+        self.regen_accum %= FIXED_TICK_RATE_I32;
     }
 
-    pub fn set_current(&mut self, current: f32) {
-        self.current = current.clamp(0.0, self.max);
+    pub fn set_current(&mut self, current: i32) {
+        self.current = current.clamp(0, self.max);
     }
 
     pub fn restore_full(&mut self) {
         self.current = self.max;
-        self.regen_delay_remaining_secs = 0.0;
+        self.regen_delay_remaining_ticks = 0;
+        self.regen_accum = 0;
+        self.damage_accum_millis = 0;
     }
 }
 
@@ -131,17 +149,17 @@ pub enum DamageCause {
     Explosion,
 }
 
-/// Tracks the most recent gameplay-owned attacker and damage cause for death handling.
+/// tracks the most recent gameplay-owned attacker and damage cause for death handling.
 #[derive(Component, Clone, Copy, Default, Reflect)]
 pub struct LastDamageSource {
     pub attacker: Option<Entity>,
     pub cause: DamageCause,
-    pub age_secs: f32,
+    pub age_ticks: u16,
 }
 
 impl LastDamageSource {
     pub fn resolved_attacker(self) -> Option<Entity> {
-        (self.age_secs <= DAMAGE_ATTRIBUTION_WINDOW_SECS)
+        (self.age_ticks <= DAMAGE_ATTRIBUTION_WINDOW_TICKS)
             .then_some(self.attacker)
             .flatten()
     }
@@ -164,9 +182,9 @@ pub struct PendingDeathDespawns(pub Vec<Entity>);
 struct DeathHandled;
 
 impl Health {
-    pub fn new(max: f32, regen_per_sec: f32, regen_delay_secs: f32) -> Self {
+    pub fn new(max: i32, regen_per_tick_num: i32, regen_delay_ticks: u16) -> Self {
         Self {
-            pool: HealthPool::new(max, regen_per_sec, regen_delay_secs),
+            pool: HealthPool::new(max, regen_per_tick_num, regen_delay_ticks),
             on_death: None,
         }
     }
@@ -193,6 +211,86 @@ impl Health {
         self.pool.restore_full();
     }
 }
+
+/* NETWORKING */
+
+pub fn send_health(
+    quic: &mut QuicManager,
+    target: SendTarget,
+    net_id: &common::NetworkID,
+    pool: HealthPool,
+) {
+    quic.send(
+        target,
+        Channel::Ordered,
+        &MsgType::Health(
+            net_id.clone(),
+            pool.current,
+            pool.max,
+            pool.regen_per_tick_num,
+            pool.regen_delay_ticks,
+            pool.regen_delay_remaining_ticks,
+            pool.regen_accum,
+            pool.damage_accum_millis,
+        ),
+    );
+}
+
+pub fn send_entity_health(
+    quic: &mut QuicManager,
+    target: SendTarget,
+    entity: bevy::ecs::world::EntityRef<'_>,
+    net_id: &common::NetworkID,
+) {
+    let Some(health) = entity.get::<Health>() else {
+        return;
+    };
+    send_health(quic, target, net_id, health.pool);
+}
+
+pub fn broadcast_dirty_health(
+    mut quic: ResMut<QuicManager>,
+    health_q: Query<(&common::NetworkID, Ref<Health>)>,
+) {
+    for (net_id, health) in &health_q {
+        if !health.is_changed() {
+            continue;
+        }
+        send_health(&mut quic, SendTarget::All, net_id, health.pool);
+    }
+}
+
+pub fn apply_health(
+    entity: Entity,
+    current: i32,
+    max: i32,
+    regen_per_tick_num: i32,
+    regen_delay_ticks: u16,
+    regen_delay_remaining_ticks: u16,
+    regen_accum: i32,
+    damage_accum_millis: i32,
+    world: &mut World,
+) {
+    let pool = HealthPool {
+        current,
+        max,
+        regen_per_tick_num,
+        regen_delay_ticks,
+        regen_delay_remaining_ticks,
+        regen_accum,
+        damage_accum_millis,
+    };
+    if let Some(mut health) = world.get_mut::<Health>(entity) {
+        health.pool = pool;
+    } else if world.entities().contains(entity) {
+        world.entity_mut(entity).insert(Health {
+            pool,
+            on_death: None,
+        });
+    }
+}
+
+/* COLLISION DAMAGE */
 
 #[derive(Component, Clone, Copy)]
 /// Tuning for converting collision impulses into gameplay damage.
@@ -260,24 +358,23 @@ pub fn apply_collision_damage(
             if let Ok(mut last_damage) = last_damage_q.get_mut(impact.entity) {
                 last_damage.attacker = None;
                 last_damage.cause = DamageCause::Collision;
-                last_damage.age_secs = 0.0;
+                last_damage.age_ticks = 0;
             }
             health.apply_damage(damage);
         }
     }
 }
 
-fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageSource>) {
-    let dt = time.delta_secs();
-    if dt <= 0.0 {
-        return;
-    }
+/* END COLLISION HANDLING */
+
+///
+fn age_last_damage_sources(mut q: Query<&mut LastDamageSource>) {
     for mut last_damage in &mut q {
         if last_damage.attacker.is_none() && matches!(last_damage.cause, DamageCause::Unknown) {
             continue;
         }
-        last_damage.age_secs += dt;
-        if last_damage.age_secs > DAMAGE_ATTRIBUTION_WINDOW_SECS {
+        last_damage.age_ticks = last_damage.age_ticks.saturating_add(1);
+        if last_damage.age_ticks > DAMAGE_ATTRIBUTION_WINDOW_TICKS {
             last_damage.attacker = None;
             last_damage.cause = DamageCause::Unknown;
         }
@@ -285,7 +382,6 @@ fn age_last_damage_sources(time: Res<Time<Fixed>>, mut q: Query<&mut LastDamageS
 }
 
 fn regenerate_health(
-    time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut health_q: Query<(
         Entity,
@@ -294,16 +390,12 @@ fn regenerate_health(
         Has<DeathHandled>,
     )>,
 ) {
-    let dt = time.delta_secs();
-    if dt <= 0.0 {
-        return;
-    }
     for (entity, mut health, should_despawn_on_death, death_handled) in &mut health_q {
         if health.is_dead() && should_despawn_on_death {
             continue;
         }
         let was_dead = health.is_dead();
-        health.regenerate(dt);
+        health.regenerate();
         if death_handled && was_dead && !health.is_dead() {
             commands.entity(entity).remove::<DeathHandled>();
         }
@@ -350,7 +442,9 @@ pub fn run_death_behavior(entity: Entity, world: &mut World) -> bool {
     if !world.entities().contains(entity) || world.get::<DeathHandled>(entity).is_some() {
         return false;
     }
-    let on_death = world.get::<Health>(entity).and_then(|health| health.on_death);
+    let on_death = world
+        .get::<Health>(entity)
+        .and_then(|health| health.on_death);
     world.entity_mut(entity).insert(DeathHandled);
     if let Some(on_death) = on_death {
         on_death(entity, world);
@@ -369,7 +463,7 @@ pub fn attribute_damage(
     };
     last_damage.attacker = attacker;
     last_damage.cause = cause;
-    last_damage.age_secs = 0.0;
+    last_damage.age_ticks = 0;
 }
 
 pub fn copy_last_damage_source(world: &mut World, from: Entity, to: Entity) {

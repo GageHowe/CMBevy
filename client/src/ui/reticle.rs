@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use game_objects::{
+use gameplay::{
     health::Health,
     pawn::{Possessed, WeaponSlots},
     reticle::{AimOrigin, AimReticle, default_crosshair_path},
@@ -82,7 +82,7 @@ pub fn update_prediction_reticle(
         let mut best = None;
         let mut best_score = f32::INFINITY;
         for (target_entity, target_gt, health) in targets.iter() {
-            if health.current <= 0.0 {
+            if health.current <= 0 {
                 continue;
             }
             let target_pos = target_gt.translation();

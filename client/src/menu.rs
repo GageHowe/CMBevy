@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use bevy::{app::AppExit, prelude::*};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use common::{InputAction, config::CRITICAL_MASS_VERSION};
-use game_objects::sound::SoundQueue;
+use gameplay::sound::SoundQueue;
 use http_common::{LobbyInfo, RegisterRequest};
 use session::{
     HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,
@@ -22,7 +22,7 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             EguiPrimaryContextPass,
-            main_menu.run_if(in_state(GameState::MainMenu)),
+            main_menu.run_if(in_state(GameState::NotPlaying)),
         );
         app.add_systems(
             EguiPrimaryContextPass,
@@ -733,7 +733,7 @@ fn show_host_screen(
                 next_state.set(GameState::Multiplayer);
             }
             Err(e) => {
-                game_objects::messages::push(commands, format!("Failed to start gameserver: {e}"))
+                gameplay::messages::push(commands, format!("Failed to start gameserver: {e}"))
             }
         }
     }
@@ -799,7 +799,7 @@ fn pause_menu(
         }
         if ui.button("Quit to Menu").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
-            next_game.set(GameState::MainMenu);
+            next_game.set(GameState::NotPlaying);
             next_ui.set(UiState::Playing);
         }
     });

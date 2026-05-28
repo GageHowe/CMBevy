@@ -12,7 +12,7 @@ pub struct BotContext {
     pub rot: Quat,
     pub vel: Vec3,
     pub projectile_speed: Option<f32>,
-    pub health: f32,
+    pub health: i32,
     pub visible: Vec<BotContext>,
 }
 

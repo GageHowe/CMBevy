@@ -5,7 +5,7 @@ use common::{
     NetworkID, PredictedCommands, PredictedImpulse,
     tick::{NetworkStats, Ticker},
 };
-use game_objects::{
+use gameplay::{
     NetworkEntityMap,
     components::{
         gravity::{GravitySource, apply_gravity_impulses},
@@ -25,7 +25,7 @@ struct BipedReplayState {
     jump_cooldown: u8,
     is_sliding: bool,
 }
-/// manages client-side rollback/correction, like in Rocket League
+/// manages client-side rollback/correction
 pub struct ReconciliationPlugin<S: States + Copy>(pub S);
 impl<S: States + Copy> ReconciliationPlugin<S> {
     pub fn new(state: S) -> Self {
@@ -74,7 +74,7 @@ pub struct ReplayStateHistory(HashMap<u64, ReplayState>);
 #[derive(Clone, Default)]
 struct ReplayState {
     biped: Option<BipedReplayState>,
-    ability: Option<game_objects::pawn::biped_ability::EquippedAbility>,
+    ability: Option<gameplay::pawn::biped_ability::EquippedAbility>,
 }
 
 #[derive(SystemParam)]
@@ -248,7 +248,7 @@ fn maybe_reconcile(
                 if let (Some(owner_entity), common::PawnInputKind::Biped(input)) =
                     (possessed_entity, tick.input.clone())
                 {
-                    let _ = game_objects::pawn::biped::apply_biped_input(
+                    let _ = gameplay::pawn::biped::apply_biped_input(
                         &mut world,
                         owner_entity,
                         input,

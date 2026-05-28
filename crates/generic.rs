@@ -1,9 +1,7 @@
 // generic.rs — spawns arbitrary physics objects with an optional mesh and network ID.
 use bevy::prelude::*;
 use common::NetworkID;
-use physics::{
-    collider_flags::collider_flags, convex_hull_asset::ConvexHullAsset, physics_world::*,
-};
+use physics::{convex_hull_asset::load_convex_hull_blocking, physics_world::*};
 use rapier3d::prelude::*;
 
 #[cfg(feature = "client")]
@@ -11,34 +9,16 @@ pub type GenericMesh = (Handle<Mesh>, Handle<StandardMaterial>);
 #[cfg(not(feature = "client"))]
 pub type GenericMesh = ();
 
-/// Attached to an entity when its convex hull collider is still loading.
-#[derive(Component)]
-#[component(storage = "SparseSet")]
-pub struct PendingHullCollider(pub Handle<ConvexHullAsset>);
-
-/// Attaches a convex hull if it's ready; otherwise inserts a temporary collider and
-/// marks the entity so the real hull can replace it once the asset finishes loading.
 pub fn attach_hull_collider(
-    entity: Entity,
+    _entity: Entity,
     body_handle: RigidBodyHandle,
     path: &'static str,
     scale: f32,
     fallback: ColliderBuilder,
     world: &mut World,
 ) {
-    let handle = world
-        .resource::<AssetServer>()
-        .load_with_settings(path, move |settings: &mut f32| *settings = scale);
-    let collider = world
-        .resource::<Assets<ConvexHullAsset>>()
-        .get(&handle)
-        .map(|hull| hull.0.clone())
-        .unwrap_or_else(|| {
-            world
-                .entity_mut(entity)
-                .insert(PendingHullCollider(handle.clone()));
-            fallback.build()
-        });
+    let collider = load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), scale)
+        .unwrap_or_else(|| fallback.build());
     let mut physics = world.resource_mut::<PhysicsWorld>();
     let PhysicsWorld {
         collider_set,
@@ -50,13 +30,11 @@ pub fn attach_hull_collider(
 
 /// Collider source for `spawn_generic`. Either a primitive rapier shape (with friction/restitution
 /// set directly on the builder) or a convex hull .obj loaded via the asset system.
-pub enum GenericShape<'a> {
+pub enum GenericShape {
     Primitive(ColliderBuilder),
     Hull {
         path: &'static str,
         scale: f32,
-        asset_server: &'a AssetServer,
-        hull_assets: &'a Assets<ConvexHullAsset>,
     },
 }
 
@@ -65,7 +43,7 @@ pub enum GenericShape<'a> {
 /// Pass `mesh: Some((mesh, material))` on the client for visuals; omit on the server.
 pub fn spawn_generic(
     transform: Transform,
-    shape: GenericShape<'_>,
+    shape: GenericShape,
     mesh: Option<GenericMesh>,
     net_id: Option<NetworkID>,
     commands: &mut Commands,
@@ -92,25 +70,16 @@ pub fn spawn_generic(
             } = &mut *world;
             collider_set.insert_with_parent(builder.build(), rb_handle, rigid_body_set);
         }
-        GenericShape::Hull {
-            path,
-            scale,
-            asset_server,
-            hull_assets,
-        } => {
-            let s = scale;
-            let handle =
-                asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
-            if let Some(hull) = hull_assets.get(&handle) {
-                let PhysicsWorld {
-                    collider_set,
-                    rigid_body_set,
-                    ..
-                } = &mut *world;
-                collider_set.insert_with_parent(hull.0.clone(), rb_handle, rigid_body_set);
-            } else {
-                commands.entity(entity).insert(PendingHullCollider(handle));
-            }
+        GenericShape::Hull { path, scale } => {
+            let PhysicsWorld {
+                collider_set,
+                rigid_body_set,
+                ..
+            } = &mut *world;
+            let collider =
+                load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), scale)
+                    .unwrap_or_else(|| ColliderBuilder::ball(0.5).build());
+            collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
         }
     }
 
@@ -129,46 +98,4 @@ pub fn spawn_generic(
     }
 
     entity
-}
-
-pub fn swap_hull_colliders(
-    mut commands: Commands,
-    mut physics: ResMut<PhysicsWorld>,
-    hull_assets: Res<Assets<ConvexHullAsset>>,
-    pending: Query<(Entity, &PendingHullCollider, &RigidBodyHandleComponent)>,
-) {
-    let ready: Vec<_> = pending
-        .iter()
-        .filter_map(|(entity, pending, body)| {
-            hull_assets
-                .get(&pending.0)
-                .map(|asset| (entity, body.0, asset.0.clone()))
-        })
-        .collect();
-
-    for (entity, body_handle, collider) in ready {
-        let Some(body) = physics.rigid_body_set.get(body_handle) else {
-            commands.entity(entity).remove::<PendingHullCollider>();
-            continue;
-        };
-        let old_colliders: Vec<_> = body.colliders().to_vec();
-        let PhysicsWorld {
-            collider_set,
-            rigid_body_set,
-            island_manager,
-            ..
-        } = &mut *physics;
-        for collider_handle in old_colliders {
-            let keep = collider_set
-                .get(collider_handle)
-                .map(|collider| !collider_flags(collider.user_data).is_empty())
-                .unwrap_or(false);
-            if keep {
-                continue;
-            }
-            collider_set.remove(collider_handle, island_manager, rigid_body_set, true);
-        }
-        collider_set.insert_with_parent(collider, body_handle, rigid_body_set);
-        commands.entity(entity).remove::<PendingHullCollider>();
-    }
 }

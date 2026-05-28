@@ -2,7 +2,6 @@
 pub mod biped;
 pub mod biped_ability;
 mod camera_effects;
-pub mod fighter;
 pub mod hovercraft;
 pub mod mount;
 pub mod spaceship;
@@ -14,17 +13,16 @@ pub mod weapon_slots;
 
 use std::collections::HashMap;
 
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::prelude::*;
 pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 pub use camera_effects::{CameraEffector, CameraShake};
 #[cfg(feature = "client")]
 use common::PredictedCommands;
 pub use common::{BipedInput, PawnInputKind, SpaceshipInput, TruckInput};
-pub use fighter::FighterPawnComponent;
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
 use net::{
-    message::{MsgType, NetworkID, SpawnType},
+    message::{MsgType, NetworkID},
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
@@ -45,19 +43,12 @@ pub use weapon_slots::WeaponSlots;
 pub struct PlayerRegistry {
     controlled_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
     character_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
-    conn_by_character_entity: HashMap<Entity, ConnectionId>,
 }
 impl PlayerRegistry {
     pub fn register_character(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
         self.controlled_by_conn
             .insert(conn_id, (entity, net_id.clone()));
-        if let Some((old_entity, _)) = self
-            .character_by_conn
-            .insert(conn_id, (entity, net_id.clone()))
-        {
-            self.conn_by_character_entity.remove(&old_entity);
-        }
-        self.conn_by_character_entity.insert(entity, conn_id);
+        self.character_by_conn.insert(conn_id, (entity, net_id));
     }
 
     pub fn set_controlled_pawn(
@@ -86,20 +77,20 @@ impl PlayerRegistry {
         conn_id: ConnectionId,
     ) -> Option<(Entity, NetworkID)> {
         self.controlled_by_conn.remove(&conn_id);
-        let (entity, net_id) = self.character_by_conn.remove(&conn_id)?;
-        self.conn_by_character_entity.remove(&entity);
-        Some((entity, net_id))
+        self.character_by_conn.remove(&conn_id)
     }
 
     pub fn remove_character(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
-        let conn_id = self.conn_by_character_entity.remove(&entity)?;
+        let conn_id = self.conn_id_for_character(entity)?;
         self.controlled_by_conn.remove(&conn_id);
         let (_, net_id) = self.character_by_conn.remove(&conn_id)?;
         Some((conn_id, net_id))
     }
 
     pub fn conn_id_for_character(&self, entity: Entity) -> Option<ConnectionId> {
-        self.conn_by_character_entity.get(&entity).copied()
+        self.character_by_conn
+            .iter()
+            .find_map(|(conn_id, (character, _))| (*character == entity).then_some(*conn_id))
     }
 
     pub fn controlled_count(&self) -> usize {
@@ -230,7 +221,7 @@ pub fn detach_camera(world: &mut World) {
 /// Pending respawns: conn_id -> (seconds_remaining, kind).
 #[derive(Resource, Default)]
 /// Respawn timers keyed by connection id.
-pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, SpawnType, crate::Team)>);
+pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, String, crate::Team)>);
 
 #[derive(Resource, Default)]
 /// Reverse lookup from held weapon ids to the entity currently carrying them.
@@ -240,6 +231,10 @@ pub struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
+        crate::register_spawnable(app, "biped", biped::spawn_biped);
+        crate::register_spawnable(app, "spaceship", spaceship::spawn_spaceship);
+        crate::register_spawnable(app, "truck", truck::spawn_truck);
+        crate::register_spawnable(app, "hovercraft", hovercraft::spawn_hovercraft);
         app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
         app.init_resource::<InteractionGate>()
@@ -250,7 +245,6 @@ impl Plugin for PawnPlugin {
             );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);
-        app.add_plugins(fighter::FighterPlugin);
         app.add_plugins(hovercraft::HovercraftPlugin);
         app.add_plugins(mount::MountPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
@@ -299,70 +293,62 @@ impl InteractionGate {
 /// UI-facing interaction prompt text for the locally controlled player.
 pub struct InteractionHint(pub Option<String>);
 
-#[derive(SystemParam)]
-/// Server-side helper that dispatches serialized pawn inputs to the right pawn component type.
-pub struct PawnInputParams<'w, 's> {
-    bipeds: Query<'w, 's, &'static mut biped::BipedPawnComponent>,
-    spaceships: Query<'w, 's, &'static mut spaceship::SpaceshipPawnComponent>,
-    trucks: Query<'w, 's, &'static mut truck::TruckPawnComponent>,
-    hovercrafts: Query<'w, 's, &'static mut hovercraft::HovercraftPawnComponent>,
-}
-
-impl<'w, 's> PawnInputParams<'w, 's> {
-    pub fn apply_server_input(
-        &mut self,
-        entity: Entity,
-        input: PawnInputKind,
-        world: &mut PhysicsWorld,
-    ) -> (bool, Option<biped_ability::AbilityFx>) {
-        let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
-            return (false, None);
-        };
-        match input {
-            PawnInputKind::Biped(input) => {
-                let Ok(mut biped) = self.bipeds.get_mut(entity) else {
-                    return (false, None);
-                };
-                let fx = biped::apply_biped_input(
+pub fn apply_server_input(
+    entity: Entity,
+    input: PawnInputKind,
+    world: &mut PhysicsWorld,
+    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
+    spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
+    trucks: &mut Query<&mut truck::TruckPawnComponent>,
+    hovercrafts: &mut Query<&mut hovercraft::HovercraftPawnComponent>,
+) -> (bool, Option<biped_ability::AbilityFx>) {
+    let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
+        return (false, None);
+    };
+    match input {
+        PawnInputKind::Biped(input) => {
+            let Ok(mut biped) = bipeds.get_mut(entity) else {
+                return (false, None);
+            };
+            let fx = biped::apply_biped_input(
+                world,
+                entity,
+                input,
+                &RigidBodyHandleComponent(handle),
+                &mut biped,
+            );
+            (true, fx)
+        }
+        PawnInputKind::Spaceship(input) => {
+            let Ok(mut ship) = spaceships.get_mut(entity) else {
+                return (false, None);
+            };
+            spaceship::apply_spaceship_movement(
+                world,
+                &RigidBodyHandleComponent(handle),
+                input,
+                &mut ship,
+            );
+            (true, None)
+        }
+        PawnInputKind::Truck(input) => {
+            if let Ok(mut truck) = trucks.get_mut(entity) {
+                truck::apply_truck_movement(
                     world,
-                    entity,
-                    input,
                     &RigidBodyHandleComponent(handle),
-                    &mut biped,
+                    input,
+                    &mut truck,
                 );
-                (true, fx)
-            }
-            PawnInputKind::Spaceship(input) => {
-                let Ok(mut ship) = self.spaceships.get_mut(entity) else {
-                    return (false, None);
-                };
-                spaceship::apply_spaceship_movement(
+            } else if hovercrafts.get_mut(entity).is_ok() {
+                hovercraft::apply_hovercraft_movement(
                     world,
                     &RigidBodyHandleComponent(handle),
                     input,
-                    &mut ship,
                 );
-                (true, None)
+            } else {
+                return (false, None);
             }
-            PawnInputKind::Truck(input) => {
-                if let Ok(mut truck) = self.trucks.get_mut(entity) {
-                    truck::apply_truck_movement(
-                        world,
-                        &RigidBodyHandleComponent(handle),
-                        input,
-                        &mut truck,
-                    );
-                } else if self.hovercrafts.get_mut(entity).is_ok() {
-                    hovercraft::apply_hovercraft_movement(
-                        world,
-                        &RigidBodyHandleComponent(handle),
-                        input,
-                    );
-                } else {
-                    return (false, None);
-                }
-                (true, None)
-            }
+            (true, None)
         }
     }
 }

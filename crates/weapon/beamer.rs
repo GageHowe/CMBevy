@@ -225,6 +225,7 @@ pub fn spawn_beamer(entity: Entity, cmd: &net::message::SpawnCommand, world: &mu
     helpers::insert_generic_weapon(
         entity,
         cmd,
+        "beamer",
         world,
         CONFIG.display_name,
         CONFIG.model_path,
@@ -311,7 +312,7 @@ fn apply_singleplayer_beam_hit(world: &mut World, shooter: Option<Entity>, hit: 
     if let Some(mut last_damage) = world.get_mut::<LastDamageSource>(hit) {
         last_damage.attacker = shooter;
         last_damage.cause = DamageCause::Projectile;
-        last_damage.age_secs = 0.0;
+        last_damage.age_ticks = 0;
     }
     if let Some(mut health) = world.get_mut::<Health>(hit) {
         health.apply_damage(DAMAGE_PER_TICK);

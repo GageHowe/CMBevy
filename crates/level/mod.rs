@@ -8,7 +8,7 @@ use bevy::{
 };
 use physics::{
     collider_shape::AuthoredColliderShape as Shape,
-    convex_hull_asset::ConvexHullAsset,
+    convex_hull_asset::load_convex_hull_blocking,
     physics_world::{
         InitialAngularVelocity, InitialVelocity, PhysicsWorld, RigidBodyHandleComponent,
         SceneRigidBody, rb_angvel, rb_pos, rb_rot, rb_vel,
@@ -17,7 +17,6 @@ use physics::{
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeSeed};
 use sha2::{Digest, Sha256};
-use net::message::SpawnType;
 
 #[cfg(feature = "client")]
 use crate::debug_draw::draw_authored_shape;
@@ -30,6 +29,48 @@ use crate::{
 };
 
 mod preprocess;
+
+// ── plugin ────────────────────────────────────────────────────────────────────
+
+pub struct LevelPlugin;
+impl Plugin for LevelPlugin {
+    fn build(&self, app: &mut App) {
+        // TODO: figure out what this actually does
+        app.register_type::<ChildOf>();
+        app.register_type::<Shape>();
+        app.register_type::<StaticCollider>();
+        app.register_type::<ColliderMaterial>();
+        app.register_type::<SceneModel>();
+        app.register_type::<SpawnPoint>();
+        app.register_type::<ScriptTags>();
+        app.register_type::<ScriptZone>();
+        app.register_type::<Spawner>();
+        app.register_type::<MapMeta>();
+
+        // maybe we could make these systems observer/trigger-driven or manual
+        // rather than on Update? seems wasteful to have them run so often.
+        // we'll only load a new level infrequently TODO
+
+        app.add_systems(Update, apply_pending_map_scene);
+        // react to scene-spawned components — works on both client and server
+        app.add_systems(Update, (spawn_static_colliders, assign_scene_network_ids));
+        #[cfg(feature = "client")]
+        {
+            app.add_systems(
+                Update,
+                (
+                    spawn_scene_models,
+                    load_level_scene.run_if(resource_added::<MapMeta>),
+                ),
+            );
+        }
+
+        // Keep authored scene data as small marker components and route all runtime setup
+        // through the existing imperative spawn path.
+        app.add_systems(Update, init_spawners);
+        app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySystems));
+    }
+}
 
 // ── component / resource types ────────────────────────────────────────────────
 
@@ -71,6 +112,8 @@ pub struct ScriptTags {
     pub tags: Vec<String>,
 }
 
+// script zones don't work yet
+
 /// Map-authored script-visible trigger volume. These are evaluated by querying the physics world
 /// with the authored shape at the entity's current world pose, so they can be parented in scenes
 /// without needing their own rigid body.
@@ -111,74 +154,25 @@ pub struct LevelSceneRoot;
 #[reflect(Component, Default)]
 pub struct Spawner {
     #[serde(alias = "kind")]
-    pub spawn_type: SpawnType,
+    pub spawn_name: String,
     pub respawn_delay_secs: f32,
 }
 impl Default for Spawner {
     fn default() -> Self {
         Self {
-            spawn_type: SpawnType::Biped,
+            spawn_name: "biped".into(),
             respawn_delay_secs: 10.0,
         }
     }
 }
 
 #[derive(Component)]
-pub(crate) struct SpawnerRuntime {
-    pub(crate) spawn_type: SpawnType,
-    pub(crate) starting_velocity: Vec3,
+pub struct SpawnerRuntime {
+    pub(crate) spawn_name: String,
+    pub(crate) velocity: Vec3,
     pub(crate) respawn_delay_secs: f32,
     pub(crate) respawn_timer_secs: f32,
     pub(crate) active_entity: Option<Entity>,
-}
-
-#[derive(bevy::ecs::system::SystemParam)]
-pub struct LevelReadyState<'w, 's> {
-    pending_map: Option<Res<'w, PendingMapScene>>,
-    roots: Query<'w, 's, (), With<LevelSceneRoot>>,
-    pending_hulls: Res<'w, PendingHullColliders>,
-    pending_markers: Query<'w, 's, (), (With<Spawner>, Without<SpawnerRuntime>)>,
-    scene_bodies: Query<
-        'w,
-        's,
-        &'static SceneRigidBody,
-        (
-            With<RigidBodyHandleComponent>,
-            Without<net::message::NetworkID>,
-        ),
-    >,
-}
-
-impl LevelReadyState<'_, '_> {
-    pub fn ready(&self) -> bool {
-        self.pending_map.is_none()
-            && !self.roots.is_empty()
-            && self.pending_hulls.0.is_empty()
-            && self.pending_markers.is_empty()
-            && !self.pending_scene_network_ids()
-    }
-
-    pub fn reason(&self) -> Option<&'static str> {
-        if self.pending_map.is_some() {
-            Some("map pending")
-        } else if self.roots.is_empty() {
-            Some("level root missing")
-        } else if !self.pending_hulls.0.is_empty() {
-            Some("hull colliders pending")
-        } else if !self.pending_markers.is_empty() {
-            Some("scene spawners initializing")
-        } else if self.pending_scene_network_ids() {
-            Some("scene network ids pending")
-        } else {
-            None
-        }
-    }
-
-    fn pending_scene_network_ids(&self) -> bool {
-        self.scene_bodies
-            .iter()
-            .any(|scene_body| matches!(scene_body, SceneRigidBody::Dynamic))
-    }
 }
 
 pub fn parented_world_pose(
@@ -227,23 +221,6 @@ pub fn parent_body_handle(
     None
 }
 
-// ── pending hull collider queue ───────────────────────────────────────────────
-
-/// Pending convex-hull colliders for static level geometry, waiting for the mesh asset to load.
-#[derive(Resource, Default)]
-pub struct PendingHullColliders(pub Vec<PendingHullCollider>);
-
-/// Deferred convex-hull collider attachment waiting for the asset loader to finish parsing OBJ data.
-pub struct PendingHullCollider {
-    pub entity: Entity,
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub hull: Handle<ConvexHullAsset>,
-    pub body_type: SceneRigidBody,
-    pub initial_velocity: Vec3,
-    pub initial_angvel: Vec3,
-}
-
 // ── network transfer helper ───────────────────────────────────────────────────
 
 /// Compressed raw .scn.ron bytes to send to new clients on connect.
@@ -277,6 +254,7 @@ pub fn read_and_compress_level(path: impl AsRef<std::path::Path>) -> Result<Leve
 }
 
 /// Compressed .scn.ron bytes received from the server, pending scene spawn.
+/// can we make this just a Vec<u8>? inline it or make this a state
 #[derive(Resource)]
 pub struct PendingMapScene(pub Vec<u8>);
 
@@ -401,50 +379,6 @@ fn sanitize_hash(hash: &str) -> String {
         .collect()
 }
 
-// ── plugin ────────────────────────────────────────────────────────────────────
-
-pub struct LevelPlugin;
-impl Plugin for LevelPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_type::<ChildOf>();
-        app.register_type::<Shape>();
-        app.register_type::<StaticCollider>();
-        app.register_type::<ColliderMaterial>();
-        app.register_type::<SceneModel>();
-        app.register_type::<SpawnPoint>();
-        app.register_type::<ScriptTags>();
-        app.register_type::<ScriptZone>();
-        app.register_type::<Spawner>();
-        app.register_type::<MapMeta>();
-        app.init_resource::<PendingHullColliders>();
-        app.add_systems(Update, apply_pending_map_scene);
-        // react to scene-spawned components — works on both client and server
-        app.add_systems(
-            Update,
-            (
-                spawn_static_colliders,
-                spawn_hull_colliders,
-                assign_scene_network_ids,
-            ),
-        );
-        #[cfg(feature = "client")]
-        {
-            app.add_systems(
-                Update,
-                (
-                    spawn_scene_models,
-                    load_level_scene.run_if(resource_added::<MapMeta>),
-                ),
-            );
-        }
-
-        // Keep authored scene data as small marker components and route all runtime setup
-        // through the existing imperative spawn path.
-        app.add_systems(Update, init_spawners);
-        app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySystems));
-    }
-}
-
 // ── systems ───────────────────────────────────────────────────────────────────
 
 fn init_spawners(
@@ -456,8 +390,8 @@ fn init_spawners(
 ) {
     for (entity, spawner, initial_velocity) in query.iter() {
         commands.entity(entity).insert(SpawnerRuntime {
-            spawn_type: spawner.spawn_type,
-            starting_velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
+            spawn_name: spawner.spawn_name.clone(),
+            velocity: initial_velocity.map_or(Vec3::ZERO, |v| v.0),
             respawn_delay_secs: spawner.respawn_delay_secs,
             respawn_timer_secs: 0.0,
             active_entity: None,
@@ -532,12 +466,7 @@ fn tick_spawners(
             }
         }
 
-        // Parented spawns authored on moving bodies must wait for the parent body
-        // or they lose inherited velocity and start from the wrong frame.
         let parent_body = parent_body_handle(child_of, &parent_parents, &parent_bodies);
-        if child_of.is_some() && parent_body.is_none() {
-            continue;
-        }
         let (position, rotation) = parented_world_pose(
             local_transform,
             child_of,
@@ -556,10 +485,11 @@ fn tick_spawners(
             })
             .unwrap_or(Vec3::ZERO);
         let (spawn_entity, _, spawn_cmd) = spawn_game_object(
-            spawner.spawn_type,
-            position,
-            rotation,
-            spawner.starting_velocity + inherited_velocity,
+            spawner.spawn_name.as_str(),
+            Some(position),
+            Some(rotation),
+            Some(spawner.velocity + inherited_velocity),
+            None,
             0,
             &mut commands,
             &mut net_id_res,
@@ -578,11 +508,10 @@ fn tick_spawners(
         #[cfg(not(feature = "client"))]
         {
             if let Some(quic) = quic.as_mut() {
-                crate::lifecycle::send_spawn_command(
-                    quic,
+                quic.send(
                     net::quic::SendTarget::All,
                     net::quic::Channel::Ordered,
-                    spawn_cmd,
+                    &net::message::MsgType::SpawnCommand(spawn_cmd),
                 );
             }
         }
@@ -607,8 +536,6 @@ pub fn spawn_static_colliders(
     >,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
-    mut pending: ResMut<PendingHullColliders>,
-    asset_server: Res<AssetServer>,
 ) {
     for (
         entity,
@@ -628,31 +555,24 @@ pub fn spawn_static_colliders(
         let angvel = initial_angvel.map_or(Vec3::ZERO, |v| v.0);
         let body_type = scene_body.copied().unwrap_or_default();
         if let Shape::ConvexHulls(path) = &sc.shape {
-            if body_handle.is_none() {
-                ensure_body(
-                    entity,
-                    pos,
-                    rot,
-                    body_type,
-                    linvel,
-                    angvel,
-                    &mut commands,
-                    &mut world,
-                );
-            }
-            // Hash refs download into a persistent local cache, so Bevy still loads a normal file path.
-            let path = crate::asset_path::resolve_asset_path(path);
-            let handle =
-                asset_server.load_with_settings(path, move |settings: &mut f32| *settings = s);
-            pending.0.push(PendingHullCollider {
+            let Some(mut collider) =
+                load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), s)
+            else {
+                continue;
+            };
+            apply_collider_material(&mut collider, material.copied());
+            attach_collider_to_body(
                 entity,
-                position: pos,
-                rotation: rot,
-                hull: handle,
+                pos,
+                rot,
+                collider,
+                body_handle.map(|h| h.0),
                 body_type,
-                initial_velocity: linvel,
-                initial_angvel: angvel,
-            });
+                linvel,
+                angvel,
+                &mut commands,
+                &mut world,
+            );
             continue;
         }
         let Some(mut collider) = sc.shape.build_primitive_collider(s) else {
@@ -665,52 +585,6 @@ pub fn spawn_static_colliders(
             rot,
             collider,
             body_handle.map(|h| h.0),
-            body_type,
-            linvel,
-            angvel,
-            &mut commands,
-            &mut world,
-        );
-    }
-}
-
-pub fn spawn_hull_colliders(
-    mut commands: Commands,
-    mut world: ResMut<PhysicsWorld>,
-    mut pending: ResMut<PendingHullColliders>,
-    hull_assets: Res<Assets<ConvexHullAsset>>,
-    materials: Query<&ColliderMaterial>,
-) {
-    let ready: Vec<_> = pending
-        .0
-        .iter()
-        .filter_map(|pending| {
-            hull_assets.get(&pending.hull).map(|asset| {
-                (
-                    pending.entity,
-                    pending.position,
-                    pending.rotation,
-                    asset.0.clone(),
-                    materials.get(pending.entity).ok().copied(),
-                    pending.body_type,
-                    pending.initial_velocity,
-                    pending.initial_angvel,
-                )
-            })
-        })
-        .collect();
-    pending
-        .0
-        .retain(|pending| hull_assets.get(&pending.hull).is_none());
-    for (entity, pos, rot, mut collider, material, body_type, linvel, angvel) in ready {
-        let existing = world.entity_to_handle.get(&entity).copied();
-        apply_collider_material(&mut collider, material);
-        attach_collider_to_body(
-            entity,
-            pos,
-            rot,
-            collider,
-            existing,
             body_type,
             linvel,
             angvel,
@@ -884,18 +758,9 @@ pub fn load_level_scene(
 
 /// Despawns the level scene and removes level resources.
 /// Bevy's DynamicSceneRoot component hook handles scene-entity cleanup on entity despawn.
-pub fn cleanup_level(
-    mut commands: Commands,
-    scene_roots: Query<Entity, With<LevelSceneRoot>>,
-    mut pending: ResMut<PendingHullColliders>,
-) {
+pub fn cleanup_level(mut commands: Commands, scene_roots: Query<Entity, With<LevelSceneRoot>>) {
     for entity in scene_roots.iter() {
-        commands.queue(move |world: &mut World| {
-            if let Ok(entity) = world.get_entity_mut(entity) {
-                entity.despawn();
-            }
-        });
+        commands.entity(entity).despawn();
     }
-    pending.0.clear();
     commands.remove_resource::<MapMeta>();
 }

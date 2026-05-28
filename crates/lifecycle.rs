@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use net::message::{NetworkID, NetworkIDResource, SpawnCommand, SpawnType};
+use net::message::{NetworkID, NetworkIDResource, SpawnCommand};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_vel};
 
 #[cfg(feature = "client")]
@@ -9,72 +9,36 @@ use crate::{
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
 };
 
-pub fn make_spawn_command(
-    net_id: NetworkID,
-    spawn_type: SpawnType,
-    parent_net_id: Option<NetworkID>,
-    position: Vec3,
-    starting_velocity: Vec3,
-    shooter_velocity: Vec3,
-    rotation: Quat,
-    server_tick: u64,
-) -> SpawnCommand {
-    SpawnCommand {
-        net_id,
-        parent_net_id,
-        position,
-        starting_velocity,
-        shooter_velocity,
-        rotation,
-        server_tick,
-        spawn_type,
-    }
-}
-
 pub fn spawn_game_object(
-    spawn_type: SpawnType,
-    position: Vec3,
-    rotation: Quat,
-    starting_velocity: Vec3,
+    spawn_name: impl Into<String>,
+    position: Option<Vec3>,
+    rotation: Option<Quat>,
+    velocity: Option<Vec3>,
+    angular_velocity: Option<Vec3>,
     server_tick: u64,
     commands: &mut Commands,
     net_ids: &mut NetworkIDResource,
 ) -> (Entity, NetworkID, SpawnCommand) {
     let net_id = NetworkID(net_ids.next());
-    let cmd = make_spawn_command(
-        net_id.clone(),
-        spawn_type,
-        None,
-        position,
-        starting_velocity,
-        Vec3::ZERO,
-        rotation,
-        server_tick,
-    );
+    let mut cmd = SpawnCommand::new(net_id.clone(), spawn_name, server_tick);
+    if let Some(position) = position {
+        cmd = cmd.position(position);
+    }
+    if let Some(rotation) = rotation {
+        cmd = cmd.rotation(rotation);
+    }
+    if let Some(velocity) = velocity {
+        cmd = cmd.velocity(velocity);
+    }
+    if let Some(angular_velocity) = angular_velocity {
+        cmd = cmd.angular_velocity(angular_velocity);
+    }
     let entity = commands.spawn_empty().id();
-    queue_spawn_command_on(entity, cmd.clone(), commands);
+    commands.queue(SpawnGameObjectCommand {
+        entity,
+        cmd: cmd.clone(),
+    });
     (entity, net_id, cmd)
-}
-
-pub fn queue_spawn_command(cmd: SpawnCommand, commands: &mut Commands) -> (Entity, NetworkID, u64) {
-    let net_id = cmd.net_id.clone();
-    let server_tick = cmd.server_tick;
-    let entity = commands.spawn_empty().id();
-    queue_spawn_command_on(entity, cmd, commands);
-    (entity, net_id, server_tick)
-}
-
-pub fn queue_spawn_command_on(entity: Entity, cmd: SpawnCommand, commands: &mut Commands) {
-    commands.queue(SpawnGameObjectCommand { entity, cmd });
-}
-
-pub fn send_spawn_command(
-    quic: &mut net::quic::QuicManager,
-    target: net::quic::SendTarget,
-    channel: net::quic::Channel,
-    cmd: SpawnCommand,
-) {
-    quic.send(target, channel, &net::message::MsgType::SpawnCommand(cmd));
 }
 
 pub fn send_despawn_command(
@@ -97,14 +61,15 @@ pub fn apply_spawn_command(
     mut cmd: SpawnCommand,
     rtt_secs: f32,
 ) {
-    cmd.position += cmd.starting_velocity * (rtt_secs / 2.0);
+    cmd.position = Some(cmd.position_or_zero() + cmd.velocity_or_zero() * (rtt_secs / 2.0));
     let net_id = cmd.net_id.clone();
     let server_tick = cmd.server_tick;
     let entity = if let Some(entity) = networked.get(&net_id) {
-        queue_spawn_command_on(entity, cmd, commands);
+        commands.queue(SpawnGameObjectCommand { entity, cmd });
         entity
     } else {
-        let (entity, _, _) = queue_spawn_command(cmd, commands);
+        let entity = commands.spawn_empty().id();
+        commands.queue(SpawnGameObjectCommand { entity, cmd });
         entity
     };
     just_spawned.insert(net_id, (entity, server_tick));
@@ -276,9 +241,6 @@ fn resolve_spawn_point(
     physics: &PhysicsWorld,
 ) -> Option<(Vec3, Quat, Vec3)> {
     let parent_body = parent_body_handle(child_of, parent_parents, parent_bodies);
-    if child_of.is_some() && parent_body.is_none() {
-        return None;
-    }
     let (position, rotation) = parented_world_pose(
         transform,
         child_of,

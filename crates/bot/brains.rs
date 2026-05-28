@@ -16,7 +16,7 @@ impl BotBrain for HeuristicKillerBot {
             .visible
             .iter()
             .filter(|other| {
-                other.entity != ctx.entity && other.team.0 != ctx.team.0 && other.health > 0.0
+                other.entity != ctx.entity && other.team.0 != ctx.team.0 && other.health > 0
             })
             .min_by(|a, b| {
                 ctx.pos

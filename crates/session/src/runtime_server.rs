@@ -3,12 +3,15 @@ use bevy::{
     prelude::*,
 };
 use common::{LeaderboardScope, ScoringOption};
-use game_objects::{
+use gameplay::{
     SpawnGameObjectCommand,
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
-    pawn::{Mounted, PawnInputParams, PendingRespawns, PlayerRegistry},
+    pawn::{
+        BipedPawnComponent, HovercraftPawnComponent, Mounted, PendingRespawns, PlayerRegistry,
+        SpaceshipPawnComponent, TruckPawnComponent, apply_server_input,
+    },
 };
 use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
 use net::{message::*, quic::*};
@@ -16,8 +19,8 @@ use physics::physics_world::*;
 use scripting::{ScriptConfig, get_script_global};
 
 use crate::{
-    actions::apply_melee_hit_requests,
-    replication::{broadcast_component_updates, broadcast_scoreboard, broadcast_tick, spawn_player},
+    messages_server::apply_melee_hit_requests,
+    replication::{broadcast_scoreboard, broadcast_tick, spawn_player},
     resources::*,
 };
 
@@ -92,14 +95,17 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(FixedUpdate, advance_match_state_time)
             .add_systems(
                 FixedUpdate,
-                broadcast_component_updates
+                (
+                    gameplay::health::broadcast_dirty_health,
+                    gameplay::weapon::broadcast_dirty_weapon_states,
+                )
                     .after(step_physics)
                     .before(broadcast_tick),
             )
             .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
             .add_systems(
                 FixedUpdate,
-                broadcast_tick.after(game_objects::health::handle_deaths),
+                broadcast_tick.after(gameplay::health::handle_deaths),
             )
             .add_systems(
                 FixedPreUpdate,
@@ -224,7 +230,7 @@ fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
             commands.insert_resource(level);
         }
         Err(err) => {
-            game_objects::messages::push(&mut commands, err);
+            gameplay::messages::push(&mut commands, err);
         }
     }
 }
@@ -294,7 +300,7 @@ fn tick_respawns(
     physics: Res<PhysicsWorld>,
 ) {
     let dt = time.delta_secs();
-    let ready: Vec<(ConnectionId, SpawnType, Team)> = pending
+    let ready: Vec<(ConnectionId, String, Team)> = pending
         .0
         .iter_mut()
         .filter_map(|(&id, (t, k, team))| {
@@ -304,7 +310,7 @@ fn tick_respawns(
         .collect();
     for (conn_id, kind, team) in ready {
         pending.0.remove(&conn_id);
-        let Some((sp, sr, sv)) = game_objects::lifecycle::pick_spawn_point_with_velocity(
+        let Some((sp, sr, sv)) = gameplay::lifecycle::pick_spawn_point_with_velocity(
             &spawn_points,
             &parent_transforms,
             &parent_parents,
@@ -317,7 +323,7 @@ fn tick_respawns(
         };
         spawn_player(
             conn_id,
-            kind,
+            kind.as_str(),
             team,
             sp,
             sr,
@@ -391,7 +397,7 @@ fn process_console_commands(
             "bot" => {
                 let team = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
                 if let Some((pos, rot, vel)) =
-                    game_objects::lifecycle::pick_spawn_point_with_velocity(
+                    gameplay::lifecycle::pick_spawn_point_with_velocity(
                         &spawn_points,
                         &parent_transforms,
                         &parent_parents,
@@ -401,27 +407,27 @@ fn process_console_commands(
                         tick.tick as usize,
                     )
                 {
-                    let (entity, _, spawn_cmd) = game_objects::lifecycle::spawn_game_object(
-                        SpawnType::Biped,
-                        pos,
-                        rot,
-                        vel,
+                    let (entity, _, spawn_cmd) = gameplay::lifecycle::spawn_game_object(
+                        "biped",
+                        Some(pos),
+                        Some(rot),
+                        Some(vel),
+                        None,
                         tick.tick,
                         &mut commands,
                         &mut net_ids,
                     );
                     commands.entity(entity).insert((
                         Team(team),
-                        game_objects::bot::BotController::new(
+                        gameplay::bot::BotController::new(
                             Team(team),
-                            game_objects::bot::HeuristicKillerBot,
+                            gameplay::bot::HeuristicKillerBot,
                         ),
                     ));
-                    game_objects::lifecycle::send_spawn_command(
-                        &mut quic,
+                    quic.send(
                         SendTarget::All,
                         Channel::Ordered,
-                        spawn_cmd,
+                        &MsgType::SpawnCommand(spawn_cmd),
                     );
                 }
                 println!("spawned bot on team {}", team + 1);
@@ -518,7 +524,7 @@ fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Team, Vec3, Q
         .enumerate()
         .filter_map(|(index, conn_id)| {
             let team = (index % num_teams) as u8;
-            game_objects::lifecycle::pick_spawn_point_with_velocity(
+            gameplay::lifecycle::pick_spawn_point_with_velocity(
                 &spawn_points,
                 &parent_transforms,
                 &parent_parents,
@@ -545,8 +551,8 @@ fn reset_existing_player(
     spawn_vel: Vec3,
 ) {
     if let Some(mounted) = world.get::<Mounted>(character_entity).copied() {
-        let _ = game_objects::pawn::mount::handle_mount_parent_death(mounted.0, world);
-        game_objects::pawn::send_mount_state(
+        let _ = gameplay::pawn::mount::handle_mount_parent_death(mounted.0, world);
+        gameplay::pawn::send_mount_state(
             &mut world.resource_mut::<QuicManager>(),
             SendTarget::All,
             &character_net_id,
@@ -558,7 +564,8 @@ fn reset_existing_player(
         health.restore_full();
     }
     world.entity_mut(character_entity).insert(team);
-    world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
+    {
+        let mut physics = world.resource_mut::<PhysicsWorld>();
         physics.set_body_enabled(character_entity, true);
         physics.set_body_pose(
             character_entity,
@@ -567,12 +574,12 @@ fn reset_existing_player(
             spawn_vel,
             Vec3::ZERO,
         );
-    });
+    }
     world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
         let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
             return;
         };
-        game_objects::pawn::possess_pawn(
+        gameplay::pawn::possess_pawn(
             conn_id,
             character_entity,
             &character_net_id,
@@ -597,16 +604,10 @@ fn spawn_restarted_player(
         };
         NetworkID(net_ids.next())
     };
-    let spawn_cmd = game_objects::lifecycle::make_spawn_command(
-        net_id.clone(),
-        SpawnType::Biped,
-        None,
-        spawn_pos,
-        spawn_vel,
-        Vec3::ZERO,
-        spawn_rot,
-        tick,
-    );
+    let spawn_cmd = SpawnCommand::new(net_id.clone(), "biped", tick)
+        .position(spawn_pos)
+        .rotation(spawn_rot)
+        .velocity(spawn_vel);
     let entity = world.spawn_empty().id();
     SpawnGameObjectCommand {
         entity,
@@ -621,18 +622,16 @@ fn spawn_restarted_player(
         .unwrap_or_default();
     if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
         for other_conn_id in existing_conn_ids {
-            game_objects::lifecycle::send_spawn_command(
-                &mut quic,
+            quic.send(
                 SendTarget::One(other_conn_id),
                 Channel::Ordered,
-                spawn_cmd.clone(),
+                &MsgType::SpawnCommand(spawn_cmd.clone()),
             );
         }
-        game_objects::lifecycle::send_spawn_command(
-            &mut quic,
+        quic.send(
             SendTarget::One(conn_id),
             Channel::Ordered,
-            spawn_cmd,
+            &MsgType::SpawnCommand(spawn_cmd),
         );
     }
     world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
@@ -640,7 +639,7 @@ fn spawn_restarted_player(
             return;
         };
         registry.register_character(conn_id, entity, net_id.clone());
-        game_objects::pawn::send_possess(&mut quic, conn_id, &net_id);
+        gameplay::pawn::send_possess(&mut quic, conn_id, &net_id);
     });
 }
 
@@ -650,19 +649,32 @@ fn apply_inputs(
     registry: Res<PlayerRegistry>,
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
-    mut pawns: PawnInputParams,
+    mut pawn_inputs: (
+        Query<&mut BipedPawnComponent>,
+        Query<&mut SpaceshipPawnComponent>,
+        Query<&mut TruckPawnComponent>,
+        Query<&mut HovercraftPawnComponent>,
+    ),
 ) {
     for (&conn_id, (input_seq, kind)) in pending_inputs.0.iter() {
         let Some((entity, net_id)) = registry.controlled_pawn(conn_id) else {
             continue;
         };
-        let (applied, fx) = pawns.apply_server_input(entity, kind.clone(), &mut world);
+        let (applied, fx) = apply_server_input(
+            entity,
+            kind.clone(),
+            &mut world,
+            &mut pawn_inputs.0,
+            &mut pawn_inputs.1,
+            &mut pawn_inputs.2,
+            &mut pawn_inputs.3,
+        );
         if applied {
             last_input_seq.0.insert(conn_id, *input_seq);
         }
         if let Some(fx) = fx {
-            let channel = game_objects::pawn::biped_ability::fx_channel(fx);
-            let msg = game_objects::pawn::biped_ability::fx_message(net_id.clone(), fx);
+            let channel = gameplay::pawn::biped_ability::fx_channel(fx);
+            let msg = gameplay::pawn::biped_ability::fx_message(net_id.clone(), fx);
             quic.send(SendTarget::AllExcept(conn_id), channel, &msg);
         }
     }

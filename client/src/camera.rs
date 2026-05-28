@@ -8,6 +8,7 @@ use bevy::{
     math::Vec3,
     prelude::*,
     render::render_resource::TextureUsages,
+    render::view::Hdr,
 };
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
 // use bevy::post_process::effect_stack::ChromaticAberration;
@@ -22,6 +23,8 @@ pub fn spawn_camera(mut commands: Commands) {
             ..Default::default()
         },
         CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
+        Hdr,
+        bevy::post_process::auto_exposure::AutoExposure::default(),
         AmbientLight {
             // MapMeta overrides this on map load; keep startup neutral so authored maps own it.
             brightness: 0.0,

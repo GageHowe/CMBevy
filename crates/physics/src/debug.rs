@@ -2,7 +2,7 @@
 //!
 //! Keep this module limited to Rapier/PhysicsWorld primitives such as colliders, rigid bodies,
 //! and their poses. Higher-level authored gameplay volume drawing belongs in
-//! `game_objects::debug_draw`.
+//! `gameplay::debug_draw`.
 
 use bevy::{math::primitives::Cuboid as BevyCuboid, prelude::*};
 use rapier3d::prelude::*;

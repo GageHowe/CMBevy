@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use game_objects::sound::SoundQueue;
+use gameplay::sound::SoundQueue;
 
 pub const UI_CLICK_EVENT: &str = "event:/UI/Click";
 pub const UI_BACK_EVENT: &str = "event:/UI/Back";
@@ -29,7 +29,7 @@ mod fmod_impl {
 
     use bevy::{prelude::*, transform::TransformSystems};
     use common::config;
-    use game_objects::{
+    use gameplay::{
         components::atmosphere::AreaReverbComponent,
         pawn::Possessed,
         sound::{SoundEmitter, SoundQueue},

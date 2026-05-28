@@ -22,7 +22,7 @@ use crate::{
 #[cfg(feature = "client")]
 const MODEL_PATH: &str = "models/kenney-prototypes/shape-cube-recentered.glb#Scene0";
 const HALF_EXTENTS: Vec3 = Vec3::new(1.2, 0.45, 2.0);
-const TRUCK_MAX_HEALTH: f32 = 1200.0;
+const TRUCK_MAX_HEALTH: i32 = 1200;
 const DRIVE_FORCE: f32 = 220.0;
 const BRAKE_FORCE: f32 = 320.0;
 const SIDEWAYS_GRIP: f32 = 45.0;
@@ -58,15 +58,20 @@ impl VehiclePawn for TruckPawnComponent {
 }
 
 pub fn spawn_truck(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let position = cmd.position_or_zero();
+        let rotation = cmd.rotation_or_identity();
+        let velocity = cmd.velocity_or_zero();
+        let angular_velocity = cmd.angular_velocity_or_zero();
         let transform = Transform {
-            translation: cmd.position.into(),
-            rotation: cmd.rotation.into(),
+            translation: position,
+            rotation,
             ..default()
         };
         spawn_driver_mount::<TruckPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
+            crate::SpawnReplicated("truck"),
             TruckPawnComponent,
-            Health::new(TRUCK_MAX_HEALTH, 0.0, 0.0).with_death(on_truck_death),
+            Health::new(TRUCK_MAX_HEALTH, 0, 0).with_death(on_truck_death),
             CollisionDamageConfig {
                 threshold_per_mass: 90.0,
                 min_threshold: 250.0,
@@ -82,17 +87,21 @@ pub fn spawn_truck(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
-                .linvel(Vector3::new(
-                    cmd.starting_velocity.x,
-                    cmd.starting_velocity.y,
-                    cmd.starting_velocity.z,
-                ))
+                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
                 .linear_damping(0.2)
                 .angular_damping(2.2)
                 .build();
             let rb_handle = physics.insert_body(entity, rb);
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
+                rb.set_angvel(
+                    Vector3::new(
+                        angular_velocity.x,
+                        angular_velocity.y,
+                        angular_velocity.z,
+                    ),
+                    true,
+                );
             }
             let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
                 .friction(1.0)

@@ -12,8 +12,6 @@ mod runtime_client;
 mod runtime_server;
 
 #[cfg(not(feature = "client"))]
-mod actions;
-#[cfg(not(feature = "client"))]
 mod bots;
 #[cfg(not(feature = "client"))]
 mod connections;

@@ -7,11 +7,10 @@ edition = "2024"
 workspace = true
 
 [features]
-client = ["game_objects/client"]
+client = ["gameplay/client"]
 
 [dependencies]
-game_objects = { path = "../game_objects" }
-pawn = { path = "../pawn" }
+gameplay = { path = "../gameplay" }
 common = { path = "../common" }
 net = { path = "../net" }
 physics = { path = "../physics" }

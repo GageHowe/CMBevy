@@ -31,7 +31,7 @@ const BRAKE_FORCE: f32 = 180.0;
 const SIDEWAYS_GRIP: f32 = 28.0;
 const STEER_TORQUE: f32 = 18.0;
 const UPRIGHT_TORQUE: f32 = 110.0;
-const HOVERCRAFT_MAX_HEALTH: f32 = 1000.0;
+const HOVERCRAFT_MAX_HEALTH: i32 = 1000;
 const HOVER_POINTS: [Vec3; 4] = [
     Vec3::new(-1.1, 0.0, -1.8),
     Vec3::new(1.1, 0.0, -1.8),
@@ -69,15 +69,20 @@ impl VehiclePawn for HovercraftPawnComponent {
 }
 
 pub fn spawn_hovercraft(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let position = cmd.position_or_zero();
+        let rotation = cmd.rotation_or_identity();
+        let velocity = cmd.velocity_or_zero();
+        let angular_velocity = cmd.angular_velocity_or_zero();
         let transform = Transform {
-            translation: cmd.position.into(),
-            rotation: cmd.rotation.into(),
+            translation: position,
+            rotation,
             ..default()
         };
         spawn_driver_mount::<HovercraftPawnComponent>(entity, world);
         world.entity_mut(entity).insert((
+            crate::SpawnReplicated("hovercraft"),
             HovercraftPawnComponent,
-            Health::new(HOVERCRAFT_MAX_HEALTH, 0.0, 0.0).with_death(on_hovercraft_death),
+            Health::new(HOVERCRAFT_MAX_HEALTH, 0, 0).with_death(on_hovercraft_death),
             CollisionDamageConfig {
                 threshold_per_mass: 90.0,
                 min_threshold: 250.0,
@@ -93,16 +98,20 @@ pub fn spawn_hovercraft(entity: Entity, cmd: &net::message::SpawnCommand, world:
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let rb = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
-                .linvel(Vector3::new(
-                    cmd.starting_velocity.x,
-                    cmd.starting_velocity.y,
-                    cmd.starting_velocity.z,
-                ))
+                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
                 .angular_damping(2.8)
                 .build();
             let rb_handle = physics.insert_body(entity, rb);
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
+                rb.set_angvel(
+                    Vector3::new(
+                        angular_velocity.x,
+                        angular_velocity.y,
+                        angular_velocity.z,
+                    ),
+                    true,
+                );
             }
             rb_handle
         };

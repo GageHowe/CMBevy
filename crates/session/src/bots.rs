@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use game_objects::{Team, bot::*, health::Health, pawn::*, reticle::AimReticle, weapon::*};
+use gameplay::{Team, bot::*, health::Health, pawn::*, reticle::AimReticle, weapon::*};
 use net::{message::*, quic::*};
 use physics::physics_world::*;
 
@@ -8,15 +8,20 @@ pub(super) fn run_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
     mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
-    smgs: Query<(), With<game_objects::weapon::smg::SmgComponent>>,
+    smgs: Query<(), With<gameplay::weapon::smg::SmgComponent>>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     reticles: Query<&AimReticle>,
-    mut pawns: PawnInputParams,
+    mut pawn_inputs: (
+        Query<&mut BipedPawnComponent>,
+        Query<&mut SpaceshipPawnComponent>,
+        Query<&mut TruckPawnComponent>,
+        Query<&mut HovercraftPawnComponent>,
+    ),
     mut world: ResMut<PhysicsWorld>,
     mut quic: ResMut<QuicManager>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
-    mut held_weapons: ResMut<game_objects::pawn::HeldWeaponMap>,
+    mut held_weapons: ResMut<gameplay::pawn::HeldWeaponMap>,
     tick: Res<Ticker>,
 ) {
     let actors = collect_contexts(&actors, &pawn_slots.p1(), &reticles, &world);
@@ -26,7 +31,15 @@ pub(super) fn run_bots(
         };
         ctx.visible = actors.clone();
         let output = bot.brain.think(&ctx);
-        let _ = pawns.apply_server_input(entity, output.input, &mut world);
+        let _ = apply_server_input(
+            entity,
+            output.input,
+            &mut world,
+            &mut pawn_inputs.0,
+            &mut pawn_inputs.1,
+            &mut pawn_inputs.2,
+            &mut pawn_inputs.3,
+        );
         if output.fire {
             fire_active_weapon(
                 entity,
@@ -55,10 +68,10 @@ pub(super) fn fire_active_weapon(
     origin: Vec3,
     dir: Vec3,
     temp_id: u32,
-    smgs: &Query<(), With<game_objects::weapon::smg::SmgComponent>>,
+    smgs: &Query<(), With<gameplay::weapon::smg::SmgComponent>>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    held_weapons: &mut game_objects::pawn::HeldWeaponMap,
+    held_weapons: &mut gameplay::pawn::HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut NetworkIDResource,
@@ -77,11 +90,11 @@ pub(super) fn fire_active_weapon(
         return;
     };
     let dir = if smgs.contains(weapon_entity) {
-        game_objects::weapon::smg::spread_dir(dir)
+        gameplay::weapon::smg::spread_dir(dir)
     } else {
         dir
     };
-    game_objects::weapon::fire_authoritative_with_replication(
+    gameplay::weapon::fire_authoritative_with_replication(
         shooter,
         weapon_entity,
         &weapon_net_id,
@@ -116,5 +129,5 @@ pub(super) fn reload_active_weapon(
     let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
         return;
     };
-    game_objects::weapon::start_reload(&mut weapon_state, weapon_config);
+    gameplay::weapon::start_reload(&mut weapon_state, weapon_config);
 }

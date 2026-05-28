@@ -17,9 +17,7 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 use crate::SpawnGameObjectCommand;
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
-#[cfg(not(feature = "client"))]
-use crate::lifecycle::make_spawn_command;
-use crate::{SpawnType, pawn::biped::BipedPawnComponent};
+use crate::pawn::biped::BipedPawnComponent;
 pub mod fx;
 pub mod implementors;
 pub use fx::{AbilityFx, fx_channel, fx_message};
@@ -34,6 +32,8 @@ pub type AbilityInputFn =
 pub struct BipedAbilityPlugin;
 impl Plugin for BipedAbilityPlugin {
     fn build(&self, app: &mut App) {
+        crate::register_spawnable(app, "jetpack", spawn_jetpack_pickup);
+        crate::register_spawnable(app, "dash", spawn_dash_pickup);
         app.add_systems(
             FixedPreUpdate,
             tick_biped_ability_state.before(super::MovePawnsSet),
@@ -91,27 +91,24 @@ impl EquippedAbility {
                 .map(|mut r| NetworkID(r.next()))
             {
                 let entity = world.spawn_empty().id();
-                let cmd = make_spawn_command(
+                let cmd = net::message::SpawnCommand::new(
                     net_id,
-                    self.spec.spawn_type,
-                    None,
-                    pos,
-                    vel,
-                    Vec3::ZERO,
-                    Quat::IDENTITY,
+                    self.spec.spawn_name,
                     world.resource::<common::tick::Ticker>().tick,
-                );
+                )
+                .position(pos)
+                .rotation(Quat::IDENTITY)
+                .velocity(vel);
                 SpawnGameObjectCommand {
                     entity,
                     cmd: cmd.clone(),
                 }
                 .apply(world);
                 if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                    crate::lifecycle::send_spawn_command(
-                        &mut quic,
+                    quic.send(
                         SendTarget::All,
                         Channel::Ordered,
-                        cmd,
+                        &net::message::MsgType::SpawnCommand(cmd),
                     );
                 }
                 return;
@@ -124,7 +121,7 @@ impl EquippedAbility {
 }
 
 pub struct AbilitySpec {
-    pub spawn_type: SpawnType,
+    pub spawn_name: &'static str,
     pub meter_max: f32,
     pub meter_regen: f32,
     pub apply_input: AbilityInputFn,
@@ -230,8 +227,8 @@ fn set_ability(owner: Entity, ability: EquippedAbility, world: &mut World) {
     }
 }
 
-pub fn set_ability_kind(owner: Entity, spawn_type: SpawnType, world: &mut World) -> bool {
-    let Some(spec) = ability_spec(&spawn_type) else {
+pub fn set_ability_kind(owner: Entity, spawn_name: &str, world: &mut World) -> bool {
+    let Some(spec) = ability_spec(spawn_name) else {
         return false;
     };
     let ability = EquippedAbility::new(spec);
@@ -240,20 +237,20 @@ pub fn set_ability_kind(owner: Entity, spawn_type: SpawnType, world: &mut World)
 }
 
 pub fn equip_jetpack(owner: Entity, world: &mut World) -> bool {
-    set_ability_kind(owner, SpawnType::Jetpack, world)
+    set_ability_kind(owner, "jetpack", world)
 }
 
 pub fn equip_dash(owner: Entity, world: &mut World) -> bool {
-    set_ability_kind(owner, SpawnType::Dash, world)
+    set_ability_kind(owner, "dash", world)
 }
 
 pub fn swap_ability_kind(
     owner: Entity,
-    spawn_type: SpawnType,
+    spawn_name: &str,
     throw_vel: Vec3,
     world: &mut World,
 ) -> bool {
-    let Some(spec) = ability_spec(&spawn_type) else {
+    let Some(spec) = ability_spec(spawn_name) else {
         return false;
     };
     let ability = EquippedAbility::new(spec);
@@ -343,12 +340,14 @@ pub fn apply_pickup_message(
 }
 
 pub fn spawn_jetpack_pickup(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    implementors::spawn_jetpack_pickup(entity, cmd.position, cmd.starting_velocity, world);
+    implementors::spawn_jetpack_pickup(entity, cmd.position_or_zero(), cmd.velocity_or_zero(), world);
+    world.entity_mut(entity).insert(crate::SpawnReplicated("jetpack"));
     crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
 }
 
 pub fn spawn_dash_pickup(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    implementors::spawn_dash_pickup(entity, cmd.position, cmd.starting_velocity, world);
+    implementors::spawn_dash_pickup(entity, cmd.position_or_zero(), cmd.velocity_or_zero(), world);
+    world.entity_mut(entity).insert(crate::SpawnReplicated("dash"));
     crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
 }
 
@@ -395,12 +394,10 @@ pub fn apply_input(
     (ability.apply_input)(world, owner, input, &mut ability.state)
 }
 
-fn ability_spec(spawn_type: &SpawnType) -> Option<&'static AbilitySpec> {
-    match spawn_type {
-        SpawnType::Jetpack => Some(&implementors::JETPACK),
-        SpawnType::Dash => Some(&implementors::DASH),
-        _ => None,
-    }
+fn ability_spec(spawn_name: &str) -> Option<&'static AbilitySpec> {
+    [implementors::JETPACK, implementors::DASH]
+        .iter()
+        .find(|spec| spec.spawn_name == spawn_name)
 }
 
 #[cfg(feature = "client")]

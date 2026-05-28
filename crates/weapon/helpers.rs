@@ -129,20 +129,28 @@ pub fn make_generic_weapon_physics(
     collider: ColliderBuilder,
     world: &mut World,
 ) -> RigidBodyHandle {
+    let position = cmd.position_or_zero();
+    let rotation = cmd.rotation_or_identity();
+    let velocity = cmd.velocity_or_zero();
+    let angular_velocity = cmd.angular_velocity_or_zero();
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
         let rb = RigidBodyBuilder::dynamic()
-            .translation(cmd.position)
-            .linvel(Vector3::new(
-                cmd.starting_velocity.x,
-                cmd.starting_velocity.y,
-                cmd.starting_velocity.z,
-            ))
+            .translation(position)
+            .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
             .angular_damping(0.3)
             .build();
         let rb_handle = physics.insert_body(entity, rb);
         if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
-            rb.set_rotation(cmd.rotation, true);
+            rb.set_rotation(rotation, true);
+            rb.set_angvel(
+                Vector3::new(
+                    angular_velocity.x,
+                    angular_velocity.y,
+                    angular_velocity.z,
+                ),
+                true,
+            );
         }
         rb_handle
     };
@@ -156,6 +164,7 @@ pub fn make_generic_weapon_physics(
 pub fn insert_generic_weapon(
     entity: Entity,
     cmd: &net::message::SpawnCommand,
+    spawn_name: &'static str,
     world: &mut World,
     display_name: &'static str,
     _model_path: &'static str,
@@ -163,14 +172,17 @@ pub fn insert_generic_weapon(
     prediction_projectile_speed: Option<f32>,
     weapon: impl Bundle,
 ) {
+    let position = cmd.position_or_zero();
+    let rotation = cmd.rotation_or_identity();
     world.entity_mut(entity).insert((
+        crate::SpawnReplicated(spawn_name),
         WeaponComponent,
         AimReticle(crosshair_path, prediction_projectile_speed),
         crate::interaction::Interactable { range: 2.0 },
         InteractionName(display_name),
         Transform {
-            translation: cmd.position,
-            rotation: cmd.rotation,
+            translation: position,
+            rotation,
             scale: Vec3::ONE,
         },
         weapon,
@@ -220,14 +232,6 @@ pub fn drop_pose(world: &PhysicsWorld, owner: Entity, drop_dir: Vec3) -> (Vec3, 
     (rb_pos(body) + forward, velocity)
 }
 
-pub fn predicted_drop_pos(drop_pos: Vec3, drop_velocity: Vec3, rtt_secs: f32) -> Vec3 {
-    drop_pos + drop_velocity * (rtt_secs * 0.5)
-}
-
-pub fn body_velocity(world: &PhysicsWorld, entity: Entity) -> Vec3 {
-    world.body(entity).map(rb_vel).unwrap_or(Vec3::ZERO)
-}
-
 pub fn restore_world_weapon(
     world: &mut World,
     weapon_entity: Entity,
@@ -243,9 +247,8 @@ pub fn restore_world_weapon(
         crate::interaction::Interactable { range: 2.0 },
         Visibility::Inherited,
     ));
-    world.resource_scope(|_, mut physics: Mut<PhysicsWorld>| {
-        place_world_weapon(&mut physics, weapon_entity, drop_pos, drop_velocity);
-    });
+    let mut physics = world.resource_mut::<PhysicsWorld>();
+    place_world_weapon(&mut physics, weapon_entity, drop_pos, drop_velocity);
 }
 
 pub fn drop_or_despawn_weapon(
@@ -277,19 +280,6 @@ pub fn clear_inactive_slot_reload(weapon_state: Option<Mut<WeaponState>>) {
 
 pub fn pickup_world_weapon(world: &mut PhysicsWorld, weapon_entity: Entity) {
     world.set_body_enabled(weapon_entity, false);
-}
-
-pub fn give_world_weapon(
-    world: &mut PhysicsWorld,
-    slots: &mut WeaponSlots,
-    weapon_entity: Entity,
-    weapon_id: NetworkID,
-) -> bool {
-    if slots.assign_pickup(weapon_id, weapon_entity).is_none() {
-        return false;
-    }
-    pickup_world_weapon(world, weapon_entity);
-    true
 }
 
 pub fn interact_pickup(
@@ -445,7 +435,7 @@ pub fn pickup_local_world_weapon(
         return false;
     };
     pickup_world_weapon(world, weapon_entity);
-    attach_local_viewmodel(commands, weapon_entity, pitch_parent, is_primary);
+    attach_viewmodel(commands, weapon_entity, pitch_parent, is_primary);
     sync_local_active_weapon(commands, slots, camera_fx);
     if let Ok(name) = interaction_names.get(weapon_entity) {
         crate::messages::push(commands, format!("Picked up {}", name.0));
@@ -454,7 +444,7 @@ pub fn pickup_local_world_weapon(
 }
 
 #[cfg(feature = "client")]
-fn attach_viewmodel(
+pub fn attach_viewmodel(
     commands: &mut Commands,
     weapon_entity: Entity,
     parent: Entity,
@@ -466,21 +456,6 @@ fn attach_viewmodel(
         .set_parent_in_place(parent)
         .insert(viewmodel_offset(is_primary))
         .insert(Visibility::Inherited);
-}
-
-#[cfg(feature = "client")]
-pub fn attach_local_viewmodel(
-    commands: &mut Commands,
-    weapon_entity: Entity,
-    parent: Entity,
-    is_primary: bool,
-) {
-    attach_viewmodel(commands, weapon_entity, parent, is_primary);
-}
-
-#[cfg(feature = "client")]
-pub fn attach_remote_viewmodel(commands: &mut Commands, weapon_entity: Entity, parent: Entity) {
-    attach_viewmodel(commands, weapon_entity, parent, true);
 }
 
 #[cfg(feature = "client")]
@@ -555,7 +530,7 @@ pub fn apply_pickup_message(
                 commands.entity(prev).insert(Visibility::Hidden);
             }
             if let Some(parent) = camera.single().ok().or(pivot_e) {
-                attach_local_viewmodel(commands, weapon_entity, parent, is_primary);
+                attach_viewmodel(commands, weapon_entity, parent, is_primary);
             }
             if let Ok(name) = interaction_names.get(weapon_entity) {
                 crate::messages::push(commands, format!("Picked up {}", name.0));
@@ -572,7 +547,7 @@ pub fn apply_pickup_message(
     }) else {
         return false;
     };
-    attach_remote_viewmodel(commands, weapon_entity, parent);
+    attach_viewmodel(commands, weapon_entity, parent, true);
     true
 }
 
@@ -598,10 +573,10 @@ pub fn apply_drop_message(
     let Some(carrier_entity) = networked.get_entity(carrier_id) else {
         return;
     };
-    let drop_velocity = body_velocity(world, carrier_entity);
+    let drop_velocity = world.body(carrier_entity).map(rb_vel).unwrap_or(Vec3::ZERO);
     let is_local = local_net_id == Some(carrier_id);
     let drop_pos = if !is_local {
-        predicted_drop_pos(drop_pos, drop_velocity, rtt_secs)
+        drop_pos + drop_velocity * (rtt_secs * 0.5)
     } else {
         world.body_pos(carrier_entity).unwrap_or(drop_pos) + drop_velocity.normalize_or_zero()
     };

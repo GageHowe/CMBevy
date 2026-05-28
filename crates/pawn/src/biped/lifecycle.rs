@@ -12,17 +12,22 @@ use crate::{
 };
 
 pub fn spawn_biped(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+        let position = cmd.position_or_zero();
+        let rotation = cmd.rotation_or_identity();
+        let velocity = cmd.velocity_or_zero();
+        let angular_velocity = cmd.angular_velocity_or_zero();
         let transform = Transform {
-            translation: cmd.position.into(),
-            rotation: cmd.rotation.into(),
+            translation: position,
+            rotation,
             ..default()
         };
         world.entity_mut(entity).insert((
+            crate::SpawnReplicated("biped"),
             WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
             Health::new(
-                100.0,
-                BIPED_HEALTH_REGEN_PER_SEC,
-                BIPED_HEALTH_REGEN_DELAY_SECS,
+                100,
+                BIPED_HEALTH_REGEN_PER_SECOND,
+                BIPED_HEALTH_REGEN_DELAY_TICKS,
             )
             .with_death(on_biped_death),
             LastDamageSource::default(),
@@ -34,16 +39,20 @@ pub fn spawn_biped(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut
             let mut physics = world.resource_mut::<PhysicsWorld>();
             let body = RigidBodyBuilder::dynamic()
                 .translation(transform.translation)
-                .linvel(Vector3::new(
-                    cmd.starting_velocity.x,
-                    cmd.starting_velocity.y,
-                    cmd.starting_velocity.z,
-                ))
+                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
                 .lock_rotations()
                 .build();
             let rb_handle = physics.insert_body(entity, body);
             if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
                 rb.set_rotation(transform.rotation, true);
+                rb.set_angvel(
+                    Vector3::new(
+                        angular_velocity.x,
+                        angular_velocity.y,
+                        angular_velocity.z,
+                    ),
+                    true,
+                );
             }
             let collider =
                 movement::make_biped_capsule_collider(CAPSULE_HALF_HEIGHT, MAIN_FRICTION, true);
@@ -163,7 +172,7 @@ pub fn on_biped_death(entity: Entity, world: &mut World) {
             if let Some(mut pending_respawns) = world.get_resource_mut::<super::PendingRespawns>() {
                 pending_respawns.0.insert(
                     conn_id,
-                    (respawn_delay, net::message::SpawnType::Biped, team),
+                    (respawn_delay, "biped".into(), team),
                 );
             }
         }

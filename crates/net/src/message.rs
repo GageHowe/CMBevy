@@ -8,63 +8,6 @@ pub use common::{
 };
 use serde::{Deserialize, Serialize};
 
-pub use crate::replication::ComponentUpdate;
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Default, Reflect)]
-#[serde(rename_all = "snake_case")]
-#[reflect(Default)]
-pub enum SpawnType {
-    #[default]
-    Biped,
-    Spaceship,
-    SpaceshipShield,
-    Fighter,
-    Truck,
-    Hovercraft,
-    Planet,
-    Shotgun,
-    Pistol,
-    Beamer,
-    Rifle,
-    Smg,
-    Failsafe,
-    HailMary,
-    Thumper,
-    Lobber,
-    CoilLauncher,
-    TetherGun,
-    Jetpack,
-    Dash,
-}
-
-impl SpawnType {
-    pub fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "biped" => Self::Biped,
-            "spaceship" => Self::Spaceship,
-            "spaceship_shield" | "shield" => Self::SpaceshipShield,
-            "fighter" => Self::Fighter,
-            "truck" => Self::Truck,
-            "hovercraft" => Self::Hovercraft,
-            "planet" => Self::Planet,
-            "shotgun" => Self::Shotgun,
-            "pistol" => Self::Pistol,
-            "beamer" => Self::Beamer,
-            "rifle" => Self::Rifle,
-            "smg" => Self::Smg,
-            "failsafe" => Self::Failsafe,
-            "hail_mary" | "hailmary" => Self::HailMary,
-            "thumper" => Self::Thumper,
-            "lobber" => Self::Lobber,
-            "coil_launcher" | "coillauncher" => Self::CoilLauncher,
-            "tether_gun" | "tethergun" => Self::TetherGun,
-            "jetpack" => Self::Jetpack,
-            "dash" => Self::Dash,
-            _ => return None,
-        })
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinPlatform {
@@ -93,16 +36,72 @@ pub struct SpawnCommand {
     pub net_id: NetworkID,
     /// Optional network id of the parent entity this object should attach under.
     pub parent_net_id: Option<NetworkID>,
-    pub position: Vec3,
-    pub starting_velocity: Vec3,
-    /// Inherited platform/shooter velocity used by some projectile logic. (TODO: remove this if possible, just have callers add it to velocity, or get velocity from local)
-    pub shooter_velocity: Vec3,
+    pub position: Option<Vec3>,
     /// Initial world-space rotation.
-    pub rotation: Quat,
+    pub rotation: Option<Quat>,
+    #[serde(alias = "starting_velocity")]
+    pub velocity: Option<Vec3>,
+    pub angular_velocity: Option<Vec3>,
     /// Authoritative server tick the spawn occurred on.
     pub server_tick: u64,
-    /// Concrete game object type to instantiate.
-    pub spawn_type: SpawnType,
+    /// Concrete game object name to instantiate.
+    pub spawn_name: String,
+}
+
+impl SpawnCommand {
+    pub fn new(net_id: NetworkID, spawn_name: impl Into<String>, server_tick: u64) -> Self {
+        Self {
+            net_id,
+            parent_net_id: None,
+            position: None,
+            rotation: None,
+            velocity: None,
+            angular_velocity: None,
+            server_tick,
+            spawn_name: spawn_name.into(),
+        }
+    }
+
+    pub fn parent(mut self, parent_net_id: NetworkID) -> Self {
+        self.parent_net_id = Some(parent_net_id);
+        self
+    }
+
+    pub fn position(mut self, position: Vec3) -> Self {
+        self.position = Some(position);
+        self
+    }
+
+    pub fn rotation(mut self, rotation: Quat) -> Self {
+        self.rotation = Some(rotation);
+        self
+    }
+
+    pub fn velocity(mut self, velocity: Vec3) -> Self {
+        self.velocity = Some(velocity);
+        self
+    }
+
+    pub fn angular_velocity(mut self, angular_velocity: Vec3) -> Self {
+        self.angular_velocity = Some(angular_velocity);
+        self
+    }
+
+    pub fn position_or_zero(&self) -> Vec3 {
+        self.position.unwrap_or(Vec3::ZERO)
+    }
+
+    pub fn rotation_or_identity(&self) -> Quat {
+        self.rotation.unwrap_or(Quat::IDENTITY)
+    }
+
+    pub fn velocity_or_zero(&self) -> Vec3 {
+        self.velocity.unwrap_or(Vec3::ZERO)
+    }
+
+    pub fn angular_velocity_or_zero(&self) -> Vec3 {
+        self.angular_velocity.unwrap_or(Vec3::ZERO)
+    }
 }
 
 /// Compact replicated scoreboard data used by the client HUD.
@@ -184,7 +183,6 @@ pub enum MsgType {
         target: Option<NetworkID>,
     },
     EndBeam(NetworkID),
-    DetonateFailsafeRequest(NetworkID),
     ProjectileConfirm {
         temp_id: u32,
         net_id: NetworkID,
@@ -196,7 +194,8 @@ pub enum MsgType {
     JetpackFx(NetworkID, bool),
     DashFx(NetworkID, Vec3),
     AbilityPickup(NetworkID, NetworkID),
-    ComponentUpdate(ComponentUpdate),
+    WeaponState(NetworkID, WeaponState),
+    Health(NetworkID, i32, i32, i32, u16, u16, i32, i32),
     Scoreboard(ScoreboardSnapshot),
     MapHash(String),
     FileData(String, Vec<u8>),

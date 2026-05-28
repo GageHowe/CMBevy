@@ -4,11 +4,10 @@
 members = [
     "crates/bevy_hanabi",
     "crates/common",
-    "crates/game_objects",
+    "crates/gameplay",
     "crates/http_common",
     "crates/master_plugin",
     "crates/net",
-    "crates/pawn",
     "crates/physics",
     "crates/scripting",
     "crates/session",

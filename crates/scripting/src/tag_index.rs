@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use game_objects::level::ScriptTags;
+use gameplay::level::ScriptTags;
 
 #[derive(Resource, Default)]
 pub struct ScriptTagIndex {

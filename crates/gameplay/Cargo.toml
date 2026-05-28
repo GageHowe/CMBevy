@@ -1,5 +1,5 @@
 [package]
-name = "game_objects"
+name = "gameplay"
 version = "0.1.0"
 edition = "2024"
 

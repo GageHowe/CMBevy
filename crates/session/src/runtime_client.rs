@@ -1,6 +1,6 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
 use common::tick::Ticker;
-use game_objects::{
+use gameplay::{
     Team,
     bot::{BotController, collect_contexts},
     health::Health,
@@ -10,7 +10,10 @@ use game_objects::{
     },
     lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
     mode::MatchState,
-    pawn::{HeldWeaponMap, InteractionGate, PawnInputParams, Possessed, WeaponSlots},
+    pawn::{
+        BipedPawnComponent, HeldWeaponMap, HovercraftPawnComponent, InteractionGate, Possessed,
+        SpaceshipPawnComponent, TruckPawnComponent, WeaponSlots, apply_server_input,
+    },
     weapon::{WeaponConfig, WeaponState},
 };
 use net::{
@@ -74,7 +77,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             )
             .add_systems(
                 FixedUpdate,
-                game_objects::pawn::biped::apply_melee_hits.run_if(crate::runtime::has_authority),
+                gameplay::pawn::biped::apply_melee_hits.run_if(crate::runtime::has_authority),
             )
             .add_systems(
                 FixedUpdate,
@@ -118,7 +121,7 @@ fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: C
         return;
     };
     while let Some(message) = quic.notices.pop_front() {
-        game_objects::messages::push(&mut commands, message);
+        gameplay::messages::push(&mut commands, message);
     }
 }
 
@@ -154,7 +157,7 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
 ) {
     let _ = std::marker::PhantomData::<S>;
     if sp.map.is_empty() || sp.gametype.is_empty() {
-        game_objects::messages::push(&mut commands, "No map or mode selected.");
+        gameplay::messages::push(&mut commands, "No map or mode selected.");
         return;
     }
     commands.insert_resource(scripting::ScriptConfig {
@@ -162,10 +165,10 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
         is_server: true,
         source: None,
     });
-    game_objects::messages::push(&mut commands, "Loading map...");
+    gameplay::messages::push(&mut commands, "Loading map...");
     match load_level_source(&sp.map, &default_asset_dir()) {
         Ok(level) => commands.insert_resource(PendingMapScene(level.compressed)),
-        Err(err) => game_objects::messages::push(&mut commands, format!("Map load failed: {err}")),
+        Err(err) => gameplay::messages::push(&mut commands, format!("Map load failed: {err}")),
     };
 }
 
@@ -209,10 +212,11 @@ fn respawn_singleplayer(
         return;
     };
     let (entity, _, _) = spawn_game_object(
-        net::message::SpawnType::Biped,
-        position,
-        rotation,
-        velocity,
+        "biped",
+        Some(position),
+        Some(rotation),
+        Some(velocity),
+        None,
         0,
         &mut commands,
         &mut net_ids,
@@ -226,12 +230,17 @@ fn respawn_singleplayer(
 fn run_singleplayer_bots(
     mut bots: Query<(Entity, &mut BotController)>,
     actors: Query<(Entity, &Team, &Health)>,
-    smgs: Query<(), With<game_objects::weapon::smg::SmgComponent>>,
+    smgs: Query<(), With<gameplay::weapon::smg::SmgComponent>>,
     mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
-    reticles: Query<&game_objects::reticle::AimReticle>,
-    mut beamers: Query<&mut game_objects::weapon::beamer::BeamerComponent>,
-    mut pawns: PawnInputParams,
+    reticles: Query<&gameplay::reticle::AimReticle>,
+    mut beamers: Query<&mut gameplay::weapon::beamer::BeamerComponent>,
+    mut pawn_inputs: (
+        Query<&mut BipedPawnComponent>,
+        Query<&mut SpaceshipPawnComponent>,
+        Query<&mut TruckPawnComponent>,
+        Query<&mut HovercraftPawnComponent>,
+    ),
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -245,7 +254,15 @@ fn run_singleplayer_bots(
         };
         ctx.visible = actors.clone();
         let output = bot.brain.think(&ctx);
-        let _ = pawns.apply_server_input(entity, output.input, &mut world);
+        let _ = apply_server_input(
+            entity,
+            output.input,
+            &mut world,
+            &mut pawn_inputs.0,
+            &mut pawn_inputs.1,
+            &mut pawn_inputs.2,
+            &mut pawn_inputs.3,
+        );
         fire_singleplayer_bot_weapon(
             entity,
             output.fire,
@@ -271,10 +288,10 @@ fn fire_singleplayer_bot_weapon(
     origin: Vec3,
     dir: Vec3,
     temp_id: u32,
-    smgs: &Query<(), With<game_objects::weapon::smg::SmgComponent>>,
+    smgs: &Query<(), With<gameplay::weapon::smg::SmgComponent>>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    beamers: &mut Query<&mut game_objects::weapon::beamer::BeamerComponent>,
+    beamers: &mut Query<&mut gameplay::weapon::beamer::BeamerComponent>,
     held_weapons: &mut HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
@@ -291,7 +308,7 @@ fn fire_singleplayer_bot_weapon(
     };
     if beamers.contains(weapon_entity) {
         if want_fire {
-            game_objects::weapon::beamer::tick_singleplayer_beam(
+            gameplay::weapon::beamer::tick_singleplayer_beam(
                 weapon_entity,
                 shooter,
                 origin,
@@ -303,7 +320,7 @@ fn fire_singleplayer_bot_weapon(
                 world,
             );
         } else {
-            game_objects::weapon::beamer::end_singleplayer_beam(
+            gameplay::weapon::beamer::end_singleplayer_beam(
                 weapon_entity,
                 beamers,
                 weapon_runtime,
@@ -318,11 +335,11 @@ fn fire_singleplayer_bot_weapon(
         return;
     };
     let dir = if smgs.contains(weapon_entity) {
-        game_objects::weapon::smg::spread_dir(dir)
+        gameplay::weapon::smg::spread_dir(dir)
     } else {
         dir
     };
-    let _ = game_objects::weapon::fire_authoritative_with_replication(
+    let _ = gameplay::weapon::fire_authoritative_with_replication(
         shooter,
         weapon_entity,
         &weapon_net_id,
@@ -350,7 +367,7 @@ fn load_skybox(
         return;
     };
     let image: Handle<Image> =
-        asset_server.load(game_objects::asset_path::resolve_asset_path(path));
+        asset_server.load(gameplay::asset_path::resolve_asset_path(path));
     commands.entity(cam).insert((
         Skybox {
             image: image.clone(),
@@ -404,7 +421,7 @@ fn connect(
     mut pending: ResMut<PendingWorldReady>,
 ) {
     pending.0 = false;
-    game_objects::messages::push(&mut commands, "Connecting...");
+    gameplay::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.addr, addr.lobby_id.clone());
 }
 
@@ -465,13 +482,13 @@ fn remove_script(mut commands: Commands) {
 pub(crate) fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
     if let Some(compressed) = read_cached_map(&hash) {
         if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
-            game_objects::messages::push(commands, "Using cached map.");
+            gameplay::messages::push(commands, "Using cached map.");
             commands.insert_resource(PendingMapScene(compressed));
             return;
         }
-        game_objects::messages::push(commands, "Cached map invalid. Redownloading.");
+        gameplay::messages::push(commands, "Cached map invalid. Redownloading.");
     }
-    game_objects::messages::push(commands, "Downloading map...");
+    gameplay::messages::push(commands, "Downloading map...");
     request_map(quic);
 }
 

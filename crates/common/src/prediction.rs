@@ -5,9 +5,10 @@ use bevy::prelude::*;
 use crate::{NetworkID, PawnInputKind};
 
 /// A locally predicted impulse that must be replayed during rollback.
+/// Discrete things like jump, self-knockback, etc.
 #[derive(Clone)]
 pub struct PredictedImpulse {
-    /// Networked body that received the impulse.
+    /// networked body that received the impulse
     pub target: NetworkID,
     /// World-space impulse applied to the target.
     pub impulse: Vec3,

@@ -119,6 +119,7 @@ pub fn spawn_coil_launcher(entity: Entity, cmd: &net::message::SpawnCommand, wor
         helpers::insert_generic_weapon(
             entity,
             cmd,
+            "coil_launcher",
             world,
             CONFIG.display_name,
             CONFIG.model_path,

@@ -4,7 +4,7 @@ use bevy::{
     ecs::system::{Command, SystemState},
     prelude::*,
 };
-use game_objects::{
+use gameplay::{
     SpawnGameObjectCommand, Team,
     bot::{BotController, HeuristicKillerBot},
     health::Health,
@@ -14,11 +14,11 @@ use game_objects::{
 };
 use mlua::prelude::*;
 use net::{
-    message::{MsgType, SpawnCommand, SpawnType},
+    message::{MsgType, SpawnCommand},
     quic::{Channel, QuicManager, SendTarget},
 };
 use common::{NetworkID, NetworkIDResource};
-use ::pawn::{PlayerRegistry, WeaponSlots};
+use gameplay::pawn::{PlayerRegistry, WeaponSlots};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
@@ -296,7 +296,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
             if let Some(mut health) = world.get_mut::<Health>(entity) {
-                health.current = amount as f32;
+                health.current = amount;
             }
             Ok(())
         })
@@ -311,17 +311,12 @@ pub(crate) fn register_script_functions(world: &mut World) {
             {
                 return Ok(None);
             }
-            let spawn_type =
-                SpawnType::from_name(kind.as_deref().unwrap_or("biped")).filter(|spawn_type| {
-                    matches!(
-                        spawn_type,
-                        SpawnType::Biped | SpawnType::Spaceship | SpawnType::Fighter
-                    )
-                });
-            let Some(spawn_type) = spawn_type else {
-                println!("script spawn_pawn failed: invalid kind {kind:?}");
+            let kind_debug = kind.clone();
+            let spawn_name = kind.unwrap_or_else(|| "biped".into());
+            if !SCRIPT_PAWN_SPAWNS.contains(&spawn_name.as_str()) {
+                println!("script spawn_pawn failed: invalid kind {kind_debug:?}");
                 return Ok(None);
-            };
+            }
             let team = Team(lua_team(team));
             let Some((pos, rot, vel)) = pick_script_spawn(world, team.0) else {
                 println!(
@@ -332,16 +327,10 @@ pub(crate) fn register_script_functions(world: &mut World) {
             };
             let tick = world.resource::<common::tick::Ticker>().tick;
             let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
-            let cmd = SpawnCommand {
-                net_id,
-                parent_net_id: None,
-                position: pos,
-                starting_velocity: vel,
-                shooter_velocity: Vec3::ZERO,
-                rotation: rot,
-                server_tick: tick,
-                spawn_type,
-            };
+            let cmd = SpawnCommand::new(net_id, spawn_name, tick)
+                .position(pos)
+                .rotation(rot)
+                .velocity(vel);
             let entity = world.spawn_empty().id();
             SpawnGameObjectCommand {
                 entity,
@@ -404,11 +393,9 @@ pub(crate) fn register_script_functions(world: &mut World) {
             {
                 return Ok(false);
             }
-            let Some(kind) =
-                SpawnType::from_name(&kind).filter(game_objects::weapon::is_weapon_kind)
-            else {
+            if !SCRIPT_WEAPON_SPAWNS.contains(&kind.as_str()) {
                 return Ok(false);
-            };
+            }
             let owner = Entity::from_bits(owner_id as u64);
             if world.get::<WeaponSlots>(owner).is_none() {
                 println!("script give_weapon failed: owner {owner:?} has no WeaponSlots");
@@ -419,7 +406,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 .0
                 .push(WeaponGrant {
                     owner,
-                    spawn_type: kind,
+                    spawn_name: kind,
                     weapon: None,
                 });
             Ok(true)
@@ -516,7 +503,7 @@ fn pick_script_spawn(world: &mut World, team: u8) -> Option<(Vec3, Quat, Vec3)> 
     )> = SystemState::new(world);
     let (spawn_points, parent_transforms, parent_parents, parent_bodies, physics) =
         state.get(world);
-    game_objects::lifecycle::pick_spawn_point_with_velocity(
+    gameplay::lifecycle::pick_spawn_point_with_velocity(
         &spawn_points,
         &parent_transforms,
         &parent_parents,
@@ -593,3 +580,14 @@ fn end_game(world: &mut World, winner_player: Option<u64>, winner_team: Option<u
     state.winner_player = winner_player;
     state.winner_team = winner_team;
 }
+const SCRIPT_PAWN_SPAWNS: &[&str] = &["biped", "spaceship", "truck", "hovercraft"];
+const SCRIPT_WEAPON_SPAWNS: &[&str] = &[
+    "pistol",
+    "beamer",
+    "rifle",
+    "smg",
+    "hail_mary",
+    "thumper",
+    "lobber",
+    "coil_launcher",
+];

@@ -125,6 +125,7 @@ pub fn spawn_thumper(entity: Entity, cmd: &net::message::SpawnCommand, world: &m
         helpers::insert_generic_weapon(
             entity,
             cmd,
+            "thumper",
             world,
             CONFIG.display_name,
             CONFIG.model_path,

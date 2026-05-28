@@ -15,7 +15,7 @@ use bevy_luna::prelude::RaytracePlugins;
 use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
-use game_objects::{
+use gameplay::{
     pawn::{self, biped::draw_melee_debug, mount::draw_mount_debug, *},
     projectile::*,
 };
@@ -32,10 +32,8 @@ mod outline;
 mod reconciliation;
 mod tick_sync;
 mod ui;
-use game_objects::{
-    components::{
-        gravity::draw_gravity_radii, snap::draw_snap_radii,
-    },
+use gameplay::{
+    components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
     level::{cleanup_level, draw_script_zone_debug},
 };
 use master_plugin::MasterPlugin;
@@ -48,7 +46,7 @@ use session::{
 };
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
-// use game_objects::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
+// use gameplay::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
 mod settings;
 mod sound;
 mod steam;
@@ -127,7 +125,7 @@ fn main() {
     .add_plugins(HanabiEffectsPlugin)
     .add_plugins(SoundPlugin)
     .add_plugins(ClientSessionPlugin {
-        main_menu: GameState::MainMenu,
+        main_menu: GameState::NotPlaying,
         single_player: GameState::SinglePlayer,
         multiplayer: GameState::Multiplayer,
     })
@@ -142,7 +140,6 @@ fn main() {
     .init_resource::<PendingExit>()
     .init_resource::<SinglePlayerConfig>()
     .init_resource::<HostedServer>()
-    // PendingHullColliders now managed by LevelPlugin
     .add_systems(
         FixedUpdate,
         step_physics.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
@@ -180,10 +177,7 @@ fn main() {
     );
     app.add_systems(
         FixedUpdate,
-        (
-            draw_projectile_debug,
-            draw_projectile_raycast_debug,
-        )
+        (draw_projectile_debug, draw_projectile_raycast_debug)
             .after(step_physics)
             .run_if(debug_render_on)
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),

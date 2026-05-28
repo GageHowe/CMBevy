@@ -1,7 +1,6 @@
 //! Shared game object types and the runtime glue that lets the rest of the game spawn them.
 
 use bevy::prelude::*;
-pub use net::message::SpawnType;
 
 pub mod asset_path;
 pub mod bot;
@@ -18,7 +17,7 @@ pub mod lifecycle;
 pub mod messages;
 pub mod mode;
 mod network_index;
-#[path = "game_objects/pawn/mod.rs"]
+#[path = "pawn/src/mod.rs"]
 pub mod pawn;
 pub mod projectile;
 pub mod reticle;
@@ -35,17 +34,18 @@ pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumb
 pub use network_index::NetworkEntityMap;
 pub use spawn::{
     CenterOfMassSplashDamage, CollisionSound, DespawnOnDeath, SpawnGameObjectCommand,
-    find_entity_by_net_id, insert_spawn_metadata,
+    SpawnReplicated, find_entity_by_net_id, insert_spawn_metadata, register_spawnable,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AuthoritySystems;
 
-pub struct GameObjectsPlugin;
+pub struct GameplayPlugin;
 
-impl Plugin for GameObjectsPlugin {
+impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
+            .init_resource::<spawn::SpawnRegistry>()
             .register_type::<net::message::NetworkID>()
             .register_type::<Team>()
             .init_resource::<messages::GameMessages>()

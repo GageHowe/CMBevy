@@ -12,8 +12,7 @@ workspace = true
 [dependencies]
 bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
 common = { path = "../common" }
-game_objects = { path = "../game_objects" }
-pawn = { path = "../pawn" }
+gameplay = { path = "../gameplay" }
 net = { path = "../net" }
 physics = { path = "../physics" }
 scripting = { path = "../scripting" }

@@ -152,6 +152,7 @@ pub fn spawn_hail_mary(entity: Entity, cmd: &net::message::SpawnCommand, world: 
     helpers::insert_generic_weapon(
         entity,
         cmd,
+        "hail_mary",
         world,
         CONFIG.display_name,
         CONFIG.model_path,

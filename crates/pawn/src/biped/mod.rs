@@ -45,8 +45,8 @@ pub(super) const JUMP_COOLDOWN: u8 = 20;
 pub(super) const MAIN_RESTITUTION: f32 = 0.0;
 pub(super) const MAIN_FRICTION: f32 = 2.0;
 pub(super) const SLIDE_FRICTION: f32 = 0.1;
-pub(super) const BIPED_HEALTH_REGEN_PER_SEC: f32 = 5.0;
-pub(super) const BIPED_HEALTH_REGEN_DELAY_SECS: f32 = 5.0;
+pub(super) const BIPED_HEALTH_REGEN_PER_SECOND: i32 = 5;
+pub(super) const BIPED_HEALTH_REGEN_DELAY_TICKS: u16 = common::config::FIXED_TICK_RATE as u16 * 5;
 
 #[derive(Component, Default, Reflect)]
 pub struct BipedPawnComponent {

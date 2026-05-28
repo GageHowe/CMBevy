@@ -1,9 +1,19 @@
 //! Central spawn dispatch for replicated game object kinds.
 
+use std::collections::HashMap;
+
 use bevy::prelude::{Command, *};
-use net::message::{SpawnCommand, SpawnType};
+use net::message::SpawnCommand;
 
 use crate::gc::WorldObjectGc;
+
+pub type SpawnFn = fn(Entity, &SpawnCommand, &mut World);
+
+#[derive(Resource, Default)]
+pub struct SpawnRegistry(pub HashMap<&'static str, SpawnFn>);
+
+#[derive(Component, Clone, Copy)]
+pub struct SpawnReplicated(pub &'static str);
 
 #[derive(Component)]
 pub struct CenterOfMassSplashDamage;
@@ -13,6 +23,15 @@ pub struct DespawnOnDeath;
 
 #[derive(Component, Clone, Copy)]
 pub struct CollisionSound(pub &'static str);
+
+pub fn register_spawnable(
+    app: &mut App,
+    spawn_name: &'static str,
+    spawn: SpawnFn,
+) {
+    let mut registry = app.world_mut().get_resource_or_insert_with(SpawnRegistry::default);
+    registry.0.insert(spawn_name, spawn);
+}
 
 pub fn insert_spawn_metadata(
     entity: Entity,
@@ -62,40 +81,15 @@ pub fn find_entity_by_net_id(
         .find_map(|(entity, entity_net_id)| (entity_net_id == net_id).then_some(entity))
 }
 
-fn spawn_game_object(spawn_type: SpawnType, entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-    match spawn_type {
-        SpawnType::Biped => crate::pawn::biped::spawn_biped(entity, cmd, world),
-        SpawnType::Spaceship => crate::pawn::spaceship::spawn_spaceship(entity, cmd, world),
-        SpawnType::SpaceshipShield => {
-            crate::shield::spawn_spaceship_shield(entity, cmd, world)
-        }
-        SpawnType::Fighter => crate::pawn::fighter::spawn_fighter(entity, cmd, world),
-        SpawnType::Truck => crate::pawn::truck::spawn_truck(entity, cmd, world),
-        SpawnType::Hovercraft => crate::pawn::hovercraft::spawn_hovercraft(entity, cmd, world),
-        SpawnType::Planet | SpawnType::Shotgun => {
-            panic!("SpawnType::{spawn_type:?} has no spawn implementation");
-        }
-        SpawnType::Pistol => crate::weapon::pistol::spawn_pistol(entity, cmd, world),
-        SpawnType::Beamer => crate::weapon::beamer::spawn_beamer(entity, cmd, world),
-        SpawnType::Rifle => crate::weapon::rifle::spawn_rifle(entity, cmd, world),
-        SpawnType::Smg => crate::weapon::smg::spawn_smg(entity, cmd, world),
-        SpawnType::Failsafe => {
-            panic!("SpawnType::Failsafe has no spawn implementation")
-        }
-        SpawnType::HailMary => crate::weapon::hail_mary::spawn_hail_mary(entity, cmd, world),
-        SpawnType::Thumper => crate::weapon::thumper::spawn_thumper(entity, cmd, world),
-        SpawnType::Lobber => crate::weapon::lobber::spawn_lobber(entity, cmd, world),
-        SpawnType::CoilLauncher => {
-            crate::weapon::coil_launcher::spawn_coil_launcher(entity, cmd, world)
-        }
-        SpawnType::TetherGun => {
-            panic!("SpawnType::{spawn_type:?} has no spawn implementation")
-        }
-        SpawnType::Jetpack => {
-            crate::pawn::biped_ability::spawn_jetpack_pickup(entity, cmd, world)
-        }
-        SpawnType::Dash => crate::pawn::biped_ability::spawn_dash_pickup(entity, cmd, world),
-    }
+fn spawn_game_object(spawn_name: &str, entity: Entity, cmd: &SpawnCommand, world: &mut World) {
+    let Some(spawn) = world
+        .get_resource::<SpawnRegistry>()
+        .and_then(|registry| registry.0.get(spawn_name))
+        .copied()
+    else {
+        panic!("unknown spawn '{spawn_name}'");
+    };
+    spawn(entity, cmd, world);
 }
 
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.
@@ -108,7 +102,7 @@ pub struct SpawnGameObjectCommand {
 impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
         world.entity_mut(self.entity).insert(self.cmd.net_id.clone());
-        spawn_game_object(self.cmd.spawn_type, self.entity, &self.cmd, world);
+        spawn_game_object(self.cmd.spawn_name.as_str(), self.entity, &self.cmd, world);
         if let Some(parent_net_id) = &self.cmd.parent_net_id
             && let Some(parent) = find_entity_by_net_id(world, parent_net_id)
         {

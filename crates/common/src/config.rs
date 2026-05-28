@@ -28,6 +28,7 @@ pub fn runtime_path(path: impl AsRef<Path>) -> PathBuf {
     executable_dir().join(path)
 }
 
+/// defines where asset root directory is compared to the binary
 pub fn asset_dir() -> PathBuf {
     let cwd_assets = std::env::current_dir().ok().map(|dir| dir.join("assets"));
     if let Some(path) = cwd_assets
@@ -38,7 +39,9 @@ pub fn asset_dir() -> PathBuf {
     runtime_path("assets")
 }
 
+/// returns the beacon's configured url i think
 pub fn beacon_rendezvous_addr() -> String {
+    // can we consoliate this??
     let rest = BEACON_URL
         .split_once("://")
         .map(|(_, rest)| rest)
