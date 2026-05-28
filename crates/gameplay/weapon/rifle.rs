@@ -119,13 +119,13 @@ pub fn drive_rifles(
 
 pub fn spawn_rifle(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(RifleComponent::default(), CONFIG);
-        helpers::insert_generic_weapon(
-            entity,
-            cmd,
-            "rifle",
-            world,
-            CONFIG.display_name,
-            CONFIG.model_path,
+    helpers::insert_generic_weapon(
+        entity,
+        cmd,
+        "rifle",
+        world,
+        CONFIG.display_name,
+        CONFIG.model_path,
         CONFIG.crosshair_path,
         CONFIG.prediction_projectile_speed,
         weapon,

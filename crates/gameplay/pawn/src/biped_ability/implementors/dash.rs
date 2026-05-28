@@ -16,14 +16,7 @@ pub const DASH: AbilitySpec = AbilitySpec {
 };
 
 pub fn spawn_dash_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut World) {
-    spawn_ability_pickup(
-        entity,
-        pos,
-        vel,
-        0.3,
-        Color::srgb(1.0, 0.8, 0.2),
-        world,
-    );
+    spawn_ability_pickup(entity, pos, vel, 0.3, Color::srgb(1.0, 0.8, 0.2), world);
     world.entity_mut(entity).insert((
         crate::interaction::InteractionName("Dash"),
         super::super::OnPickup(super::super::equip_dash),

@@ -31,20 +31,14 @@ pub struct ServerSessionPlugin {
     pub advertise: Option<RegisterRequest>,
 }
 
-#[derive(Resource, Clone)]
-struct HostedLobbyAdvertise(RegisterRequest);
-
-#[derive(Resource, Default)]
-struct HostedLobbyId(Option<String>);
-
 #[derive(Resource)]
-struct HostedLobbyHeartbeat {
+struct HostedLobby {
+    req: RegisterRequest,
+    id: Option<String>,
     timer: Timer,
+    poll_timer: Timer,
     max_players: u8,
 }
-
-#[derive(Resource)]
-struct HostedLobbyPollTimer(Timer);
 
 impl Plugin for ServerSessionPlugin {
     fn build(&self, app: &mut App) {
@@ -84,7 +78,7 @@ impl Plugin for ServerSessionPlugin {
                 Startup,
                 (load_server_level, start_server, init_mode_config).chain(),
             )
-            .add_systems(FixedUpdate, crate::bots::run_bots.before(step_physics))
+            .add_systems(FixedUpdate, gameplay::bot::run_bots.before(step_physics))
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
             .add_systems(
                 FixedUpdate,
@@ -112,18 +106,15 @@ impl Plugin for ServerSessionPlugin {
                 crate::messages_server::flush_pending_connections.after(crate::on_message),
             );
         if let Some(advertise) = &self.advertise {
-            app.insert_resource(HostedLobbyAdvertise(advertise.clone()))
-                .insert_resource(HostedLobbyHeartbeat {
-                    timer: Timer::from_seconds(3.0, TimerMode::Repeating),
-                    max_players: advertise.max_players,
-                })
-                .insert_resource(HostedLobbyPollTimer(Timer::from_seconds(
-                    0.25,
-                    TimerMode::Repeating,
-                )))
-                .init_resource::<HostedLobbyId>()
-                .add_systems(Startup, register_hosted_lobby.after(start_server))
-                .add_systems(Update, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
+            app.insert_resource(HostedLobby {
+                req: advertise.clone(),
+                id: None,
+                timer: Timer::from_seconds(3.0, TimerMode::Repeating),
+                poll_timer: Timer::from_seconds(0.25, TimerMode::Repeating),
+                max_players: advertise.max_players,
+            })
+            .add_systems(Startup, register_hosted_lobby.after(start_server))
+            .add_systems(Update, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
         }
     }
 }
@@ -134,8 +125,8 @@ fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
 
 fn register_hosted_lobby(world: &mut World) {
     let Some(req) = world
-        .get_resource::<HostedLobbyAdvertise>()
-        .map(|advertise| advertise.0.clone())
+        .get_resource::<HostedLobby>()
+        .map(|lobby| lobby.req.clone())
     else {
         return;
     };
@@ -148,22 +139,21 @@ fn register_hosted_lobby(world: &mut World) {
         if let Some(quic) = world.get_resource::<QuicManager>() {
             quic.enable_punch(id.clone());
         }
-        world.insert_resource(HostedLobbyId(Some(id)));
-    } else {
-        world.insert_resource(HostedLobbyId(None));
+        if let Some(mut lobby) = world.get_resource_mut::<HostedLobby>() {
+            lobby.id = Some(id);
+        }
     }
 }
 
 fn heartbeat_hosted_lobby(
     time: Res<Time>,
-    mut heartbeat: ResMut<HostedLobbyHeartbeat>,
-    lobby_id: Res<HostedLobbyId>,
+    mut lobby: ResMut<HostedLobby>,
     active_connections: Res<ActiveConnections>,
 ) {
-    if !heartbeat.timer.tick(time.delta()).just_finished() {
+    if !lobby.timer.tick(time.delta()).just_finished() {
         return;
     }
-    let Some(id) = lobby_id.0.as_ref() else {
+    let Some(id) = lobby.id.as_ref() else {
         return;
     };
     let player_count = active_connections.0.len().min(u8::MAX as usize) as u8;
@@ -174,20 +164,19 @@ fn heartbeat_hosted_lobby(
     ))
     .send_json(LobbyHeartbeat {
         player_count,
-        max_players: heartbeat.max_players,
+        max_players: lobby.max_players,
     });
 }
 
 fn poll_hosted_lobby_peers(
     time: Res<Time>,
-    mut timer: ResMut<HostedLobbyPollTimer>,
-    lobby_id: Res<HostedLobbyId>,
+    mut lobby: ResMut<HostedLobby>,
     quic: Res<QuicManager>,
 ) {
-    if !timer.0.tick(time.delta()).just_finished() {
+    if !lobby.poll_timer.tick(time.delta()).just_finished() {
         return;
     }
-    let Some(id) = lobby_id.0.as_ref() else {
+    let Some(id) = lobby.id.as_ref() else {
         return;
     };
     let Ok(peers) = fetch_pending_lobby_peers(id) else {
@@ -340,7 +329,6 @@ fn tick_respawns(
 fn process_console_commands(
     cmds: Res<ConsoleCommands>,
     mut quic: ResMut<QuicManager>,
-    lobby_id: Option<Res<HostedLobbyId>>,
     registry: Res<PlayerRegistry>,
     mut net_ids: ResMut<NetworkIDResource>,
     mut commands: Commands,
@@ -355,10 +343,6 @@ fn process_console_commands(
         let mut parts = line.trim().splitn(2, ' ');
         match parts.next().unwrap_or("") {
             "shutdown" | "quit" => {
-                if let Some(id) = lobby_id.as_ref().and_then(|id| id.0.as_ref()) {
-                    let _ = ureq::delete(&format!("{}/lobbies/{id}", common::config::BEACON_URL))
-                        .call();
-                }
                 quic.send(SendTarget::All, Channel::Ordered, &MsgType::Disconnected);
                 std::process::exit(0);
             }
@@ -396,17 +380,15 @@ fn process_console_commands(
             }
             "bot" => {
                 let team = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
-                if let Some((pos, rot, vel)) =
-                    gameplay::lifecycle::pick_spawn_point_with_velocity(
-                        &spawn_points,
-                        &parent_transforms,
-                        &parent_parents,
-                        &parent_bodies,
-                        &physics,
-                        team,
-                        tick.tick as usize,
-                    )
-                {
+                if let Some((pos, rot, vel)) = gameplay::lifecycle::pick_spawn_point_with_velocity(
+                    &spawn_points,
+                    &parent_transforms,
+                    &parent_parents,
+                    &parent_bodies,
+                    &physics,
+                    team,
+                    tick.tick as usize,
+                ) {
                     let (entity, _, spawn_cmd) = gameplay::lifecycle::spawn_game_object(
                         "biped",
                         Some(pos),

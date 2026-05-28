@@ -1,13 +1,13 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use audio::SoundQueue;
 use bevy::{app::AppExit, prelude::*};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use common::{InputAction, config::CRITICAL_MASS_VERSION};
-use audio::SoundQueue;
 use http_common::{LobbyInfo, RegisterRequest};
 use session::{
-    HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,
-    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
+    ServerAddr, SinglePlayerConfig, available_gametypes, available_maps, fetch_lan_lobbies,
+    fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
 };
 
 use crate::{
@@ -147,7 +147,6 @@ fn main_menu(
     mut menu_input: MenuInputParams,
     mut next_state: ResMut<NextState<GameState>>,
     mut server_addr: ResMut<ServerAddr>,
-    mut hosted: ResMut<HostedServer>,
     mut sp_config: ResMut<SinglePlayerConfig>,
     mut settings: ResMut<Settings>,
     mut settings_section: Local<SettingsSection>,
@@ -212,7 +211,6 @@ fn main_menu(
             Screen::SinglePlayer => show_singleplayer_screen(
                 ui,
                 &mut host,
-                &mut hosted,
                 &mut sp_config,
                 &mut next_state,
                 &mut screen,
@@ -226,7 +224,6 @@ fn main_menu(
             Screen::CustomGames => show_browser_screen(
                 ui,
                 &mut browser,
-                &mut hosted,
                 &mut server_addr,
                 &mut next_state,
                 &mut screen,
@@ -247,7 +244,6 @@ fn main_menu(
             Screen::JoinLan => show_browser_screen(
                 ui,
                 &mut browser,
-                &mut hosted,
                 &mut server_addr,
                 &mut next_state,
                 &mut screen,
@@ -273,7 +269,6 @@ fn main_menu(
                 ui,
                 &mut commands,
                 &mut host,
-                &mut hosted,
                 &mut server_addr,
                 &mut next_state,
                 &mut screen,
@@ -438,7 +433,6 @@ fn show_settings_screen(
 fn show_singleplayer_screen(
     ui: &mut egui::Ui,
     host: &mut HostState,
-    hosted: &mut HostedServer,
     sp_config: &mut SinglePlayerConfig,
     next_state: &mut NextState<GameState>,
     screen: &mut Screen,
@@ -453,7 +447,7 @@ fn show_singleplayer_screen(
         .add_enabled(can_start, egui::Button::new("Start"))
         .clicked()
     {
-        shutdown_session(None, None, hosted);
+        shutdown_session(None, None);
         sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
         sp_config.gametype = gametype_path(&host.gametypes[host.gametype_idx]);
         queue_ui_sound(sound_queue, UI_CLICK_EVENT);
@@ -534,14 +528,13 @@ fn poll_browser_fetch(browser: &mut LobbyBrowser) {
 fn connect_to_lobby(
     addr: &str,
     lobby_id: Option<&str>,
-    hosted: &mut HostedServer,
     server_addr: &mut ServerAddr,
     next_state: &mut NextState<GameState>,
     browser: &mut LobbyBrowser,
     screen: &mut Screen,
 ) {
     if let Ok(sa) = addr.parse() {
-        shutdown_session(None, None, hosted);
+        shutdown_session(None, None);
         server_addr.addr = sa;
         server_addr.lobby_id = lobby_id.map(ToOwned::to_owned);
         *screen = Screen::Root;
@@ -553,7 +546,6 @@ fn connect_to_lobby(
 fn show_browser_screen(
     ui: &mut egui::Ui,
     browser: &mut LobbyBrowser,
-    hosted: &mut HostedServer,
     server_addr: &mut ServerAddr,
     next_state: &mut NextState<GameState>,
     screen: &mut Screen,
@@ -601,7 +593,6 @@ fn show_browser_screen(
             connect_to_lobby(
                 &addr,
                 lobby_id.as_deref(),
-                hosted,
                 server_addr,
                 next_state,
                 browser,
@@ -676,7 +667,6 @@ fn show_host_screen(
     ui: &mut egui::Ui,
     commands: &mut Commands,
     host: &mut HostState,
-    hosted: &mut HostedServer,
     server_addr: &mut ServerAddr,
     next_state: &mut NextState<GameState>,
     screen: &mut Screen,
@@ -715,7 +705,7 @@ fn show_host_screen(
         .add_enabled(can_host, egui::Button::new("Start & Join"))
         .clicked()
     {
-        shutdown_session(None, None, hosted);
+        shutdown_session(None, None);
         let port: u16 = host.port.parse().unwrap_or(42070);
         let map = format!("maps/{}.ron", host.maps[host.map_idx]);
         let gametype = gametype_path(&host.gametypes[host.gametype_idx]);
@@ -724,7 +714,7 @@ fn show_host_screen(
             name: host.name.clone(),
             max_players: host.max_players.parse().unwrap_or(8),
         });
-        match start_hosted_server(hosted, port, &map, &gametype, advertise) {
+        match start_hosted_server(port, &map, &gametype, advertise) {
             Ok(()) => {
                 queue_ui_sound(sound_queue, UI_CLICK_EVENT);
                 server_addr.addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);

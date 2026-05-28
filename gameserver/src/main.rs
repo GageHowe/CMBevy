@@ -1,6 +1,6 @@
 // server executable
 
-use std::{io, net::SocketAddr};
+use std::{io, net::SocketAddr, process::exit};
 
 use bevy::{
     log::{Level, LogPlugin},
@@ -71,6 +71,7 @@ fn parse_args() -> io::Result<(SocketAddr, String, String, Option<RegisterReques
     Ok((bind_addr, map, gametype, advertise))
 }
 
+/// too complicated, TODO remove
 fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
     let asset_dir = gameplay::level::default_asset_dir();
     let mut names: Vec<String> = std::fs::read_dir(asset_dir.join(dir))
@@ -88,16 +89,14 @@ fn first_asset_name(dir: &str, ext: &str) -> Option<String> {
     names.into_iter().next()
 }
 
-/// Responds to UDP "discover" probes so LAN clients can find this server.
-/// should we put this on the existing tokio runtime? seems like a performance drain
-/// to have this busy wait on a thread
+/// launch a software thread which responds to UDP "discover" probes so LAN clients can find this server.
 fn start_lan_discovery(quic_port: u16) {
     let port_str = quic_port.to_string();
     std::thread::spawn(move || {
         let Ok(sock) =
             std::net::UdpSocket::bind(format!("0.0.0.0:{}", common::config::LAN_DISCOVERY_PORT))
         else {
-            return;
+            exit(1);
         };
         let mut buf = [0u8; 16];
         loop {
@@ -111,6 +110,15 @@ fn start_lan_discovery(quic_port: u16) {
     });
 }
 
+/*
+
+Args
+
+--map <path> open the server to the map at this path
+TODO
+
+
+ */
 fn main() {
     let (bind_addr, map_path, gametype_path, advertise) = match parse_args() {
         Ok(args) => args,

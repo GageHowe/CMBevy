@@ -1,7 +1,7 @@
 use bevy::prelude::*;
+use common::PredictedCommands;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
-use common::PredictedCommands;
 use net::message::*;
 use physics::{
     collider_flags::{ColliderFlags, collider_flags},
@@ -51,10 +51,8 @@ pub struct Projectile {
     pub explosion: Option<ProjectileExplosion>,
 }
 
-#[derive(Component, Default)]
-pub struct ProjectileState {
-    pub temp_id: u32,
-}
+#[derive(Component, Clone, Copy)]
+pub struct ProjectileTempId(pub u32);
 
 #[derive(Component)]
 pub struct ProjectileRaycastDebug {
@@ -86,7 +84,6 @@ struct ProjectileHit {
 }
 
 pub struct ProjectilePlugin;
-
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "client")]
@@ -102,7 +99,9 @@ impl Plugin for ProjectilePlugin {
             );
         app.add_systems(
             FixedUpdate,
-            tick_projectiles.after(step_physics).in_set(AuthoritySystems),
+            tick_projectiles
+                .after(step_physics)
+                .in_set(AuthoritySystems),
         );
         #[cfg(feature = "client")]
         app.add_systems(
@@ -183,7 +182,7 @@ pub fn fire_authoritative(
     origin: Vec3,
     dir: Vec3,
     shooter: Entity,
-    temp_id: u32,
+    temp_id: Option<u32>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut NetworkIDResource,
@@ -226,27 +225,32 @@ pub fn spawn(
     gravity_scale: f32,
     origin: Vec3,
     velocity: Vec3,
+    // pretty sure this is needed to accurately replicate shooter velocity for raycast handling
     inherited_launch_velocity: Vec3,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     shooter: Option<Entity>,
-    temp_id: u32,
+    // optionally add an ID for client-predicted projectiles, used for projectile spawn confirmation. Bots submit None.
+    temp_id: Option<u32>,
 ) -> Entity {
     projectile.shooter = shooter;
     projectile.last_position = origin;
     projectile.inherited_launch_velocity = inherited_launch_velocity;
     let entity = commands
-        .spawn((
-            projectile,
-            ProjectileState { temp_id },
-            Transform::from_translation(origin),
-        ))
+        .spawn((projectile, Transform::from_translation(origin)))
         .id();
-    if gravity_scale != 0.0 {
+    if let Some(temp_id) = temp_id {
+        commands.entity(entity).insert(ProjectileTempId(temp_id));
+    }
+
+    // attach a GravityScale component; is this needed? TODO
+    if gravity_scale != 1.0 {
         commands.entity(entity).insert(GravityScale(gravity_scale));
     }
     let rb_handle = make_kinematic_body(entity, origin, velocity, projectile.radius, world);
-    commands.entity(entity).insert(RigidBodyHandleComponent(rb_handle));
+    commands
+        .entity(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     entity
 }
 
@@ -261,11 +265,9 @@ pub fn spawn_remote(
 ) {
     projectile.last_position = position;
     projectile.inherited_launch_velocity = shooter_velocity;
-    world.entity_mut(entity).insert((
-        projectile,
-        ProjectileState { temp_id: 0 },
-        Transform::from_translation(position),
-    ));
+    world
+        .entity_mut(entity)
+        .insert((projectile, Transform::from_translation(position)));
     if gravity_scale != 0.0 {
         world.entity_mut(entity).insert(GravityScale(gravity_scale));
     }
@@ -279,7 +281,9 @@ pub fn spawn_remote(
             &mut physics,
         )
     };
-    world.entity_mut(entity).insert(RigidBodyHandleComponent(rb_handle));
+    world
+        .entity_mut(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
     crate::insert_spawn_metadata(entity, world, None, true, None, true);
 }
 
@@ -313,7 +317,7 @@ fn tick_projectiles(
 fn tick_predicted_projectiles(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Projectile, &RigidBodyHandleComponent, &ProjectileState)>,
+    mut q: Query<(Entity, &mut Projectile, &RigidBodyHandleComponent), With<ProjectileTempId>>,
     mut health_q: Query<&mut Health, Without<Shield>>,
     mut last_damage_q: Query<&mut LastDamageSource>,
     mut shield_q: Query<(Entity, &Shield, &mut Health)>,
@@ -321,10 +325,7 @@ fn tick_predicted_projectiles(
     net_ids: Query<&NetworkID>,
     mut predicted: ResMut<PredictedCommands>,
 ) {
-    for (entity, mut projectile, body, state) in &mut q {
-        if state.temp_id == 0 {
-            continue;
-        }
+    for (entity, mut projectile, body) in &mut q {
         tick_projectile(
             entity,
             &mut projectile,
@@ -364,6 +365,7 @@ fn tick_projectile(
     ) else {
         return;
     };
+    // handle explosions if any
     if let Some(explosion) = projectile.explosion {
         explode(
             hit.point,
@@ -384,6 +386,7 @@ fn tick_projectile(
         );
         return;
     }
+    // handle direct hit damage
     apply_direct_hit(
         projectile,
         entity,
@@ -589,7 +592,8 @@ fn explode(
         } else {
             radial_dir
         };
-        let impulse = impulse_dir * explosion.impulse * rb.mass().min(explosion.impulse_mass_cap) * falloff;
+        let impulse =
+            impulse_dir * explosion.impulse * rb.mass().min(explosion.impulse_mass_cap) * falloff;
         let net_id = net_ids.and_then(|ids| ids.get(entity).ok());
         let point =
             direct_hit_impulse.and_then(|(hit, _, _, point)| (hit == entity).then_some(point));
@@ -597,7 +601,12 @@ fn explode(
             if predicted.is_none() {
                 if let Some((hit, collider, _, _)) = direct_hit_impulse
                     && hit == entity
-                    && apply_direct_shield_collider_damage(world, collider, contact_damage, shield_q)
+                    && apply_direct_shield_collider_damage(
+                        world,
+                        collider,
+                        contact_damage,
+                        shield_q,
+                    )
                 {
                     continue;
                 }
@@ -692,6 +701,7 @@ fn shield_entity_for_collider(
         .find_map(|(entity, shield, _)| (shield.collider == Some(collider)).then_some(entity))
 }
 
+// does projectile damage to a non-shield entity if they have a Health component
 fn apply_entity_damage(
     entity: Entity,
     attacker: Option<Entity>,
@@ -778,8 +788,8 @@ fn queue_explosion_fx(
 
 #[cfg(feature = "client")]
 fn add_explosion_camera_shake(world: &mut World, center: Vec3, radius: f32, scale: f32) {
-    let mut camera_q =
-        world.query_filtered::<(&GlobalTransform, &mut crate::pawn::CameraEffector), With<Camera3d>>();
+    let mut camera_q = world
+        .query_filtered::<(&GlobalTransform, &mut crate::pawn::CameraEffector), With<Camera3d>>();
     let Ok((camera_gt, mut camera_fx)) = camera_q.single_mut(world) else {
         return;
     };
@@ -868,19 +878,17 @@ pub struct ProjectileIdCounter {
 #[cfg(feature = "client")]
 fn index_added_predicted_projectiles(
     mut map: ResMut<PredictedProjectileMap>,
-    added: Query<(Entity, &ProjectileState), Added<ProjectileState>>,
+    added: Query<(Entity, &ProjectileTempId), Added<ProjectileTempId>>,
 ) {
-    for (entity, state) in &added {
-        if state.temp_id != 0 {
-            map.insert(state.temp_id, entity);
-        }
+    for (entity, temp_id) in &added {
+        map.insert(temp_id.0, entity);
     }
 }
 
 #[cfg(feature = "client")]
 fn index_removed_predicted_projectiles(
     mut map: ResMut<PredictedProjectileMap>,
-    mut removed: RemovedComponents<ProjectileState>,
+    mut removed: RemovedComponents<ProjectileTempId>,
 ) {
     for entity in removed.read() {
         map.remove_entity(entity);
@@ -892,7 +900,7 @@ pub fn confirm_projectile(
     temp_id: u32,
     net_id: NetworkID,
     predicted_projectiles: &mut PredictedProjectileMap,
-    projectile_q: &Query<(Entity, &ProjectileState)>,
+    projectile_q: &Query<(Entity, &ProjectileTempId)>,
     commands: &mut Commands,
 ) {
     if let Some(projectile_entity) = predicted_projectiles.get(temp_id) {
@@ -902,8 +910,8 @@ pub fn confirm_projectile(
         }
         return;
     }
-    for (projectile_entity, state) in projectile_q.iter() {
-        if state.temp_id == temp_id {
+    for (projectile_entity, projectile_temp_id) in projectile_q.iter() {
+        if projectile_temp_id.0 == temp_id {
             predicted_projectiles.remove_temp_id(temp_id);
             if let Ok(mut entity_commands) = commands.get_entity(projectile_entity) {
                 entity_commands.insert(net_id.clone());

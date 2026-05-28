@@ -3,7 +3,10 @@ use common::tick::Ticker;
 use gameplay::{
     NetworkEntityMap,
     level::{LevelBytes, SpawnPoint},
-    pawn::{HeldWeaponMap, PendingRespawns, PlayerRegistry, VehicleComponent, WeaponSlots, biped_ability::OnPickup},
+    pawn::{
+        HeldWeaponMap, PendingRespawns, PlayerRegistry, VehicleComponent, WeaponSlots,
+        biped_ability::OnPickup,
+    },
     weapon::{WeaponConfig, WeaponState},
 };
 use net::{message::*, quic::*};
@@ -102,23 +105,39 @@ pub fn flush_pending_connections(world: &mut World) {
             ResMut<NetworkIDResource>,
             (Commands<'_, '_>, ResMut<PhysicsWorld>),
             (
-                Query<'_, '_, (Entity, &'static SpawnPoint, &'static Transform, Option<&'static ChildOf>)>,
+                Query<
+                    '_,
+                    '_,
+                    (
+                        Entity,
+                        &'static SpawnPoint,
+                        &'static Transform,
+                        Option<&'static ChildOf>,
+                    ),
+                >,
                 Query<'_, '_, &'static Transform>,
                 Query<'_, '_, &'static ChildOf>,
                 Query<'_, '_, &'static RigidBodyHandleComponent>,
                 Option<Res<'_, gameplay::level::PendingMapScene>>,
                 Query<'_, '_, (), With<gameplay::level::LevelSceneRoot>>,
-                Query<'_, '_, (), (With<gameplay::level::Spawner>, Without<gameplay::level::SpawnerRuntime>)>,
                 Query<
-                    '_, '_,
-                    &'static SceneRigidBody,
+                    '_,
+                    '_,
+                    (),
                     (
-                        With<RigidBodyHandleComponent>,
-                        Without<NetworkID>,
+                        With<gameplay::level::Spawner>,
+                        Without<gameplay::level::SpawnerRuntime>,
                     ),
                 >,
                 Query<
-                    '_, '_,
+                    '_,
+                    '_,
+                    &'static SceneRigidBody,
+                    (With<RigidBodyHandleComponent>, Without<NetworkID>),
+                >,
+                Query<
+                    '_,
+                    '_,
                     (
                         Entity,
                         &'static NetworkID,
@@ -210,7 +229,9 @@ pub fn flush_pending_connections(world: &mut World) {
                 conn_id,
                 net_id,
                 entity.get::<common::WeaponState>().copied(),
-                entity.get::<gameplay::health::Health>().map(|health| health.pool),
+                entity
+                    .get::<gameplay::health::Health>()
+                    .map(|health| health.pool),
             )
         })
         .collect::<Vec<_>>();
@@ -332,10 +353,7 @@ fn process_server_message(
             drop_dir,
         ),
         MsgType::DropAbility(drop_dir) => gameplay::pawn::biped_ability::handle_drop_request(
-            conn_id,
-            registry,
-            commands,
-            drop_dir,
+            conn_id, registry, commands, drop_dir,
         ),
         MsgType::SetActiveWeaponSlot(active_primary) => {
             gameplay::weapon::handle_set_active_slot_request(
@@ -474,13 +492,7 @@ fn level_ready_reason(
             Without<gameplay::level::SpawnerRuntime>,
         ),
     >,
-    scene_bodies: &Query<
-        &SceneRigidBody,
-        (
-            With<RigidBodyHandleComponent>,
-            Without<NetworkID>,
-        ),
-    >,
+    scene_bodies: &Query<&SceneRigidBody, (With<RigidBodyHandleComponent>, Without<NetworkID>)>,
 ) -> Option<&'static str> {
     if pending_map.is_some() {
         Some("map pending")
@@ -615,9 +627,7 @@ pub fn apply_melee_hit_requests(
         }
         let start = biped.melee_debug_start;
         let end = biped.melee_debug_end;
-        if !gameplay::pawn::biped::validate_melee_target(
-            &mut world, attacker, target, start, end,
-        ) {
+        if !gameplay::pawn::biped::validate_melee_target(&mut world, attacker, target, start, end) {
             continue;
         }
         let impulse = gameplay::pawn::biped::melee_impulse(start, end);

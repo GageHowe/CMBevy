@@ -101,8 +101,8 @@ fn parse_euler_call(text: &str) -> Result<Quat, String> {
         .and_then(|text| text.strip_suffix(')'))
         .ok_or_else(|| "from_euler: invalid call syntax".to_string())?
         .trim();
-    let (x, y, z): (f32, f32, f32) =
-        ron::from_str(tuple).map_err(|e| format!("from_euler: expected from_euler((x, y, z)): {e}"))?;
+    let (x, y, z): (f32, f32, f32) = ron::from_str(tuple)
+        .map_err(|e| format!("from_euler: expected from_euler((x, y, z)): {e}"))?;
 
     Ok(Quat::from_euler(
         EulerRot::XYZ,

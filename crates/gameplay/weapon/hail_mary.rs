@@ -1,13 +1,12 @@
 use bevy::prelude::*;
-use rapier3d::prelude::ColliderBuilder;
 #[cfg(feature = "client")]
 use physics::physics_world::*;
+use rapier3d::prelude::ColliderBuilder;
 
 use super::*;
 #[cfg(feature = "client")]
 use crate::weapon::weapon_flash;
-use crate::health::DamageCause;
-use crate::projectile;
+use crate::{health::DamageCause, projectile};
 
 // the Hail Mary is a projectile sniper. One shot, one kill.
 // we use KinematicVelocityBased as the projectile with CCD.
@@ -83,7 +82,13 @@ fn update_hail_mary(
 
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(SHOOTER_IMPULSE, MASS_SCALED_SHOOTER_IMPULSE, ctx, world, 1.0);
+    projectile::apply_recoil(
+        SHOOTER_IMPULSE,
+        MASS_SCALED_SHOOTER_IMPULSE,
+        ctx,
+        world,
+        1.0,
+    );
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0);
@@ -92,15 +97,13 @@ fn update_hail_mary(
 
 #[cfg(feature = "client")]
 pub fn drive_hail_marys(
-    mut weapons: Query<
-        (
-            Entity,
-            &mut HailMaryComponent,
-            &mut WeaponState,
-            &WeaponConfig,
-            &PendingWeaponInput,
-        ),
-    >,
+    mut weapons: Query<(
+        Entity,
+        &mut HailMaryComponent,
+        &mut WeaponState,
+        &WeaponConfig,
+        &PendingWeaponInput,
+    )>,
     net_ids: Query<&net::message::NetworkID>,
     world: ResMut<PhysicsWorld>,
     commands: Commands,

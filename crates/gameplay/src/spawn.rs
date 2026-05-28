@@ -24,12 +24,10 @@ pub struct DespawnOnDeath;
 #[derive(Component, Clone, Copy)]
 pub struct CollisionSound(pub &'static str);
 
-pub fn register_spawnable(
-    app: &mut App,
-    spawn_name: &'static str,
-    spawn: SpawnFn,
-) {
-    let mut registry = app.world_mut().get_resource_or_insert_with(SpawnRegistry::default);
+pub fn register_spawnable(app: &mut App, spawn_name: &'static str, spawn: SpawnFn) {
+    let mut registry = app
+        .world_mut()
+        .get_resource_or_insert_with(SpawnRegistry::default);
     registry.0.insert(spawn_name, spawn);
 }
 
@@ -101,7 +99,9 @@ pub struct SpawnGameObjectCommand {
 
 impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
-        world.entity_mut(self.entity).insert(self.cmd.net_id.clone());
+        world
+            .entity_mut(self.entity)
+            .insert(self.cmd.net_id.clone());
         spawn_game_object(self.cmd.spawn_name.as_str(), self.entity, &self.cmd, world);
         if let Some(parent_net_id) = &self.cmd.parent_net_id
             && let Some(parent) = find_entity_by_net_id(world, parent_net_id)

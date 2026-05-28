@@ -11,11 +11,11 @@ use crate::pawn::biped::BipedPawnComponent;
 use crate::pawn::biped::viewmodel_offset;
 use crate::{
     generic::attach_hull_collider,
+    interaction::InteractionName,
     pawn::WeaponSlots,
     reticle::AimReticle,
     sound::SoundQueue,
     weapon::{FireCtx, WeaponComponent, WeaponState},
-    interaction::InteractionName,
 };
 
 pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
@@ -45,7 +45,11 @@ pub fn apply_spread(aim_dir: Vec3, spread_radians: f32) -> Vec3 {
     (aim_dir + right * yaw.tan() + up * pitch.tan()).normalize_or_zero()
 }
 
-pub fn fire_projectile(ctx: &mut FireCtx, world: &mut PhysicsWorld, commands: &mut Commands) -> u32 {
+pub fn fire_projectile(
+    ctx: &mut FireCtx,
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+) -> u32 {
     let temp_id = crate::projectile::next_temp_id(ctx.id_counter.as_deref_mut());
     fire_projectile_with_dir(ctx, world, commands, temp_id, ctx.aim_dir);
     temp_id
@@ -73,7 +77,7 @@ pub fn fire_projectile_with_dir(
         commands,
         world,
         ctx.shooter,
-        temp_id,
+        Some(temp_id),
     );
     #[cfg(feature = "client")]
     let decorate_projectile = ctx.weapon_config.decorate_projectile;
@@ -84,7 +88,13 @@ pub fn fire_projectile_with_dir(
         decorate_projectile(entity, world);
     });
     #[cfg(feature = "client")]
-    send_fire_request(ctx.quic.as_deref_mut(), ctx.net_id, temp_id, ctx.origin, dir);
+    send_fire_request(
+        ctx.quic.as_deref_mut(),
+        ctx.net_id,
+        temp_id,
+        ctx.origin,
+        dir,
+    );
 }
 
 #[cfg(feature = "client")]
@@ -144,11 +154,7 @@ pub fn make_generic_weapon_physics(
         if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
             rb.set_rotation(rotation, true);
             rb.set_angvel(
-                Vector3::new(
-                    angular_velocity.x,
-                    angular_velocity.y,
-                    angular_velocity.z,
-                ),
+                Vector3::new(angular_velocity.x, angular_velocity.y, angular_velocity.z),
                 true,
             );
         }

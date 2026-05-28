@@ -1,5 +1,8 @@
 use bevy::{
-    camera::{Camera, Camera3d, CameraMainTextureUsages, ClearColorConfig, PerspectiveProjection, Projection},
+    camera::{
+        Camera, Camera3d, CameraMainTextureUsages, ClearColorConfig, PerspectiveProjection,
+        Projection,
+    },
     color::Color,
     core_pipeline::{
         prepass::{DeferredPrepass, DepthPrepass, NormalPrepass},
@@ -7,8 +10,7 @@ use bevy::{
     },
     math::Vec3,
     prelude::*,
-    render::render_resource::TextureUsages,
-    render::view::Hdr,
+    render::{render_resource::TextureUsages, view::Hdr},
 };
 // use bevy::core_pipeline::tonemapping::DebandDither::Enabled;
 // use bevy::post_process::effect_stack::ChromaticAberration;

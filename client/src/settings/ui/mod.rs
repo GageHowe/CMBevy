@@ -3,6 +3,7 @@ mod graphics;
 mod input;
 mod misc;
 
+use ::audio::AudioOutputDevices;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
@@ -11,7 +12,6 @@ use super::{
     data::{Settings, SettingsSection},
     persistence,
 };
-use ::audio::AudioOutputDevices;
 
 pub fn show_settings_ui(
     ui: &mut egui::Ui,

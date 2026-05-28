@@ -31,7 +31,7 @@ impl Clone for BotContext {
     }
 }
 
-/// Decision output emitted by a bot brain for the current think step.
+/// Decision output emitted by a bot brain for the current think step. TODO: investigate changing to dedicated pawn input structs
 pub struct BotOutput {
     pub input: PawnInputKind,
     pub fire: bool,
@@ -41,33 +41,23 @@ pub struct BotOutput {
 }
 
 /// Behaviour interface implemented by server-side bot brains.
-pub trait BotBrain: Send + Sync + 'static {
+pub trait BotBehavior: Send + Sync + 'static {
+    /// outputs a predefined input struct; perhaps should be defined in terms of pawn input structs. e.g. biped can output a BipedInput struct
     fn think(&mut self, ctx: &BotContext) -> BotOutput;
 }
 
+/// attach this to an entity to give it bot behavior! :)
 #[derive(Component)]
-/// Runtime bot controller component attached to a pawn entity.
 pub struct BotController {
     pub team: Team,
-    pub brain: Box<dyn BotBrain>,
-    /// Temporary projectile id counter for locally generated authoritative bot shots.
-    /// TODO: bots will either be in singleplayer or server-authoritative, so this isn't needed
-    pub temp_id: u32,
+    pub brain: Box<dyn BotBehavior>,
 }
-
 impl BotController {
-    pub fn new(team: Team, brain: impl BotBrain) -> Self {
+    pub fn new(team: Team, brain: impl BotBehavior) -> Self {
         Self {
             team,
             brain: Box::new(brain),
-            temp_id: 1,
         }
-    }
-
-    pub fn next_temp_id(&mut self) -> u32 {
-        let id = self.temp_id;
-        self.temp_id = self.temp_id.wrapping_add(1).max(1);
-        id
     }
 }
 

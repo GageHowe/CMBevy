@@ -186,15 +186,13 @@ fn update_beamer(
 
 #[cfg(feature = "client")]
 pub fn drive_beamers(
-    mut weapons: Query<
-        (
-            Entity,
-            &mut BeamerComponent,
-            &mut WeaponState,
-            &WeaponConfig,
-            &PendingWeaponInput,
-        ),
-    >,
+    mut weapons: Query<(
+        Entity,
+        &mut BeamerComponent,
+        &mut WeaponState,
+        &WeaponConfig,
+        &PendingWeaponInput,
+    )>,
     net_ids: Query<&net::message::NetworkID>,
     world: ResMut<PhysicsWorld>,
     commands: Commands,

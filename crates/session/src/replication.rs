@@ -102,10 +102,7 @@ pub fn broadcast_tick(
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
-    mut biped_looks: Query<(
-        &NetworkID,
-        &mut gameplay::pawn::biped::BipedPawnComponent,
-    )>,
+    mut biped_looks: Query<(&NetworkID, &mut gameplay::pawn::biped::BipedPawnComponent)>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,

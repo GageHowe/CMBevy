@@ -212,7 +212,8 @@ pub fn drive_weapon_inputs<W: Component<Mutability = bevy::ecs::component::Mutab
     mut predicted: Option<ResMut<common::PredictedCommands>>,
     update: fn(&mut W, &mut PhysicsWorld, &mut Commands, &mut FireCtx),
 ) {
-    for (weapon_entity, mut weapon, mut weapon_state, weapon_config, pending) in weapons.iter_mut() {
+    for (weapon_entity, mut weapon, mut weapon_state, weapon_config, pending) in weapons.iter_mut()
+    {
         let input = pending.0;
         let local_shooter = possessed.single().ok() == Some(input.shooter);
         let mut local_camera = if local_shooter {
@@ -239,7 +240,9 @@ pub fn drive_weapon_inputs<W: Component<Mutability = bevy::ecs::component::Mutab
             weapon_config: weapon_config.clone(),
         };
         update(&mut weapon, &mut world, &mut commands, &mut ctx);
-        commands.entity(weapon_entity).remove::<PendingWeaponInput>();
+        commands
+            .entity(weapon_entity)
+            .remove::<PendingWeaponInput>();
     }
 }
 
@@ -247,7 +250,7 @@ pub fn fire_held_weapon(
     shooter_entity: Entity,
     weapon_entity: Entity,
     weapon_net_id: &NetworkID,
-    temp_id: u32,
+    temp_id: Option<u32>,
     origin: Vec3,
     dir: Vec3,
     pawn_slots: &mut Query<&mut WeaponSlots>,
@@ -342,7 +345,7 @@ pub fn handle_fire_request(
         shooter_entity,
         weapon_entity,
         &weapon_net_id,
-        temp_id,
+        Some(temp_id),
         origin,
         dir,
         pawn_slots,
@@ -369,7 +372,7 @@ pub fn fire_authoritative_with_replication(
     shooter_entity: Entity,
     weapon_entity: Entity,
     weapon_net_id: &NetworkID,
-    temp_id: u32,
+    temp_id: Option<u32>,
     origin: Vec3,
     dir: Vec3,
     pawn_slots: &mut Query<&mut WeaponSlots>,
@@ -414,14 +417,16 @@ pub fn fire_authoritative_with_replication(
                     shooter_velocity: fired.fired.shooter_velocity,
                 },
             );
-            quic.send(
-                SendTarget::One(conn_id),
-                Channel::Ordered,
-                &net::message::MsgType::ProjectileConfirm {
-                    temp_id,
-                    net_id: fired.fired.net_id,
-                },
-            );
+            if let Some(temp_id) = temp_id {
+                quic.send(
+                    SendTarget::One(conn_id),
+                    Channel::Ordered,
+                    &net::message::MsgType::ProjectileConfirm {
+                        temp_id,
+                        net_id: fired.fired.net_id,
+                    },
+                );
+            }
         }
         None => quic.send(
             SendTarget::All,
@@ -607,9 +612,7 @@ pub fn handle_interact_pickup_request(
     );
 }
 
-pub fn apply_zoom(
-    ctx: &mut FireCtx,
-) -> f32 {
+pub fn apply_zoom(ctx: &mut FireCtx) -> f32 {
     let Some(cam) = ctx.camera.as_mut() else {
         return 0.0;
     };

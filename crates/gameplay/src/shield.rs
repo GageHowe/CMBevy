@@ -16,10 +16,7 @@ use rapier3d::prelude::{
     RigidBodyHandle,
 };
 
-use crate::{
-    find_entity_by_net_id,
-    health::Health,
-};
+use crate::{find_entity_by_net_id, health::Health};
 
 const SPACESHIP_SHIELD_MAX_HEALTH: i32 = 300;
 const SPACESHIP_SHIELD_REGEN_PER_SECOND: i32 = 60;
@@ -312,7 +309,9 @@ pub fn spawn_attached_spaceship_shield(
     if !should_spawn_local_shield(world) {
         return None;
     }
-    let tick = world.get_resource::<Ticker>().map_or(0, |ticker| ticker.tick);
+    let tick = world
+        .get_resource::<Ticker>()
+        .map_or(0, |ticker| ticker.tick);
     let net_id = NetworkID(world.get_resource_mut::<NetworkIDResource>()?.next());
     let entity = world.spawn_empty().id();
     let cmd = SpawnCommand::new(net_id.clone(), "spaceship_shield", tick)

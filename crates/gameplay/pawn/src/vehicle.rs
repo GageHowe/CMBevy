@@ -1,7 +1,10 @@
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
-use net::{message::NetworkID, quic::{QuicManager, SendTarget}};
+use net::{
+    message::NetworkID,
+    quic::{QuicManager, SendTarget},
+};
 
 #[cfg(feature = "client")]
 use super::*;
@@ -79,7 +82,13 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
             let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
                 return;
             };
-            super::possess_pawn(conn_id, biped_entity, &biped_net_id, &mut registry, &mut quic);
+            super::possess_pawn(
+                conn_id,
+                biped_entity,
+                &biped_net_id,
+                &mut registry,
+                &mut quic,
+            );
             super::send_mount_state(&mut quic, SendTarget::All, &biped_net_id, None);
         });
     }

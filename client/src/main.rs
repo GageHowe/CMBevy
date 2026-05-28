@@ -3,8 +3,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use auto_exposure_debug::AutoExposureDebugPlugin;
 use audio::SoundPlugin;
+use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy::{
     log::{Level, LogPlugin},
     pbr::DefaultOpaqueRendererMethod,
@@ -16,6 +16,8 @@ use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
 use gameplay::{
+    components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
+    level::{cleanup_level, draw_script_zone_debug},
     pawn::{self, biped::draw_melee_debug, mount::draw_mount_debug, *},
     projectile::*,
 };
@@ -34,18 +36,11 @@ mod reconciliation;
 mod sound;
 mod tick_sync;
 mod ui;
-use gameplay::{
-    components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
-    level::{cleanup_level, draw_script_zone_debug},
-};
 use master_plugin::MasterPlugin;
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
 use physics::physics_world::{step_physics, sync_physics_visual};
-use session::{
-    ClientSessionPlugin, HostedServer, PendingExit, ServerAddr, SinglePlayerConfig,
-    draw_server_state,
-};
+use session::*;
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 // use gameplay::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
@@ -140,7 +135,6 @@ fn main() {
     })
     .init_resource::<PendingExit>()
     .init_resource::<SinglePlayerConfig>()
-    .init_resource::<HostedServer>()
     .add_systems(
         FixedUpdate,
         step_physics.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),

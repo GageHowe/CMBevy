@@ -494,17 +494,19 @@ fn biped_fire(
             &net::message::MsgType::ReloadWeapon(weapon_net_id.clone()),
         );
     }
-    commands.entity(weapon_entity).insert(PendingWeaponInput(WeaponFireInput {
-        want_fire,
-        want_alt_fire: !blocked
-            && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
-        alt_fire_pressed,
-        reload_pressed,
-        origin,
-        aim_dir,
-        shooter: pawn_entity,
-        tick: ticker.tick,
-    }));
+    commands
+        .entity(weapon_entity)
+        .insert(PendingWeaponInput(WeaponFireInput {
+            want_fire,
+            want_alt_fire: !blocked
+                && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
+            alt_fire_pressed,
+            reload_pressed,
+            origin,
+            aim_dir,
+            shooter: pawn_entity,
+            tick: ticker.tick,
+        }));
     let Ok(weapon_state) = weapon_states.get(weapon_entity) else {
         return;
     };
@@ -687,14 +689,18 @@ fn update_interaction_hint(
             .get(parent_entity)
             .ok()
             .map(|name| format_interaction_prompt(&key, "enter", name)),
-        InteractTarget::Entity { hit_entity, .. } if weapon_q.contains(hit_entity) => interaction_names
-            .get(hit_entity)
-            .ok()
-            .map(|name| format_interaction_prompt(&key, "equip", name)),
-        InteractTarget::Entity { hit_entity, .. } if pickup_q.contains(hit_entity) => interaction_names
-            .get(hit_entity)
-            .ok()
-            .map(|name| format_interaction_prompt(&key, "equip", name)),
+        InteractTarget::Entity { hit_entity, .. } if weapon_q.contains(hit_entity) => {
+            interaction_names
+                .get(hit_entity)
+                .ok()
+                .map(|name| format_interaction_prompt(&key, "equip", name))
+        }
+        InteractTarget::Entity { hit_entity, .. } if pickup_q.contains(hit_entity) => {
+            interaction_names
+                .get(hit_entity)
+                .ok()
+                .map(|name| format_interaction_prompt(&key, "equip", name))
+        }
         _ => None,
     };
 }
@@ -781,10 +787,7 @@ fn interact(
                         .entity(parent_entity)
                         .insert(Possessed::new(128));
                     if let Ok(name) = sp.interaction_names.get(parent_entity) {
-                        crate::messages::push(
-                            &mut sp.commands,
-                            format!("Entered {}", name.0),
-                        );
+                        crate::messages::push(&mut sp.commands, format!("Entered {}", name.0));
                     }
                 }
             }
@@ -805,17 +808,15 @@ fn interact(
         } => {
             if let Ok(pickup) = sp.pickup_fns.get(hit_entity) {
                 match state.get() {
-                    GameState::SinglePlayer => {
-                        sp.commands.queue({
-                            let pickup = *pickup;
-                            move |world: &mut World| {
-                                let _ = pickup.0(pawn_entity, world);
-                                if let Ok(entity) = world.get_entity_mut(hit_entity) {
-                                    entity.despawn();
-                                }
+                    GameState::SinglePlayer => sp.commands.queue({
+                        let pickup = *pickup;
+                        move |world: &mut World| {
+                            let _ = pickup.0(pawn_entity, world);
+                            if let Ok(entity) = world.get_entity_mut(hit_entity) {
+                                entity.despawn();
                             }
-                        })
-                    }
+                        }
+                    }),
                     GameState::Multiplayer => {
                         if let Some(interact_net_id) = interact_net_id {
                             quic.send_to_server(
@@ -932,8 +933,8 @@ fn drop_active_weapon(
             };
             let (_, rot, origin) = pivot_gt.to_scale_rotation_translation();
             let forward = rot * Vec3::NEG_Z;
-            let drop_velocity = forward * 8.0
-                + crate::projectile::shooter_velocity(&world, Some(pawn_entity));
+            let drop_velocity =
+                forward * 8.0 + crate::projectile::shooter_velocity(&world, Some(pawn_entity));
             crate::weapon::helpers::drop_local_active_weapon(
                 &mut slots,
                 origin + forward,

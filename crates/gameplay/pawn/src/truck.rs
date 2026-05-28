@@ -58,77 +58,73 @@ impl VehiclePawn for TruckPawnComponent {
 }
 
 pub fn spawn_truck(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let position = cmd.position_or_zero();
-        let rotation = cmd.rotation_or_identity();
-        let velocity = cmd.velocity_or_zero();
-        let angular_velocity = cmd.angular_velocity_or_zero();
-        let transform = Transform {
-            translation: position,
-            rotation,
-            ..default()
-        };
-        spawn_driver_mount::<TruckPawnComponent>(entity, world);
-        world.entity_mut(entity).insert((
-            crate::SpawnReplicated("truck"),
-            TruckPawnComponent,
-            Health::new(TRUCK_MAX_HEALTH, 0, 0).with_death(on_truck_death),
-            CollisionDamageConfig {
-                threshold_per_mass: 90.0,
-                min_threshold: 250.0,
-                damage_scale: 0.45,
-            },
-            LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<TruckPawnComponent>(),
-            InteractionName("Truck"),
-            CollisionFxMaterial::Sparks,
-            Transform::from(transform),
-        ));
-        let rb_handle = {
-            let mut physics = world.resource_mut::<PhysicsWorld>();
-            let rb = RigidBodyBuilder::dynamic()
-                .translation(transform.translation)
-                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
-                .linear_damping(0.2)
-                .angular_damping(2.2)
-                .build();
-            let rb_handle = physics.insert_body(entity, rb);
-            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
-                rb.set_rotation(transform.rotation, true);
-                rb.set_angvel(
-                    Vector3::new(
-                        angular_velocity.x,
-                        angular_velocity.y,
-                        angular_velocity.z,
-                    ),
-                    true,
-                );
-            }
-            let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
-                .friction(1.0)
-                .build();
-            let PhysicsWorld {
-                collider_set,
-                rigid_body_set,
-                ..
-            } = &mut *physics;
-            collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
-            rb_handle
-        };
+    let position = cmd.position_or_zero();
+    let rotation = cmd.rotation_or_identity();
+    let velocity = cmd.velocity_or_zero();
+    let angular_velocity = cmd.angular_velocity_or_zero();
+    let transform = Transform {
+        translation: position,
+        rotation,
+        ..default()
+    };
+    spawn_driver_mount::<TruckPawnComponent>(entity, world);
+    world.entity_mut(entity).insert((
+        crate::SpawnReplicated("truck"),
+        TruckPawnComponent,
+        Health::new(TRUCK_MAX_HEALTH, 0, 0).with_death(on_truck_death),
+        CollisionDamageConfig {
+            threshold_per_mass: 90.0,
+            min_threshold: 250.0,
+            damage_scale: 0.45,
+        },
+        LastDamageSource::default(),
+        VehicleComponent::for_vehicle::<TruckPawnComponent>(),
+        InteractionName("Truck"),
+        CollisionFxMaterial::Sparks,
+        Transform::from(transform),
+    ));
+    let rb_handle = {
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        let rb = RigidBodyBuilder::dynamic()
+            .translation(transform.translation)
+            .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
+            .linear_damping(0.2)
+            .angular_damping(2.2)
+            .build();
+        let rb_handle = physics.insert_body(entity, rb);
+        if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+            rb.set_rotation(transform.rotation, true);
+            rb.set_angvel(
+                Vector3::new(angular_velocity.x, angular_velocity.y, angular_velocity.z),
+                true,
+            );
+        }
+        let collider = ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z)
+            .friction(1.0)
+            .build();
+        let PhysicsWorld {
+            collider_set,
+            rigid_body_set,
+            ..
+        } = &mut *physics;
+        collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
+        rb_handle
+    };
+    world
+        .entity_mut(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
+    #[cfg(feature = "client")]
+    {
+        let scene = world.resource::<AssetServer>().load(MODEL_PATH);
         world
             .entity_mut(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
-        #[cfg(feature = "client")]
-        {
-            let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world
-                .entity_mut(entity)
-                .insert((SceneRoot(scene), Visibility::default()));
-        }
-        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
+            .insert((SceneRoot(scene), Visibility::default()));
+    }
+    crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
 }
 
 pub fn on_truck_death(entity: Entity, world: &mut World) {
-        super::vehicle::handle_vehicle_death(entity, world);
+    super::vehicle::handle_vehicle_death(entity, world);
 }
 
 #[cfg(feature = "client")]
@@ -252,7 +248,11 @@ pub fn apply_truck_movement(
 #[cfg(feature = "client")]
 fn move_trucks(
     mut world: ResMut<PhysicsWorld>,
-    mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent, &mut TruckPawnComponent)>,
+    mut pawns: Query<(
+        &mut Possessed,
+        &RigidBodyHandleComponent,
+        &mut TruckPawnComponent,
+    )>,
 ) {
     for (mut possessed, handle, mut truck) in &mut pawns {
         let Some(PawnInputKind::Truck(input)) = possessed.consume() else {

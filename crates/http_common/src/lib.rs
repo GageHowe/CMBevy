@@ -11,6 +11,7 @@ pub struct LobbyInfo {
     pub max_players: u8,
 }
 
+/// gameserver->beacon message sent to ask beacon to advertise the server
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RegisterRequest {
     pub quic_port: u16,

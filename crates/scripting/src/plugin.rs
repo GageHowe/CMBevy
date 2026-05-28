@@ -1,9 +1,11 @@
 //! Wires the scripting runtime into Bevy schedules and keeps the Lua VM hot-reloaded.
 
 use bevy::prelude::*;
-use gameplay::health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths};
+use gameplay::{
+    health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths},
+    pawn::PlayerRegistry,
+};
 use mlua::prelude::Lua;
-use gameplay::pawn::PlayerRegistry;
 
 use crate::{
     api::register_script_functions,
@@ -69,12 +71,15 @@ fn eval_script_fixed_update(world: &mut World) {
 }
 
 fn process_weapon_grants(world: &mut World) {
-    use gameplay::{SpawnGameObjectCommand, interaction::Interactable};
+    use gameplay::{
+        SpawnGameObjectCommand,
+        interaction::Interactable,
+        pawn::{HeldWeaponMap, WeaponSlots},
+    };
     use net::{
         message::MsgType,
         quic::{Channel, QuicManager, SendTarget},
     };
-    use gameplay::pawn::{HeldWeaponMap, WeaponSlots};
     use physics::physics_world::{PhysicsWorld, rb_pos};
 
     let mut grants = world
@@ -146,7 +151,10 @@ fn process_weapon_grants(world: &mut World) {
             let Some(mut slots) = world.get_mut::<WeaponSlots>(grant.owner) else {
                 return false;
             };
-            if slots.assign_pickup(weapon_id.clone(), weapon_entity).is_none() {
+            if slots
+                .assign_pickup(weapon_id.clone(), weapon_entity)
+                .is_none()
+            {
                 return false;
             }
             physics.set_body_enabled(weapon_entity, false);

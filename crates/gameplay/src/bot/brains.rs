@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use common::{BipedInput, PawnInputKind};
 
-use super::{BotBrain, BotContext, BotOutput};
+use super::{BotBehavior, BotContext, BotOutput};
 
 pub struct HeuristicKillerBot;
 impl Default for HeuristicKillerBot {
@@ -10,7 +10,7 @@ impl Default for HeuristicKillerBot {
     }
 }
 
-impl BotBrain for HeuristicKillerBot {
+impl BotBehavior for HeuristicKillerBot {
     fn think(&mut self, ctx: &BotContext) -> BotOutput {
         let Some(target) = ctx
             .visible

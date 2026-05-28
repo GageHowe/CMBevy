@@ -4,6 +4,7 @@ use bevy::{
     ecs::system::{Command, SystemState},
     prelude::*,
 };
+use common::{NetworkID, NetworkIDResource};
 use gameplay::{
     SpawnGameObjectCommand, Team,
     bot::{BotController, HeuristicKillerBot},
@@ -11,14 +12,13 @@ use gameplay::{
     level::{ScriptZone, SpawnPoint, parented_world_pose},
     messages::push_world,
     mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
+    pawn::{PlayerRegistry, WeaponSlots},
 };
 use mlua::prelude::*;
 use net::{
     message::{MsgType, SpawnCommand},
     quic::{Channel, QuicManager, SendTarget},
 };
-use common::{NetworkID, NetworkIDResource};
-use gameplay::pawn::{PlayerRegistry, WeaponSlots};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{

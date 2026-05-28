@@ -23,7 +23,7 @@ Called by a game server to advertise itself. The beacon derives the host IP from
 
 ### `POST /lobbies/{id}/heartbeat`
 
-Update the advertised player counts for an existing lobby.
+Update the advertised player counts for an existing lobby and keep it alive. Lobbies expire shortly after heartbeats stop.
 
 **Body:**
 ```json

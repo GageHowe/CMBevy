@@ -1,14 +1,8 @@
 use audio::{AudioListener, AudioSettings, FmodStudio, set_global_parameter};
+pub use audio::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
 use bevy::prelude::*;
-use gameplay::{
-    components::atmosphere::AreaReverbComponent,
-    pawn::Possessed,
-};
+use gameplay::{components::atmosphere::AreaReverbComponent, pawn::Possessed};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
-
-pub use audio::{
-    AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound,
-};
 
 use crate::settings::Settings;
 
@@ -19,12 +13,18 @@ pub struct ClientSoundPlugin;
 
 impl Plugin for ClientSoundPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, sync_audio_settings.run_if(resource_changed::<Settings>))
-            .add_systems(PostUpdate, sync_listener.run_if(resource_exists::<FmodStudio>))
-            .add_systems(
-                PostUpdate,
-                update_atmosphere_reverb.run_if(resource_exists::<FmodStudio>),
-            );
+        app.add_systems(
+            PostUpdate,
+            sync_audio_settings.run_if(resource_changed::<Settings>),
+        )
+        .add_systems(
+            PostUpdate,
+            sync_listener.run_if(resource_exists::<FmodStudio>),
+        )
+        .add_systems(
+            PostUpdate,
+            update_atmosphere_reverb.run_if(resource_exists::<FmodStudio>),
+        );
     }
 }
 

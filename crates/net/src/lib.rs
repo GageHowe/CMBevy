@@ -1,9 +1,5 @@
-#[cfg(feature = "client")]
-pub mod clientonly;
 pub mod message;
 pub mod quic;
-#[cfg(not(feature = "client"))]
-pub mod serveronly;
 
 pub fn format_packet_size(bytes: usize) -> String {
     if bytes < 1024 {

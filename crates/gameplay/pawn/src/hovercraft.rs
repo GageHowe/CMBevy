@@ -69,75 +69,71 @@ impl VehiclePawn for HovercraftPawnComponent {
 }
 
 pub fn spawn_hovercraft(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let position = cmd.position_or_zero();
-        let rotation = cmd.rotation_or_identity();
-        let velocity = cmd.velocity_or_zero();
-        let angular_velocity = cmd.angular_velocity_or_zero();
-        let transform = Transform {
-            translation: position,
-            rotation,
-            ..default()
-        };
-        spawn_driver_mount::<HovercraftPawnComponent>(entity, world);
-        world.entity_mut(entity).insert((
-            crate::SpawnReplicated("hovercraft"),
-            HovercraftPawnComponent,
-            Health::new(HOVERCRAFT_MAX_HEALTH, 0, 0).with_death(on_hovercraft_death),
-            CollisionDamageConfig {
-                threshold_per_mass: 90.0,
-                min_threshold: 250.0,
-                damage_scale: 0.45,
-            },
-            LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<HovercraftPawnComponent>(),
-            InteractionName("Hovercraft"),
-            CollisionFxMaterial::Sparks,
-            Transform::from(transform),
-        ));
-        let rb_handle = {
-            let mut physics = world.resource_mut::<PhysicsWorld>();
-            let rb = RigidBodyBuilder::dynamic()
-                .translation(transform.translation)
-                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
-                .angular_damping(2.8)
-                .build();
-            let rb_handle = physics.insert_body(entity, rb);
-            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
-                rb.set_rotation(transform.rotation, true);
-                rb.set_angvel(
-                    Vector3::new(
-                        angular_velocity.x,
-                        angular_velocity.y,
-                        angular_velocity.z,
-                    ),
-                    true,
-                );
-            }
-            rb_handle
-        };
-        attach_hull_collider(
-            entity,
-            rb_handle,
-            HULL_PATH,
-            1.0,
-            ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z),
-            world,
-        );
+    let position = cmd.position_or_zero();
+    let rotation = cmd.rotation_or_identity();
+    let velocity = cmd.velocity_or_zero();
+    let angular_velocity = cmd.angular_velocity_or_zero();
+    let transform = Transform {
+        translation: position,
+        rotation,
+        ..default()
+    };
+    spawn_driver_mount::<HovercraftPawnComponent>(entity, world);
+    world.entity_mut(entity).insert((
+        crate::SpawnReplicated("hovercraft"),
+        HovercraftPawnComponent,
+        Health::new(HOVERCRAFT_MAX_HEALTH, 0, 0).with_death(on_hovercraft_death),
+        CollisionDamageConfig {
+            threshold_per_mass: 90.0,
+            min_threshold: 250.0,
+            damage_scale: 0.45,
+        },
+        LastDamageSource::default(),
+        VehicleComponent::for_vehicle::<HovercraftPawnComponent>(),
+        InteractionName("Hovercraft"),
+        CollisionFxMaterial::Sparks,
+        Transform::from(transform),
+    ));
+    let rb_handle = {
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        let rb = RigidBodyBuilder::dynamic()
+            .translation(transform.translation)
+            .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
+            .angular_damping(2.8)
+            .build();
+        let rb_handle = physics.insert_body(entity, rb);
+        if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+            rb.set_rotation(transform.rotation, true);
+            rb.set_angvel(
+                Vector3::new(angular_velocity.x, angular_velocity.y, angular_velocity.z),
+                true,
+            );
+        }
+        rb_handle
+    };
+    attach_hull_collider(
+        entity,
+        rb_handle,
+        HULL_PATH,
+        1.0,
+        ColliderBuilder::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z),
+        world,
+    );
+    world
+        .entity_mut(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
+    #[cfg(feature = "client")]
+    {
+        let scene = world.resource::<AssetServer>().load(MODEL_PATH);
         world
             .entity_mut(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
-        #[cfg(feature = "client")]
-        {
-            let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world
-                .entity_mut(entity)
-                .insert((SceneRoot(scene), Visibility::default()));
-        }
-        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
+            .insert((SceneRoot(scene), Visibility::default()));
+    }
+    crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, true);
 }
 
 pub fn on_hovercraft_death(entity: Entity, world: &mut World) {
-        super::vehicle::handle_vehicle_death(entity, world);
+    super::vehicle::handle_vehicle_death(entity, world);
 }
 
 #[cfg(feature = "client")]
@@ -287,11 +283,13 @@ pub fn apply_hovercraft_movement(
         body.apply_impulse_at_point(impulse, Vector3::new(point.x, point.y, point.z), true);
     }
     body.apply_impulse(
-        Vector3::new(plane_forward.x, plane_forward.y, plane_forward.z) * (input.throttle * DRIVE_FORCE),
+        Vector3::new(plane_forward.x, plane_forward.y, plane_forward.z)
+            * (input.throttle * DRIVE_FORCE),
         true,
     );
     body.apply_impulse(
-        -Vector3::new(plane_right.x, plane_right.y, plane_right.z) * (sideways_speed * SIDEWAYS_GRIP),
+        -Vector3::new(plane_right.x, plane_right.y, plane_right.z)
+            * (sideways_speed * SIDEWAYS_GRIP),
         true,
     );
     body.apply_impulse(

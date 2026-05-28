@@ -15,7 +15,7 @@ use axum::{
     Router,
     http::header,
     response::Response,
-    routing::{delete, get, post},
+    routing::{get, post},
 };
 use rusqlite::Connection;
 
@@ -63,8 +63,7 @@ async fn main() {
             "/lobbies/{id}/join/{token}",
             get(beacon_routes::join_status),
         )
-        .route("/lobbies/{id}/punch", get(beacon_routes::pending_peers))
-        .route("/lobbies/{id}", delete(beacon_routes::delete));
+        .route("/lobbies/{id}/punch", get(beacon_routes::pending_peers));
 
     let app = Router::new()
         .route("/", get(beacon_routes::serve_home))

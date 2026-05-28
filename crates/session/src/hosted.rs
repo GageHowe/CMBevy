@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use bevy::{app::AppExit, prelude::*};
 use net::quic::QuicManager;
 
@@ -65,17 +67,16 @@ pub fn fetch_remote_lobbies() -> Result<Vec<http_common::LobbyInfo>, String> {
 /// Starts a hosted dedicated server locally by clearing the requested UDP port,
 /// launching the server in a detached terminal, and waiting for it to bind.
 pub fn start_hosted_server(
-    _hosted: &mut HostedServer,
     port: u16,
     map: &str,
     gametype: &str,
     advertise: Option<http_common::RegisterRequest>,
 ) -> std::io::Result<()> {
-    let preflight = match std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
+    let preflight = match std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, port)) {
         Ok(sock) => sock,
         Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
             kill_local_port_owners(port);
-            std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port))?
+            std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, port))?
         }
         Err(err) => return Err(err),
     };
@@ -88,12 +89,11 @@ pub fn cleanup_before_app_exit(
     mut exits: MessageReader<AppExit>,
     mut quic: Option<ResMut<QuicManager>>,
     mut pending: Option<ResMut<PendingReconciliation>>,
-    mut hosted: ResMut<HostedServer>,
 ) {
     if exits.read().next().is_none() {
         return;
     }
-    shutdown_session(quic.as_deref_mut(), pending.as_deref_mut(), &mut hosted);
+    shutdown_session(quic.as_deref_mut(), pending.as_deref_mut());
 }
 
 pub fn exit_after_returning_to_menu(
@@ -108,7 +108,6 @@ pub fn exit_after_returning_to_menu(
 pub fn shutdown_session(
     quic: Option<&mut QuicManager>,
     pending: Option<&mut PendingReconciliation>,
-    _hosted: &mut HostedServer,
 ) {
     if let Some(quic) = quic {
         quic.disconnect();

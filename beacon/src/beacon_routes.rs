@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -20,23 +21,30 @@ use crate::{
     ui::{self, Page},
 };
 
-static LOBBIES: OnceLock<Arc<Mutex<HashMap<String, LobbyInfo>>>> = OnceLock::new();
+const LOBBY_TTL: Duration = Duration::from_secs(10);
+
+static LOBBIES: OnceLock<Arc<Mutex<HashMap<String, (LobbyInfo, Instant)>>>> = OnceLock::new();
 static RENDEZVOUS: OnceLock<Arc<Mutex<RendezvousState>>> = OnceLock::new();
 
 pub(crate) fn init_state(
-    lobbies: Arc<Mutex<HashMap<String, LobbyInfo>>>,
+    lobbies: Arc<Mutex<HashMap<String, (LobbyInfo, Instant)>>>,
     rendezvous: Arc<Mutex<RendezvousState>>,
 ) {
     let _ = LOBBIES.set(lobbies);
     let _ = RENDEZVOUS.set(rendezvous);
 }
 
-fn lobbies() -> &'static Arc<Mutex<HashMap<String, LobbyInfo>>> {
+fn lobbies() -> &'static Arc<Mutex<HashMap<String, (LobbyInfo, Instant)>>> {
     LOBBIES.get().expect("lobbies initialized")
 }
 
 fn rendezvous() -> &'static Arc<Mutex<RendezvousState>> {
     RENDEZVOUS.get().expect("rendezvous initialized")
+}
+
+fn prune_lobbies(lobbies: &mut HashMap<String, (LobbyInfo, Instant)>) {
+    let now = Instant::now();
+    lobbies.retain(|_, (_, expires_at)| *expires_at > now);
 }
 
 pub(crate) async fn serve_home() -> Html<String> {
@@ -73,17 +81,17 @@ pub(crate) async fn register(
         player_count: 0,
         max_players: req.max_players,
     };
-    lobbies().lock().unwrap().insert(id.clone(), lobby);
+    lobbies()
+        .lock()
+        .unwrap()
+        .insert(id.clone(), (lobby, Instant::now() + LOBBY_TTL));
     Json(RegisterResponse { id })
 }
 
 pub(crate) async fn list_json() -> Json<Vec<LobbyInfo>> {
-    Json(lobbies().lock().unwrap().values().cloned().collect())
-}
-
-pub(crate) async fn delete(Path(id): Path<String>) -> StatusCode {
-    lobbies().lock().unwrap().remove(&id);
-    StatusCode::NO_CONTENT
+    let mut lobbies = lobbies().lock().unwrap();
+    prune_lobbies(&mut lobbies);
+    Json(lobbies.values().map(|(lobby, _)| lobby.clone()).collect())
 }
 
 pub(crate) async fn heartbeat(
@@ -91,16 +99,20 @@ pub(crate) async fn heartbeat(
     Json(req): Json<LobbyHeartbeat>,
 ) -> StatusCode {
     let mut lobbies = lobbies().lock().unwrap();
-    let Some(lobby) = lobbies.get_mut(&id) else {
+    prune_lobbies(&mut lobbies);
+    let Some((lobby, expires_at)) = lobbies.get_mut(&id) else {
         return StatusCode::NOT_FOUND;
     };
     lobby.player_count = req.player_count.min(req.max_players);
     lobby.max_players = req.max_players.max(1);
+    *expires_at = Instant::now() + LOBBY_TTL;
     StatusCode::NO_CONTENT
 }
 
 pub(crate) async fn join(Path(id): Path<String>) -> Result<Json<JoinLobbyResponse>, StatusCode> {
-    if !lobbies().lock().unwrap().contains_key(&id) {
+    let mut lobbies = lobbies().lock().unwrap();
+    prune_lobbies(&mut lobbies);
+    if !lobbies.contains_key(&id) {
         return Err(StatusCode::NOT_FOUND);
     }
     let token = fastrand::u64(..).to_string();
@@ -139,14 +151,15 @@ pub(crate) async fn join_status(
 }
 
 pub(crate) async fn list_partial() -> Html<String> {
-    let lobbies = lobbies().lock().unwrap();
+    let mut lobbies = lobbies().lock().unwrap();
+    prune_lobbies(&mut lobbies);
     if lobbies.is_empty() {
         return Html(r#"<div class="empty">No active lobbies right now.</div>"#.into());
     }
     Html(
         lobbies
             .values()
-            .map(|l| {
+            .map(|(l, _)| {
                 let full = l.player_count >= l.max_players;
                 let badge_class = if full { "badge full" } else { "badge open" };
                 let badge_text = if full { "Full" } else { "Open" };

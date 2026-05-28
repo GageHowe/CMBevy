@@ -17,8 +17,9 @@ pub fn attach_hull_collider(
     fallback: ColliderBuilder,
     world: &mut World,
 ) {
-    let collider = load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), scale)
-        .unwrap_or_else(|| fallback.build());
+    let collider =
+        load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), scale)
+            .unwrap_or_else(|| fallback.build());
     let mut physics = world.resource_mut::<PhysicsWorld>();
     let PhysicsWorld {
         collider_set,
@@ -32,10 +33,7 @@ pub fn attach_hull_collider(
 /// set directly on the builder) or a convex hull .obj loaded via the asset system.
 pub enum GenericShape {
     Primitive(ColliderBuilder),
-    Hull {
-        path: &'static str,
-        scale: f32,
-    },
+    Hull { path: &'static str, scale: f32 },
 }
 
 /// Spawns a dynamic physics body with an optional mesh and optional NetworkID.

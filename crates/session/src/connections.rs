@@ -22,10 +22,15 @@ fn send_existing_spawnable(
     tick: u64,
 ) {
     let Some(spawn_cmd) = (|| {
-        let (parent_net_id, position, velocity, rotation, angular_velocity) = if let Some(rb) = rb
-        {
+        let (parent_net_id, position, velocity, rotation, angular_velocity) = if let Some(rb) = rb {
             let body = world.rigid_body_set.get(rb.0)?;
-            (None, rb_pos(body), rb_vel(body), rb_rot(body), rb_angvel(body))
+            (
+                None,
+                rb_pos(body),
+                rb_vel(body),
+                rb_rot(body),
+                rb_angvel(body),
+            )
         } else {
             let transform = transform?;
             let parent_net_id =

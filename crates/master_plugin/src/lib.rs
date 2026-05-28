@@ -12,10 +12,7 @@ use gameplay::{
     level::LevelPlugin,
     pawn::HeldWeaponMap,
 };
-#[cfg(feature = "client")]
-use net::clientonly::NetClientPlugin;
-#[cfg(not(feature = "client"))]
-use net::serveronly::NetServerPlugin;
+use net::quic::NetPlugin;
 use physics::physics_world::*;
 use scripting::ScriptingPlugin;
 
@@ -38,10 +35,7 @@ impl Plugin for MasterPlugin {
         // tick should increment after everything else in FixedUpdate
         app.add_systems(FixedLast, increment_tick);
 
-        #[cfg(not(feature = "client"))]
-        app.add_plugins(NetServerPlugin);
-        #[cfg(feature = "client")]
-        app.add_plugins(NetClientPlugin);
+        app.add_plugins(NetPlugin);
         app.init_resource::<NetworkIDResource>();
 
         app.add_plugins(SlowSchedulePlugin);

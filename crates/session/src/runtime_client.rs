@@ -268,7 +268,6 @@ fn run_singleplayer_bots(
             output.fire,
             output.aim_origin,
             output.aim_dir,
-            bot.next_temp_id(),
             &smgs,
             &mut pawn_slots.p0(),
             &mut weapon_runtime,
@@ -287,7 +286,6 @@ fn fire_singleplayer_bot_weapon(
     want_fire: bool,
     origin: Vec3,
     dir: Vec3,
-    temp_id: u32,
     smgs: &Query<(), With<gameplay::weapon::smg::SmgComponent>>,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
@@ -320,11 +318,7 @@ fn fire_singleplayer_bot_weapon(
                 world,
             );
         } else {
-            gameplay::weapon::beamer::end_singleplayer_beam(
-                weapon_entity,
-                beamers,
-                weapon_runtime,
-            );
+            gameplay::weapon::beamer::end_singleplayer_beam(weapon_entity, beamers, weapon_runtime);
         }
         return;
     }
@@ -343,7 +337,7 @@ fn fire_singleplayer_bot_weapon(
         shooter,
         weapon_entity,
         &weapon_net_id,
-        temp_id,
+        None,
         origin,
         dir,
         pawn_slots,
@@ -366,8 +360,7 @@ fn load_skybox(
     let (Some(path), Ok(cam)) = (&meta.skybox, camera.single()) else {
         return;
     };
-    let image: Handle<Image> =
-        asset_server.load(gameplay::asset_path::resolve_asset_path(path));
+    let image: Handle<Image> = asset_server.load(gameplay::asset_path::resolve_asset_path(path));
     commands.entity(cam).insert((
         Skybox {
             image: image.clone(),
@@ -466,13 +459,12 @@ fn disconnect(
     mut local_character: ResMut<LocalCharacterNetId>,
     mut pending_world_ready: ResMut<PendingWorldReady>,
     mut gui: ResMut<GuiState>,
-    mut hosted: ResMut<HostedServer>,
 ) {
     last_acked.0 = 0;
     local_character.0 = None;
     pending_world_ready.0 = false;
     gui.scoreboard = None;
-    shutdown_session(Some(&mut quic), Some(&mut pending), &mut hosted);
+    shutdown_session(Some(&mut quic), Some(&mut pending));
 }
 
 fn remove_script(mut commands: Commands) {

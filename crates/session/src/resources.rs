@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+#[cfg(not(feature = "client"))]
+use gameplay::pawn::PawnInputKind;
 use net::message::{NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
 use net::quic::ConnectionId;
-#[cfg(not(feature = "client"))]
-use gameplay::pawn::PawnInputKind;
 
 #[cfg(feature = "client")]
 #[derive(Resource, Clone)]
@@ -63,11 +63,6 @@ impl GuiState {
         }
     }
 }
-
-#[cfg(feature = "client")]
-#[derive(Resource, Default)]
-/// Marker resource for menu/runtime hosted-server actions.
-pub struct HostedServer;
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]

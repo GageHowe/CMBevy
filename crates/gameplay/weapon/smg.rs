@@ -1,11 +1,10 @@
 use bevy::prelude::*;
-use rapier3d::prelude::ColliderBuilder;
 #[cfg(feature = "client")]
 use physics::physics_world::*;
+use rapier3d::prelude::ColliderBuilder;
 
 use super::*;
-use crate::health::DamageCause;
-use crate::projectile;
+use crate::{health::DamageCause, projectile};
 
 pub const COOLDOWN_TICKS: u32 = 4;
 pub const MAGAZINE_SIZE: u16 = 36;
@@ -70,7 +69,13 @@ fn update_smg(
     let shot_dir = spread_dir(ctx.aim_dir);
     helpers::fire_projectile_with_dir(ctx, world, commands, temp_id, shot_dir);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(SHOOTER_IMPULSE, MASS_SCALED_SHOOTER_IMPULSE, ctx, world, 0.45);
+    projectile::apply_recoil(
+        SHOOTER_IMPULSE,
+        MASS_SCALED_SHOOTER_IMPULSE,
+        ctx,
+        world,
+        0.45,
+    );
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((1.1, 0.35), (-0.6, 0.6), 24.0);
@@ -79,7 +84,13 @@ fn update_smg(
 
 #[cfg(feature = "client")]
 pub fn drive_smgs(
-    mut weapons: Query<(Entity, &mut SmgComponent, &mut WeaponState, &WeaponConfig, &PendingWeaponInput)>,
+    mut weapons: Query<(
+        Entity,
+        &mut SmgComponent,
+        &mut WeaponState,
+        &WeaponConfig,
+        &PendingWeaponInput,
+    )>,
     net_ids: Query<&net::message::NetworkID>,
     world: ResMut<PhysicsWorld>,
     commands: Commands,
@@ -91,31 +102,41 @@ pub fn drive_smgs(
     predicted: Option<ResMut<common::PredictedCommands>>,
 ) {
     super::drive_weapon_inputs(
-        &mut weapons, net_ids, world, commands, quic, sound_queue, possessed, camera_fx, id_counter, predicted, update_smg,
+        &mut weapons,
+        net_ids,
+        world,
+        commands,
+        quic,
+        sound_queue,
+        possessed,
+        camera_fx,
+        id_counter,
+        predicted,
+        update_smg,
     );
 }
 
 pub fn spawn_smg(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let weapon = weapon_bundle(SmgComponent::default(), CONFIG);
-        helpers::insert_generic_weapon(
-            entity,
-            cmd,
-            "smg",
-            world,
-            CONFIG.display_name,
-            CONFIG.model_path,
-            CONFIG.crosshair_path,
-            CONFIG.prediction_projectile_speed,
-            weapon,
-        );
-        helpers::make_generic_weapon_physics(
-            entity,
-            cmd,
-            CONFIG.collider_path,
-            ColliderBuilder::cuboid(0.18, 0.05, 0.35),
-            world,
-        );
-        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+    let weapon = weapon_bundle(SmgComponent::default(), CONFIG);
+    helpers::insert_generic_weapon(
+        entity,
+        cmd,
+        "smg",
+        world,
+        CONFIG.display_name,
+        CONFIG.model_path,
+        CONFIG.crosshair_path,
+        CONFIG.prediction_projectile_speed,
+        weapon,
+    );
+    helpers::make_generic_weapon_physics(
+        entity,
+        cmd,
+        CONFIG.collider_path,
+        ColliderBuilder::cuboid(0.18, 0.05, 0.35),
+        world,
+    );
+    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }
 
 fn decorate_projectile(_entity: Entity, _world: &mut World) {

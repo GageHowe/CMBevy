@@ -1,11 +1,10 @@
 use bevy::prelude::*;
-use rapier3d::prelude::ColliderBuilder;
 #[cfg(feature = "client")]
 use physics::physics_world::*;
+use rapier3d::prelude::ColliderBuilder;
 
 use super::*;
-use crate::health::DamageCause;
-use crate::projectile;
+use crate::{health::DamageCause, projectile};
 
 pub const COOLDOWN_TICKS: u32 = 10;
 pub const MAGAZINE_SIZE: u16 = 12;
@@ -70,7 +69,13 @@ fn update_pistol(
     weapon.trigger_down = true;
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(SHOOTER_IMPULSE, MASS_SCALED_SHOOTER_IMPULSE, ctx, world, 0.6);
+    projectile::apply_recoil(
+        SHOOTER_IMPULSE,
+        MASS_SCALED_SHOOTER_IMPULSE,
+        ctx,
+        world,
+        0.6,
+    );
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((1.2, 0.3), (-0.6, 0.6), 22.0);
@@ -79,7 +84,13 @@ fn update_pistol(
 
 #[cfg(feature = "client")]
 pub fn drive_pistols(
-    mut weapons: Query<(Entity, &mut PistolComponent, &mut WeaponState, &WeaponConfig, &PendingWeaponInput)>,
+    mut weapons: Query<(
+        Entity,
+        &mut PistolComponent,
+        &mut WeaponState,
+        &WeaponConfig,
+        &PendingWeaponInput,
+    )>,
     net_ids: Query<&net::message::NetworkID>,
     world: ResMut<PhysicsWorld>,
     commands: Commands,
@@ -106,26 +117,26 @@ pub fn drive_pistols(
 }
 
 pub fn spawn_pistol(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let weapon = weapon_bundle(PistolComponent::default(), CONFIG);
-        helpers::insert_generic_weapon(
-            entity,
-            cmd,
-            "pistol",
-            world,
-            CONFIG.display_name,
-            CONFIG.model_path,
-            CONFIG.crosshair_path,
-            CONFIG.prediction_projectile_speed,
-            weapon,
-        );
-        helpers::make_generic_weapon_physics(
-            entity,
-            cmd,
-            CONFIG.collider_path,
-            ColliderBuilder::cuboid(0.12, 0.04, 0.22),
-            world,
-        );
-        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+    let weapon = weapon_bundle(PistolComponent::default(), CONFIG);
+    helpers::insert_generic_weapon(
+        entity,
+        cmd,
+        "pistol",
+        world,
+        CONFIG.display_name,
+        CONFIG.model_path,
+        CONFIG.crosshair_path,
+        CONFIG.prediction_projectile_speed,
+        weapon,
+    );
+    helpers::make_generic_weapon_physics(
+        entity,
+        cmd,
+        CONFIG.collider_path,
+        ColliderBuilder::cuboid(0.12, 0.04, 0.22),
+        world,
+    );
+    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }
 
 fn decorate_projectile(_entity: Entity, _world: &mut World) {

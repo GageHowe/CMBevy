@@ -3,7 +3,7 @@ use common::tick::{NetworkStats, Ticker};
 use gameplay::{
     NetworkEntityMap,
     pawn::{Possessed, WeaponSlots, biped::BipedPawnComponent},
-    projectile::{self, ProjectileState},
+    projectile::{self, ProjectileTempId},
     weapon::helpers as weapon_helpers,
 };
 use net::{
@@ -38,7 +38,7 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
         )>,
         Res<NetworkEntityMap>,
         Query<Entity, With<Camera3d>>,
-        Query<(Entity, &'static ProjectileState)>,
+        Query<(Entity, &'static ProjectileTempId)>,
         ResMut<projectile::PredictedProjectileMap>,
         Query<&'static gameplay::interaction::InteractionName>,
         Query<&'static gameplay::pawn::biped_ability::OnPickup>,
@@ -125,7 +125,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
     )>,
     networked: &NetworkEntityMap,
     camera: &Query<Entity, With<Camera3d>>,
-    projectile_q: &Query<(Entity, &'static ProjectileState)>,
+    projectile_q: &Query<(Entity, &'static ProjectileTempId)>,
     predicted_projectiles: &mut projectile::PredictedProjectileMap,
     interaction_names: &Query<&'static gameplay::interaction::InteractionName>,
     pickup_fns: &Query<&'static gameplay::pawn::biped_ability::OnPickup>,
