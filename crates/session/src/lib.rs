@@ -30,7 +30,7 @@ pub use messages::on_message;
 #[cfg(feature = "client")]
 pub use resources::{
     GuiState, LastAckedInputSeq, LastServerState, LocalCharacterNetId, PendingExit,
-    PendingReconciliation, PendingWorldReady, ServerAddr, SinglePlayerConfig,
+    PendingReconciliation, ServerAddr, SinglePlayerConfig,
 };
 #[cfg(not(feature = "client"))]
 pub use runtime::ServerSessionPlugin;

@@ -37,11 +37,6 @@ pub struct LocalCharacterNetId(pub Option<NetworkID>);
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
-/// Gates the final "world ready" acknowledgement until map load finishes.
-pub struct PendingWorldReady(pub bool);
-
-#[cfg(feature = "client")]
-#[derive(Resource, Default)]
 /// Snapshot waiting to be applied by the reconciliation system.
 pub struct PendingReconciliation(pub Option<SimulationState>);
 

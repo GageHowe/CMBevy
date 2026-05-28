@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Per-tick input for a biped pawn. Contains movement + look direction.
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct BipedInput {
     pub forward: f32,
@@ -16,7 +15,6 @@ pub struct BipedInput {
     pub look_pitch: f32,
 }
 
-/// Per-tick input for a spaceship pawn. Mouse drives yaw/pitch; Q/E drive roll.
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct SpaceshipInput {
     pub forward: f32,
@@ -32,7 +30,6 @@ pub struct SpaceshipInput {
     pub roll: f32,
 }
 
-/// Per-tick input for a truck pawn.
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TruckInput {
     pub throttle: f32,
@@ -40,11 +37,22 @@ pub struct TruckInput {
     pub brake: f32,
 }
 
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub struct HovercarInput {
+    pub forward: f32,
+    pub right: f32,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub roll: f32,
+}
+
 /// Discriminated union of all pawn input types.
 /// Serialized directly into MsgType::Input; net layer is transport-only.
+/// should this be an enum? We could also give all pawns the same input, just some fields may be unused
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum PawnInputKind {
     Biped(BipedInput),
     Spaceship(SpaceshipInput),
     Truck(TruckInput),
+    HovercraftSpaceshipInput(HovercarInput),
 }

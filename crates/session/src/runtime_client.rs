@@ -1,26 +1,17 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
-use common::tick::Ticker;
 use gameplay::{
     Team,
-    bot::{BotController, collect_contexts},
-    health::Health,
-    level::{
-        LevelSceneRoot, MapMeta, PendingMapScene, SpawnPoint, compressed_level_hash,
-        default_asset_dir, load_level_source, read_cached_map, write_cached_map,
-    },
-    lifecycle::{pick_spawn_point_with_velocity, spawn_game_object},
+    bot::run_singleplayer_bots,
+    level::*,
+    lifecycle::*,
     mode::MatchState,
-    pawn::{
-        BipedPawnComponent, HeldWeaponMap, HovercraftPawnComponent, InteractionGate, Possessed,
-        SpaceshipPawnComponent, TruckPawnComponent, WeaponSlots, apply_server_input,
-    },
-    weapon::{WeaponConfig, WeaponState},
+    pawn::{InteractionGate, Possessed},
 };
 use net::{
     message::{MsgType, NetworkIDResource},
     quic::QuicManager,
 };
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+use physics::physics_world::*;
 
 use crate::{
     hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session},
@@ -44,7 +35,6 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<LocalCharacterNetId>()
-            .init_resource::<PendingWorldReady>()
             .init_resource::<PendingReconciliation>()
             .init_resource::<PendingWeaponPickups>()
             .insert_resource(ClientSessionState { main_menu })
@@ -97,10 +87,6 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
                 messages::retry_weapon_pickups.run_if(in_state(multiplayer)),
             )
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
-            .add_systems(
-                Update,
-                mark_world_ready_after_level_load.run_if(in_state(multiplayer)),
-            )
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
             .add_systems(Last, cleanup_before_app_exit)
             .add_systems(
@@ -227,130 +213,6 @@ fn respawn_singleplayer(
     sp.spawned_once = true;
 }
 
-fn run_singleplayer_bots(
-    mut bots: Query<(Entity, &mut BotController)>,
-    actors: Query<(Entity, &Team, &Health)>,
-    smgs: Query<(), With<gameplay::weapon::smg::SmgComponent>>,
-    mut pawn_slots: ParamSet<(Query<&mut WeaponSlots>, Query<&WeaponSlots>)>,
-    mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
-    reticles: Query<&gameplay::reticle::AimReticle>,
-    mut beamers: Query<&mut gameplay::weapon::beamer::BeamerComponent>,
-    mut pawn_inputs: (
-        Query<&mut BipedPawnComponent>,
-        Query<&mut SpaceshipPawnComponent>,
-        Query<&mut TruckPawnComponent>,
-        Query<&mut HovercraftPawnComponent>,
-    ),
-    mut world: ResMut<PhysicsWorld>,
-    mut commands: Commands,
-    mut net_ids: ResMut<NetworkIDResource>,
-    mut held_weapons: ResMut<HeldWeaponMap>,
-    tick: Res<Ticker>,
-) {
-    let actors = collect_contexts(&actors, &pawn_slots.p1(), &reticles, &world);
-    for (entity, mut bot) in &mut bots {
-        let Some(mut ctx) = actors.iter().find(|actor| actor.entity == entity).cloned() else {
-            continue;
-        };
-        ctx.visible = actors.clone();
-        let output = bot.brain.think(&ctx);
-        let _ = apply_server_input(
-            entity,
-            output.input,
-            &mut world,
-            &mut pawn_inputs.0,
-            &mut pawn_inputs.1,
-            &mut pawn_inputs.2,
-            &mut pawn_inputs.3,
-        );
-        fire_singleplayer_bot_weapon(
-            entity,
-            output.fire,
-            output.aim_origin,
-            output.aim_dir,
-            &smgs,
-            &mut pawn_slots.p0(),
-            &mut weapon_runtime,
-            &mut beamers,
-            &mut held_weapons,
-            &mut commands,
-            &mut world,
-            &mut net_ids,
-            tick.tick,
-        );
-    }
-}
-
-fn fire_singleplayer_bot_weapon(
-    shooter: Entity,
-    want_fire: bool,
-    origin: Vec3,
-    dir: Vec3,
-    smgs: &Query<(), With<gameplay::weapon::smg::SmgComponent>>,
-    pawn_slots: &mut Query<&mut WeaponSlots>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    beamers: &mut Query<&mut gameplay::weapon::beamer::BeamerComponent>,
-    held_weapons: &mut HeldWeaponMap,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-    net_ids: &mut NetworkIDResource,
-    tick: u64,
-) {
-    let Some((weapon_net_id, weapon_entity)) = ({
-        let Ok(slots) = pawn_slots.get_mut(shooter) else {
-            return;
-        };
-        slots.active_weapon()
-    }) else {
-        return;
-    };
-    if beamers.contains(weapon_entity) {
-        if want_fire {
-            gameplay::weapon::beamer::tick_singleplayer_beam(
-                weapon_entity,
-                shooter,
-                origin,
-                dir,
-                tick,
-                beamers,
-                weapon_runtime,
-                commands,
-                world,
-            );
-        } else {
-            gameplay::weapon::beamer::end_singleplayer_beam(weapon_entity, beamers, weapon_runtime);
-        }
-        return;
-    }
-    if !want_fire {
-        return;
-    }
-    let Ok((_, _)) = weapon_runtime.get_mut(weapon_entity) else {
-        return;
-    };
-    let dir = if smgs.contains(weapon_entity) {
-        gameplay::weapon::smg::spread_dir(dir)
-    } else {
-        dir
-    };
-    let _ = gameplay::weapon::fire_authoritative_with_replication(
-        shooter,
-        weapon_entity,
-        &weapon_net_id,
-        None,
-        origin,
-        dir,
-        pawn_slots,
-        weapon_runtime,
-        held_weapons,
-        commands,
-        world,
-        net_ids,
-        None,
-        None,
-    );
-}
-
 fn load_skybox(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -411,19 +273,17 @@ fn connect(
     mut commands: Commands,
     mut quic: ResMut<QuicManager>,
     addr: Res<ServerAddr>,
-    mut pending: ResMut<PendingWorldReady>,
 ) {
-    pending.0 = false;
     gameplay::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.addr, addr.lobby_id.clone());
 }
 
 fn send_world_ready(
+    loaded_levels: Query<(), Added<LevelSceneRoot>>,
     mut quic: ResMut<QuicManager>,
-    mut pending: ResMut<PendingWorldReady>,
     pending_map: Option<Res<PendingMapScene>>,
 ) {
-    if !pending.0 || pending_map.is_some() {
+    if loaded_levels.is_empty() || pending_map.is_some() {
         return;
     }
     quic.send(
@@ -432,24 +292,6 @@ fn send_world_ready(
         &MsgType::ClientReady,
     );
     info!("Client: sent ClientReady");
-    pending.0 = false;
-}
-
-fn mark_world_ready_after_level_load(
-    loaded_levels: Query<(), Added<LevelSceneRoot>>,
-    mut pending: ResMut<PendingWorldReady>,
-) {
-    if !loaded_levels.is_empty() {
-        pending.0 = true;
-    }
-}
-
-fn request_map(quic: &mut QuicManager) {
-    quic.send(
-        net::quic::SendTarget::One(net::quic::SERVER_CONN_ID),
-        net::quic::Channel::Ordered,
-        &MsgType::RequestMap,
-    );
 }
 
 fn disconnect(
@@ -457,16 +299,15 @@ fn disconnect(
     mut pending: ResMut<PendingReconciliation>,
     mut last_acked: ResMut<LastAckedInputSeq>,
     mut local_character: ResMut<LocalCharacterNetId>,
-    mut pending_world_ready: ResMut<PendingWorldReady>,
     mut gui: ResMut<GuiState>,
 ) {
     last_acked.0 = 0;
     local_character.0 = None;
-    pending_world_ready.0 = false;
     gui.scoreboard = None;
     shutdown_session(Some(&mut quic), Some(&mut pending));
 }
 
+// maybe make this part of one larger system TODO
 fn remove_script(mut commands: Commands) {
     commands.remove_resource::<scripting::ScriptConfig>();
 }
@@ -481,7 +322,11 @@ pub(crate) fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &m
         gameplay::messages::push(commands, "Cached map invalid. Redownloading.");
     }
     gameplay::messages::push(commands, "Downloading map...");
-    request_map(quic);
+    quic.send(
+        net::quic::SendTarget::One(net::quic::SERVER_CONN_ID),
+        net::quic::Channel::Ordered,
+        &MsgType::RequestMap,
+    );
 }
 
 pub(crate) fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {
