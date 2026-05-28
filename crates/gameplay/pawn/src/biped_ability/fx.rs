@@ -1,10 +1,10 @@
 use bevy::prelude::*;
-#[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::{EffectSpawner, spawn_dash_effect, spawn_jetpack_effect};
 use net::{
     message::{MsgType, NetworkID},
     quic::Channel,
 };
+#[cfg(feature = "client")]
+use particles_plugin::prelude::{EffectSpawner, spawn_dash_effect, spawn_jetpack_effect};
 #[cfg(feature = "client")]
 use physics::physics_world::PhysicsWorld;
 #[cfg(feature = "client")]

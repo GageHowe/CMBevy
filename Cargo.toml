@@ -2,7 +2,7 @@
 
 [workspace]
 members = [
-    "crates/bevy_hanabi",
+    "crates/particles_plugin",
     "crates/common",
     "crates/gameplay",
     "crates/http_common",
@@ -22,12 +22,10 @@ resolver = "3"
 unused_must_use = "deny" # return values of functions marked with #[must_use] must not be ignored
 
 [workspace.lints.clippy]
-
-perf = { level = "warn", priority = -1 }
-style = { level = "warn", priority = -1 }
-complexity = { level = "warn", priority = -1 }
-suspicious = { level = "warn", priority = -1 }
-
+perf = { level = "warn"}
+style = { level = "warn"}
+complexity = { level = "warn"}
+suspicious = { level = "warn"}
 unwrap_used = "deny"
 expect_used = "deny"
 cognitive_complexity = "warn"

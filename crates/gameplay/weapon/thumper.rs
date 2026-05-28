@@ -1,13 +1,12 @@
 use bevy::prelude::*;
-use rapier3d::prelude::ColliderBuilder;
 #[cfg(feature = "client")]
 use physics::physics_world::*;
+use rapier3d::prelude::ColliderBuilder;
 
 use super::*;
 #[cfg(feature = "client")]
 use crate::pawn::CameraShake;
-use crate::health::DamageCause;
-use crate::projectile;
+use crate::{health::DamageCause, projectile};
 
 pub const COOLDOWN_TICKS: u32 = 18;
 pub const MAGAZINE_SIZE: u16 = 6;
@@ -24,7 +23,7 @@ const EXPLOSION: projectile::ProjectileExplosion = projectile::ProjectileExplosi
     #[cfg(feature = "client")]
     shake_scale: 1.0,
     #[cfg(feature = "client")]
-    effect: bevy_hanabi_plugin::prelude::spawn_thumper_explosion_effect,
+    effect: particles_plugin::prelude::spawn_thumper_explosion_effect,
 };
 const PROJECTILE: projectile::Projectile = projectile::Projectile {
     shooter: None,
@@ -48,21 +47,21 @@ pub struct ThumperComponent {
 }
 
 pub const CONFIG: WeaponConfig = WeaponConfig {
-        display_name: "Thumper",
-        model_path: "models/thumper_placeholder.glb#Scene0",
-        collider_path: "collision/placeholder_ar.obj",
-        crosshair_path: "textures/crosshairs/crosshair028.png",
-        prediction_projectile_speed: Some(projectile::THUMPER_SPEED),
-        zoom_multiplier: 1.0,
-        magazine_size: MAGAZINE_SIZE,
-        reserve_ammo: RESERVE_AMMO,
-        reload_ticks: RELOAD_TICKS,
-        fire_cooldown_ticks: COOLDOWN_TICKS as u16,
-        projectile: Some(PROJECTILE),
-        projectile_gravity_scale: PROJECTILE_GRAVITY_SCALE,
-        shooter_impulse: SHOOTER_IMPULSE,
-        mass_scaled_shooter_impulse: MASS_SCALED_SHOOTER_IMPULSE,
-        decorate_projectile,
+    display_name: "Thumper",
+    model_path: "models/thumper_placeholder.glb#Scene0",
+    collider_path: "collision/placeholder_ar.obj",
+    crosshair_path: "textures/crosshairs/crosshair028.png",
+    prediction_projectile_speed: Some(projectile::THUMPER_SPEED),
+    zoom_multiplier: 1.0,
+    magazine_size: MAGAZINE_SIZE,
+    reserve_ammo: RESERVE_AMMO,
+    reload_ticks: RELOAD_TICKS,
+    fire_cooldown_ticks: COOLDOWN_TICKS as u16,
+    projectile: Some(PROJECTILE),
+    projectile_gravity_scale: PROJECTILE_GRAVITY_SCALE,
+    shooter_impulse: SHOOTER_IMPULSE,
+    mass_scaled_shooter_impulse: MASS_SCALED_SHOOTER_IMPULSE,
+    decorate_projectile,
 };
 
 #[cfg(feature = "client")]
@@ -106,7 +105,13 @@ fn update_thumper(
 
 #[cfg(feature = "client")]
 pub fn drive_thumpers(
-    mut weapons: Query<(Entity, &mut ThumperComponent, &mut WeaponState, &WeaponConfig, &PendingWeaponInput)>,
+    mut weapons: Query<(
+        Entity,
+        &mut ThumperComponent,
+        &mut WeaponState,
+        &WeaponConfig,
+        &PendingWeaponInput,
+    )>,
     net_ids: Query<&net::message::NetworkID>,
     world: ResMut<PhysicsWorld>,
     commands: Commands,
@@ -117,30 +122,42 @@ pub fn drive_thumpers(
     id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
     predicted: Option<ResMut<common::PredictedCommands>>,
 ) {
-    super::drive_weapon_inputs(&mut weapons, net_ids, world, commands, quic, sound_queue, possessed, camera_fx, id_counter, predicted, update_thumper);
+    super::drive_weapon_inputs(
+        &mut weapons,
+        net_ids,
+        world,
+        commands,
+        quic,
+        sound_queue,
+        possessed,
+        camera_fx,
+        id_counter,
+        predicted,
+        update_thumper,
+    );
 }
 
 pub fn spawn_thumper(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let weapon = weapon_bundle(ThumperComponent::default(), CONFIG);
-        helpers::insert_generic_weapon(
-            entity,
-            cmd,
-            "thumper",
-            world,
-            CONFIG.display_name,
-            CONFIG.model_path,
-            CONFIG.crosshair_path,
-            CONFIG.prediction_projectile_speed,
-            weapon,
-        );
-        helpers::make_generic_weapon_physics(
-            entity,
-            cmd,
-            CONFIG.collider_path,
-            ColliderBuilder::cuboid(0.2, 0.05, 0.4),
-            world,
-        );
-        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+    let weapon = weapon_bundle(ThumperComponent::default(), CONFIG);
+    helpers::insert_generic_weapon(
+        entity,
+        cmd,
+        "thumper",
+        world,
+        CONFIG.display_name,
+        CONFIG.model_path,
+        CONFIG.crosshair_path,
+        CONFIG.prediction_projectile_speed,
+        weapon,
+    );
+    helpers::make_generic_weapon_physics(
+        entity,
+        cmd,
+        CONFIG.collider_path,
+        ColliderBuilder::cuboid(0.2, 0.05, 0.4),
+        world,
+    );
+    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }
 
 fn decorate_projectile(_entity: Entity, _world: &mut World) {

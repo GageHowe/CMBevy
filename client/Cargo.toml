@@ -26,6 +26,4 @@ gameplay = { path = "../crates/gameplay", features = ["client"] }
 scripting = { path = "../crates/scripting", features = ["client"] }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
 session = { path = "../crates/session", features = ["client"] }
-bevy_hanabi_plugin = { path = "../crates/bevy_hanabi" }
-# bevy_luna = { path = "../../bevy_raytrace" } # local testing
-bevy_luna = { git = "https://github.com/GageHowe/bevy_luna.git" }
+particles_plugin = { path = "../crates/particles_plugin" }

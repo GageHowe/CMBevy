@@ -6,12 +6,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy::{
     log::{Level, LogPlugin},
+    pbr::DefaultOpaqueRendererMethod,
     post_process::auto_exposure::AutoExposurePlugin,
     prelude::*,
     window::PresentMode,
 };
-use bevy_hanabi_plugin::prelude::HanabiEffectsPlugin;
-use bevy_luna::prelude::RaytracePlugins;
 use camera::spawn_camera;
 use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
@@ -19,6 +18,7 @@ use gameplay::{
     pawn::{self, biped::draw_melee_debug, mount::draw_mount_debug, *},
     projectile::*,
 };
+use particles_plugin::prelude::GPUParticlesPlugin;
 use reconciliation::*;
 use tick_sync::TickSyncPlugin;
 use ui::{UIPlugin, window::WindowSettingsPlugin};
@@ -84,6 +84,7 @@ fn parse_server_addr() -> SocketAddr {
 fn main() {
     let server_addr = parse_server_addr();
     let mut app = App::new();
+    app.insert_resource(DefaultOpaqueRendererMethod::deferred());
 
     app.add_plugins(
         DefaultPlugins
@@ -112,7 +113,6 @@ fn main() {
         AutoExposureDebugPlugin,
         OutlinePlugin,
         ColorCompressionPlugin,
-        RaytracePlugins,
     ))
     .init_state::<GameState>()
     .init_state::<UiState>()
@@ -122,7 +122,7 @@ fn main() {
     .add_plugins(WindowSettingsPlugin)
     .add_plugins(UIPlugin)
     .add_plugins(MenuPlugin)
-    .add_plugins(HanabiEffectsPlugin)
+    .add_plugins(GPUParticlesPlugin)
     .add_plugins(SoundPlugin)
     .add_plugins(ClientSessionPlugin {
         main_menu: GameState::NotPlaying,

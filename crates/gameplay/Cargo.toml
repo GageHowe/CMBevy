@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-path = "../lib.rs"
+path = "src/lib.rs"
 
 [features]
-client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:bevy_hanabi_plugin", "dep:noise-functions"]
+client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:particles_plugin", "dep:noise-functions"]
 
 [lints]
 workspace = true
@@ -20,7 +20,7 @@ bevy = { workspace = true, features = ["https", "scene", "serialize", "std", "mu
 rapier3d = { workspace = true }
 bitflags = { workspace = true }
 bevy_egui = { workspace = true, optional = true }
-bevy_hanabi_plugin = { path = "../bevy_hanabi", optional = true }
+particles_plugin = { path = "../particles_plugin", optional = true }
 postcard = { workspace = true }
 mlua = { workspace = true }
 serde = { workspace = true }

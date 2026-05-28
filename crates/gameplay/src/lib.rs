@@ -2,32 +2,56 @@
 
 use bevy::prelude::*;
 
+#[path = "../../asset_path.rs"]
 pub mod asset_path;
+#[path = "../../bot/mod.rs"]
 pub mod bot;
+#[path = "../../collision.rs"]
 pub mod collision;
+#[path = "../../components/mod.rs"]
 pub mod components;
+#[path = "../../debug_draw.rs"]
 pub mod debug_draw;
+#[path = "../../flash.rs"]
 pub mod flash;
+#[path = "../../gc.rs"]
 pub mod gc;
+#[path = "../../generic.rs"]
 pub mod generic;
+#[path = "../../health.rs"]
 pub mod health;
+#[path = "../../interaction.rs"]
 pub mod interaction;
+#[path = "../../level/mod.rs"]
 pub mod level;
+#[path = "../../lifecycle.rs"]
 pub mod lifecycle;
+#[path = "../../messages.rs"]
 pub mod messages;
+#[path = "../../mode.rs"]
 pub mod mode;
+#[path = "../../network_index.rs"]
 mod network_index;
-#[path = "pawn/src/mod.rs"]
+#[path = "../pawn/src/mod.rs"]
 pub mod pawn;
+#[path = "../../projectile.rs"]
 pub mod projectile;
+#[path = "../../reticle.rs"]
 pub mod reticle;
+#[path = "../../shield.rs"]
 pub mod shield;
+#[path = "../../sound.rs"]
 pub mod sound;
+#[path = "../../spawn.rs"]
 mod spawn;
 #[cfg(feature = "client")]
+#[path = "../../spring_arm.rs"]
 pub mod spring_arm;
+#[path = "../weapon/mod.rs"]
 pub mod weapon;
+#[path = "../../zone_effects.rs"]
 pub mod zone_effects;
+
 pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
 pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers};
@@ -82,26 +106,52 @@ impl Plugin for GameplayPlugin {
     }
 }
 
-#[cfg(feature = "client")]
-fn on_remove_networked_entity(
-    event: On<Remove, net::message::NetworkID>,
-    map: Res<NetworkEntityMap>,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-) {
-    let _ = (event, map, quic);
-}
+// #[cfg(feature = "client")]
+// fn on_remove_networked_entity(
+//     event: On<Remove, net::message::NetworkID>,
+//     map: Res<NetworkEntityMap>,
+//     quic: Option<ResMut<net::quic::QuicManager>>,
+// ) {
+//     let _ = (event, map, quic);
+// }
 
-#[cfg(not(feature = "client"))]
+// #[cfg(not(feature = "client"))]
+// fn on_remove_networked_entity(
+//     event: On<Remove, net::message::NetworkID>,
+//     map: Res<NetworkEntityMap>,
+//     mut quic: Option<ResMut<net::quic::QuicManager>>,
+// ) {
+//     let Some(net_id) = map.get_net_id_for_entity(event.entity).cloned() else {
+//         return;
+//     };
+//     let Some(quic) = quic.as_mut() else {
+//         return;
+//     };
+//     crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, net_id);
+// }
+
+/// automatically detects deleted entities with NetworkID and tells clients to delete them on their end.
+/// we should rely on this rather than manually sending despawn messages to the client.
+#[allow(unused_variables)]
 fn on_remove_networked_entity(
     event: On<Remove, net::message::NetworkID>,
     map: Res<NetworkEntityMap>,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
 ) {
-    let Some(net_id) = map.get_net_id_for_entity(event.entity).cloned() else {
-        return;
-    };
-    let Some(quic) = quic.as_mut() else {
-        return;
-    };
-    crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, net_id);
+    #[cfg(not(feature = "client"))]
+    {
+        let Some(net_id) = map.get_net_id_for_entity(event.entity).cloned() else {
+            return;
+        };
+        let Some(quic) = quic.as_mut() else {
+            return;
+        };
+
+        // tell all clients to despawn this entity
+        quic.send(
+            net::quic::SendTarget::All,
+            net::quic::Channel::Ordered,
+            &net::message::MsgType::DespawnCommand(net_id),
+        );
+    }
 }

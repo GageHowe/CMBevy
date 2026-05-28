@@ -6,11 +6,11 @@ pub mod helpers;
 pub mod prelude {
     pub use hanabi::prelude::*;
 
-    pub use crate::{HanabiEffectsPlugin, effects::*};
+    pub use crate::{GPUParticlesPlugin, effects::*};
 }
 
-pub struct HanabiEffectsPlugin;
-impl Plugin for HanabiEffectsPlugin {
+pub struct GPUParticlesPlugin;
+impl Plugin for GPUParticlesPlugin {
     fn build(&self, app: &mut App) {
         // Keep the integration point small so effects can live here without leaking Hanabi setup
         // into the client binary or gameplay crates.

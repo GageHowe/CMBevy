@@ -6,7 +6,7 @@ use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 #[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::spawn_spaceship_death_explosion_effect;
+use particles_plugin::prelude::spawn_spaceship_death_explosion_effect;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
@@ -62,114 +62,110 @@ impl VehiclePawn for SpaceshipPawnComponent {
 }
 
 pub fn spawn_spaceship(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-        let position = cmd.position_or_zero();
-        let rotation = cmd.rotation_or_identity();
-        let velocity = cmd.velocity_or_zero();
-        let angular_velocity = cmd.angular_velocity_or_zero();
-        let transform = Transform {
-            translation: position,
-            rotation,
-            ..default()
-        };
-        spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
-        let rb_handle = {
-            let mut physics = world.resource_mut::<PhysicsWorld>();
-            let rb = RigidBodyBuilder::dynamic()
-                .translation(transform.translation)
-                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
-                .angular_damping(0.5)
-                .build();
-            let rb_handle = physics.insert_body(entity, rb);
-            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
-                rb.set_rotation(transform.rotation, true);
-                rb.set_angvel(
-                    Vector3::new(
-                        angular_velocity.x,
-                        angular_velocity.y,
-                        angular_velocity.z,
-                    ),
-                    true,
-                );
-            }
-            rb_handle
-        };
-        world.entity_mut(entity).insert((
-            crate::SpawnReplicated("spaceship"),
-            SpaceshipPawnComponent,
-            Health::new(
-                SPACESHIP_MAX_HEALTH,
-                20,
-                common::config::FIXED_TICK_RATE as u16 * 5,
-            )
-            .with_death(on_spaceship_death),
-            CollisionDamageConfig {
-                threshold_per_mass: 120.0,
-                min_threshold: 400.0,
-                damage_scale: 0.5,
-            },
-            LastDamageSource::default(),
-            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
-            InteractionName("Spaceship"),
-            CollisionFxMaterial::Sparks,
-            AimReticle("textures/crosshairs/crosshair001.png", None),
-            Transform::from(transform),
-        ));
-        attach_hull_collider(
-            entity,
-            rb_handle,
-            HULL_PATH,
-            1.0,
-            ColliderBuilder::cuboid(1.5, 1.0, 3.0),
-            world,
-        );
+    let position = cmd.position_or_zero();
+    let rotation = cmd.rotation_or_identity();
+    let velocity = cmd.velocity_or_zero();
+    let angular_velocity = cmd.angular_velocity_or_zero();
+    let transform = Transform {
+        translation: position,
+        rotation,
+        ..default()
+    };
+    spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
+    let rb_handle = {
+        let mut physics = world.resource_mut::<PhysicsWorld>();
+        let rb = RigidBodyBuilder::dynamic()
+            .translation(transform.translation)
+            .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
+            .angular_damping(0.5)
+            .build();
+        let rb_handle = physics.insert_body(entity, rb);
+        if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+            rb.set_rotation(transform.rotation, true);
+            rb.set_angvel(
+                Vector3::new(angular_velocity.x, angular_velocity.y, angular_velocity.z),
+                true,
+            );
+        }
+        rb_handle
+    };
+    world.entity_mut(entity).insert((
+        crate::SpawnReplicated("spaceship"),
+        SpaceshipPawnComponent,
+        Health::new(
+            SPACESHIP_MAX_HEALTH,
+            20,
+            common::config::FIXED_TICK_RATE as u16 * 5,
+        )
+        .with_death(on_spaceship_death),
+        CollisionDamageConfig {
+            threshold_per_mass: 120.0,
+            min_threshold: 400.0,
+            damage_scale: 0.5,
+        },
+        LastDamageSource::default(),
+        VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
+        InteractionName("Spaceship"),
+        CollisionFxMaterial::Sparks,
+        AimReticle("textures/crosshairs/crosshair001.png", None),
+        Transform::from(transform),
+    ));
+    attach_hull_collider(
+        entity,
+        rb_handle,
+        HULL_PATH,
+        1.0,
+        ColliderBuilder::cuboid(1.5, 1.0, 3.0),
+        world,
+    );
+    world
+        .entity_mut(entity)
+        .insert(RigidBodyHandleComponent(rb_handle));
+    let _ = spawn_attached_spaceship_shield(&cmd.net_id, world);
+    #[cfg(feature = "client")]
+    {
+        let scene = world.resource::<AssetServer>().load(MODEL_PATH);
         world
             .entity_mut(entity)
-            .insert(RigidBodyHandleComponent(rb_handle));
-        let _ = spawn_attached_spaceship_shield(&cmd.net_id, world);
-        #[cfg(feature = "client")]
-        {
-            let scene = world.resource::<AssetServer>().load(MODEL_PATH);
-            world
-                .entity_mut(entity)
-                .insert((SceneRoot(scene), Visibility::default()));
-        }
-        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
+            .insert((SceneRoot(scene), Visibility::default()));
+    }
+    crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
 }
 
 pub fn on_spaceship_death(entity: Entity, world: &mut World) {
-        #[cfg(feature = "client")]
-        {
-            let (position, velocity) = world
-                .resource::<PhysicsWorld>()
-                .entity_to_handle
-                .get(&entity)
-                .and_then(|&handle| {
-                    let physics = world.resource::<PhysicsWorld>();
-                    let rb = physics.rigid_body_set.get(handle)?;
-                    Some((rb_pos(rb), rb_vel(rb)))
-                })
-                .or_else(|| {
-                    world
-                        .get::<Transform>(entity)
-                        .map(|t| (t.translation, Vec3::ZERO))
-                })
-                .unwrap_or((Vec3::ZERO, Vec3::ZERO));
-            spawn_spaceship_death_explosion_effect(world, position, velocity);
-            spawn_flash(
-                world,
-                position,
-                18.0,
-                Color::srgb(1.0, 0.9, 0.1),
-                true, // make the light visible even when not in frustum
-                10000.0,
-                10.0, // mesh brightness decay speed
-                200000000.0,
-                3.0, // light decay speed
-                true,
-                velocity,
-            );
-        }
-        super::vehicle::handle_vehicle_death(entity, world);
+    #[cfg(feature = "client")]
+    {
+        let (position, velocity) = world
+            .resource::<PhysicsWorld>()
+            .entity_to_handle
+            .get(&entity)
+            .and_then(|&handle| {
+                let physics = world.resource::<PhysicsWorld>();
+                let rb = physics.rigid_body_set.get(handle)?;
+                Some((rb_pos(rb), rb_vel(rb)))
+            })
+            .or_else(|| {
+                world
+                    .get::<Transform>(entity)
+                    .map(|t| (t.translation, Vec3::ZERO))
+            })
+            .unwrap_or((Vec3::ZERO, Vec3::ZERO));
+        spawn_spaceship_death_explosion_effect(world, position, velocity);
+        spawn_flash(
+            world,
+            position,
+            18.0,
+            Color::srgb(1.0, 0.9, 0.1),
+            true, // make the light visible even when not in frustum
+            10000.0,
+            10.0, // mesh brightness decay speed
+            200000000.0,
+            3.0, // light decay speed
+            true,
+            velocity,
+        );
+    }
+    super::vehicle::handle_vehicle_death(entity, world);
 }
 
 #[cfg(feature = "client")]

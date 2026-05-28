@@ -2,11 +2,16 @@ use std::path::{Path, PathBuf};
 
 const HASH_PREFIX: &str = "sha256:";
 const FILENAME_HEADER: &str = "x-asset-filename";
+const CACHE_DIR: &str = "asset_cache";
 
 // remote assets are just sha256 refs cached to disk the first time we touch them
 pub fn resolve_asset_path(path: &str) -> String {
     let (path, fragment) = split_fragment(path);
-    let path = resolve_asset_file_path(path);
+    let path = if path.starts_with(HASH_PREFIX) {
+        cached_asset_rel_path(path)
+    } else {
+        PathBuf::from(path)
+    };
     match fragment {
         Some(fragment) => format!("{}#{fragment}", path.to_string_lossy()),
         None => path.to_string_lossy().into_owned(),
@@ -29,7 +34,7 @@ fn split_fragment(path: &str) -> (&str, Option<&str>) {
 }
 
 fn fetch_asset(hash: &str) -> PathBuf {
-    let dir = cache_dir();
+    let dir = cache_dir_path();
     std::fs::create_dir_all(&dir).expect("asset cache dir create failed");
     let response = ureq::get(&format!("{}/assets/{}", common::config::BEACON_URL, hash))
         .call()
@@ -46,7 +51,7 @@ fn fetch_asset(hash: &str) -> PathBuf {
 
 fn find_cached_asset(hash: &str) -> Option<PathBuf> {
     let prefix = hash_key(hash);
-    std::fs::read_dir(cache_dir())
+    std::fs::read_dir(cache_dir_path())
         .ok()?
         .flatten()
         .find(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
@@ -81,10 +86,36 @@ fn hash_key(hash: &str) -> String {
         .collect()
 }
 
-fn cache_dir() -> PathBuf {
-    if Path::new("asset_cache").exists() || !cfg!(debug_assertions) {
-        PathBuf::from("asset_cache")
-    } else {
-        PathBuf::from("../asset_cache")
+fn cached_asset_rel_path(hash: &str) -> PathBuf {
+    let path = resolve_asset_file_path(hash);
+    let asset_dir = common::config::asset_dir();
+    path.strip_prefix(&asset_dir)
+        .unwrap_or_else(|_| {
+            panic!(
+                "cached asset {} escaped asset dir {}",
+                path.display(),
+                asset_dir.display()
+            )
+        })
+        .to_path_buf()
+}
+
+fn cache_dir_path() -> PathBuf {
+    let asset_dir = common::config::asset_dir();
+    let dir = asset_dir.join(CACHE_DIR);
+    if dir.exists() || !cfg!(debug_assertions) || !Path::new(CACHE_DIR).exists() {
+        return dir;
     }
+    let legacy_dir = PathBuf::from(CACHE_DIR);
+    std::fs::create_dir_all(&dir).expect("asset cache dir create failed");
+    if let Ok(entries) = std::fs::read_dir(&legacy_dir) {
+        for entry in entries.flatten() {
+            let from = entry.path();
+            let to = dir.join(entry.file_name());
+            if !to.exists() {
+                let _ = std::fs::rename(&from, &to);
+            }
+        }
+    }
+    dir
 }

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
-use bevy_hanabi_plugin::prelude::{spawn_dust_impact_effect, spawn_sparks_impact_effect};
-use physics::physics_world::{PhysicsWorld, step_physics};
+use particles_plugin::prelude::{spawn_dust_impact_effect, spawn_sparks_impact_effect};
+use physics::physics_world::{step_physics, PhysicsWorld};
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 /// Orders collision-impact collection after the Rapier step.

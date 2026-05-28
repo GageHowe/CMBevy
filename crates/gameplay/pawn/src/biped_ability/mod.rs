@@ -15,9 +15,9 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
 #[cfg(not(feature = "client"))]
 use crate::SpawnGameObjectCommand;
+use crate::pawn::biped::BipedPawnComponent;
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
-use crate::pawn::biped::BipedPawnComponent;
 pub mod fx;
 pub mod implementors;
 pub use fx::{AbilityFx, fx_channel, fx_message};
@@ -176,7 +176,12 @@ pub fn spawn_ability_pickup(
     }
 }
 
-fn pickup_ability(pickup_behavior: OnPickup, biped: Entity, pickup: Entity, commands: &mut Commands) {
+fn pickup_ability(
+    pickup_behavior: OnPickup,
+    biped: Entity,
+    pickup: Entity,
+    commands: &mut Commands,
+) {
     commands.queue(move |world: &mut World| {
         let _ = pickup_behavior.0(biped, world);
     });
@@ -289,12 +294,19 @@ pub fn interact_pickup(
     }
     let _ = aim_dir;
     pickup_ability(*pickup, character, target, commands);
+    // tell the interacting client to pick up and enable the ability
     quic.send(
         net::quic::SendTarget::One(conn_id),
         Channel::Ordered,
         &net::message::MsgType::AbilityPickup(character_net_id, target_net_id.clone()),
     );
-    crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, target_net_id);
+    // tell clients to despawn this pickup
+    quic.send(
+        net::quic::SendTarget::All,
+        net::quic::Channel::Ordered,
+        &net::message::MsgType::DespawnCommand(target_net_id),
+    );
+
     true
 }
 
@@ -340,14 +352,28 @@ pub fn apply_pickup_message(
 }
 
 pub fn spawn_jetpack_pickup(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    implementors::spawn_jetpack_pickup(entity, cmd.position_or_zero(), cmd.velocity_or_zero(), world);
-    world.entity_mut(entity).insert(crate::SpawnReplicated("jetpack"));
+    implementors::spawn_jetpack_pickup(
+        entity,
+        cmd.position_or_zero(),
+        cmd.velocity_or_zero(),
+        world,
+    );
+    world
+        .entity_mut(entity)
+        .insert(crate::SpawnReplicated("jetpack"));
     crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
 }
 
 pub fn spawn_dash_pickup(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    implementors::spawn_dash_pickup(entity, cmd.position_or_zero(), cmd.velocity_or_zero(), world);
-    world.entity_mut(entity).insert(crate::SpawnReplicated("dash"));
+    implementors::spawn_dash_pickup(
+        entity,
+        cmd.position_or_zero(),
+        cmd.velocity_or_zero(),
+        world,
+    );
+    world
+        .entity_mut(entity)
+        .insert(crate::SpawnReplicated("dash"));
     crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
 }
 
@@ -369,7 +395,8 @@ impl bevy::ecs::system::Command for DropActiveAbility {
 pub fn tick_biped_ability_state(mut bipeds: Query<&mut BipedPawnComponent>) {
     for mut biped in &mut bipeds {
         if let Some(ability) = &mut biped.ability {
-            ability.state.meter = (ability.state.meter + ability.spec.meter_regen).min(ability.spec.meter_max);
+            ability.state.meter =
+                (ability.state.meter + ability.spec.meter_regen).min(ability.spec.meter_max);
         }
     }
 }

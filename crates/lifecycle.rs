@@ -40,7 +40,8 @@ pub fn spawn_game_object(
     });
     (entity, net_id, cmd)
 }
-
+/*
+useless wrapper, deletion in progress
 pub fn send_despawn_command(
     quic: &mut net::quic::QuicManager,
     target: net::quic::SendTarget,
@@ -52,7 +53,7 @@ pub fn send_despawn_command(
         &net::message::MsgType::DespawnCommand(net_id),
     );
 }
-
+*/
 #[cfg(feature = "client")]
 pub fn apply_spawn_command(
     commands: &mut Commands,
