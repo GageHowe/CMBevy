@@ -13,6 +13,7 @@ client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:particles_plugin", "dep:
 workspace = true
 
 [dependencies]
+audio = { path = "../audio" }
 common = { path = "../common" }
 physics = { path = "../physics" }
 net = { path = "../net" }

@@ -4,6 +4,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use auto_exposure_debug::AutoExposureDebugPlugin;
+use audio::SoundPlugin;
 use bevy::{
     log::{Level, LogPlugin},
     pbr::DefaultOpaqueRendererMethod,
@@ -30,6 +31,7 @@ mod fullscreen_post_process;
 mod menu;
 mod outline;
 mod reconciliation;
+mod sound;
 mod tick_sync;
 mod ui;
 use gameplay::{
@@ -48,9 +50,7 @@ use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 // use gameplay::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now
 mod settings;
-mod sound;
 mod steam;
-use sound::SoundPlugin;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub(crate) enum UiState {
@@ -124,6 +124,7 @@ fn main() {
     .add_plugins(MenuPlugin)
     .add_plugins(GPUParticlesPlugin)
     .add_plugins(SoundPlugin)
+    .add_plugins(sound::ClientSoundPlugin)
     .add_plugins(ClientSessionPlugin {
         main_menu: GameState::NotPlaying,
         single_player: GameState::SinglePlayer,

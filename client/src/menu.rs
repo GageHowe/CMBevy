@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use bevy::{app::AppExit, prelude::*};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use common::{InputAction, config::CRITICAL_MASS_VERSION};
-use gameplay::sound::SoundQueue;
+use audio::SoundQueue;
 use http_common::{LobbyInfo, RegisterRequest};
 use session::{
     HostedServer, ServerAddr, SinglePlayerConfig, available_gametypes, available_maps,

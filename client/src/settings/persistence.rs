@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf, process::Command};
 
+use audio::AudioSettings;
 use bevy::prelude::*;
 use common::{ActiveBindings, PromptDevicePreference};
 
@@ -71,6 +72,10 @@ pub fn load_settings(mut commands: Commands) {
         &settings.gamepad_bindings,
     ));
     commands.insert_resource(PromptDevicePreference(settings.prompt_device_mode));
+    commands.insert_resource(AudioSettings {
+        output_device: settings.audio_output_device.clone(),
+        buffer_size: settings.fmod_buffer_size,
+    });
     commands.insert_resource(settings);
 }
 

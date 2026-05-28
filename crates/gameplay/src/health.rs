@@ -38,7 +38,7 @@ impl Plugin for HealthPlugin {
 #[derive(Component, Clone, Copy, Serialize, Deserialize)]
 pub struct HealthPool {
     pub current: i32,
-    pub max: i32,
+    max: i32, // private; use max() for this
     pub regen_per_tick_num: i32,
     pub regen_delay_ticks: u16,
     pub regen_delay_remaining_ticks: u16,
@@ -73,12 +73,19 @@ impl HealthPool {
         }
     }
 
+    /// getter
+    pub fn max(&self) -> i32 {
+        self.max
+    }
+
+    // take some amount of damage
     pub fn apply_damage(&mut self, amount: f32) {
+        // if already dead, don't bother
         if amount <= 0.0 || self.is_depleted() {
             return;
         }
         self.regen_delay_remaining_ticks = self.regen_delay_ticks;
-        self.regen_accum = 0;
+        self.regen_accum = 0; // reset health regen timer
         let damage_millis = self.damage_accum_millis + (amount * 1000.0).round() as i32;
         self.damage_accum_millis = damage_millis % 1000;
         self.current = (self.current - damage_millis / 1000).max(0);

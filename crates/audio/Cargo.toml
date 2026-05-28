@@ -1,0 +1,19 @@
+[package]
+name = "audio"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+client = ["bevy/3d", "dep:common", "dep:fmod", "dep:physics"]
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy = { workspace = true }
+common = { path = "../common", optional = true }
+physics = { path = "../physics", optional = true }
+fmod = { package = "libfmod", git = "https://github.com/GageHowe/libfmod", rev = "1b8cb56", optional = true }

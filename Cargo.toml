@@ -2,6 +2,7 @@
 
 [workspace]
 members = [
+    "crates/audio",
     "crates/particles_plugin",
     "crates/common",
     "crates/gameplay",

@@ -11,7 +11,7 @@ use super::{
     data::{Settings, SettingsSection},
     persistence,
 };
-use crate::sound::AudioOutputDevices;
+use ::audio::AudioOutputDevices;
 
 pub fn show_settings_ui(
     ui: &mut egui::Ui,
