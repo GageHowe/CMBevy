@@ -9,7 +9,7 @@ Use of AI in development is usually discouraged. AI, even coding agents like Cod
 
 Need to spend some time offline working on the codebase and cleaning things up.
 
-Need to look into alternatives to global states
+Need to look into alternatives to global states for synchronizing behaviors which should be blocking, like map loads
 
 
 
@@ -47,3 +47,7 @@ Need to look into alternatives to global states
 * storefront: https://store.steampowered.com/app/3526510
 * package name and settings: https://partner.steamgames.com/store/packagelanding/1244771
 * publish changes: https://partner.steamgames.com/apps/publishing/3526510
+
+## Dev tools
+
+Generate dependency graph png: ''

@@ -130,8 +130,8 @@ impl Plugin for GameplayPlugin {
 //     crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, net_id);
 // }
 
-/// automatically detects deleted entities with NetworkID and tells clients to delete them on their end.
-/// we should rely on this rather than manually sending despawn messages to the client.
+/// DO NOT CHANGE - STABLE SYSTEM
+/// observer system that automatically detects deleted entities with NetworkID and tells clients to delete them on their end. We should rely on this rather than manually sending despawn messages to the client.
 #[allow(unused_variables)]
 fn on_remove_networked_entity(
     event: On<Remove, net::message::NetworkID>,
