@@ -2,13 +2,13 @@ use std::net::Ipv4Addr;
 
 use bevy::{app::AppExit, prelude::*};
 use net::quic::QuicManager;
-
-use crate::resources::*;
+use session::PendingReconciliation;
 
 pub fn available_maps() -> Vec<String> {
     scan_dir(common::config::asset_dir().join("maps"), "ron")
 }
 
+/// return a list of Strings denoting available gametype files
 pub fn available_gametypes() -> Vec<String> {
     scan_dir(common::config::asset_dir().join("gametypes"), "lua")
 }
@@ -64,8 +64,6 @@ pub fn fetch_remote_lobbies() -> Result<Vec<http_common::LobbyInfo>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Starts a hosted dedicated server locally by clearing the requested UDP port,
-/// launching the server in a detached terminal, and waiting for it to bind.
 pub fn start_hosted_server(
     port: u16,
     map: &str,
@@ -93,27 +91,11 @@ pub fn cleanup_before_app_exit(
     if exits.read().next().is_none() {
         return;
     }
-    shutdown_session(quic.as_deref_mut(), pending.as_deref_mut());
-}
-
-pub fn exit_after_returning_to_menu(
-    pending_exit: Res<PendingExit>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    if pending_exit.0 {
-        exit.write(AppExit::Success);
-    }
-}
-
-pub fn shutdown_session(
-    quic: Option<&mut QuicManager>,
-    pending: Option<&mut PendingReconciliation>,
-) {
-    if let Some(quic) = quic {
+    if let Some(quic) = quic.as_deref_mut() {
         quic.disconnect();
         quic.inbound.clear();
     }
-    if let Some(pending) = pending {
+    if let Some(pending) = pending.as_deref_mut() {
         pending.0 = None;
     }
 }
@@ -154,8 +136,7 @@ fn gameserver_exe() -> std::path::PathBuf {
         }
     }
 
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    if let Some(workspace_root) = manifest_dir.parent().and_then(|dir| dir.parent()) {
+    if let Some(workspace_root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
         let profile = option_env!("PROFILE").unwrap_or(if cfg!(debug_assertions) {
             "debug"
         } else {
@@ -177,14 +158,6 @@ fn gameserver_exe() -> std::path::PathBuf {
                 "gameserver"
             })
         })
-}
-
-fn workspace_root() -> Option<std::path::PathBuf> {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        .parent()
-        .and_then(|dir| dir.parent())
-        .map(std::path::Path::to_path_buf)
 }
 
 fn spawn_gameserver_terminal(
@@ -247,7 +220,7 @@ fn local_port_pids(port: u16) -> Vec<u32> {
     };
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .filter_map(|line| line.trim().parse().ok())
         .collect()
 }
 
@@ -261,114 +234,57 @@ fn local_port_pids(port: u16) -> Vec<u32> {
     };
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter_map(|line| {
-            let cols: Vec<_> = line.split_whitespace().collect();
-            if cols.len() < 4 {
-                return None;
-            }
-            let local = cols[1];
-            let pid = cols[3];
-            local
-                .rsplit(':')
-                .next()
-                .filter(|p| *p == port.to_string())
-                .and_then(|_| pid.parse::<u32>().ok())
-        })
+        .filter(|line| line.contains(&format!(":{port}")))
+        .filter_map(|line| line.split_whitespace().last()?.parse().ok())
         .collect()
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn local_port_pids(_port: u16) -> Vec<u32> {
-    Vec::new()
+fn kill_pid(pid: u32) {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
+        .status();
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn kill_pid(pid: u32) {
-    let _ = std::process::Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
-        .status();
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    let _ = std::process::Command::new("kill")
-        .args(["-KILL", &pid.to_string()])
-        .status();
-}
-
-#[cfg(target_os = "windows")]
-fn kill_pid(pid: u32) {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn kill_pid(_pid: u32) {}
-
-#[cfg(target_os = "linux")]
-// Linux needs an actual terminal launcher here. `xdg-open` follows file associations and may
-// open editors instead of terminals, so use `xdg-terminal-exec` for the default terminal path.
 fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
-    let cwd = workspace_root().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    std::process::Command::new("xdg-terminal-exec")
-        .current_dir(cwd)
-        .arg(exe)
+    use std::os::unix::process::CommandExt;
+    let mut command = std::process::Command::new(exe);
+    command
         .args(args)
-        .spawn()
-        .map(|_| ())
-        .map_err(|err| {
-            if err.kind() == std::io::ErrorKind::NotFound {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "xdg-terminal-exec not found; install it to launch the system default terminal",
-                )
-            } else {
-                err
-            }
-        })
-}
-
-#[cfg(target_os = "windows")]
-fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
-    let mut command = std::process::Command::new("cmd");
-    command.arg("/C").arg("start").arg("Hosted Server").arg(exe);
-    command.args(args);
+        .current_dir(workspace_root())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
     command.spawn().map(|_| ())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
 fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
-    let script = format!(
-        "tell application \"Terminal\" to do script {}",
-        apple_script_string(&shell_command_line(exe, args))
-    );
-    std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x00000008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+    std::process::Command::new(exe)
+        .args(args)
+        .current_dir(workspace_root())
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map(|_| ())
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-fn spawn_detached_terminal(_exe: &std::path::Path, _args: &[String]) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "hosted server terminal launch is unsupported on this platform",
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn shell_command_line(exe: &std::path::Path, args: &[String]) -> String {
-    let mut parts = Vec::with_capacity(args.len() + 1);
-    parts.push(shell_quote(&exe.to_string_lossy()));
-    parts.extend(args.iter().map(|arg| shell_quote(arg)));
-    parts.join(" ")
-}
-
-#[cfg(target_os = "macos")]
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-#[cfg(target_os = "macos")]
-fn apple_script_string(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf()
 }

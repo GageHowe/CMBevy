@@ -13,24 +13,17 @@ mod runtime_server;
 
 #[cfg(not(feature = "client"))]
 mod connections;
-#[cfg(feature = "client")]
-mod hosted;
 #[cfg(not(feature = "client"))]
 mod replication;
 
-#[cfg(feature = "client")]
-pub use hosted::{
-    available_gametypes, available_maps, cleanup_before_app_exit, exit_after_returning_to_menu,
-    fetch_lan_lobbies, fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
-};
 #[cfg(feature = "client")]
 pub use messages::draw_server_state;
 #[cfg(not(feature = "client"))]
 pub use messages::on_message;
 #[cfg(feature = "client")]
 pub use resources::{
-    GuiState, LastAckedInputSeq, LastServerState, LocalCharacterNetId, PendingExit,
-    PendingReconciliation, ServerAddr, SinglePlayerConfig,
+    GuiState, LastAckedInputSeq, LastServerState, LocalCharacterNetId, PendingReconciliation,
+    ServerAddr, SinglePlayerConfig,
 };
 #[cfg(not(feature = "client"))]
 pub use runtime::ServerSessionPlugin;

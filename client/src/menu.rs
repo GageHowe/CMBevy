@@ -5,13 +5,14 @@ use bevy::{app::AppExit, prelude::*};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use common::{InputAction, config::CRITICAL_MASS_VERSION};
 use http_common::{LobbyInfo, RegisterRequest};
-use session::{
-    ServerAddr, SinglePlayerConfig, available_gametypes, available_maps, fetch_lan_lobbies,
-    fetch_remote_lobbies, gametype_path, shutdown_session, start_hosted_server,
-};
+use session::{ServerAddr, SinglePlayerConfig};
 
 use crate::{
     GameState, UiState,
+    hosting::{
+        available_gametypes, available_maps, fetch_lan_lobbies, fetch_remote_lobbies,
+        gametype_path, start_hosted_server,
+    },
     settings::{ControlsCapture, Settings, SettingsSection, show_settings_ui},
     sound::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound},
 };
@@ -447,7 +448,6 @@ fn show_singleplayer_screen(
         .add_enabled(can_start, egui::Button::new("Start"))
         .clicked()
     {
-        shutdown_session(None, None);
         sp_config.map = format!("maps/{}.ron", host.maps[host.map_idx]);
         sp_config.gametype = gametype_path(&host.gametypes[host.gametype_idx]);
         queue_ui_sound(sound_queue, UI_CLICK_EVENT);
@@ -534,7 +534,6 @@ fn connect_to_lobby(
     screen: &mut Screen,
 ) {
     if let Ok(sa) = addr.parse() {
-        shutdown_session(None, None);
         server_addr.addr = sa;
         server_addr.lobby_id = lobby_id.map(ToOwned::to_owned);
         *screen = Screen::Root;
@@ -705,7 +704,6 @@ fn show_host_screen(
         .add_enabled(can_host, egui::Button::new("Start & Join"))
         .clicked()
     {
-        shutdown_session(None, None);
         let port: u16 = host.port.parse().unwrap_or(42070);
         let map = format!("maps/{}.ron", host.maps[host.map_idx]);
         let gametype = gametype_path(&host.gametypes[host.gametype_idx]);

@@ -52,11 +52,12 @@ impl Plugin for ServerSessionPlugin {
             }
         });
 
+        let bind_addr = self.bind_addr;
+        let map_path = self.map_path.clone();
+        let gametype_path = self.gametype_path.clone();
         crate::runtime::configure_authority_sets(app);
-        app.insert_resource(BindAddr(self.bind_addr))
-            .insert_resource(LevelPath(self.map_path.clone()))
-            .insert_resource(ScriptConfig {
-                path: self.gametype_path.clone(),
+        app.insert_resource(ScriptConfig {
+                path: gametype_path.clone(),
                 is_server: true,
                 source: None,
             })
@@ -76,7 +77,12 @@ impl Plugin for ServerSessionPlugin {
             .add_systems(Update, restart_round)
             .add_systems(
                 Startup,
-                (load_server_level, start_server, init_mode_config).chain(),
+                (
+                    move |mut commands: Commands| load_server_level(&map_path, &mut commands),
+                    move |mut quic: ResMut<QuicManager>| quic.start_server(bind_addr),
+                    init_mode_config,
+                )
+                    .chain(),
             )
             .add_systems(FixedUpdate, gameplay::bot::run_bots.before(step_physics))
             .add_systems(FixedUpdate, apply_inputs.before(step_physics))
@@ -113,14 +119,10 @@ impl Plugin for ServerSessionPlugin {
                 poll_timer: Timer::from_seconds(0.25, TimerMode::Repeating),
                 max_players: advertise.max_players,
             })
-            .add_systems(Startup, register_hosted_lobby.after(start_server))
+            .add_systems(Startup, register_hosted_lobby)
             .add_systems(Update, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
         }
     }
-}
-
-fn start_server(mut quic: ResMut<QuicManager>, addr: Res<BindAddr>) {
-    quic.start_server(addr.0);
 }
 
 fn register_hosted_lobby(world: &mut World) {
@@ -211,15 +213,14 @@ fn advance_match_state_time(mut match_state: ResMut<MatchState>, time: Res<Time<
     match_state.phase_elapsed_secs += time.delta_secs();
 }
 
-fn load_server_level(mut commands: Commands, level_path: Res<LevelPath>) {
-    let asset_path = &level_path.0;
-    match load_level_source(asset_path, &default_asset_dir()) {
+fn load_server_level(level_path: &str, commands: &mut Commands) {
+    match load_level_source(level_path, &default_asset_dir()) {
         Ok(level) => {
             commands.insert_resource(PendingMapScene(level.compressed.clone()));
             commands.insert_resource(level);
         }
         Err(err) => {
-            gameplay::messages::push(&mut commands, err);
+            gameplay::messages::push(commands, err);
         }
     }
 }

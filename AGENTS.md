@@ -7,9 +7,9 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 * If you don't understand something I ask, look it up or clarify.
 * No special-case systems. We're trying to minimize Update overhead.
 * Linear damping is banned.
-* Use #[cfg(feature = client)] and GameState to gate functionality. Keep all rendering out of the headless gameserver.
+* Use #[cfg(feature = client)] and GameState to gate functionality. 
 * Refactoring changes should reduce the total LOC size of the codebase, not increase it, with very few exceptions.
-* Do not create wrappers if they don't justify the indirection.
+* Do not create wrappers if they don't justify the indirection or LOC
 
 ## rules
 * Prefer glob imports over verbose manual imports.
@@ -28,7 +28,6 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 
 * When finished with a task, use make to build, addressing warnings (and test if necessary)
 * All movement and physics should be relative. When attaching, detaching, or spawning anything, it should inherit the velocity of its owner.
-* We need both single-player and multiplayer to work without fuss.
 * If a cleanup makes a generic subsystem smaller and pushes object-specific behavior back to the object implementation, that is usually a good cleanup.
 
 ## efficiency

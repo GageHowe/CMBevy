@@ -17,11 +17,6 @@ pub struct ServerAddr {
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
-/// Requests a clean client exit back to the shell.
-pub struct PendingExit(pub bool);
-
-#[cfg(feature = "client")]
-#[derive(Resource, Default)]
 /// Last authoritative physics snapshot received from the server.
 pub struct LastServerState(pub Option<SimulationState>);
 
@@ -78,15 +73,7 @@ pub(crate) struct PendingWeaponPickups(pub Vec<(NetworkID, NetworkID)>);
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource)]
-pub(crate) struct BindAddr(pub std::net::SocketAddr);
-
-#[cfg(not(feature = "client"))]
-#[derive(Resource)]
 pub(crate) struct ConsoleCommands(pub std::sync::Mutex<std::sync::mpsc::Receiver<String>>);
-
-#[cfg(not(feature = "client"))]
-#[derive(Resource)]
-pub(crate) struct LevelPath(pub String);
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource, Default)]

@@ -21,6 +21,7 @@ use gameplay::{
     pawn::{self, biped::draw_melee_debug, mount::draw_mount_debug, *},
     projectile::*,
 };
+use hosting::cleanup_before_app_exit;
 use particles_plugin::prelude::GPUParticlesPlugin;
 use reconciliation::*;
 use tick_sync::TickSyncPlugin;
@@ -30,6 +31,7 @@ mod auto_exposure_debug;
 mod camera;
 mod color_compression;
 mod fullscreen_post_process;
+mod hosting;
 mod menu;
 mod outline;
 mod reconciliation;
@@ -133,7 +135,6 @@ fn main() {
         addr: server_addr,
         lobby_id: None,
     })
-    .init_resource::<PendingExit>()
     .init_resource::<SinglePlayerConfig>()
     .add_systems(
         FixedUpdate,
@@ -144,7 +145,8 @@ fn main() {
         sync_physics_visual
             .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
     )
-    .add_systems(Startup, spawn_camera);
+    .add_systems(Startup, spawn_camera)
+    .add_systems(Last, cleanup_before_app_exit);
     app.add_systems(OnExit(GameState::SinglePlayer), cleanup_level);
     app.add_systems(OnExit(GameState::Multiplayer), cleanup_level);
 

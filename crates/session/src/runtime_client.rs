@@ -13,11 +13,7 @@ use net::{
 };
 use physics::physics_world::*;
 
-use crate::{
-    hosted::{cleanup_before_app_exit, exit_after_returning_to_menu, shutdown_session},
-    messages,
-    resources::*,
-};
+use crate::{messages, resources::*};
 
 pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
     pub main_menu: S,
@@ -88,11 +84,6 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             )
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
-            .add_systems(Last, cleanup_before_app_exit)
-            .add_systems(
-                Update,
-                exit_after_returning_to_menu.run_if(in_state(main_menu)),
-            )
             .add_systems(FixedPostUpdate, messages::on_message::<S>)
             .add_systems(
                 FixedLast,
@@ -102,6 +93,11 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
     }
 }
 
+#[derive(Resource, Clone, Copy)]
+pub(crate) struct ClientSessionState<S: States + Copy> {
+    pub main_menu: S,
+}
+
 fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: Commands) {
     let Some(quic) = quic.as_mut() else {
         return;
@@ -109,11 +105,6 @@ fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: C
     while let Some(message) = quic.notices.pop_front() {
         gameplay::messages::push(&mut commands, message);
     }
-}
-
-#[derive(Resource, Clone, Copy)]
-pub(crate) struct ClientSessionState<S: States + Copy> {
-    pub main_menu: S,
 }
 
 fn reset_singleplayer_spawn_state(mut sp: ResMut<SinglePlayerConfig>) {
@@ -304,7 +295,9 @@ fn disconnect(
     last_acked.0 = 0;
     local_character.0 = None;
     gui.scoreboard = None;
-    shutdown_session(Some(&mut quic), Some(&mut pending));
+    quic.disconnect();
+    quic.inbound.clear();
+    pending.0 = None;
 }
 
 // maybe make this part of one larger system TODO

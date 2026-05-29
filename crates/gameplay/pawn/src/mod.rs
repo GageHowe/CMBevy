@@ -350,6 +350,7 @@ pub fn apply_server_input(
             }
             (true, None)
         }
+        PawnInputKind::HovercraftSpaceshipInput(_) => (false, None),
     }
 }
 

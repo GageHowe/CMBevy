@@ -1,5 +1,4 @@
 use bevy::{
-    app::AppExit,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     post_process::auto_exposure::AutoExposure,
     prelude::*,
@@ -8,7 +7,6 @@ use bevy::{
 use bevy_egui::{EguiContexts, egui};
 use common::tick::NetworkStats;
 use physics::physics_world::PhysicsWorld;
-use session::PendingExit;
 
 use crate::{GameState, UiState, auto_exposure_debug::AutoExposureCorrection, settings::Settings};
 
@@ -27,8 +25,6 @@ pub fn debug_panel(
     _game_state: Res<State<GameState>>,
     _next_game: ResMut<NextState<GameState>>,
     _next_ui: ResMut<NextState<UiState>>,
-    _pending_exit: ResMut<PendingExit>,
-    _exit: MessageWriter<AppExit>,
 ) -> Result {
     if !settings.debug_panel {
         return Ok(());
