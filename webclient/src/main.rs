@@ -5,15 +5,6 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 1.0)))
         // .add_plugins(MinimalPlugins)
         .add_plugins(DefaultPlugins.build().disable::<bevy::audio::AudioPlugin>())
-        // .add_plugins(window::WindowPlugin { ..default() })
-        // .add_plugins(bevy::scene::ScenePlugin)
-        // .add_plugins(PipelinedRenderingPlugin)
-        // .add_plugins((
-        //     WinitPlugin,
-        //     WindowPlugin,
-        //     RenderPlugin,
-        //     Core3dPlugin, // Required for Camera3d and 3D rendering
-        // ))
         .add_systems(Startup, setup)
         .run();
 }

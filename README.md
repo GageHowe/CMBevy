@@ -11,7 +11,13 @@ Need to spend some time offline working on the codebase and cleaning things up.
 
 Need to look into alternatives to global states for synchronizing behaviors which should be blocking, like map loads
 
-
+TODO:
+* web integration
+  * Find a replacement for FMOD since bevy isn't emscripten-compatible (likely custom bevy_audio or oddio)
+  * replace tokio with bevy_tasks since wasm doesn't have threads
+  * replace quinn with WebTransport
+* fix any existing bugs from the rewrite
+* 
 
 
 
