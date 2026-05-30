@@ -13,9 +13,9 @@ members = [
     "crates/scripting",
     "crates/session",
     "gameserver",
-    "client",
+    "nativeclient",
     "beacon",
-    "tools/*",
+    "tools/*", "webclient",
 ]
 resolver = "3"
 
