@@ -10,7 +10,7 @@ define CLIPPY_COMMANDS
 endef
 
 build:
-	cargo build -p nativeclient
+	cargo build -p client
 	cargo build -p gameserver
 
 # beacon:
