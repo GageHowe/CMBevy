@@ -91,6 +91,12 @@ fn main() {
             .set(AssetPlugin {
                 mode: AssetMode::Processed,
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
+                processed_file_path: common::config::asset_dir()
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .join("asset_cache")
+                    .to_string_lossy()
+                    .into_owned(),
                 use_asset_processor_override: Some(true),
                 ..default()
             })
@@ -195,28 +201,3 @@ fn debug_render_on(s: Res<Settings>) -> bool {
 fn gameplay_overlay_on(s: Res<Settings>) -> bool {
     !s.cinematic_mode
 }
-
-//
-// /// Scroll wheel switches the active weapon slot and toggles viewmodel visibility.
-// fn switch_weapon_slot(
-//     scroll: Res<AccumulatedMouseScroll>,
-//     mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
-//     mut visibility: Query<&mut Visibility>,
-// ) {
-//     let delta: f32 = scroll.delta.y;
-//     if delta == 0.0 { return; }
-//     let Ok(mut slots) = pawn.single_mut() else { return };
-//     let prev = slots.active;
-//     slots.active = if delta > 0.0 {
-//         (slots.active + 1) % 2
-//     } else {
-//         slots.active.checked_sub(1).unwrap_or(1)
-//     };
-//     if slots.active == prev { return; }
-//     if let Some(e) = slots.slots[prev].1 {
-//         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Hidden; }
-//     }
-//     if let Some(e) = slots.slots[slots.active].1 {
-//         if let Ok(mut vis) = visibility.get_mut(e) { *vis = Visibility::Inherited; }
-//     }
-// }
