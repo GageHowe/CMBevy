@@ -31,6 +31,7 @@ mod auto_exposure_debug;
 mod camera;
 mod color_compression;
 mod fullscreen_post_process;
+mod hdri_processor;
 mod hosting;
 mod menu;
 mod outline;
@@ -88,7 +89,9 @@ fn main() {
             .build()
             .disable::<bevy::asset::io::web::WebAssetPlugin>()
             .set(AssetPlugin {
+                mode: AssetMode::Processed,
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
+                use_asset_processor_override: Some(true),
                 ..default()
             })
             .set(LogPlugin {
@@ -110,6 +113,7 @@ fn main() {
         AutoExposureDebugPlugin,
         OutlinePlugin,
         ColorCompressionPlugin,
+        hdri_processor::HdriProcessorPlugin,
     ))
     .init_state::<GameState>()
     .init_state::<UiState>()

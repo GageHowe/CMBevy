@@ -6,6 +6,10 @@ edition = "2024"
 [lints]
 workspace = true
 
+[lib]
+name = "ktx2conv"
+path = "src/lib.rs"
+
 [[bin]]
 name = "ktx2conv"
 path = "src/main.rs"
