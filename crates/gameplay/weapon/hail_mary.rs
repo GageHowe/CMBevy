@@ -22,10 +22,6 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
     despawn_on_contact: true,
     explosion: None,
 };
-const PROJECTILE_GRAVITY_SCALE: f32 = 0.0;
-const SHOOTER_IMPULSE: f32 = 1.5;
-const MASS_SCALED_SHOOTER_IMPULSE: bool = false;
-
 pub const CONFIG: WeaponConfig = WeaponConfig {
     display_name: "Hail Mary",
     model_path: "models/hail_mary_placeholder_2.glb#Scene0",
@@ -38,10 +34,10 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     reload_ticks: 100,
     fire_cooldown_ticks: 60,
     projectile: Some(PROJECTILE),
-    projectile_gravity_scale: PROJECTILE_GRAVITY_SCALE,
-    shooter_impulse: SHOOTER_IMPULSE,
-    mass_scaled_shooter_impulse: MASS_SCALED_SHOOTER_IMPULSE,
-    decorate_projectile,
+    projectile_gravity_scale: 0.0,
+    shooter_impulse: 1.5,
+    mass_scaled_shooter_impulse: false,
+    decorate_projectile: Some(decorate_projectile),
 };
 
 #[derive(Component, Default, Reflect)]
@@ -83,8 +79,8 @@ fn update_hail_mary(
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
     projectile::apply_recoil(
-        SHOOTER_IMPULSE,
-        MASS_SCALED_SHOOTER_IMPULSE,
+        1.5,
+        false,
         ctx,
         world,
         1.0,

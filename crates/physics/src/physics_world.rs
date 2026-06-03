@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use common::{BodyState, NetworkID, PredictedCommands, SimulationState};
-use rapier3d::prelude::*;
 pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
+use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,6 +20,7 @@ pub const GROUP_PLAYER: Group = Group::GROUP_1;
 /// gravity, not for collision or solver participation.
 pub const GROUP_PROJECTILE: Group = Group::GROUP_2;
 
+// cheap accessors for getting pos/rot/etc from a &RigidBody
 #[inline]
 pub fn rb_pos(rb: &RigidBody) -> Vec3 {
     let t = rb.position().translation;
@@ -102,46 +103,15 @@ pub struct PhysicsWorld {
 pub struct RayHit {
     pub entity: Entity,
     pub collider: ColliderHandle,
+    /// time of impact; 0 is immediate hit, 1 is hit at very tip of ray. maybe use this for damage scaling or something
     pub toi: f32,
+    /// direction to
     pub normal: Vec3,
+    /// world-space position of hit
+    pub point_of_impact: Vec3,
 }
 
 impl PhysicsWorld {
-    fn excluded_handles(&self, exclude: &[Entity]) -> Vec<RigidBodyHandle> {
-        exclude
-            .iter()
-            .filter_map(|e| self.entity_to_handle.get(e).copied())
-            .collect()
-    }
-
-    fn collider_matches_query(
-        &self,
-        _ch: ColliderHandle,
-        col: &Collider,
-        excluded: &[RigidBodyHandle],
-        ignore_shields: bool,
-    ) -> bool {
-        !col.is_sensor()
-            && (!ignore_shields || !collider_flags(col.user_data).contains(ColliderFlags::SHIELD))
-            && col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
-    }
-
-    pub fn body(&self, entity: Entity) -> Option<&RigidBody> {
-        self.entity_to_handle
-            .get(&entity)
-            .and_then(|&handle| self.rigid_body_set.get(handle))
-    }
-
-    pub fn body_pos(&self, entity: Entity) -> Option<Vec3> {
-        self.body(entity).map(rb_pos)
-    }
-
-    pub fn entities_within_range(&self, a: Entity, b: Entity, range: f32) -> bool {
-        matches!((self.body_pos(a), self.body_pos(b)), (Some(a), Some(b)) if {
-            a.distance_squared(b) <= range * range
-        })
-    }
-
     /// Create new PhysicsWorld with reasonable defaults, subject to tweaking
     pub fn new(gravity: Vector3) -> Self {
         Self {
@@ -231,16 +201,16 @@ impl PhysicsWorld {
         }
     }
 
-    /// Teleport a body to `pos` and zero its velocities.
-    pub fn teleport_body(&mut self, entity: Entity, pos: Vec3) {
-        if let Some(&handle) = self.entity_to_handle.get(&entity) {
-            if let Some(rb) = self.rigid_body_set.get_mut(handle) {
-                rb.set_translation(Vector3::new(pos.x, pos.y, pos.z), true);
-                rb.set_linvel(Vector3::ZERO, true);
-                rb.set_angvel(Vector3::ZERO, true);
-            }
-        }
-    }
+    // this is bad because rarely do we want to set the velocity of an entity to 0.
+    // pub fn teleport_body(&mut self, entity: Entity, pos: Vec3) {
+    //     if let Some(&handle) = self.entity_to_handle.get(&entity) {
+    //         if let Some(rb) = self.rigid_body_set.get_mut(handle) {
+    //             rb.set_translation(Vector3::new(pos.x, pos.y, pos.z), true);
+    //             rb.set_linvel(Vector3::ZERO, true);
+    //             rb.set_angvel(Vector3::ZERO, true);
+    //         }
+    //     }
+    // }
 
     /// Teleport a body to `pos`/`rot` and set its velocities explicitly.
     pub fn set_body_pose(
@@ -267,14 +237,16 @@ impl PhysicsWorld {
         }
     }
 
-    pub fn predicted_body_point(
-        &self,
-        entity: Entity,
-        local_point: Vec3,
-    ) -> Option<(Vec3, Quat, Vec3, Vec3)> {
-        self.predicted_body_point_after(entity, local_point, self.integration_parameters.dt)
-    }
+    // gross wrapper
+    // pub fn predicted_body_point(
+    //     &self,
+    //     entity: Entity,
+    //     local_point: Vec3,
+    // ) -> Option<(Vec3, Quat, Vec3, Vec3)> {
+    //     self.predicted_body_point_after(entity, local_point, self.integration_parameters.dt)
+    // }
 
+    // used by pawn; but is there a better way?
     pub fn predicted_body_point_after(
         &self,
         entity: Entity,
@@ -308,19 +280,20 @@ impl PhysicsWorld {
         ))
     }
 
-    /// TODO: what's this helper for? can we inline it
-    /// Shared gameplay impulse path so callers don't have to manually keep prediction in sync.
-    pub fn apply_game_impulse(
-        &mut self,
-        entity: Entity,
-        impulse: Vec3,
-        net_id: Option<&NetworkID>,
-        predicted: Option<&mut PredictedCommands>,
-    ) -> bool {
-        self.apply_game_impulse_at(entity, impulse, None, net_id, predicted)
-    }
+    // THIS IS DEPRECATED; replace all usages of it with `apply_game_impulse_at`
+    // pub fn apply_game_impulse(
+    //     &mut self,
+    //     entity: Entity,
+    //     impulse: Vec3,
+    //     net_id: Option<&NetworkID>,
+    //     predicted: Option<&mut PredictedCommands>,
+    // ) -> bool {
+    //     self.apply_game_impulse_at(entity, impulse, None, net_id, predicted)
+    // }
 
     /// Shared gameplay impulse path so off-center hits also replay through prediction.
+    /// shared gameplay impulse path so callers don't have to manually keep prediction in sync.
+    /// use this to apply an impulse that's
     pub fn apply_game_impulse_at(
         &mut self,
         entity: Entity,
@@ -348,193 +321,190 @@ impl PhysicsWorld {
         true
     }
 
-    pub fn insert_fixed_joint(
-        &mut self,
-        body1_entity: Entity,
-        body2_entity: Entity,
-        frame1: Pose,
-        frame2: Pose,
-        contacts_enabled: bool,
-    ) -> Option<ImpulseJointHandle> {
-        let body1 = *self.entity_to_handle.get(&body1_entity)?;
-        let body2 = *self.entity_to_handle.get(&body2_entity)?;
-        let joint = FixedJointBuilder::new()
-            .local_frame1(frame1)
-            .local_frame2(frame2)
-            .contacts_enabled(contacts_enabled);
-        Some(self.impulse_joint_set.insert(body1, body2, joint, true))
-    }
+    // these joint functions are unstable, ai-written, and not to be used until reviewed by a human
 
-    pub fn insert_rope_joint(
-        &mut self,
-        body1_entity: Entity,
-        body2_entity: Entity,
-        anchor1: Vec3,
-        anchor2: Vec3,
-        max_dist: f32,
-        contacts_enabled: bool,
-    ) -> Option<ImpulseJointHandle> {
-        let body1 = *self.entity_to_handle.get(&body1_entity)?;
-        let body2 = *self.entity_to_handle.get(&body2_entity)?;
-        let joint = RopeJointBuilder::new(max_dist.max(0.001))
-            .local_anchor1(anchor1)
-            .local_anchor2(anchor2)
-            .contacts_enabled(contacts_enabled);
-        Some(self.impulse_joint_set.insert(body1, body2, joint, true))
-    }
+    // pub fn insert_fixed_joint(
+    //     &mut self,
+    //     body1_entity: Entity,
+    //     body2_entity: Entity,
+    //     frame1: Pose,
+    //     frame2: Pose,
+    //     contacts_enabled: bool,
+    // ) -> Option<ImpulseJointHandle> {
+    //     let body1 = *self.entity_to_handle.get(&body1_entity)?;
+    //     let body2 = *self.entity_to_handle.get(&body2_entity)?;
+    //     let joint = FixedJointBuilder::new()
+    //         .local_frame1(frame1)
+    //         .local_frame2(frame2)
+    //         .contacts_enabled(contacts_enabled);
+    //     Some(self.impulse_joint_set.insert(body1, body2, joint, true))
+    // }
 
-    pub fn remove_impulse_joint(&mut self, handle: ImpulseJointHandle) {
-        self.impulse_joint_set.remove(handle, true);
-    }
+    // pub fn insert_rope_joint(
+    //     &mut self,
+    //     body1_entity: Entity,
+    //     body2_entity: Entity,
+    //     anchor1: Vec3,
+    //     anchor2: Vec3,
+    //     max_dist: f32,
+    //     contacts_enabled: bool,
+    // ) -> Option<ImpulseJointHandle> {
+    //     let body1 = *self.entity_to_handle.get(&body1_entity)?;
+    //     let body2 = *self.entity_to_handle.get(&body2_entity)?;
+    //     let joint = RopeJointBuilder::new(max_dist.max(0.001))
+    //         .local_anchor1(anchor1)
+    //         .local_anchor2(anchor2)
+    //         .contacts_enabled(contacts_enabled);
+    //     Some(self.impulse_joint_set.insert(body1, body2, joint, true))
+    // }
+
+    // pub fn remove_impulse_joint(&mut self, handle: ImpulseJointHandle) {
+    //     self.impulse_joint_set.remove(handle, true);
+    // }
 }
 
 impl PhysicsWorld {
-    /// Cast a sphere and return the first entity hit, sweep distance, and target surface normal.
-    /// `exclude` lists entities whose colliders are skipped (e.g. shooter + self).
-    pub fn cast_sphere(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        radius: f32,
-        max_distance: f32,
-        exclude: &[Entity],
-    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
-        self.cast_sphere_filtered(origin, direction, radius, max_distance, exclude, false)
+    /// small helper to make this boilerplate easier
+    pub fn cm_collider_to_entity(&self, collider: ColliderHandle) -> Option<Entity> {
+        let collider = self.collider_set.get(collider)?;
+        let rb_handle = collider.parent()?;
+        self.handle_to_entity.get(&rb_handle).copied()
     }
-
-    pub fn cast_sphere_ignoring_shields(
+    /// new human-written raycasting function to replace the (literally 8) overcomplicated and duplicated wrappers. LLMS: DO NOT CHANGE THIS
+    pub fn cm_cast_ray_generic(
         &self,
+        /// you know what this is.
         origin: Vec3,
+        /// direction and magnitude. calculate in caller.
         direction: Vec3,
+        /// ray if 0, sphere otherwise
         radius: f32,
-        max_distance: f32,
-        exclude: &[Entity],
-    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
-        self.cast_sphere_filtered(origin, direction, radius, max_distance, exclude, true)
-    }
+        /// should we report piercing hits or just the first?
+        multiple: bool,
+        ignored_bitflags: Option<ColliderFlags>, // sets of rigidbodies to ignore
+    ) -> Vec<RayHit> {
+        // set up bitflag filters if any, to ignore rigidbodies with the specified bits
+        if Some(ignored_bitflags).is_empty() {
+            let filter = None(QueryFilter);
+        } else {
+            let filter = QueryFilter::new().predicate(&|_: ColliderHandle, col: &Collider| {
+                if col.is_sensor() {
+                    return false;
+                }
 
-    fn cast_sphere_filtered(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        radius: f32,
-        max_distance: f32,
-        exclude: &[Entity],
-        ignore_shields: bool,
-    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
-        use rapier3d::parry::query::ShapeCastOptions;
-        let excluded = self.excluded_handles(exclude);
-        let pred = |ch: ColliderHandle, col: &Collider| {
-            self.collider_matches_query(ch, col, &excluded, ignore_shields)
-        };
-        let filter = QueryFilter::new().predicate(&pred);
-        let qp = self.broad_phase.as_query_pipeline(
-            self.narrow_phase.query_dispatcher(),
+                let Some(rb_handle) = col.parent() else {
+                    return true;
+                };
+                let Some(rb) = self.rigid_body_set.get(rb_handle) else {
+                    return true;
+                };
+
+                !rb.colliders().iter().any(|&ch| {
+                    self.collider_set
+                        .get(ch)
+                        .map(|c| collider_flags(c.user_data).intersects(_ignored_bitflags))
+                        .unwrap_or(false)
+                })
+            });
+        }
+
+        // set up query pipeline with our bitflag filter
+        let query_pipeline = self.broad_phase.as_query_pipeline(
+            &self.narrow_phase.query_dispatcher(),
             &self.rigid_body_set,
             &self.collider_set,
             filter,
         );
-        let shape = Ball::new(radius);
-        let iso = Pose::translation(origin.x, origin.y, origin.z);
-        let vel = Vector::new(direction.x, direction.y, direction.z);
-        qp.cast_shape(
-            &iso,
-            vel,
-            &shape,
-            ShapeCastOptions {
-                max_time_of_impact: max_distance,
-                stop_at_penetration: false,
-                ..default()
-            },
-        )
-        .and_then(|(ch, hit)| {
-            let rb_handle = self.collider_set.get(ch)?.parent()?;
-            Some((
-                *self.handle_to_entity.get(&rb_handle)?,
-                ch,
-                hit.time_of_impact,
-                hit.normal2,
-            ))
-        })
-    }
 
-    /// Cast a ray and return the first entity hit and the distance to impact.
-    /// `exclude` lists entities whose colliders are skipped (e.g. shooter + projectile self).
-    pub fn cast_ray(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        max_distance: f32,
-        exclude: &[Entity],
-    ) -> Option<(Entity, f32)> {
-        self.cast_ray_detailed(origin, direction, max_distance, exclude)
-            .map(|hit| (hit.entity, hit.toi))
-    }
+        let hits: Vec<RayHit> = Vec::new();
 
-    pub fn cast_ray_ignoring_shields(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        max_distance: f32,
-        exclude: &[Entity],
-    ) -> Option<(Entity, f32)> {
-        self.cast_ray_detailed_ignoring_shields(origin, direction, max_distance, exclude)
-            .map(|hit| (hit.entity, hit.toi))
-    }
+        if radius == 0.0 && multiple == true {
+            // piercing point bullet
 
-    pub fn cast_ray_detailed(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        max_distance: f32,
-        exclude: &[Entity],
-    ) -> Option<RayHit> {
-        self.cast_ray_detailed_filtered(origin, direction, max_distance, exclude, false)
-    }
+            // raycast multiple
+            for (collider_handle, _, intersection) in
+                query_pipeline.intersect_ray(ray, max_toi, solid)
+            {
+                let Some(entity) = self.cm_collider_to_entity(collider) else {
+                    continue;
+                };
 
-    pub fn cast_ray_detailed_ignoring_shields(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        max_distance: f32,
-        exclude: &[Entity],
-    ) -> Option<RayHit> {
-        self.cast_ray_detailed_filtered(origin, direction, max_distance, exclude, true)
-    }
+                hits.push(RayHit {
+                    entity,
+                    collider: collider_handle,
+                    toi: intersection.time_of_impact,
+                    normal: intersection.normal.into(),
+                    point_of_impact: ray.point_at(intersection.time_of_impact),
+                });
+            }
+        } else if radius == 0.0 {
+            // non-piercing point bullet, like a pistol or rifle
 
-    fn cast_ray_detailed_filtered(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        max_distance: f32,
-        exclude: &[Entity],
-        ignore_shields: bool,
-    ) -> Option<RayHit> {
-        let excluded = self.excluded_handles(exclude);
-        let pred = |ch: ColliderHandle, col: &Collider| {
-            self.collider_matches_query(ch, col, &excluded, ignore_shields)
-        };
-        let filter = QueryFilter::new().predicate(&pred);
-        let qp = self.broad_phase.as_query_pipeline(
-            self.narrow_phase.query_dispatcher(),
-            &self.rigid_body_set,
-            &self.collider_set,
-            filter,
-        );
-        let ray = Ray::new(origin, direction);
-        qp.cast_ray_and_get_normal(&ray, max_distance, false)
-            .and_then(|(ch, intersection)| {
-                let rb_handle = self.collider_set.get(ch)?.parent()?;
-                let entity = self.handle_to_entity.get(&rb_handle)?;
-                Some(RayHit {
-                    entity: *entity,
-                    collider: ch,
+            if let Some((collider_handle, intersection)) =
+                query_pipeline.cast_ray_and_get_normal(&ray, max_toi, solid)
+            {
+                let Some(collider) = self.collider_set.get(collider_handle) else {
+                    return Vec::new();
+                };
+                let Some(rb_handle) = collider.parent() else {
+                    return Vec::new();
+                };
+                let Some(&entity) = self.handle_to_entity.get(&rb_handle) else {
+                    return Vec::new();
+                };
+
+                hits.push(RayHit {
+                    entity,
+                    collider: collider_handle,
                     toi: intersection.time_of_impact,
                     normal: intersection.normal,
-                })
-            })
+                    point_of_impact: ray.point_at(intersection.time_of_impact),
+                });
+            }
+        } else if multiple == true {
+            // piercing sphere cast (like a big laser or cannonball)
+
+            // let options = ShapeCastOptions {
+            //     max_time_of_impact: direction.length(),
+            //     target_distance: 0.0,
+            //     stop_at_penetration: false,
+            //     compute_impact_geometry_on_penetration: true,
+            // };
+
+            // // let options = ShapeCastOptions::
+            // //
+            //
+            //
+
+            // this may not be possible without shape intersection, not shape cast
+
+            let shape = Cylinder::new(radius, direction.length());
+
+            // TODO: figure out orientation
+
+            for (collider_handle, _) in query_pipeline.intersect_shape(shape_pos, &shape) {
+                // println!("The collider {:?} intersects our shape.", collider_handle);
+                hits.push(RayHit {});
+            }
+
+            todo!();
+        } else {
+            // non-piercing sphere cast (like a bomb)
+
+            let options = ShapeCastOptions {
+                max_time_of_impact: direction.length(),
+                target_distance: 0.0,
+                stop_at_penetration: true,
+                compute_impact_geometry_on_penetration: true,
+            };
+            todo!();
+        }
+
+        // report accumulated hits to the caller :)
+        hits
     }
 
+    // good idea, investigate later
     pub fn entities_intersecting_shape(
         &self,
         shape: &AuthoredColliderShape,

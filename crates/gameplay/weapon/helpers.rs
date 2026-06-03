@@ -68,7 +68,8 @@ pub fn fire_projectile_with_dir(
     let speed = ctx.weapon_config.prediction_projectile_speed.unwrap_or(0.0);
     let velocity = crate::projectile::projectile_velocity(world, ctx.shooter, dir, speed);
     let shooter_velocity = crate::projectile::shooter_velocity(world, ctx.shooter);
-    let entity = crate::projectile::spawn(
+    #[cfg(feature = "client")]
+    let projectile_entity = crate::projectile::spawn(
         projectile,
         ctx.weapon_config.projectile_gravity_scale,
         ctx.origin,
@@ -80,13 +81,23 @@ pub fn fire_projectile_with_dir(
         Some(temp_id),
     );
     #[cfg(feature = "client")]
-    let decorate_projectile = ctx.weapon_config.decorate_projectile;
+    if let Some(decorate_projectile) = ctx.weapon_config.decorate_projectile {
+        commands.queue(move |world: &mut World| {
+            decorate_projectile(projectile_entity, world);
+        });
+    }
     #[cfg(not(feature = "client"))]
-    let _ = entity;
-    #[cfg(feature = "client")]
-    commands.queue(move |world: &mut World| {
-        decorate_projectile(entity, world);
-    });
+    crate::projectile::spawn(
+        projectile,
+        ctx.weapon_config.projectile_gravity_scale,
+        ctx.origin,
+        velocity,
+        shooter_velocity,
+        commands,
+        world,
+        ctx.shooter,
+        Some(temp_id),
+    );
     #[cfg(feature = "client")]
     send_fire_request(
         ctx.quic.as_deref_mut(),

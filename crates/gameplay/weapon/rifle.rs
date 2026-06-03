@@ -24,9 +24,6 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
     despawn_on_contact: true,
     explosion: None,
 };
-const PROJECTILE_GRAVITY_SCALE: f32 = 0.0;
-const SHOOTER_IMPULSE: f32 = 0.1;
-const MASS_SCALED_SHOOTER_IMPULSE: bool = false;
 
 #[derive(Component, Default, Reflect)]
 pub struct RifleComponent;
@@ -43,10 +40,10 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     reload_ticks: RELOAD_TICKS,
     fire_cooldown_ticks: COOLDOWN_TICKS as u16,
     projectile: Some(PROJECTILE),
-    projectile_gravity_scale: PROJECTILE_GRAVITY_SCALE,
-    shooter_impulse: SHOOTER_IMPULSE,
-    mass_scaled_shooter_impulse: MASS_SCALED_SHOOTER_IMPULSE,
-    decorate_projectile,
+    projectile_gravity_scale: 0.0,
+    shooter_impulse: 0.1,
+    mass_scaled_shooter_impulse: false,
+    decorate_projectile: Some(decorate_projectile),
 };
 
 #[cfg(feature = "client")]
@@ -67,8 +64,8 @@ fn update_rifle(
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
     projectile::apply_recoil(
-        SHOOTER_IMPULSE,
-        MASS_SCALED_SHOOTER_IMPULSE,
+        0.1,
+        false,
         ctx,
         world,
         kick_scale,
@@ -118,7 +115,7 @@ pub fn drive_rifles(
 }
 
 pub fn spawn_rifle(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    let weapon = weapon_bundle(RifleComponent::default(), CONFIG);
+    let weapon = weapon_bundle(RifleComponent, CONFIG);
     helpers::insert_generic_weapon(
         entity,
         cmd,

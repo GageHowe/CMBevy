@@ -126,8 +126,10 @@ pub struct WeaponConfig {
     pub projectile: Option<crate::projectile::Projectile>,
     pub projectile_gravity_scale: f32,
     pub shooter_impulse: f32,
+
+    /// why is this a bool? maybe we should change it to a percent with a max, or some kind of log function
     pub mass_scaled_shooter_impulse: bool,
-    pub decorate_projectile: fn(Entity, &mut World),
+    pub decorate_projectile: Option<fn(Entity, &mut World)>,
 }
 
 #[cfg(feature = "client")]
@@ -292,11 +294,12 @@ pub fn fire_held_weapon(
         net_ids,
     )?;
     #[cfg(feature = "client")]
-    let decorate_projectile = weapon_config.decorate_projectile;
     #[cfg(feature = "client")]
-    commands.queue(move |world: &mut World| {
-        decorate_projectile(fired.entity, world);
-    });
+    if let Some(decorate_projectile) = weapon_config.decorate_projectile {
+        commands.queue(move |world: &mut World| {
+            decorate_projectile(fired.entity, world);
+        });
+    }
     drop(weapon_state);
 
     if depleted {
@@ -475,7 +478,9 @@ pub fn spawn_remote_projectile(
         world,
     );
     #[cfg(feature = "client")]
-    (config.decorate_projectile)(projectile_entity, world);
+    if let Some(decorate_projectile) = config.decorate_projectile {
+        decorate_projectile(projectile_entity, world);
+    }
 }
 
 pub fn handle_reload_request(

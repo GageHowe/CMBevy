@@ -77,7 +77,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     projectile_gravity_scale: 0.0,
     shooter_impulse: 0.0,
     mass_scaled_shooter_impulse: false,
-    decorate_projectile,
+    decorate_projectile: None,
 };
 
 #[cfg(feature = "client")]
@@ -241,8 +241,6 @@ pub fn spawn_beamer(entity: Entity, cmd: &net::message::SpawnCommand, world: &mu
     crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
 }
 
-fn decorate_projectile(_entity: Entity, _world: &mut World) {}
-
 fn beam_hit(
     world: &PhysicsWorld,
     origin: Vec3,
@@ -252,6 +250,14 @@ fn beam_hit(
     let exclude = shooter.into_iter().collect::<Vec<_>>();
     let (entity, toi) = world.cast_ray(origin, dir, RANGE, &exclude)?;
     Some((entity, origin + dir * toi))
+}
+
+#[cfg(feature = "client")]
+fn beam_len(world: &PhysicsWorld, origin: Vec3, dir: Vec3, exclude: &[Entity]) -> f32 {
+    world
+        .cast_ray(origin, dir, RANGE, exclude)
+        .map(|(_, toi)| toi)
+        .unwrap_or(RANGE)
 }
 
 #[cfg(feature = "client")]
@@ -784,8 +790,9 @@ fn add_visuals(
 
 #[cfg(feature = "client")]
 fn sync_visuals(
-    beamers: Query<(&BeamerComponent, &BeamerVisualRefs, &GlobalTransform)>,
+    beamers: Query<(Entity, &BeamerComponent, &BeamerVisualRefs, &GlobalTransform)>,
     tick: Res<common::tick::Ticker>,
+    world: Res<PhysicsWorld>,
     mut visuals: ParamSet<(
         Query<(&mut Transform, &mut Visibility), With<BeamerChargeVisual>>,
         Query<(&mut Transform, &mut Visibility), With<BeamerBeamVisual>>,
@@ -798,7 +805,7 @@ fn sync_visuals(
         .single()
         .map(GlobalTransform::translation)
         .unwrap_or(Vec3::ZERO);
-    for (beamer, refs, global_transform) in &beamers {
+    for (entity, beamer, refs, global_transform) in &beamers {
         if let Ok((mut transform, mut visibility)) = visuals.p0().get_mut(refs.charge) {
             if beamer.phase == BeamPhase::Charging {
                 let elapsed_ticks = tick
@@ -838,14 +845,15 @@ fn sync_visuals(
                 *visibility = Visibility::Hidden;
                 continue;
             }
+            let len = beam_len(&world, beamer.beam_origin, beamer.beam_dir, &[entity]);
             let local_dir = global_transform
                 .affine()
                 .inverse()
                 .transform_vector3(beamer.beam_dir)
                 .normalize_or_zero();
-            transform.translation = local_dir * (RANGE * 0.5);
+            transform.translation = local_dir * (len * 0.5);
             transform.rotation = Quat::from_rotation_arc(Vec3::NEG_Z, local_dir);
-            transform.scale = Vec3::new(1.0, 1.0, RANGE);
+            transform.scale = Vec3::new(1.0, 1.0, len);
             *visibility = Visibility::Inherited;
         }
     }

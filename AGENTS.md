@@ -9,6 +9,7 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 * Linear damping is banned.
 * Use #[cfg(feature = client)] and GameState to gate functionality. 
 * Refactoring changes should reduce the total LOC size of the codebase, not increase it, with very few exceptions.
+* Never touch types or functions starting with `cm_`; they're especially high quality APIs and you can use, but not modify them.
 * Do not create wrappers if they don't justify the indirection or LOC
 
 ## rules

@@ -37,10 +37,6 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
     despawn_on_contact: true,
     explosion: Some(EXPLOSION),
 };
-const PROJECTILE_GRAVITY_SCALE: f32 = 0.1;
-const SHOOTER_IMPULSE: f32 = 3.0;
-const MASS_SCALED_SHOOTER_IMPULSE: bool = true;
-
 #[derive(Component, Default, Reflect)]
 pub struct CoilLauncherComponent;
 
@@ -56,10 +52,10 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     reload_ticks: RELOAD_TICKS,
     fire_cooldown_ticks: COOLDOWN_TICKS as u16,
     projectile: Some(PROJECTILE),
-    projectile_gravity_scale: PROJECTILE_GRAVITY_SCALE,
-    shooter_impulse: SHOOTER_IMPULSE,
-    mass_scaled_shooter_impulse: MASS_SCALED_SHOOTER_IMPULSE,
-    decorate_projectile,
+    projectile_gravity_scale: 0.1,
+    shooter_impulse: 3.0,
+    mass_scaled_shooter_impulse: true,
+    decorate_projectile: Some(decorate_projectile),
 };
 
 #[cfg(feature = "client")]
@@ -132,7 +128,7 @@ pub fn drive_coil_launchers(
 }
 
 pub fn spawn_coil_launcher(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    let weapon = weapon_bundle(CoilLauncherComponent::default(), CONFIG);
+    let weapon = weapon_bundle(CoilLauncherComponent, CONFIG);
     helpers::insert_generic_weapon(
         entity,
         cmd,
