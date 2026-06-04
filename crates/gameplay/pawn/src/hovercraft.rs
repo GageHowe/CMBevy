@@ -240,7 +240,13 @@ pub fn apply_hovercraft_movement(
         }) else {
             continue;
         };
-        let compression = ((HOVER_HEIGHT - hit.toi) / HOVER_HEIGHT).clamp(0.0, 1.0);
+        let Some(hit_toi) = hit.toi else {
+            continue;
+        };
+        let Some(hit_normal) = hit.normal else {
+            continue;
+        };
+        let compression = ((HOVER_HEIGHT - hit_toi) / HOVER_HEIGHT).clamp(0.0, 1.0);
         if compression <= 0.0 {
             continue;
         }
@@ -252,7 +258,7 @@ pub fn apply_hovercraft_movement(
             continue;
         }
         hover_impulses.push((world_point, Vector3::new(up.x, up.y, up.z) * lift));
-        normal_sum += hit.normal;
+        normal_sum += hit_normal;
         hit_count += 1.0;
     }
 

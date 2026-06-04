@@ -435,12 +435,30 @@ fn cast_projectile(
     loop {
         let hit = if let Some(radius) = projectile.radius {
             world
-                .cast_sphere(origin, dir, radius, remaining, &exclude)
-                .map(|(entity, collider, toi, _)| (entity, collider, toi))
+                .cm_cast_ray_generic(
+                    origin,
+                    dir * remaining,
+                    radius,
+                    false,
+                    &exclude,
+                    Some(ColliderFlags::PROJECTILE_IMMUNE),
+                )
+                .into_iter()
+                .next()
+                .and_then(|hit| Some((hit.entity?, hit.collider?, hit.toi?)))
         } else {
             world
-                .cast_ray_detailed(origin, dir, remaining, &exclude)
-                .map(|hit| (hit.entity, hit.collider, hit.toi))
+                .cm_cast_ray_generic(
+                    origin,
+                    dir * remaining,
+                    0.0,
+                    false,
+                    &exclude,
+                    Some(ColliderFlags::PROJECTILE_IMMUNE),
+                )
+                .into_iter()
+                .next()
+                .and_then(|hit| Some((hit.entity?, hit.collider?, hit.toi?)))
         };
         let Some((hit_entity, hit_collider, toi)) = hit else {
             projectile.last_position = curr;

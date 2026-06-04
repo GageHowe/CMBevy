@@ -99,16 +99,16 @@ pub struct PhysicsWorld {
     pub entity_to_handle: HashMap<Entity, RigidBodyHandle>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct RayHit {
-    pub entity: Entity,
-    pub collider: ColliderHandle,
+    pub entity: Option<Entity>,
+    pub collider: Option<ColliderHandle>,
     /// time of impact; 0 is immediate hit, 1 is hit at very tip of ray. maybe use this for damage scaling or something
-    pub toi: f32,
+    pub toi: Option<f32>,
     /// direction to
-    pub normal: Vec3,
+    pub normal: Option<Vec3>,
     /// world-space position of hit
-    pub point_of_impact: Vec3,
+    pub point_of_impact: Option<Vec3>,
 }
 
 impl PhysicsWorld {
@@ -381,127 +381,257 @@ impl PhysicsWorld {
         radius: f32,
         /// should we report piercing hits or just the first?
         multiple: bool,
+        /// entities whose rigidbodies should be excluded.
+        exclude: &[Entity],
         ignored_bitflags: Option<ColliderFlags>, // sets of rigidbodies to ignore
     ) -> Vec<RayHit> {
-        // set up bitflag filters if any, to ignore rigidbodies with the specified bits
-        if Some(ignored_bitflags).is_empty() {
-            let filter = None(QueryFilter);
-        } else {
-            let filter = QueryFilter::new().predicate(&|_: ColliderHandle, col: &Collider| {
-                if col.is_sensor() {
-                    return false;
-                }
-
-                let Some(rb_handle) = col.parent() else {
-                    return true;
-                };
-                let Some(rb) = self.rigid_body_set.get(rb_handle) else {
-                    return true;
-                };
-
-                !rb.colliders().iter().any(|&ch| {
-                    self.collider_set
-                        .get(ch)
-                        .map(|c| collider_flags(c.user_data).intersects(_ignored_bitflags))
-                        .unwrap_or(false)
-                })
-            });
+        let max_toi = direction.length();
+        if max_toi <= f32::EPSILON {
+            return Vec::new();
         }
+        let dir = direction / max_toi;
+        let ray = Ray::new(
+            Vector3::new(origin.x, origin.y, origin.z),
+            Vector3::new(dir.x, dir.y, dir.z),
+        );
+        let ignored = ignored_bitflags.unwrap_or_else(ColliderFlags::empty);
+        let excluded_bodies: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|entity| self.entity_to_handle.get(entity).copied())
+            .collect();
 
-        // set up query pipeline with our bitflag filter
+        let pred = |_: ColliderHandle, col: &Collider| {
+            if col.is_sensor() {
+                return false;
+            }
+            if col
+                .parent()
+                .is_some_and(|rb_handle| excluded_bodies.contains(&rb_handle))
+            {
+                return false;
+            }
+            if ignored.is_empty() {
+                return true;
+            }
+            if collider_flags(col.user_data).intersects(ignored) {
+                return false;
+            }
+            let Some(rb_handle) = col.parent() else {
+                return true;
+            };
+            let Some(rb) = self.rigid_body_set.get(rb_handle) else {
+                return true;
+            };
+            !rb.colliders().iter().any(|&ch| {
+                self.collider_set
+                    .get(ch)
+                    .map(|c| collider_flags(c.user_data).intersects(ignored))
+                    .unwrap_or(false)
+            })
+        };
+        let filter = QueryFilter::new().predicate(&pred);
         let query_pipeline = self.broad_phase.as_query_pipeline(
-            &self.narrow_phase.query_dispatcher(),
+            self.narrow_phase.query_dispatcher(),
             &self.rigid_body_set,
             &self.collider_set,
             filter,
         );
 
-        let hits: Vec<RayHit> = Vec::new();
-
-        if radius == 0.0 && multiple == true {
-            // piercing point bullet
-
-            // raycast multiple
-            for (collider_handle, _, intersection) in
-                query_pipeline.intersect_ray(ray, max_toi, solid)
+        let mut hits = Vec::new();
+        if radius <= f32::EPSILON {
+            if multiple {
+                for (collider_handle, _, intersection) in query_pipeline.intersect_ray(ray, max_toi, true)
+                {
+                    let point = ray.point_at(intersection.time_of_impact);
+                    hits.push(RayHit {
+                        entity: self.cm_collider_to_entity(collider_handle),
+                        collider: Some(collider_handle),
+                        toi: Some(intersection.time_of_impact),
+                        normal: Some(Vec3::new(
+                            intersection.normal.x,
+                            intersection.normal.y,
+                            intersection.normal.z,
+                        )),
+                        point_of_impact: Some(Vec3::new(point.x, point.y, point.z)),
+                    });
+                }
+                hits.sort_by(|a, b| {
+                    a.toi
+                        .unwrap_or(f32::INFINITY)
+                        .partial_cmp(&b.toi.unwrap_or(f32::INFINITY))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            } else if let Some((collider_handle, intersection)) =
+                query_pipeline.cast_ray_and_get_normal(&ray, max_toi, true)
             {
-                let Some(entity) = self.cm_collider_to_entity(collider) else {
-                    continue;
-                };
-
+                let point = ray.point_at(intersection.time_of_impact);
                 hits.push(RayHit {
-                    entity,
-                    collider: collider_handle,
-                    toi: intersection.time_of_impact,
-                    normal: intersection.normal.into(),
-                    point_of_impact: ray.point_at(intersection.time_of_impact),
+                    entity: self.cm_collider_to_entity(collider_handle),
+                    collider: Some(collider_handle),
+                    toi: Some(intersection.time_of_impact),
+                    normal: Some(Vec3::new(
+                        intersection.normal.x,
+                        intersection.normal.y,
+                        intersection.normal.z,
+                    )),
+                    point_of_impact: Some(Vec3::new(point.x, point.y, point.z)),
                 });
             }
-        } else if radius == 0.0 {
-            // non-piercing point bullet, like a pistol or rifle
-
-            if let Some((collider_handle, intersection)) =
-                query_pipeline.cast_ray_and_get_normal(&ray, max_toi, solid)
-            {
-                let Some(collider) = self.collider_set.get(collider_handle) else {
-                    return Vec::new();
-                };
-                let Some(rb_handle) = collider.parent() else {
-                    return Vec::new();
-                };
-                let Some(&entity) = self.handle_to_entity.get(&rb_handle) else {
-                    return Vec::new();
-                };
-
-                hits.push(RayHit {
-                    entity,
-                    collider: collider_handle,
-                    toi: intersection.time_of_impact,
-                    normal: intersection.normal,
-                    point_of_impact: ray.point_at(intersection.time_of_impact),
-                });
-            }
-        } else if multiple == true {
-            // piercing sphere cast (like a big laser or cannonball)
-
-            // let options = ShapeCastOptions {
-            //     max_time_of_impact: direction.length(),
-            //     target_distance: 0.0,
-            //     stop_at_penetration: false,
-            //     compute_impact_geometry_on_penetration: true,
-            // };
-
-            // // let options = ShapeCastOptions::
-            // //
-            //
-            //
-
-            // this may not be possible without shape intersection, not shape cast
-
-            let shape = Cylinder::new(radius, direction.length());
-
-            // TODO: figure out orientation
-
-            for (collider_handle, _) in query_pipeline.intersect_shape(shape_pos, &shape) {
-                // println!("The collider {:?} intersects our shape.", collider_handle);
-                hits.push(RayHit {});
-            }
-
-            todo!();
-        } else {
-            // non-piercing sphere cast (like a bomb)
-
-            let options = ShapeCastOptions {
-                max_time_of_impact: direction.length(),
-                target_distance: 0.0,
-                stop_at_penetration: true,
-                compute_impact_geometry_on_penetration: true,
-            };
-            todo!();
+            return hits;
         }
 
-        // report accumulated hits to the caller :)
+        let shape = Ball::new(radius);
+        let cast_options = ShapeCastOptions {
+            max_time_of_impact: max_toi,
+            target_distance: 0.0,
+            stop_at_penetration: true,
+            compute_impact_geometry_on_penetration: true,
+        };
+        if !multiple {
+            let shape_pos = Pose::translation(origin.x, origin.y, origin.z);
+            if let Some((collider_handle, intersection)) = query_pipeline.cast_shape(
+                &shape_pos,
+                Vector3::new(dir.x, dir.y, dir.z),
+                &shape,
+                cast_options,
+            ) {
+                hits.push(RayHit {
+                    entity: self.cm_collider_to_entity(collider_handle),
+                    collider: Some(collider_handle),
+                    toi: Some(intersection.time_of_impact),
+                    normal: Some(Vec3::new(
+                        intersection.normal1.x,
+                        intersection.normal1.y,
+                        intersection.normal1.z,
+                    )),
+                    point_of_impact: Some(Vec3::new(
+                        intersection.witness1.x,
+                        intersection.witness1.y,
+                        intersection.witness1.z,
+                    )),
+                });
+            }
+            return hits;
+        }
+
+        let mut traveled = 0.0f32;
+        let mut cast_origin = origin;
+        for _ in 0..64 {
+            let remaining = max_toi - traveled;
+            if remaining <= f32::EPSILON {
+                break;
+            }
+            let options = ShapeCastOptions {
+                max_time_of_impact: remaining,
+                target_distance: 0.0,
+                stop_at_penetration: false,
+                compute_impact_geometry_on_penetration: true,
+            };
+            let shape_pos = Pose::translation(cast_origin.x, cast_origin.y, cast_origin.z);
+            let Some((collider_handle, intersection)) = query_pipeline.cast_shape(
+                &shape_pos,
+                Vector3::new(dir.x, dir.y, dir.z),
+                &shape,
+                options,
+            ) else {
+                break;
+            };
+            let toi = traveled + intersection.time_of_impact;
+            hits.push(RayHit {
+                entity: self.cm_collider_to_entity(collider_handle),
+                collider: Some(collider_handle),
+                toi: Some(toi),
+                normal: Some(Vec3::new(
+                    intersection.normal1.x,
+                    intersection.normal1.y,
+                    intersection.normal1.z,
+                )),
+                point_of_impact: Some(Vec3::new(
+                    intersection.witness1.x,
+                    intersection.witness1.y,
+                    intersection.witness1.z,
+                )),
+            });
+            let advance = (intersection.time_of_impact + 0.001).min(remaining);
+            traveled += advance;
+            cast_origin = origin + dir * traveled;
+        }
         hits
+    }
+
+    pub fn cast_ray(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_toi: f32,
+        exclude: &[Entity],
+    ) -> Option<(Entity, f32)> {
+        self.cm_cast_ray_generic(origin, dir * max_toi, 0.0, false, exclude, None)
+            .into_iter()
+            .find_map(|hit| Some((hit.entity?, hit.toi?)))
+    }
+
+    pub fn cast_ray_detailed(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_toi: f32,
+        exclude: &[Entity],
+    ) -> Option<RayHit> {
+        self.cm_cast_ray_generic(origin, dir * max_toi, 0.0, false, exclude, None)
+            .into_iter()
+            .find(|hit| hit.entity.is_some() && hit.collider.is_some() && hit.toi.is_some())
+    }
+
+    pub fn cast_ray_ignoring_shields(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_toi: f32,
+        exclude: &[Entity],
+    ) -> Option<(Entity, f32)> {
+        self.cm_cast_ray_generic(
+            origin,
+            dir * max_toi,
+            0.0,
+            false,
+            exclude,
+            Some(ColliderFlags::SHIELD),
+        )
+        .into_iter()
+        .find_map(|hit| Some((hit.entity?, hit.toi?)))
+    }
+
+    pub fn cast_ray_detailed_ignoring_shields(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_toi: f32,
+        exclude: &[Entity],
+    ) -> Option<RayHit> {
+        self.cm_cast_ray_generic(
+            origin,
+            dir * max_toi,
+            0.0,
+            false,
+            exclude,
+            Some(ColliderFlags::SHIELD),
+        )
+        .into_iter()
+        .find(|hit| hit.entity.is_some() && hit.collider.is_some() && hit.toi.is_some())
+    }
+
+    pub fn cast_sphere(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        radius: f32,
+        max_toi: f32,
+        exclude: &[Entity],
+    ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
+        self.cm_cast_ray_generic(origin, dir * max_toi, radius, false, exclude, None)
+            .into_iter()
+            .find_map(|hit| Some((hit.entity?, hit.collider?, hit.toi?, hit.normal?)))
     }
 
     // good idea, investigate later

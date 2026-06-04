@@ -2,6 +2,7 @@
 use bevy::pbr::MeshMaterial3d;
 use bevy::prelude::*;
 use net::quic::{Channel, ConnectionId, QuicManager, SendTarget};
+use physics::collider_flags::ColliderFlags;
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
@@ -248,15 +249,36 @@ fn beam_hit(
     shooter: Option<Entity>,
 ) -> Option<(Entity, Vec3)> {
     let exclude = shooter.into_iter().collect::<Vec<_>>();
-    let (entity, toi) = world.cast_ray(origin, dir, RANGE, &exclude)?;
-    Some((entity, origin + dir * toi))
+    let hit = world
+        .cm_cast_ray_generic(
+            origin,
+            dir * RANGE,
+            0.0,
+            false,
+            &exclude,
+            Some(ColliderFlags::PROJECTILE_IMMUNE),
+        )
+        .into_iter()
+        .next()?;
+    let entity = hit.entity?;
+    let point = hit.point_of_impact.unwrap_or(origin + dir * hit.toi.unwrap_or(RANGE));
+    Some((entity, point))
 }
 
 #[cfg(feature = "client")]
 fn beam_len(world: &PhysicsWorld, origin: Vec3, dir: Vec3, exclude: &[Entity]) -> f32 {
     world
-        .cast_ray(origin, dir, RANGE, exclude)
-        .map(|(_, toi)| toi)
+        .cm_cast_ray_generic(
+            origin,
+            dir * RANGE,
+            0.0,
+            false,
+            exclude,
+            Some(ColliderFlags::PROJECTILE_IMMUNE),
+        )
+        .into_iter()
+        .next()
+        .and_then(|hit| hit.toi)
         .unwrap_or(RANGE)
 }
 
