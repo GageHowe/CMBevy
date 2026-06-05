@@ -106,9 +106,9 @@ pub struct RayHit {
     /// time of impact; 0 is immediate hit, 1 is hit at very tip of ray. maybe use this for damage scaling or something
     pub toi: f32,
     /// direction to
-    pub normal: Vec3,
+    pub normal: Option<Vec3>,
     /// world-space position of hit
-    pub point_of_impact: Vec3,
+    pub point_of_impact: Option<Vec3>,
 }
 
 impl PhysicsWorld {
@@ -192,14 +192,14 @@ impl PhysicsWorld {
         }
     }
 
-    /// Disable or re-enable a body without removing it from the world.
-    pub fn set_body_enabled(&mut self, entity: Entity, enabled: bool) {
-        if let Some(&handle) = self.entity_to_handle.get(&entity) {
-            if let Some(rb) = self.rigid_body_set.get_mut(handle) {
-                rb.set_enabled(enabled);
-            }
-        }
-    }
+    // /// Disable or re-enable a body without removing it from the world.
+    // pub fn set_body_enabled(&mut self, entity: Entity, enabled: bool) {
+    //     if let Some(&handle) = self.entity_to_handle.get(&entity) {
+    //         if let Some(rb) = self.rigid_body_set.get_mut(handle) {
+    //             rb.set_enabled(enabled);
+    //         }
+    //     }
+    // }
 
     // this is bad because rarely do we want to set the velocity of an entity to 0.
     // pub fn teleport_body(&mut self, entity: Entity, pos: Vec3) {
@@ -464,24 +464,14 @@ impl PhysicsWorld {
         } else if multiple == true {
             // piercing sphere cast (like a big laser or cannonball)
 
-            // let options = ShapeCastOptions {
-            //     max_time_of_impact: direction.length(),
-            //     target_distance: 0.0,
-            //     stop_at_penetration: false,
-            //     compute_impact_geometry_on_penetration: true,
-            // };
+            // build, place, and rotate a capsule to be the "sweep" area
+            let shape = Capsule::new_y(direction.length() * 0.5, radius);
+            let shape_pos = Pose::from_parts(
+                origin + direction * 0.5,
+                Quat::from_rotation_arc(Vec3::Y, direction.normalize_or_zero()),
+            );
 
-            // // let options = ShapeCastOptions::
-            // //
-            //
-            //
-
-            // this may not be possible without shape intersection, not shape cast
-
-            let shape = Cylinder::new(radius, direction.length());
-
-            // TODO: figure out orientation
-
+            // perform the intersection
             for (collider_handle, _) in query_pipeline.intersect_shape(shape_pos, &shape) {
                 // println!("The collider {:?} intersects our shape.", collider_handle);
                 hits.push(RayHit {});
@@ -489,7 +479,7 @@ impl PhysicsWorld {
 
             todo!();
         } else {
-            // non-piercing sphere cast (like a bomb)
+            // non-piercing sphere cast (like a bomb's initial collision)
 
             let options = ShapeCastOptions {
                 max_time_of_impact: direction.length(),
