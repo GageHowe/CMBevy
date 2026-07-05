@@ -65,13 +65,7 @@ fn update_pistol(
     weapon.trigger_down = true;
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(
-        0.1,
-        false,
-        ctx,
-        world,
-        0.6,
-    );
+    projectile::apply_recoil(0.1, false, ctx, world, 0.6);
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((1.2, 0.3), (-0.6, 0.6), 22.0);

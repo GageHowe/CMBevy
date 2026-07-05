@@ -117,7 +117,9 @@ pub fn convert_image_to_ktx2_bytes(img: DynamicImage, resolution: u32) -> std::i
         DynamicImage::ImageRgb32F(buf) => buf,
         other => other.into_rgb32f(),
     };
-    let faces: Vec<Vec<f32>> = (0..6).map(|face| render_face(&img, face, resolution)).collect();
+    let faces: Vec<Vec<f32>> = (0..6)
+        .map(|face| render_face(&img, face, resolution))
+        .collect();
     let mut bytes = Vec::new();
     write_ktx2(&mut bytes, &faces, resolution)?;
     Ok(bytes)

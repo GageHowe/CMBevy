@@ -1,8 +1,8 @@
 use bevy::{
     asset::{
+        RenderAssetUsages,
         io::{AssetReaderError, AsyncWriteExt, Writer},
         processor::{Process, ProcessContext, ProcessError},
-        RenderAssetUsages,
     },
     image::{ImageFormat, ImageFormatSetting, ImageLoader, ImageLoaderSettings, ImageSampler},
     prelude::*,
@@ -43,7 +43,13 @@ impl Process for HdriProcessor {
                 path: context.path().clone_owned(),
                 err: err.into(),
             })?;
-        if context.path().path().extension().and_then(|ext| ext.to_str()) != Some("hdr") {
+        if context
+            .path()
+            .path()
+            .extension()
+            .and_then(|ext| ext.to_str())
+            != Some("hdr")
+        {
             return Err(ProcessError::AssetReaderError {
                 path: context.path().clone_owned(),
                 err: AssetReaderError::Io(

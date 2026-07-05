@@ -260,11 +260,7 @@ pub fn cleanup_world(
     }
 }
 
-fn connect(
-    mut commands: Commands,
-    mut quic: ResMut<QuicManager>,
-    addr: Res<ServerAddr>,
-) {
+fn connect(mut commands: Commands, mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
     gameplay::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.addr, addr.lobby_id.clone());
 }

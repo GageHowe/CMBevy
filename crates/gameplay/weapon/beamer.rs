@@ -790,7 +790,12 @@ fn add_visuals(
 
 #[cfg(feature = "client")]
 fn sync_visuals(
-    beamers: Query<(Entity, &BeamerComponent, &BeamerVisualRefs, &GlobalTransform)>,
+    beamers: Query<(
+        Entity,
+        &BeamerComponent,
+        &BeamerVisualRefs,
+        &GlobalTransform,
+    )>,
     tick: Res<common::tick::Ticker>,
     world: Res<PhysicsWorld>,
     mut visuals: ParamSet<(

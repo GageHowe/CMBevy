@@ -63,13 +63,7 @@ fn update_rifle(
     }
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(
-        0.1,
-        false,
-        ctx,
-        world,
-        kick_scale,
-    );
+    projectile::apply_recoil(0.1, false, ctx, world, kick_scale);
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick(

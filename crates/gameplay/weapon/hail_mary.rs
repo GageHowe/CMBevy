@@ -78,13 +78,7 @@ fn update_hail_mary(
 
     helpers::fire_projectile(ctx, world, commands);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(
-        1.5,
-        false,
-        ctx,
-        world,
-        1.0,
-    );
+    projectile::apply_recoil(1.5, false, ctx, world, 1.0);
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0);

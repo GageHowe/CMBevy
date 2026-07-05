@@ -65,13 +65,7 @@ fn update_smg(
     let shot_dir = spread_dir(ctx.aim_dir);
     helpers::fire_projectile_with_dir(ctx, world, commands, temp_id, shot_dir);
     #[cfg(feature = "client")]
-    projectile::apply_recoil(
-        0.1,
-        false,
-        ctx,
-        world,
-        0.45,
-    );
+    projectile::apply_recoil(0.1, false, ctx, world, 0.45);
     helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
     if let Some(cam) = ctx.camera.as_mut() {
         cam.add_kick((1.1, 0.35), (-0.6, 0.6), 24.0);

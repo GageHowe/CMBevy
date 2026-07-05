@@ -57,60 +57,60 @@ impl Plugin for ServerSessionPlugin {
         let gametype_path = self.gametype_path.clone();
         crate::runtime::configure_authority_sets(app);
         app.insert_resource(ScriptConfig {
-                path: gametype_path.clone(),
-                is_server: true,
-                source: None,
-            })
-            .insert_resource(ConsoleCommands(std::sync::Mutex::new(cmd_rx)))
-            .init_resource::<MatchState>()
-            .init_resource::<PlayerNumbers>()
-            .init_resource::<TeamNumbers>()
-            .init_resource::<PlayerRegistry>()
-            .init_resource::<PendingRespawns>()
-            .init_resource::<PendingConnections>()
-            .init_resource::<ActiveConnections>()
-            .init_resource::<PendingInputs>()
-            .init_resource::<PendingMeleeHits>()
-            .init_resource::<LastProcessedInputSeq>()
-            .init_resource::<BodyHistory>()
-            .add_systems(Update, (tick_respawns, process_console_commands))
-            .add_systems(Update, restart_round)
-            .add_systems(
-                Startup,
-                (
-                    move |mut commands: Commands| load_server_level(&map_path, &mut commands),
-                    move |mut quic: ResMut<QuicManager>| quic.start_server(bind_addr),
-                    init_mode_config,
-                )
-                    .chain(),
+            path: gametype_path.clone(),
+            is_server: true,
+            source: None,
+        })
+        .insert_resource(ConsoleCommands(std::sync::Mutex::new(cmd_rx)))
+        .init_resource::<MatchState>()
+        .init_resource::<PlayerNumbers>()
+        .init_resource::<TeamNumbers>()
+        .init_resource::<PlayerRegistry>()
+        .init_resource::<PendingRespawns>()
+        .init_resource::<PendingConnections>()
+        .init_resource::<ActiveConnections>()
+        .init_resource::<PendingInputs>()
+        .init_resource::<PendingMeleeHits>()
+        .init_resource::<LastProcessedInputSeq>()
+        .init_resource::<BodyHistory>()
+        .add_systems(Update, (tick_respawns, process_console_commands))
+        .add_systems(Update, restart_round)
+        .add_systems(
+            Startup,
+            (
+                move |mut commands: Commands| load_server_level(&map_path, &mut commands),
+                move |mut quic: ResMut<QuicManager>| quic.start_server(bind_addr),
+                init_mode_config,
             )
-            .add_systems(FixedUpdate, gameplay::bot::run_bots.before(step_physics))
-            .add_systems(FixedUpdate, apply_inputs.before(step_physics))
-            .add_systems(
-                FixedUpdate,
-                apply_melee_hit_requests
-                    .after(apply_inputs)
-                    .before(step_physics),
+                .chain(),
+        )
+        .add_systems(FixedUpdate, gameplay::bot::run_bots.before(step_physics))
+        .add_systems(FixedUpdate, apply_inputs.before(step_physics))
+        .add_systems(
+            FixedUpdate,
+            apply_melee_hit_requests
+                .after(apply_inputs)
+                .before(step_physics),
+        )
+        .add_systems(FixedUpdate, advance_match_state_time)
+        .add_systems(
+            FixedUpdate,
+            (
+                gameplay::health::broadcast_dirty_health,
+                gameplay::weapon::broadcast_dirty_weapon_states,
             )
-            .add_systems(FixedUpdate, advance_match_state_time)
-            .add_systems(
-                FixedUpdate,
-                (
-                    gameplay::health::broadcast_dirty_health,
-                    gameplay::weapon::broadcast_dirty_weapon_states,
-                )
-                    .after(step_physics)
-                    .before(broadcast_tick),
-            )
-            .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
-            .add_systems(
-                FixedUpdate,
-                broadcast_tick.after(gameplay::health::handle_deaths),
-            )
-            .add_systems(
-                FixedPreUpdate,
-                crate::messages_server::flush_pending_connections.after(crate::on_message),
-            );
+                .after(step_physics)
+                .before(broadcast_tick),
+        )
+        .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
+        .add_systems(
+            FixedUpdate,
+            broadcast_tick.after(gameplay::health::handle_deaths),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            crate::messages_server::flush_pending_connections.after(crate::on_message),
+        );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobby {
                 req: advertise.clone(),
