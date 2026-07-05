@@ -1,0 +1,36 @@
+name: Build Linux gameserver
+
+on:
+  workflow_dispatch:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[buildserver]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build gameserver
+        run: cargo build --release --locked -p gameserver --bin gameserver
+
+      - name: Package gameserver
+        run: tar -C target/release -czf gameserver-linux-x86_64.tar.gz gameserver
+
+      - name: Upload gameserver
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameserver-linux-x86_64
+          path: gameserver-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
