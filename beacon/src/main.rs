@@ -1,13 +1,9 @@
-mod assets;
 mod beacon_routes;
-mod db;
 mod ui;
 
 use std::{
     collections::HashMap,
-    env,
     net::SocketAddr,
-    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -17,8 +13,6 @@ use axum::{
     response::Response,
     routing::{get, post},
 };
-use rusqlite::Connection;
-
 const BEACON_RENDEZVOUS_PORT: u16 = 42072;
 
 #[derive(Default)]
@@ -28,30 +22,12 @@ pub(crate) struct RendezvousState {
     pub(crate) pending: HashMap<String, Vec<SocketAddr>>,
 }
 
-#[derive(Clone)]
-pub(crate) struct AssetState {
-    pub(crate) db: Arc<Mutex<Connection>>,
-}
-
 #[tokio::main]
 async fn main() {
-    let db_path = env_path("BEACON_DB_PATH").unwrap_or_else(|| PathBuf::from("data.db"));
-    let asset_dir = assets::asset_dir();
-    let db = db::open(&db_path);
-    db::sync_assets(&db, &asset_dir);
-
-    let assets = AssetState { db };
     let lobbies = Arc::new(Mutex::new(HashMap::new()));
     let rendezvous = Arc::new(Mutex::new(RendezvousState::default()));
     beacon_routes::init_state(lobbies.clone(), rendezvous.clone());
     tokio::spawn(run_rendezvous_udp(rendezvous));
-
-    let asset_routes = Router::<AssetState>::new()
-        .route("/assets", get(assets::serve_ui).post(assets::upload))
-        .route("/assets/list", get(assets::list_partial))
-        .route("/assets/{hash}", get(assets::get).put(assets::put))
-        .route("/assets/{hash}/vote/{vote}", post(assets::vote))
-        .with_state(assets);
 
     let lobby_routes = Router::new()
         .route("/lobbies", get(beacon_routes::list_json))
@@ -70,7 +46,6 @@ async fn main() {
         .route("/theme.css", get(serve_css))
         .route("/health", get(|| async { "OK" }))
         .route("/beacon", get(beacon_routes::serve_ui))
-        .merge(asset_routes)
         .merge(lobby_routes);
 
     let bind_addr = SocketAddr::from(([127, 0, 0, 1], 8000));
@@ -82,12 +57,6 @@ async fn main() {
     )
     .await
     .unwrap();
-}
-
-fn env_path(key: &str) -> Option<PathBuf> {
-    env::var_os(key)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
 }
 
 async fn serve_css() -> Response {

@@ -75,7 +75,6 @@ pub struct BipedPawnComponent {
     pub melee_debug_end: Vec3,
     pub melee_debug_ticks: u8,
     pub snap_target: Option<Entity>,
-    pub last_look_frame_body_rot: Option<Quat>,
 }
 
 pub struct BipedPlugin;
@@ -93,12 +92,7 @@ impl Plugin for BipedPlugin {
         }
         app.add_systems(
             PostUpdate,
-            (
-                look::sync_remote_look_pivots,
-                look::preserve_look_across_body_rotation,
-            )
-                .chain()
-                .before(TransformSystems::Propagate),
+            look::sync_remote_look_pivots.before(TransformSystems::Propagate),
         );
     }
 }

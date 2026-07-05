@@ -10,7 +10,7 @@ pub enum AuthoredColliderShape {
         half_height: f32,
         radius: f32,
     },
-    /// Local asset path or `sha256:...` remote ref to an OBJ file containing VHACD convex hulls.
+    /// Asset path to an OBJ file containing VHACD convex hulls.
     ConvexHulls(String),
 }
 

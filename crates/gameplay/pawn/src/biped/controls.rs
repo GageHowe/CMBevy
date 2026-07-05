@@ -348,7 +348,6 @@ fn reset_look_on_possess(
     }
     biped.look_yaw = 0.0;
     biped.look_pitch = 0.0;
-    biped.last_look_frame_body_rot = None;
 }
 
 fn hide_weapons_while_seated(seated: Query<&WeaponSlots, Added<Mounted>>, mut commands: Commands) {

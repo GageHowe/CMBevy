@@ -58,14 +58,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
 
     ui.checkbox(&mut settings.gamepad_invert_y, "Invert gamepad Y");
 
-    ui.checkbox(
-        &mut settings.preserve_look_across_planet_snap,
-        "Preserve look across planet snap",
-    )
-    .on_hover_text(
-        "EXPERIMENTAL: Keeps the camera aimed in the same world direction when planet snapping rotates the player frame. This may cause camera jitter.",
-    );
-
     ui.separator();
     ui.heading("Prompt labels");
     ui.horizontal(|ui| {

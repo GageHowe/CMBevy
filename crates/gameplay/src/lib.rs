@@ -3,7 +3,6 @@
 
 use bevy::prelude::*;
 
-pub mod asset_path;
 pub mod bot;
 pub mod collision;
 pub mod components;

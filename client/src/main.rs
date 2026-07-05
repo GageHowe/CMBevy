@@ -29,7 +29,6 @@ use ui::{UIPlugin, window::WindowSettingsPlugin};
 mod auto_exposure_debug;
 mod camera;
 mod fullscreen_post_process;
-mod hdri_processor;
 mod hosting;
 mod menu;
 mod outline;
@@ -85,17 +84,8 @@ fn main() {
     app.add_plugins(
         DefaultPlugins
             .build()
-            .disable::<bevy::asset::io::web::WebAssetPlugin>()
             .set(AssetPlugin {
-                mode: AssetMode::Processed,
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
-                processed_file_path: common::config::asset_dir()
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new("."))
-                    .join("asset_cache")
-                    .to_string_lossy()
-                    .into_owned(),
-                use_asset_processor_override: Some(true),
                 ..default()
             })
             .set(LogPlugin {
@@ -112,48 +102,44 @@ fn main() {
             }),
     );
 
-    app.add_plugins((
-        AutoExposurePlugin,
-        AutoExposureDebugPlugin,
-        OutlinePlugin,
-        hdri_processor::HdriProcessorPlugin,
-    ))
-    .init_state::<GameState>()
-    .init_state::<UiState>()
-    .add_plugins(MasterPlugin)
-    .add_plugins(SteamworksPlugin) // prints steam info on Startup
-    .add_plugins(SettingsPlugin)
-    .add_plugins(WindowSettingsPlugin)
-    .add_plugins(UIPlugin)
-    .add_plugins(MenuPlugin)
-    .add_plugins(GPUParticlesPlugin)
-    .add_plugins(SoundPlugin)
-    .add_plugins(sound::ClientSoundPlugin)
-    .add_plugins(ClientSessionPlugin {
-        main_menu: GameState::NotPlaying,
-        single_player: GameState::SinglePlayer,
-        multiplayer: GameState::Multiplayer,
-    })
-    .add_plugins(ReconciliationPlugin::<GameState>::new(
-        GameState::Multiplayer,
-    ))
-    .add_plugins(TickSyncPlugin(GameState::Multiplayer))
-    .insert_resource(ServerAddr {
-        addr: server_addr,
-        lobby_id: None,
-    })
-    .init_resource::<SinglePlayerConfig>()
-    .add_systems(
-        FixedUpdate,
-        step_physics.run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
-    )
-    .add_systems(
-        Update,
-        sync_physics_visual
-            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
-    )
-    .add_systems(Startup, spawn_camera)
-    .add_systems(Last, cleanup_before_app_exit);
+    app.add_plugins((AutoExposurePlugin, AutoExposureDebugPlugin, OutlinePlugin))
+        .init_state::<GameState>()
+        .init_state::<UiState>()
+        .add_plugins(MasterPlugin)
+        .add_plugins(SteamworksPlugin) // prints steam info on Startup
+        .add_plugins(SettingsPlugin)
+        .add_plugins(WindowSettingsPlugin)
+        .add_plugins(UIPlugin)
+        .add_plugins(MenuPlugin)
+        .add_plugins(GPUParticlesPlugin)
+        .add_plugins(SoundPlugin)
+        .add_plugins(sound::ClientSoundPlugin)
+        .add_plugins(ClientSessionPlugin {
+            main_menu: GameState::NotPlaying,
+            single_player: GameState::SinglePlayer,
+            multiplayer: GameState::Multiplayer,
+        })
+        .add_plugins(ReconciliationPlugin::<GameState>::new(
+            GameState::Multiplayer,
+        ))
+        .add_plugins(TickSyncPlugin(GameState::Multiplayer))
+        .insert_resource(ServerAddr {
+            addr: server_addr,
+            lobby_id: None,
+        })
+        .init_resource::<SinglePlayerConfig>()
+        .add_systems(
+            FixedUpdate,
+            step_physics
+                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+        )
+        .add_systems(
+            Update,
+            sync_physics_visual
+                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+        )
+        .add_systems(Startup, spawn_camera)
+        .add_systems(Last, cleanup_before_app_exit);
     app.add_systems(OnExit(GameState::SinglePlayer), cleanup_level);
     app.add_systems(OnExit(GameState::Multiplayer), cleanup_level);
 

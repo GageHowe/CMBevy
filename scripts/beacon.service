@@ -6,8 +6,6 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/CMBevy
-Environment=BEACON_DB_PATH=/var/lib/beacon/data.db
-Environment=BEACON_ASSET_DIR=/var/lib/beacon/asset_blobs
 ExecStart=/root/CMBevy/build/beacon
 Restart=always
 RestartSec=3

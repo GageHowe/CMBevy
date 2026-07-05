@@ -234,9 +234,6 @@ pub struct LevelBytes {
 }
 
 pub fn load_level_source(path: &str, asset_dir: &std::path::Path) -> Result<LevelBytes, String> {
-    if path.starts_with("sha256:") {
-        return load_remote_level(path);
-    }
     read_and_compress_level(asset_dir.join(path))
 }
 
@@ -331,26 +328,6 @@ pub fn write_cached_map(hash: &str, compressed: &[u8]) {
 pub fn compressed_level_hash(compressed: &[u8]) -> Option<String> {
     let bytes = zstd::stream::decode_all(compressed).ok()?;
     Some(format!("sha256:{}", hex_sha256(&bytes)))
-}
-
-fn load_remote_level(hash: &str) -> Result<LevelBytes, String> {
-    if let Some(compressed) = read_cached_map(hash) {
-        return Ok(LevelBytes {
-            hash: hash.to_string(),
-            compressed,
-        });
-    }
-    let url = format!("{}/assets/{}", common::config::BEACON_URL, hash);
-    let response = ureq::get(&url)
-        .call()
-        .map_err(|err| format!("failed to fetch level {hash}: {err}"))?;
-    let mut reader = response.into_reader();
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut reader, &mut bytes)
-        .map_err(|err| format!("failed to read level {hash}: {err}"))?;
-    let level = compress_level_bytes(&bytes);
-    write_cached_map(&level.hash, &level.compressed);
-    Ok(level)
 }
 
 fn compress_level_bytes(raw: &[u8]) -> LevelBytes {
@@ -556,7 +533,7 @@ pub fn spawn_static_colliders(
         let body_type = scene_body.copied().unwrap_or_default();
         if let Shape::ConvexHulls(path) = &sc.shape {
             let Some(mut collider) =
-                load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), s)
+                load_convex_hull_blocking(common::config::asset_dir().join(path), s)
             else {
                 continue;
             };
@@ -602,7 +579,7 @@ pub fn spawn_scene_models(
 ) {
     for (entity, model) in &models {
         commands.entity(entity).insert((
-            SceneRoot(asset_server.load(crate::asset_path::resolve_asset_path(&model.path))),
+            SceneRoot(asset_server.load(model.path.clone())),
             Visibility::default(),
         ));
     }
@@ -610,7 +587,7 @@ pub fn spawn_scene_models(
 
 #[cfg(feature = "client")]
 /// Draws a lightweight debug marker for script zones so proof-of-concept objectives such as
-/// KOTH hills are visible without dedicated art.
+/// Script zones are visible without dedicated art.
 pub fn draw_script_zone_debug(
     zones: Query<(
         &ScriptZone,
@@ -746,10 +723,7 @@ pub fn load_level_scene(
     }
     for (scene_path, transform) in &meta.visuals {
         let entity = commands
-            .spawn((
-                SceneRoot(asset_server.load(crate::asset_path::resolve_asset_path(scene_path))),
-                *transform,
-            ))
+            .spawn((SceneRoot(asset_server.load(scene_path.clone())), *transform))
             .id();
         // parent to the scene root so it despawns with it
         commands.entity(root).add_child(entity);

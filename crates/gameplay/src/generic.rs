@@ -17,9 +17,8 @@ pub fn attach_hull_collider(
     fallback: ColliderBuilder,
     world: &mut World,
 ) {
-    let collider =
-        load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), scale)
-            .unwrap_or_else(|| fallback.build());
+    let collider = load_convex_hull_blocking(common::config::asset_dir().join(path), scale)
+        .unwrap_or_else(|| fallback.build());
     let mut physics = world.resource_mut::<PhysicsWorld>();
     let PhysicsWorld {
         collider_set,
@@ -74,9 +73,8 @@ pub fn spawn_generic(
                 rigid_body_set,
                 ..
             } = &mut *world;
-            let collider =
-                load_convex_hull_blocking(crate::asset_path::resolve_asset_file_path(path), scale)
-                    .unwrap_or_else(|| ColliderBuilder::ball(0.5).build());
+            let collider = load_convex_hull_blocking(common::config::asset_dir().join(path), scale)
+                .unwrap_or_else(|| ColliderBuilder::ball(0.5).build());
             collider_set.insert_with_parent(collider, rb_handle, rigid_body_set);
         }
     }

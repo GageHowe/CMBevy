@@ -357,7 +357,7 @@ pub fn apply_collision_damage(
         if damage <= 0.0 {
             continue;
         }
-        eprintln!(
+        println!(
             "collision impulse: {:.2}  damage: {:.1}",
             impact.impulse, damage
         );

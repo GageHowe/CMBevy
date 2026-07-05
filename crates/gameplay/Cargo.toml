@@ -29,6 +29,5 @@ serde_json = { workspace = true }
 ron = { workspace = true }
 zstd = { workspace = true }
 fastrand = { workspace = true }
-ureq = { workspace = true }
 sha2 = { workspace = true }
 noise-functions = { workspace = true, optional = true }

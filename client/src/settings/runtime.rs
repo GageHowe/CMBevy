@@ -9,7 +9,7 @@ use bevy::{
 };
 use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
 use common::{ActiveBindings, PromptDevicePreference};
-use gameplay::pawn::{CameraEffector, LookSnapCompensation, MouseSensitivity};
+use gameplay::pawn::{CameraEffector, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
 
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
@@ -19,7 +19,6 @@ pub fn apply_settings(
     mut commands: Commands,
     settings: Res<Settings>,
     mut sensitivity: ResMut<MouseSensitivity>,
-    mut snap_comp: ResMut<LookSnapCompensation>,
     mut interp_mode: ResMut<PhysicsInterpMode>,
     mut cam_effects: Query<(Entity, &mut CameraEffector), With<Camera3d>>,
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
@@ -35,7 +34,6 @@ pub fn apply_settings(
     sensitivity.gamepad_move_deadzone = settings.gamepad_move_deadzone;
     sensitivity.gamepad_look_deadzone = settings.gamepad_look_deadzone;
     sensitivity.gamepad_invert_y = settings.gamepad_invert_y;
-    snap_comp.0 = settings.preserve_look_across_planet_snap;
 
     if let Ok(mut window) = window_q.single_mut() {
         window.present_mode = match settings.vsync {

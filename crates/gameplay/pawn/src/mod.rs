@@ -235,7 +235,6 @@ impl Plugin for PawnPlugin {
         crate::register_spawnable(app, "spaceship", spaceship::spawn_spaceship);
         crate::register_spawnable(app, "truck", truck::spawn_truck);
         crate::register_spawnable(app, "hovercraft", hovercraft::spawn_hovercraft);
-        app.init_resource::<LookSnapCompensation>();
         #[cfg(feature = "client")]
         app.init_resource::<InteractionGate>()
             .init_resource::<InteractionHint>()
@@ -250,15 +249,6 @@ impl Plugin for PawnPlugin {
         app.add_plugins(spaceship::SpaceshipPlugin);
         app.add_plugins(truck::TruckPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
-    }
-}
-
-#[derive(Resource, Clone, Copy)]
-/// Enables compensation that preserves aim direction when a possessed biped body rotates abruptly.
-pub struct LookSnapCompensation(pub bool);
-impl Default for LookSnapCompensation {
-    fn default() -> Self {
-        Self(true)
     }
 }
 

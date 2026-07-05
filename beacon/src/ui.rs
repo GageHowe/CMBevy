@@ -2,7 +2,6 @@ use axum::response::Html;
 
 pub(crate) enum Page {
     Home,
-    Assets,
     Lobbies,
 }
 
@@ -44,17 +43,6 @@ fn nav(active: Page) -> &'static str {
             <div class="row">
                 <a class="nav-link active" href="/">Home</a>
                 <a class="nav-link" href="/beacon">Custom Games</a>
-                <a class="nav-link" href="/assets">Assets</a>
-            </div>
-        </nav>"#
-        }
-        Page::Assets => {
-            r#"<nav>
-            <a class="brand" href="/">Critical Mass</a>
-            <div class="row">
-                <a class="nav-link" href="/">Home</a>
-                <a class="nav-link" href="/beacon">Custom Games</a>
-                <a class="nav-link active" href="/assets">Assets</a>
             </div>
         </nav>"#
         }
@@ -64,7 +52,6 @@ fn nav(active: Page) -> &'static str {
             <div class="row">
                 <a class="nav-link" href="/">Home</a>
                 <a class="nav-link active" href="/beacon">Custom Games</a>
-                <a class="nav-link" href="/assets">Assets</a>
             </div>
         </nav>"#
         }
