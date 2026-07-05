@@ -13,7 +13,6 @@ use bevy::{
     window::PresentMode,
 };
 use camera::spawn_camera;
-use color_compression::ColorCompressionPlugin;
 pub use common::game_state::GameState;
 use gameplay::{
     components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
@@ -29,7 +28,6 @@ use ui::{UIPlugin, window::WindowSettingsPlugin};
 
 mod auto_exposure_debug;
 mod camera;
-mod color_compression;
 mod fullscreen_post_process;
 mod hdri_processor;
 mod hosting;
@@ -118,7 +116,6 @@ fn main() {
         AutoExposurePlugin,
         AutoExposureDebugPlugin,
         OutlinePlugin,
-        ColorCompressionPlugin,
         hdri_processor::HdriProcessorPlugin,
     ))
     .init_state::<GameState>()

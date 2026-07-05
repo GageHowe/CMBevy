@@ -101,18 +101,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
         }
 
-        ui.checkbox(&mut settings.color_compression, "Color compression").on_hover_text("Posterizes the final image with ordered dithering for a harsher retro/compressed look.");
-        if settings.color_compression {
-            ui.horizontal(|ui| {
-                ui.label("Color steps").on_hover_text("Lower values crush more colors and make the effect harsher.");
-                ui.add(egui::Slider::new(&mut settings.color_compression_steps, 2.0..=64.0).fixed_decimals(0));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Dither strength").on_hover_text("How much ordered dithering breaks up flat posterization bands.");
-                ui.add(egui::Slider::new(&mut settings.color_compression_dither, 0.0..=1.5).fixed_decimals(2));
-            });
-        }
-
         ui.checkbox(&mut settings.motion_blur, "Motion blur").on_hover_text("Uses per-object motion vectors to blur fast movement. Costs extra GPU time.");
         if settings.motion_blur {
             ui.horizontal(|ui| {

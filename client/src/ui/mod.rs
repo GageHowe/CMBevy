@@ -81,7 +81,8 @@ fn set_style(mut contexts: EguiContexts) {
     style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;
     style.visuals.widgets.noninteractive.bg_fill =
         egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
-    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    style.visuals.widgets.noninteractive.fg_stroke =
+        egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
     style.visuals.window_stroke = egui::Stroke {
         width: 0.0,
         color: egui::Color32::TRANSPARENT,

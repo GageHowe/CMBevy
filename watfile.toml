@@ -1,7 +1,0 @@
-# use with https://github.com/GageHowe/wat/
-
-default = ["beacon"]
-
-[beacon]
-watch = ["beacon/src/**", "beacon/Cargo.toml", "schema.sql", "Cargo.toml"]
-run = ["cargo run -p beacon"]

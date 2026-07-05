@@ -1,4 +1,5 @@
 //! Shared game object types and the runtime glue that lets the rest of the game spawn them.
+#![allow(unused_imports)]
 
 use bevy::prelude::*;
 
@@ -52,7 +53,7 @@ impl Plugin for GameplayPlugin {
             .register_type::<net::message::NetworkID>()
             .register_type::<Team>()
             .init_resource::<messages::GameMessages>()
-            .add_observer(on_remove_networked_entity)
+            .add_observer(cm_on_remove_networked_entity)
             .add_systems(
                 PreUpdate,
                 (
@@ -81,38 +82,14 @@ impl Plugin for GameplayPlugin {
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(shield::ShieldPlugin);
         app.add_plugins(weapon::WeaponPlugin);
-        app.add_plugins(zone_effects::ZoneEffectsPlugin);
+        // app.add_plugins(zone_effects::ZoneEffectsPlugin);
     }
 }
-
-// #[cfg(feature = "client")]
-// fn on_remove_networked_entity(
-//     event: On<Remove, net::message::NetworkID>,
-//     map: Res<NetworkEntityMap>,
-//     quic: Option<ResMut<net::quic::QuicManager>>,
-// ) {
-//     let _ = (event, map, quic);
-// }
-
-// #[cfg(not(feature = "client"))]
-// fn on_remove_networked_entity(
-//     event: On<Remove, net::message::NetworkID>,
-//     map: Res<NetworkEntityMap>,
-//     mut quic: Option<ResMut<net::quic::QuicManager>>,
-// ) {
-//     let Some(net_id) = map.get_net_id_for_entity(event.entity).cloned() else {
-//         return;
-//     };
-//     let Some(quic) = quic.as_mut() else {
-//         return;
-//     };
-//     crate::lifecycle::send_despawn_command(quic, net::quic::SendTarget::All, net_id);
-// }
 
 /// DO NOT CHANGE - STABLE SYSTEM
 /// observer system that automatically detects deleted entities with NetworkID and tells clients to delete them on their end. We should rely on this rather than manually sending despawn messages to the client.
 #[allow(unused_variables)]
-fn on_remove_networked_entity(
+fn cm_on_remove_networked_entity(
     event: On<Remove, net::message::NetworkID>,
     map: Res<NetworkEntityMap>,
     quic: Option<ResMut<net::quic::QuicManager>>,
