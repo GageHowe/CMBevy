@@ -79,8 +79,7 @@ pub fn start_hosted_server(
         Err(err) => return Err(err),
     };
     drop(preflight);
-    spawn_gameserver_terminal(port, map, gametype, advertise)?;
-    wait_for_port_bind(port)
+    spawn_gameserver_terminal(port, map, gametype, advertise)
 }
 
 pub fn cleanup_before_app_exit(
@@ -184,26 +183,6 @@ fn spawn_gameserver_terminal(
     spawn_detached_terminal(&exe, &args)
 }
 
-fn wait_for_port_bind(port: u16) -> std::io::Result<()> {
-    use std::time::{Duration, Instant};
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline {
-        match std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
-            Ok(sock) => {
-                drop(sock);
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => return Ok(()),
-            Err(err) => return Err(err),
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::TimedOut,
-        "gameserver did not bind its port",
-    ))
-}
-
 fn kill_local_port_owners(port: u16) {
     for pid in local_port_pids(port) {
         kill_pid(pid);
@@ -272,12 +251,14 @@ fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::R
 #[cfg(target_os = "windows")]
 fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x00000008;
+    const CREATE_NEW_CONSOLE: u32 = 0x00000010;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-    std::process::Command::new(exe)
+    std::process::Command::new("cmd.exe")
+        .arg("/K")
+        .arg(exe)
         .args(args)
         .current_dir(workspace_root())
-        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .creation_flags(CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map(|_| ())
 }

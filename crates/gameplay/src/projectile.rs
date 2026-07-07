@@ -54,12 +54,6 @@ pub struct Projectile {
 #[derive(Component, Clone, Copy)]
 pub struct ProjectileTempId(pub u32);
 
-#[derive(Component)]
-pub struct ProjectileRaycastDebug {
-    pub start: Vec3,
-    pub end: Vec3,
-}
-
 #[derive(Clone, Copy)]
 pub struct ProjectileExplosion {
     pub radius: f32,
@@ -378,46 +372,48 @@ fn cast_projectile(
         return None;
     }
     let dir = cast_delta / step;
-    #[cfg(feature = "client")]
-    commands.entity(entity).insert(ProjectileRaycastDebug {
-        start: prev,
-        end: curr,
-    });
     let exclude = [entity, projectile.shooter.unwrap_or(entity)];
-    let mut origin = prev;
-    let mut remaining = step;
+    let origin = prev;
+    let remaining = step;
     let radius = projectile.radius.unwrap_or(0.0);
-    loop {
-        let hit = if let Some(radius) = projectile.radius {
-            world
-                .cast_sphere(origin, dir, radius, remaining, &exclude)
-                .map(|(entity, collider, toi, _)| (entity, collider, toi))
-        } else {
-            world
-                .cast_ray_detailed(origin, dir, remaining, &exclude)
-                .map(|hit| (hit.entity, hit.collider, hit.toi))
-        };
-        let Some((hit_entity, hit_collider, toi)) = hit else {
-            projectile.last_position = curr;
-            return None;
-        };
+    let hit = if let Some(radius) = projectile.radius {
+        world
+            .cast_sphere(origin, dir, radius, remaining, &exclude)
+            .map(|(entity, collider, toi, _)| (entity, collider, toi))
+    } else {
+        world
+            .cast_ray_detailed(origin, dir, remaining, &exclude)
+            .map(|hit| (hit.entity, hit.collider, hit.toi))
+    };
+    let Some((hit_entity, hit_collider, toi)) = hit else {
+        projectile.last_position = curr;
+        return None;
+    };
+    let (hit_entity, hit_collider, toi) =
         if shield_should_skip_inside_hit(world, shield_q, hit_collider, origin, radius) {
-            let advance = (toi + SHIELD_EXIT_EPSILON).min(remaining);
-            origin += dir * advance;
-            remaining -= advance;
-            if remaining <= 0.0 {
+            let hit = if let Some(radius) = projectile.radius {
+                world
+                    .cast_sphere_ignoring_shields(origin, dir, radius, remaining, &exclude)
+                    .map(|(entity, collider, toi, _)| (entity, collider, toi))
+            } else {
+                world
+                    .cast_ray_detailed_ignoring_shields(origin, dir, remaining, &exclude)
+                    .map(|hit| (hit.entity, hit.collider, hit.toi))
+            };
+            let Some(hit) = hit else {
                 projectile.last_position = curr;
                 return None;
-            }
-            continue;
-        }
-        return Some(ProjectileHit {
-            entity: hit_entity,
-            collider: hit_collider,
-            dir,
-            point: origin + dir * toi,
-        });
-    }
+            };
+            hit
+        } else {
+            (hit_entity, hit_collider, toi)
+        };
+    Some(ProjectileHit {
+        entity: hit_entity,
+        collider: hit_collider,
+        dir,
+        point: origin + dir * toi,
+    })
 }
 
 fn apply_direct_hit(
@@ -890,12 +886,16 @@ pub fn draw_projectile_debug(
 
 #[cfg(feature = "client")]
 pub fn draw_projectile_raycast_debug(
-    segments: Query<(Entity, &ProjectileRaycastDebug)>,
+    world: Res<PhysicsWorld>,
+    projectiles: Query<(&Projectile, &RigidBodyHandleComponent)>,
     mut gizmos: Gizmos,
-    mut commands: Commands,
 ) {
-    for (entity, segment) in &segments {
-        gizmos.line(segment.start, segment.end, Color::srgba(0.2, 1.0, 1.0, 0.9));
-        commands.entity(entity).remove::<ProjectileRaycastDebug>();
+    let dt = world.integration_parameters.dt;
+    for (projectile, body_handle) in &projectiles {
+        let Some(body) = world.rigid_body_set.get(body_handle.0) else {
+            continue;
+        };
+        let start = projectile.last_position + projectile.inherited_launch_velocity * dt;
+        gizmos.line(start, rb_pos(body), Color::srgba(0.2, 1.0, 1.0, 0.9));
     }
 }
