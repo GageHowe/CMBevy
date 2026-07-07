@@ -26,9 +26,6 @@ use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
 #[cfg(feature = "client")]
 pub use fx::{queue_fx, queue_remote_fx};
 
-pub type AbilityInputFn =
-    fn(&mut PhysicsWorld, Entity, common::BipedInput, &mut BipedAbilityState) -> Option<AbilityFx>;
-
 pub struct BipedAbilityPlugin;
 impl Plugin for BipedAbilityPlugin {
     fn build(&self, app: &mut App) {
@@ -37,6 +34,10 @@ impl Plugin for BipedAbilityPlugin {
         app.add_systems(
             FixedPreUpdate,
             tick_biped_ability_state.before(super::MovePawnsSet),
+        )
+        .add_systems(
+            FixedUpdate,
+            simulate_abilities.in_set(crate::weapon::SimulateItemSet),
         );
         #[cfg(feature = "client")]
         app.add_systems(
@@ -64,7 +65,6 @@ pub struct BipedAbilityState {
 pub struct EquippedAbility {
     pub state: BipedAbilityState,
     spec: &'static AbilitySpec,
-    apply_input: AbilityInputFn,
 }
 
 impl EquippedAbility {
@@ -75,7 +75,6 @@ impl EquippedAbility {
                 active: false,
             },
             spec,
-            apply_input: spec.apply_input,
         }
     }
 
@@ -121,11 +120,52 @@ impl EquippedAbility {
 }
 
 pub struct AbilitySpec {
+    pub kind: AbilityKind,
     pub spawn_name: &'static str,
     pub meter_max: f32,
     pub meter_regen: f32,
-    pub apply_input: AbilityInputFn,
     pub spawn_pickup: fn(Entity, Vec3, Vec3, &mut World),
+}
+
+#[derive(Component, Clone, Copy)]
+#[component(storage = "SparseSet")]
+pub struct AbilityInput(pub common::BipedInput);
+
+fn simulate_abilities(
+    mut bipeds: Query<(
+        Entity,
+        &mut BipedPawnComponent,
+        &AbilityInput,
+        Option<&NetworkID>,
+    )>,
+    mut world: ResMut<PhysicsWorld>,
+    mut commands: Commands,
+    registry: Option<Res<crate::pawn::PlayerRegistry>>,
+    mut quic: Option<ResMut<QuicManager>>,
+) {
+    for (entity, mut biped, input, net_id) in &mut bipeds {
+        let fx = apply_input(entity, input.0, &mut world, &mut biped);
+        commands.entity(entity).remove::<AbilityInput>();
+        let Some(fx) = fx else { continue };
+        #[cfg(feature = "client")]
+        queue_fx(entity, fx, &world, &mut commands);
+        #[cfg(not(feature = "client"))]
+        if let (Some(net_id), Some(quic)) = (net_id, quic.as_deref_mut()) {
+            let target = registry
+                .as_deref()
+                .and_then(|registry| registry.conn_id_for_character(entity))
+                .map_or(net::quic::SendTarget::All, net::quic::SendTarget::AllExcept);
+            quic.send(target, fx_channel(fx), &fx_message(net_id.clone(), fx));
+        }
+        #[cfg(feature = "client")]
+        let _ = (&registry, &mut quic, net_id);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum AbilityKind {
+    Jetpack,
+    Dash,
 }
 
 /// Spawns a standard ability pickup: dynamic physics body, sphere collider, interactable marker,
@@ -418,7 +458,14 @@ pub fn apply_input(
     let Some(ability) = &mut biped.ability else {
         return None;
     };
-    (ability.apply_input)(world, owner, input, &mut ability.state)
+    match ability.spec.kind {
+        AbilityKind::Jetpack => {
+            implementors::jetpack::apply_jetpack_input(world, owner, input, &mut ability.state)
+        }
+        AbilityKind::Dash => {
+            implementors::dash::apply_dash_input(world, owner, input, &mut ability.state)
+        }
+    }
 }
 
 fn ability_spec(spawn_name: &str) -> Option<&'static AbilitySpec> {

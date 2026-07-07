@@ -23,10 +23,6 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
     despawn_on_contact: true,
     explosion: None,
 };
-pub fn spread_dir(aim_dir: Vec3) -> Vec3 {
-    helpers::apply_spread(aim_dir, SPREAD_RADIANS)
-}
-
 #[derive(Component, Default, Reflect)]
 pub struct SmgComponent;
 
@@ -46,65 +42,18 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 0.1,
     mass_scaled_shooter_impulse: false,
     decorate_projectile: Some(decorate_projectile),
+    projectile_behavior: Some(ProjectileBehavior {
+        semi_auto: false,
+        spread: SPREAD_RADIANS,
+        sound: "event:/Weapons/RifleShotLocal",
+        recoil_scale: 0.45,
+        kick_vertical: (1.1, 0.35),
+        kick_horizontal: (-0.6, 0.6),
+        kick_recovery: 24.0,
+        zoomed_kick_scale: 1.0,
+        shake: None,
+    }),
 };
-
-#[cfg(feature = "client")]
-fn update_smg(
-    _weapon: &mut SmgComponent,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    ctx: &mut FireCtx,
-) {
-    if ctx.reload_pressed {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
-    }
-    if !ctx.want_fire || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
-        return;
-    }
-    let temp_id = crate::projectile::next_temp_id(ctx.id_counter.as_deref_mut());
-    let shot_dir = spread_dir(ctx.aim_dir);
-    helpers::fire_projectile_with_dir(ctx, world, commands, temp_id, shot_dir);
-    #[cfg(feature = "client")]
-    projectile::apply_recoil(0.1, false, ctx, world, 0.45);
-    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
-    if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick((1.1, 0.35), (-0.6, 0.6), 24.0);
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn drive_smgs(
-    mut weapons: Query<(
-        Entity,
-        &mut SmgComponent,
-        &mut WeaponState,
-        &WeaponConfig,
-        &PendingWeaponInput,
-    )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
-) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_smg,
-    );
-}
 
 pub fn spawn_smg(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(SmgComponent, CONFIG);

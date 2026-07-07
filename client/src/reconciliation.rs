@@ -248,11 +248,17 @@ fn maybe_reconcile(
                 if let (Some(owner_entity), common::PawnInputKind::Biped(input)) =
                     (possessed_entity, tick.input.clone())
                 {
-                    let _ = gameplay::pawn::biped::apply_biped_input(
+                    gameplay::pawn::biped::apply_biped_input(
                         &mut world,
                         owner_entity,
                         input,
                         &handle,
+                        &mut biped,
+                    );
+                    let _ = gameplay::pawn::biped_ability::apply_input(
+                        owner_entity,
+                        input,
+                        &mut world,
                         &mut biped,
                     );
                 }

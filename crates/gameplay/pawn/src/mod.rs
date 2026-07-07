@@ -5,7 +5,6 @@ mod camera_effects;
 pub mod hovercraft;
 pub mod mount;
 pub mod spaceship;
-pub mod truck;
 pub mod vehicle;
 pub mod weapon_slots;
 
@@ -18,7 +17,7 @@ pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 pub use camera_effects::{CameraEffector, CameraShake};
 #[cfg(feature = "client")]
 use common::PredictedCommands;
-pub use common::{BipedInput, PawnInputKind, SpaceshipInput, TruckInput};
+pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
 use net::{
@@ -27,7 +26,6 @@ use net::{
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
 pub use spaceship::SpaceshipPawnComponent;
-pub use truck::TruckPawnComponent;
 pub use vehicle::VehicleComponent;
 pub use weapon_slots::WeaponSlots;
 
@@ -233,7 +231,6 @@ impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
         crate::register_spawnable(app, "biped", biped::spawn_biped);
         crate::register_spawnable(app, "spaceship", spaceship::spawn_spaceship);
-        crate::register_spawnable(app, "truck", truck::spawn_truck);
         crate::register_spawnable(app, "hovercraft", hovercraft::spawn_hovercraft);
         #[cfg(feature = "client")]
         app.init_resource::<InteractionGate>()
@@ -247,7 +244,6 @@ impl Plugin for PawnPlugin {
         app.add_plugins(hovercraft::HovercraftPlugin);
         app.add_plugins(mount::MountPlugin);
         app.add_plugins(spaceship::SpaceshipPlugin);
-        app.add_plugins(truck::TruckPlugin);
         app.add_plugins(vehicle::VehiclePlugin);
     }
 }
@@ -282,67 +278,6 @@ impl InteractionGate {
 #[derive(Resource, Default)]
 /// UI-facing interaction prompt text for the locally controlled player.
 pub struct InteractionHint(pub Option<String>);
-
-pub fn apply_server_input(
-    entity: Entity,
-    input: PawnInputKind,
-    world: &mut PhysicsWorld,
-    bipeds: &mut Query<&mut biped::BipedPawnComponent>,
-    spaceships: &mut Query<&mut spaceship::SpaceshipPawnComponent>,
-    trucks: &mut Query<&mut truck::TruckPawnComponent>,
-    hovercrafts: &mut Query<&mut hovercraft::HovercraftPawnComponent>,
-) -> (bool, Option<biped_ability::AbilityFx>) {
-    let Some(handle) = world.entity_to_handle.get(&entity).copied() else {
-        return (false, None);
-    };
-    match input {
-        PawnInputKind::Biped(input) => {
-            let Ok(mut biped) = bipeds.get_mut(entity) else {
-                return (false, None);
-            };
-            let fx = biped::apply_biped_input(
-                world,
-                entity,
-                input,
-                &RigidBodyHandleComponent(handle),
-                &mut biped,
-            );
-            (true, fx)
-        }
-        PawnInputKind::Spaceship(input) => {
-            let Ok(mut ship) = spaceships.get_mut(entity) else {
-                return (false, None);
-            };
-            spaceship::apply_spaceship_movement(
-                world,
-                &RigidBodyHandleComponent(handle),
-                input,
-                &mut ship,
-            );
-            (true, None)
-        }
-        PawnInputKind::Truck(input) => {
-            if let Ok(mut truck) = trucks.get_mut(entity) {
-                truck::apply_truck_movement(
-                    world,
-                    &RigidBodyHandleComponent(handle),
-                    input,
-                    &mut truck,
-                );
-            } else if hovercrafts.get_mut(entity).is_ok() {
-                hovercraft::apply_hovercraft_movement(
-                    world,
-                    &RigidBodyHandleComponent(handle),
-                    input,
-                );
-            } else {
-                return (false, None);
-            }
-            (true, None)
-        }
-        PawnInputKind::HovercraftSpaceshipInput(_) => (false, None),
-    }
-}
 
 pub fn aim_dir(
     world: &PhysicsWorld,
@@ -461,6 +396,9 @@ impl Possessed {
     pub fn peek_newest(&self) -> Option<&PawnInputKind> {
         self.pending_input.as_ref()
     }
+    pub fn peek_newest_mut(&mut self) -> Option<&mut PawnInputKind> {
+        self.pending_input.as_mut()
+    }
 }
 
 // SYSTEMS
@@ -491,5 +429,20 @@ pub fn send_pawn_input(
         return;
     };
     let seq = predicted.record_input(input.clone());
-    quic.send_to_server(net::quic::Channel::Unreliable, &MsgType::Input(seq, input));
+    quic.send_to_server(
+        net::quic::Channel::Unreliable,
+        &MsgType::Input(seq, input.clone()),
+    );
+    if let PawnInputKind::Biped(input) = &input
+        && (input.item.primary_pressed
+            || input.item.secondary_pressed
+            || input.item.reload_pressed
+            || input.ability1_pressed
+            || input.melee_pressed)
+    {
+        quic.send_to_server(
+            net::quic::Channel::Unordered,
+            &MsgType::Input(seq, PawnInputKind::Biped(*input)),
+        );
+    }
 }

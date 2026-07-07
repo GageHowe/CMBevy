@@ -219,7 +219,7 @@ pub fn apply_biped_input(
     input: BipedInput,
     body_handle: &RigidBodyHandleComponent,
     biped: &mut BipedPawnComponent,
-) -> Option<crate::pawn::biped_ability::AbilityFx> {
+) {
     if (biped.look_yaw - input.look_yaw).abs() > 0.0001
         || (biped.look_pitch - input.look_pitch).abs() > 0.0001
     {
@@ -229,7 +229,7 @@ pub fn apply_biped_input(
     biped.look_pitch = input.look_pitch;
     apply_biped_movement(world, body_handle, input, biped);
     super::melee::tick_melee(world, body_handle, input, biped);
-    crate::pawn::biped_ability::apply_input(owner, input, world, biped)
+    let _ = owner;
 }
 
 pub fn biped_move_direction(body_rot: Quat, input: BipedInput) -> Vec3 {

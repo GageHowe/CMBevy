@@ -12,7 +12,7 @@ use gameplay::{
     level::{ScriptZone, SpawnPoint, parented_world_pose},
     messages::push_world,
     mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
-    pawn::{PlayerRegistry, WeaponSlots},
+    pawn::{PlayerRegistry, Possessed, WeaponSlots},
 };
 use mlua::prelude::*;
 use net::{
@@ -366,6 +366,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             world.entity_mut(entity).insert((
                 BotController::new(team, HeuristicKillerBot),
                 Name::new(format!("Bot (team {})", team.0)),
+                Possessed::new(128),
             ));
             Ok(true)
         })
@@ -580,7 +581,7 @@ fn end_game(world: &mut World, winner_player: Option<u64>, winner_team: Option<u
     state.winner_player = winner_player;
     state.winner_team = winner_team;
 }
-const SCRIPT_PAWN_SPAWNS: &[&str] = &["biped", "spaceship", "truck", "hovercraft"];
+const SCRIPT_PAWN_SPAWNS: &[&str] = &["biped", "spaceship", "hovercraft"];
 const SCRIPT_WEAPON_SPAWNS: &[&str] = &[
     "pistol",
     "beamer",

@@ -8,9 +8,12 @@ use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount};
 #[cfg(feature = "client")]
-use super::{GatherInputSet, MovePawnsSet, PawnInputKind, Possessed};
+use super::GatherInputSet;
+use super::{
+    MovePawnsSet, PawnInputKind, Possessed,
+    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
+};
 use crate::{
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
@@ -55,6 +58,8 @@ impl Plugin for HovercraftPlugin {
             )
                 .chain(),
         );
+        #[cfg(not(feature = "client"))]
+        app.add_systems(FixedPreUpdate, move_hovercrafts.in_set(MovePawnsSet));
     }
 }
 
@@ -163,7 +168,7 @@ fn gather_hovercraft_input(
         })
         .unwrap_or(Vec2::ZERO);
 
-    let mut input = common::TruckInput::default();
+    let mut input = common::HovercraftInput::default();
     if bindings.pressed(
         common::InputAction::MoveForward,
         &keyboard,
@@ -206,13 +211,13 @@ fn gather_hovercraft_input(
     ) {
         input.brake = 1.0;
     }
-    possessed.push(PawnInputKind::Truck(input));
+    possessed.push(PawnInputKind::Hovercraft(input));
 }
 
 pub fn apply_hovercraft_movement(
     world: &mut PhysicsWorld,
     body_handle: &RigidBodyHandleComponent,
-    input: common::TruckInput,
+    input: common::HovercraftInput,
 ) {
     let entity = world.handle_to_entity.get(&body_handle.0).copied();
     let Some(body) = world.rigid_body_set.get(body_handle.0) else {
@@ -309,13 +314,12 @@ pub fn apply_hovercraft_movement(
     }
 }
 
-#[cfg(feature = "client")]
 fn move_hovercrafts(
     mut world: ResMut<PhysicsWorld>,
     mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent), With<HovercraftPawnComponent>>,
 ) {
     for (mut possessed, handle) in &mut pawns {
-        let Some(PawnInputKind::Truck(input)) = possessed.consume() else {
+        let Some(PawnInputKind::Hovercraft(input)) = possessed.consume() else {
             continue;
         };
         apply_hovercraft_movement(&mut world, handle, input);

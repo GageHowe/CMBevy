@@ -24,7 +24,6 @@ pub fn on_message(
     mut pending_inputs: ResMut<PendingInputs>,
     mut pending_melee_hits: ResMut<PendingMeleeHits>,
     mut pending_respawns: ResMut<PendingRespawns>,
-    mut net_ids: ResMut<NetworkIDResource>,
     mut world_params: (Commands, ResMut<PhysicsWorld>, ResMut<HeldWeaponMap>),
     mut gameplay_params: (
         Res<NetworkEntityMap>,
@@ -36,12 +35,8 @@ pub fn on_message(
         Query<&mut gameplay::pawn::CharacterMount>,
         Query<&Transform>,
         Query<(&mut WeaponState, &WeaponConfig)>,
-        Query<&mut gameplay::weapon::beamer::BeamerComponent>,
-        Query<&mut gameplay::health::Health>,
-        Query<&mut gameplay::health::LastDamageSource>,
         Query<&OnPickup>,
     ),
-    tick: Res<Ticker>,
     level_bytes: Option<Res<LevelBytes>>,
 ) {
     let (ref mut commands, ref mut world, ref mut held_weapons) = world_params;
@@ -55,9 +50,6 @@ pub fn on_message(
         ref mut mounts,
         ref mount_anchor_transforms,
         ref mut weapon_runtime,
-        ref mut beamers,
-        ref mut health_q,
-        ref mut last_damage_q,
         ref on_pickup_q,
     ) = gameplay_params;
     crate::helpers::drain_inbound(&mut quic, |msg, quic| {
@@ -73,7 +65,6 @@ pub fn on_message(
             &mut pending_inputs,
             &mut pending_melee_hits,
             &mut pending_respawns,
-            &mut net_ids,
             commands,
             world,
             held_weapons,
@@ -86,11 +77,7 @@ pub fn on_message(
             mounts,
             mount_anchor_transforms,
             weapon_runtime,
-            beamers,
-            health_q,
-            last_damage_q,
             on_pickup_q,
-            tick.tick,
         );
     });
 }
@@ -263,7 +250,6 @@ fn process_server_message(
     pending_inputs: &mut PendingInputs,
     pending_melee_hits: &mut PendingMeleeHits,
     pending_respawns: &mut PendingRespawns,
-    net_ids: &mut NetworkIDResource,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     held_weapons: &mut HeldWeaponMap,
@@ -276,11 +262,7 @@ fn process_server_message(
     mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    beamers: &mut Query<&mut gameplay::weapon::beamer::BeamerComponent>,
-    health_q: &mut Query<&mut gameplay::health::Health>,
-    last_damage_q: &mut Query<&mut gameplay::health::LastDamageSource>,
     on_pickup_q: &Query<&OnPickup>,
-    tick: u64,
 ) {
     match msg {
         MsgType::Connected => {
@@ -308,14 +290,11 @@ fn process_server_message(
             pending_connections.0.remove(&conn_id);
         }
         MsgType::Input(input_seq, kind) => {
-            let newest_seen = pending_inputs
+            pending_inputs
                 .0
-                .get(&conn_id)
-                .map(|(seq, _)| *seq)
-                .unwrap_or(0);
-            if input_seq > newest_seen {
-                pending_inputs.0.insert(conn_id, (input_seq, kind));
-            }
+                .entry(conn_id)
+                .or_default()
+                .push(input_seq, kind);
         }
         MsgType::MeleeHitRequest(target_net_id) => {
             pending_melee_hits.0.insert(conn_id, target_net_id);
@@ -365,96 +344,10 @@ fn process_server_message(
                 quic,
             )
         }
-        MsgType::ReloadWeapon(weapon_net_id) => gameplay::weapon::handle_reload_request(
-            conn_id,
-            weapon_net_id,
-            registry,
-            all_networked,
-            pawn_slots,
-            weapon_runtime,
-            quic,
-        ),
-        MsgType::FireRequest {
-            weapon: weapon_net_id,
-            temp_id,
-            origin,
-            dir,
-        } => gameplay::weapon::handle_fire_request(
-            conn_id,
-            weapon_net_id,
-            temp_id,
-            origin,
-            dir,
-            registry,
-            all_networked,
-            pawn_slots,
-            weapon_runtime,
-            held_weapons,
-            commands,
-            world,
-            net_ids,
-            quic,
-        ),
-        MsgType::StartBeamCharge(weapon_net_id) => {
-            gameplay::weapon::beamer::handle_start_charge_request(
-                conn_id,
-                weapon_net_id,
-                registry,
-                all_networked,
-                pawn_slots,
-                beamers,
-                weapon_runtime,
-                quic,
-                tick,
-            )
-        }
-        MsgType::StartBeam {
-            weapon: weapon_net_id,
-            origin,
-            dir,
-        } => gameplay::weapon::beamer::handle_start_beam_request(
-            conn_id,
-            weapon_net_id,
-            origin,
-            dir,
-            registry,
-            all_networked,
-            pawn_slots,
-            beamers,
-            quic,
-            tick,
-        ),
-        MsgType::BeamHitReport {
-            weapon: weapon_net_id,
-            origin,
-            dir,
-            target,
-        } => gameplay::weapon::beamer::handle_beam_hit_report(
-            conn_id,
-            weapon_net_id,
-            origin,
-            dir,
-            target,
-            registry,
-            all_networked,
-            pawn_slots,
-            beamers,
-            weapon_runtime,
-            health_q,
-            last_damage_q,
-            quic,
-            tick,
-        ),
-        MsgType::EndBeam(weapon_net_id) => gameplay::weapon::beamer::handle_end_beam_request(
-            conn_id,
-            weapon_net_id,
-            registry,
-            all_networked,
-            pawn_slots,
-            beamers,
-            weapon_runtime,
-            quic,
-        ),
+        MsgType::StartBeamCharge(_)
+        | MsgType::StartBeam { .. }
+        | MsgType::BeamHitReport { .. }
+        | MsgType::EndBeam(_) => {}
         MsgType::TimePing(bits) => {
             quic.send(
                 SendTarget::One(conn_id),
@@ -542,7 +435,7 @@ fn handle_interact(
     let aim_dir = pending_inputs
         .0
         .get(&conn_id)
-        .map(|(_, input)| input)
+        .and_then(|pending| pending.held.as_ref())
         .and_then(|input| gameplay::pawn::aim_dir(world, character, Some(input)))
         .unwrap_or_else(|| {
             world

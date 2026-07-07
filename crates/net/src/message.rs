@@ -155,14 +155,7 @@ pub enum MsgType {
     WeaponDrop(NetworkID, NetworkID, Vec3),
     /// client-authoritative: "I am looking with this yaw and pitch"
     PawnLook(NetworkID, f32, f32),
-    ReloadWeapon(NetworkID),
     MeleeHitRequest(NetworkID),
-    FireRequest {
-        weapon: NetworkID,
-        temp_id: u32,
-        origin: Vec3,
-        dir: Vec3,
-    },
     ProjectileSpawn {
         weapon: NetworkID,
         net_id: NetworkID,

@@ -10,9 +10,12 @@ use particles_plugin::prelude::spawn_spaceship_death_explosion_effect;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-use super::vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount};
 #[cfg(feature = "client")]
-use super::{GatherInputSet, MouseSensitivity, MovePawnsSet, PawnInputKind, Possessed};
+use super::{GatherInputSet, MouseSensitivity};
+use super::{
+    MovePawnsSet, PawnInputKind, Possessed,
+    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
+};
 #[cfg(feature = "client")]
 use crate::flash::spawn_flash;
 use crate::{
@@ -48,7 +51,7 @@ impl Plugin for SpaceshipPlugin {
                 .chain(),
         );
         #[cfg(not(feature = "client"))]
-        let _ = app;
+        app.add_systems(FixedPreUpdate, move_spaceships.in_set(MovePawnsSet));
     }
 }
 
@@ -322,7 +325,6 @@ pub fn apply_spaceship_movement(
     body.apply_torque_impulse(torque, true);
 }
 
-#[cfg(feature = "client")]
 fn move_spaceships(
     mut world: ResMut<PhysicsWorld>,
     mut pawns: Query<(

@@ -26,6 +26,8 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 * Schedules: Use Update sparingly to keep framerate fast. Use SlowUpdate for things that don't have to happen each FixedUpdate.
 * No CCD.
 * for imports used for one package and not another, prefer `#[allow(unused_imports)]` over `#[cfg(feature = "<package>")]` 
+* keep struct impls right next to their struct.
+* all entity "types" like vehicles and weapons should be completely self-contained inside their plugins; no central registries, match statements, etc.
 
 * When finished with a task, use make to build, addressing warnings (and test if necessary)
 * All movement and physics should be relative. When attaching, detaching, or spawning anything, it should inherit the velocity of its owner.

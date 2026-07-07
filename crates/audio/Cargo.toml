@@ -16,4 +16,4 @@ workspace = true
 bevy = { workspace = true }
 common = { path = "../common", optional = true }
 physics = { path = "../physics", optional = true }
-fmod = { package = "libfmod", git = "https://github.com/GageHowe/libfmod", rev = "1b8cb56", optional = true }
+fmod = { package = "libfmod", git = "https://github.com/GageHowe/libfmod", rev = "1b8cb56", optional = true } # 2.03.12

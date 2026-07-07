@@ -14,10 +14,7 @@ use super::{
     PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
     mount::{CharacterMount, Mounted, ray_hits_mount},
 };
-use crate::{
-    interaction::InteractionName,
-    weapon::{PendingWeaponInput, WeaponFireInput},
-};
+use crate::{interaction::InteractionName, weapon::WeaponFireInput};
 
 pub(super) fn configure(app: &mut App) {
     app.init_resource::<FixedPressQueue>()
@@ -28,8 +25,9 @@ pub(super) fn configure(app: &mut App) {
                 gather_biped_input
                     .run_if(resource_exists::<ButtonInput<KeyCode>>)
                     .in_set(super::GatherInputSet),
-                move_bipeds.in_set(super::MovePawnsSet),
-                biped_fire.run_if(resource_exists::<ButtonInput<MouseButton>>),
+                biped_fire
+                    .run_if(resource_exists::<ButtonInput<MouseButton>>)
+                    .in_set(super::GatherInputSet),
                 drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 update_interaction_hint.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 interact
@@ -272,26 +270,6 @@ fn switch_weapon_slot(
     }
 }
 
-fn move_bipeds(
-    mut world: ResMut<PhysicsWorld>,
-    mut commands: Commands,
-    mut pawns: Query<(
-        Entity,
-        &mut Possessed,
-        &physics::physics_world::RigidBodyHandleComponent,
-        &mut BipedPawnComponent,
-    )>,
-) {
-    for (pawn_entity, mut possessed, handle, mut biped) in pawns.iter_mut() {
-        let Some(common::PawnInputKind::Biped(input)) = possessed.consume() else {
-            continue;
-        };
-        if let Some(fx) = apply_biped_input(&mut world, pawn_entity, input, handle, &mut biped) {
-            crate::pawn::biped_ability::queue_fx(pawn_entity, fx, &world, &mut commands);
-        }
-    }
-}
-
 fn attach_camera_on_possess(
     bipeds: Query<(&BipedPawnComponent, &WeaponSlots), Added<Possessed>>,
     camera: Query<(Entity, &Projection), With<Camera3d>>,
@@ -360,6 +338,7 @@ fn hide_weapons_while_seated(seated: Query<&WeaponSlots, Added<Mounted>>, mut co
 
 #[derive(Resource, Default)]
 struct FixedPressQueue {
+    fire: bool,
     reload: bool,
     alt_fire: bool,
     ability1: bool,
@@ -367,6 +346,9 @@ struct FixedPressQueue {
 }
 
 impl FixedPressQueue {
+    fn consume_fire(&mut self) -> bool {
+        std::mem::take(&mut self.fire)
+    }
     fn queue_reload(&mut self) {
         self.reload = true;
     }
@@ -409,6 +391,9 @@ fn queue_fixed_inputs(
 ) {
     let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
     let gamepad = common::active_gamepad(gamepads.iter());
+    if !blocked && bindings.just_pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad) {
+        fixed_presses.fire = true;
+    }
     if !blocked && bindings.just_pressed(common::InputAction::Reload, &keyboard, &mouse, gamepad) {
         fixed_presses.queue_reload();
     }
@@ -433,6 +418,7 @@ fn biped_fire(
     mut pawn: Query<
         (
             Entity,
+            &mut Possessed,
             &mut WeaponSlots,
             &BipedPawnComponent,
             &physics::physics_world::RigidBodyHandleComponent,
@@ -444,7 +430,6 @@ fn biped_fire(
     weapon_states: Query<&crate::weapon::WeaponState>,
     mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
-    mut quic: Option<ResMut<net::quic::QuicManager>>,
     mut fixed_presses: ResMut<FixedPressQueue>,
     ticker: Res<common::tick::Ticker>,
 ) {
@@ -452,7 +437,7 @@ fn biped_fire(
     let gamepad = common::active_gamepad(gamepads.iter());
     let want_fire =
         !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad);
-    let Ok((pawn_entity, mut slots, biped, body_handle)) = pawn.single_mut() else {
+    let Ok((pawn_entity, mut possessed, mut slots, biped, body_handle)) = pawn.single_mut() else {
         return;
     };
     if !want_fire {
@@ -482,30 +467,36 @@ fn biped_fire(
         .single()
         .map(|gt| gt.to_scale_rotation_translation().1 * Vec3::NEG_Z)
         .unwrap_or(fallback_aim_dir);
+    let fire_pressed = !blocked && fixed_presses.consume_fire();
     let reload_pressed = !blocked && fixed_presses.consume_reload();
     let alt_fire_pressed = !blocked && fixed_presses.consume_alt_fire();
-    if reload_pressed
-        && let (Some(quic), Some(weapon_net_id)) = (quic.as_deref_mut(), slots.active().0.as_ref())
-        && quic.client_connected
-    {
-        quic.send_to_server(
-            net::quic::Channel::Ordered,
-            &net::message::MsgType::ReloadWeapon(weapon_net_id.clone()),
-        );
+    let input = WeaponFireInput {
+        want_fire,
+        fire_pressed,
+        want_alt_fire: !blocked
+            && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
+        alt_fire_pressed,
+        reload_pressed,
+        origin,
+        aim_dir,
+        shooter: pawn_entity,
+        tick: ticker.tick,
+        prediction_id: ticker.tick as u32,
+    };
+    if let Some(common::PawnInputKind::Biped(biped_input)) = possessed.peek_newest_mut() {
+        biped_input.item = common::ItemInput {
+            weapon: slots.active().0.as_ref().map(|id| id.0),
+            primary: input.want_fire,
+            primary_pressed: input.fire_pressed,
+            secondary: input.want_alt_fire,
+            secondary_pressed: input.alt_fire_pressed,
+            reload_pressed: input.reload_pressed,
+            tick: input.tick,
+            origin: input.origin,
+            aim_dir: input.aim_dir,
+        };
     }
-    commands
-        .entity(weapon_entity)
-        .insert(PendingWeaponInput(WeaponFireInput {
-            want_fire,
-            want_alt_fire: !blocked
-                && bindings.pressed(common::InputAction::AltFire, &keyboard, &mouse, gamepad),
-            alt_fire_pressed,
-            reload_pressed,
-            origin,
-            aim_dir,
-            shooter: pawn_entity,
-            tick: ticker.tick,
-        }));
+    commands.entity(weapon_entity).insert(input);
     let Ok(weapon_state) = weapon_states.get(weapon_entity) else {
         return;
     };

@@ -14,8 +14,7 @@ use crate::{
     interaction::InteractionName,
     pawn::WeaponSlots,
     reticle::AimReticle,
-    sound::SoundQueue,
-    weapon::{FireCtx, WeaponComponent, WeaponState},
+    weapon::{WeaponComponent, WeaponState},
 };
 
 pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
@@ -24,123 +23,6 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
         .and_then(|h| world.rigid_body_set.get(h))
         .map(|rb| rb.mass())
         .unwrap_or(0.0)
-}
-
-pub fn queue_fire_sound(sound: Option<&mut SoundQueue>, local_event: &'static str) {
-    let Some(sound) = sound else {
-        return;
-    };
-    sound.play_2d(local_event);
-}
-
-pub fn apply_spread(aim_dir: Vec3, spread_radians: f32) -> Vec3 {
-    let aim_dir = aim_dir.normalize_or_zero();
-    if spread_radians <= 0.0 || aim_dir == Vec3::ZERO {
-        return aim_dir;
-    }
-    let right = aim_dir.any_orthonormal_vector();
-    let up = aim_dir.cross(right).normalize_or_zero();
-    let yaw = fastrand::f32() * 2.0 * spread_radians - spread_radians;
-    let pitch = fastrand::f32() * 2.0 * spread_radians - spread_radians;
-    (aim_dir + right * yaw.tan() + up * pitch.tan()).normalize_or_zero()
-}
-
-pub fn fire_projectile(
-    ctx: &mut FireCtx,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-) -> u32 {
-    let temp_id = crate::projectile::next_temp_id(ctx.id_counter.as_deref_mut());
-    fire_projectile_with_dir(ctx, world, commands, temp_id, ctx.aim_dir);
-    temp_id
-}
-
-pub fn fire_projectile_with_dir(
-    ctx: &mut FireCtx,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    temp_id: u32,
-    dir: Vec3,
-) {
-    let Some(projectile) = ctx.weapon_config.projectile else {
-        return;
-    };
-    let speed = ctx.weapon_config.prediction_projectile_speed.unwrap_or(0.0);
-    let velocity = crate::projectile::projectile_velocity(world, ctx.shooter, dir, speed);
-    let shooter_velocity = crate::projectile::shooter_velocity(world, ctx.shooter);
-    #[cfg(feature = "client")]
-    let projectile_entity = crate::projectile::spawn(
-        projectile,
-        ctx.weapon_config.projectile_gravity_scale,
-        ctx.origin,
-        velocity,
-        shooter_velocity,
-        commands,
-        world,
-        ctx.shooter,
-        Some(temp_id),
-    );
-    #[cfg(feature = "client")]
-    if let Some(decorate_projectile) = ctx.weapon_config.decorate_projectile {
-        commands.queue(move |world: &mut World| {
-            decorate_projectile(projectile_entity, world);
-        });
-    }
-    #[cfg(not(feature = "client"))]
-    crate::projectile::spawn(
-        projectile,
-        ctx.weapon_config.projectile_gravity_scale,
-        ctx.origin,
-        velocity,
-        shooter_velocity,
-        commands,
-        world,
-        ctx.shooter,
-        Some(temp_id),
-    );
-    #[cfg(feature = "client")]
-    send_fire_request(
-        ctx.quic.as_deref_mut(),
-        ctx.net_id,
-        temp_id,
-        ctx.origin,
-        dir,
-    );
-}
-
-#[cfg(feature = "client")]
-pub fn send_fire_request(
-    quic: Option<&mut net::quic::QuicManager>,
-    weapon_net_id: Option<&NetworkID>,
-    temp_id: u32,
-    origin: Vec3,
-    dir: Vec3,
-) {
-    let (Some(quic), Some(weapon_net_id)) = (quic, weapon_net_id) else {
-        return;
-    };
-    quic.send_to_server(
-        net::quic::Channel::Unordered,
-        &net::message::MsgType::FireRequest {
-            weapon: weapon_net_id.clone(),
-            temp_id,
-            origin,
-            dir,
-        },
-    );
-}
-
-#[cfg(feature = "client")]
-pub fn apply_local_predicted_impulse(ctx: &mut FireCtx, world: &mut PhysicsWorld, impulse: Vec3) {
-    let (Some(shooter), Some(shooter_net_id)) = (ctx.shooter, ctx.shooter_net_id) else {
-        return;
-    };
-    world.apply_game_impulse(
-        shooter,
-        impulse,
-        Some(shooter_net_id),
-        ctx.predicted.as_deref_mut(),
-    );
 }
 
 pub fn make_generic_weapon_physics(

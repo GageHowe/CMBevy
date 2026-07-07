@@ -38,85 +38,22 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 1.5,
     mass_scaled_shooter_impulse: false,
     decorate_projectile: Some(decorate_projectile),
+    projectile_behavior: Some(ProjectileBehavior {
+        semi_auto: false,
+        spread: 0.0,
+        sound: "event:/Weapons/SniperShotLocal",
+        recoil_scale: 1.0,
+        kick_vertical: (5.0, 4.0),
+        kick_horizontal: (-1.0, 1.0),
+        kick_recovery: 10.0,
+        zoomed_kick_scale: 1.0,
+        shake: None,
+    }),
 };
 
 #[derive(Component, Default, Reflect)]
 pub struct HailMaryComponent {
-    /// Latched when fire is requested; cleared after the shot fires.
-    pub fire_requested: bool,
     pub muzzle_flash: Option<Entity>,
-}
-
-#[cfg(feature = "client")]
-fn update_hail_mary(
-    weapon: &mut HailMaryComponent,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    ctx: &mut FireCtx,
-) {
-    apply_zoom(ctx);
-    if ctx.reload_pressed {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
-    }
-    if ctx.want_fire {
-        weapon.fire_requested = true;
-    }
-    if !weapon.fire_requested {
-        return;
-    }
-    if !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
-        weapon.fire_requested = false;
-        return;
-    }
-    weapon.fire_requested = false;
-    #[cfg(feature = "client")]
-    if let Some(flash) = weapon.muzzle_flash {
-        commands.queue(move |world: &mut World| {
-            weapon_flash::trigger_weapon_flash(world, flash);
-        });
-    }
-
-    helpers::fire_projectile(ctx, world, commands);
-    #[cfg(feature = "client")]
-    projectile::apply_recoil(1.5, false, ctx, world, 1.0);
-    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
-    if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick((5.0, 4.0), (-1.0, 1.0), 10.0);
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn drive_hail_marys(
-    mut weapons: Query<(
-        Entity,
-        &mut HailMaryComponent,
-        &mut WeaponState,
-        &WeaponConfig,
-        &PendingWeaponInput,
-    )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
-) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_hail_mary,
-    );
 }
 
 pub fn spawn_hail_mary(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {

@@ -87,16 +87,14 @@ pub struct ProjectilePlugin;
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "client")]
-        app.init_resource::<ProjectileIdCounter>()
-            .init_resource::<PredictedProjectileMap>()
-            .add_systems(
-                FixedPostUpdate,
-                (
-                    index_added_predicted_projectiles,
-                    index_removed_predicted_projectiles,
-                )
-                    .in_set(TrackPredictedProjectilesSet),
-            );
+        app.init_resource::<PredictedProjectileMap>().add_systems(
+            FixedPostUpdate,
+            (
+                index_added_predicted_projectiles,
+                index_removed_predicted_projectiles,
+            )
+                .in_set(TrackPredictedProjectilesSet),
+        );
         app.add_systems(
             FixedUpdate,
             tick_projectiles
@@ -128,49 +126,6 @@ pub fn projectile_velocity(
     speed: f32,
 ) -> Vec3 {
     aim_dir * speed + shooter_velocity(world, shooter)
-}
-
-pub fn next_temp_id(id_counter: Option<&mut u32>) -> u32 {
-    id_counter
-        .map(|counter| {
-            *counter = counter.wrapping_add(1);
-            *counter
-        })
-        .unwrap_or(0)
-}
-
-#[cfg(feature = "client")]
-pub fn apply_recoil(
-    shooter_impulse: f32,
-    mass_scaled: bool,
-    ctx: &mut crate::weapon::FireCtx,
-    world: &mut PhysicsWorld,
-    scale: f32,
-) {
-    let Some(shooter) = ctx.shooter else {
-        return;
-    };
-    let Some(shooter_net_id) = ctx.shooter_net_id else {
-        return;
-    };
-    if shooter_impulse == 0.0 {
-        return;
-    }
-    let dir = ctx.aim_dir.normalize_or_zero();
-    if dir == Vec3::ZERO {
-        return;
-    }
-    let impulse = if mass_scaled {
-        -dir * shooter_impulse * shooter_mass(world, shooter)
-    } else {
-        -dir * shooter_impulse * scale
-    };
-    world.apply_game_impulse(
-        shooter,
-        impulse,
-        Some(shooter_net_id),
-        ctx.predicted.as_deref_mut(),
-    );
 }
 
 pub fn fire_authoritative(
@@ -868,11 +823,6 @@ impl PredictedProjectileMap {
         };
         self.by_temp_id.remove(&temp_id);
     }
-}
-
-#[derive(Resource, Default)]
-pub struct ProjectileIdCounter {
-    pub count: u32,
 }
 
 #[cfg(feature = "client")]

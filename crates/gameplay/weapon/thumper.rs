@@ -39,9 +39,7 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
 };
 
 #[derive(Component, Default, Reflect)]
-pub struct ThumperComponent {
-    pub trigger_down: bool,
-}
+pub struct ThumperComponent;
 
 pub const CONFIG: WeaponConfig = WeaponConfig {
     display_name: "Thumper",
@@ -59,80 +57,24 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 0.8,
     mass_scaled_shooter_impulse: true,
     decorate_projectile: Some(decorate_projectile),
-};
-
-#[cfg(feature = "client")]
-fn update_thumper(
-    weapon: &mut ThumperComponent,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    ctx: &mut FireCtx,
-) {
-    if ctx.reload_pressed {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
-    }
-    if !ctx.want_fire {
-        weapon.trigger_down = false;
-        return;
-    }
-    if weapon.trigger_down || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
-        return;
-    }
-    weapon.trigger_down = true;
-    helpers::fire_projectile(ctx, world, commands);
-    #[cfg(feature = "client")]
-    helpers::apply_local_predicted_impulse(
-        ctx,
-        world,
-        -ctx.aim_dir * 0.8 * helpers::shooter_mass(world, ctx.shooter),
-    );
-    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
-    if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick((2.5, 3.0), (-0.5, 0.5), 10.0);
-        #[cfg(feature = "client")]
-        cam.add_shake(CameraShake {
+    projectile_behavior: Some(ProjectileBehavior {
+        semi_auto: true,
+        spread: 0.0,
+        sound: "event:/Weapons/SniperShotLocal",
+        recoil_scale: 1.0,
+        kick_vertical: (2.5, 3.0),
+        kick_horizontal: (-0.5, 0.5),
+        kick_recovery: 10.0,
+        zoomed_kick_scale: 1.0,
+        shake: Some(CameraShake {
             translation: Vec3::new(0.006, 0.006, 0.035),
             rotation: Vec2::new(0.008, 0.006),
             roll: 0.004,
             duration: 0.12,
             frequency: 14.0,
-        });
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn drive_thumpers(
-    mut weapons: Query<(
-        Entity,
-        &mut ThumperComponent,
-        &mut WeaponState,
-        &WeaponConfig,
-        &PendingWeaponInput,
-    )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
-) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_thumper,
-    );
-}
+        }),
+    }),
+};
 
 pub fn spawn_thumper(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(ThumperComponent::default(), CONFIG);

@@ -59,7 +59,9 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             )
             .add_systems(
                 FixedUpdate,
-                run_singleplayer_bots.run_if(in_state(single_player)),
+                run_singleplayer_bots
+                    .before(gameplay::weapon::SimulateItemSet)
+                    .run_if(in_state(single_player)),
             )
             .add_systems(
                 FixedUpdate,

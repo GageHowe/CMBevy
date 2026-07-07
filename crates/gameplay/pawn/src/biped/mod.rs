@@ -82,6 +82,7 @@ impl Plugin for BipedPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MouseSensitivity>();
         app.add_systems(FixedUpdate, look::update_slide_camera);
+        app.add_systems(FixedPreUpdate, move_bipeds.in_set(MovePawnsSet));
         #[cfg(feature = "client")]
         {
             controls::configure(app);
@@ -105,4 +106,25 @@ pub struct YawPivot {
 #[derive(Component)]
 pub struct PitchPivot {
     pub pitch: f32,
+}
+
+fn move_bipeds(
+    mut world: ResMut<PhysicsWorld>,
+    mut commands: Commands,
+    mut pawns: Query<(
+        Entity,
+        &mut Possessed,
+        &physics::physics_world::RigidBodyHandleComponent,
+        &mut BipedPawnComponent,
+    )>,
+) {
+    for (pawn_entity, mut possessed, handle, mut biped) in pawns.iter_mut() {
+        let Some(common::PawnInputKind::Biped(input)) = possessed.consume() else {
+            continue;
+        };
+        apply_biped_input(&mut world, pawn_entity, input, handle, &mut biped);
+        commands
+            .entity(pawn_entity)
+            .insert(crate::pawn::biped_ability::AbilityInput(input));
+    }
 }

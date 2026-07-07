@@ -8,10 +8,7 @@ use gameplay::{
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
-    pawn::{
-        BipedPawnComponent, HovercraftPawnComponent, Mounted, PendingRespawns, PlayerRegistry,
-        SpaceshipPawnComponent, TruckPawnComponent, apply_server_input,
-    },
+    pawn::{Mounted, PendingRespawns, PlayerRegistry, Possessed},
 };
 use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
 use net::{message::*, quic::*};
@@ -84,14 +81,14 @@ impl Plugin for ServerSessionPlugin {
             )
                 .chain(),
         )
-        .add_systems(FixedUpdate, gameplay::bot::run_bots.before(step_physics))
-        .add_systems(FixedUpdate, apply_inputs.before(step_physics))
         .add_systems(
-            FixedUpdate,
-            apply_melee_hit_requests
-                .after(apply_inputs)
-                .before(step_physics),
+            FixedPreUpdate,
+            (
+                apply_inputs.before(gameplay::pawn::MovePawnsSet),
+                gameplay::bot::run_bots.before(gameplay::pawn::MovePawnsSet),
+            ),
         )
+        .add_systems(FixedUpdate, apply_melee_hit_requests.before(step_physics))
         .add_systems(FixedUpdate, advance_match_state_time)
         .add_systems(
             FixedUpdate,
@@ -402,6 +399,7 @@ fn process_console_commands(
                     );
                     commands.entity(entity).insert((
                         Team(team),
+                        Possessed::new(128),
                         gameplay::bot::BotController::new(
                             Team(team),
                             gameplay::bot::HeuristicKillerBot,
@@ -547,6 +545,9 @@ fn reset_existing_player(
         health.restore_full();
     }
     world.entity_mut(character_entity).insert(team);
+    world
+        .entity_mut(character_entity)
+        .insert(Possessed::new(128));
     {
         let mut physics = world.resource_mut::<PhysicsWorld>();
         physics.set_body_enabled(character_entity, true);
@@ -597,7 +598,7 @@ fn spawn_restarted_player(
         cmd: spawn_cmd.clone(),
     }
     .apply(world);
-    world.entity_mut(entity).insert(team);
+    world.entity_mut(entity).insert((team, Possessed::new(128)));
 
     let existing_conn_ids = world
         .get_resource::<PlayerRegistry>()
@@ -627,38 +628,57 @@ fn spawn_restarted_player(
 }
 
 fn apply_inputs(
-    pending_inputs: Res<PendingInputs>,
+    mut pending_inputs: ResMut<PendingInputs>,
     mut last_input_seq: ResMut<LastProcessedInputSeq>,
     registry: Res<PlayerRegistry>,
-    mut world: ResMut<PhysicsWorld>,
-    mut quic: ResMut<QuicManager>,
-    mut pawn_inputs: (
-        Query<&mut BipedPawnComponent>,
-        Query<&mut SpaceshipPawnComponent>,
-        Query<&mut TruckPawnComponent>,
-        Query<&mut HovercraftPawnComponent>,
-    ),
+    ticker: Res<common::tick::Ticker>,
+    weapon_slots: Query<&gameplay::pawn::WeaponSlots>,
+    networked: Res<gameplay::NetworkEntityMap>,
+    mut commands: Commands,
+    mut possessed: Query<&mut Possessed>,
 ) {
-    for (&conn_id, (input_seq, kind)) in pending_inputs.0.iter() {
-        let Some((entity, net_id)) = registry.controlled_pawn(conn_id) else {
+    for (&conn_id, pending) in pending_inputs.0.iter_mut() {
+        let Some((entity, _)) = registry.controlled_pawn(conn_id) else {
             continue;
         };
-        let (applied, fx) = apply_server_input(
-            entity,
-            kind.clone(),
-            &mut world,
-            &mut pawn_inputs.0,
-            &mut pawn_inputs.1,
-            &mut pawn_inputs.2,
-            &mut pawn_inputs.3,
-        );
-        if applied {
-            last_input_seq.0.insert(conn_id, *input_seq);
+        let Some((input_seq, kind, advanced)) = pending.next() else {
+            continue;
+        };
+        if let PawnInputKind::Biped(input) = &kind
+            && let (Some(command_weapon), Ok(slots)) = (input.item.weapon, weapon_slots.get(entity))
+            && slots
+                .active()
+                .0
+                .as_ref()
+                .is_some_and(|id| id.0 == command_weapon)
+            && let Some(weapon) = networked.get(&NetworkID(command_weapon))
+        {
+            commands
+                .entity(weapon)
+                .insert(gameplay::weapon::WeaponFireInput {
+                    want_fire: input.item.primary,
+                    fire_pressed: input.item.primary_pressed,
+                    want_alt_fire: input.item.secondary,
+                    alt_fire_pressed: input.item.secondary_pressed,
+                    reload_pressed: input.item.reload_pressed,
+                    origin: input.item.origin,
+                    aim_dir: input.item.aim_dir,
+                    shooter: entity,
+                    tick: ticker.tick,
+                    prediction_id: if advanced {
+                        input.item.tick
+                    } else {
+                        ticker.tick
+                    } as u32,
+                });
         }
-        if let Some(fx) = fx {
-            let channel = gameplay::pawn::biped_ability::fx_channel(fx);
-            let msg = gameplay::pawn::biped_ability::fx_message(net_id.clone(), fx);
-            quic.send(SendTarget::AllExcept(conn_id), channel, &msg);
+        let Ok(mut possessed) = possessed.get_mut(entity) else {
+            continue;
+        };
+        possessed.push(kind);
+        if advanced {
+            last_input_seq.0.insert(conn_id, input_seq);
         }
+        pending.clear_edges();
     }
 }

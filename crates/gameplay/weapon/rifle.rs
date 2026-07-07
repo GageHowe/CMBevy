@@ -10,7 +10,6 @@ pub const COOLDOWN_TICKS: u32 = 8;
 pub const MAGAZINE_SIZE: u16 = 30;
 pub const RESERVE_AMMO: u16 = 120;
 pub const RELOAD_TICKS: u16 = 70;
-#[cfg(feature = "client")]
 const ZOOMED_KICK_SCALE: f32 = 0.3;
 const PROJECTILE: projectile::Projectile = projectile::Projectile {
     shooter: None,
@@ -44,69 +43,18 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 0.1,
     mass_scaled_shooter_impulse: false,
     decorate_projectile: Some(decorate_projectile),
+    projectile_behavior: Some(ProjectileBehavior {
+        semi_auto: false,
+        spread: 0.0,
+        sound: "event:/Weapons/RifleShotLocal",
+        recoil_scale: 1.0,
+        kick_vertical: (2.0, 0.5),
+        kick_horizontal: (-1.0, 1.0),
+        kick_recovery: 20.0,
+        zoomed_kick_scale: ZOOMED_KICK_SCALE,
+        shake: None,
+    }),
 };
-
-#[cfg(feature = "client")]
-fn update_rifle(
-    _weapon: &mut RifleComponent,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    ctx: &mut FireCtx,
-) {
-    let zoom_blend = apply_zoom(ctx);
-    let kick_scale = 1.0 + (ZOOMED_KICK_SCALE - 1.0) * zoom_blend;
-    if ctx.reload_pressed {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
-    }
-    if !ctx.want_fire || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
-        return;
-    }
-    helpers::fire_projectile(ctx, world, commands);
-    #[cfg(feature = "client")]
-    projectile::apply_recoil(0.1, false, ctx, world, kick_scale);
-    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
-    if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick(
-            (2.0 * kick_scale, 0.5 * kick_scale),
-            (-kick_scale, kick_scale),
-            20.0,
-        );
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn drive_rifles(
-    mut weapons: Query<(
-        Entity,
-        &mut RifleComponent,
-        &mut WeaponState,
-        &WeaponConfig,
-        &PendingWeaponInput,
-    )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
-) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_rifle,
-    );
-}
 
 pub fn spawn_rifle(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(RifleComponent, CONFIG);

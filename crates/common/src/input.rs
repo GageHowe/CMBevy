@@ -1,4 +1,18 @@
+use bevy::prelude::Vec3;
 use serde::{Deserialize, Serialize};
+
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub struct ItemInput {
+    pub weapon: Option<u64>,
+    pub primary: bool,
+    pub primary_pressed: bool,
+    pub secondary: bool,
+    pub secondary_pressed: bool,
+    pub reload_pressed: bool,
+    pub tick: u64,
+    pub origin: Vec3,
+    pub aim_dir: Vec3,
+}
 
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct BipedInput {
@@ -9,6 +23,7 @@ pub struct BipedInput {
     pub ability1: bool,
     pub ability1_pressed: bool,
     pub melee_pressed: bool,
+    pub item: ItemInput,
     /// pawn-local yaw from the YawPivot at input time (radians, absolute)
     pub look_yaw: f32,
     /// camera pitch from the PitchPivot at input time (radians, absolute)
@@ -31,19 +46,10 @@ pub struct SpaceshipInput {
 }
 
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TruckInput {
+pub struct HovercraftInput {
     pub throttle: f32,
     pub steer: f32,
     pub brake: f32,
-}
-
-#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub struct HovercarInput {
-    pub forward: f32,
-    pub right: f32,
-    pub yaw: f32,
-    pub pitch: f32,
-    pub roll: f32,
 }
 
 /// Discriminated union of all pawn input types.
@@ -53,6 +59,5 @@ pub struct HovercarInput {
 pub enum PawnInputKind {
     Biped(BipedInput),
     Spaceship(SpaceshipInput),
-    Truck(TruckInput),
-    HovercraftSpaceshipInput(HovercarInput),
+    Hovercraft(HovercraftInput),
 }

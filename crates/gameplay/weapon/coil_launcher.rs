@@ -56,76 +56,24 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 3.0,
     mass_scaled_shooter_impulse: true,
     decorate_projectile: Some(decorate_projectile),
-};
-
-#[cfg(feature = "client")]
-fn update_coil_launcher(
-    _weapon: &mut CoilLauncherComponent,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    ctx: &mut FireCtx,
-) {
-    apply_zoom(ctx);
-    if ctx.reload_pressed {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
-    }
-    if !ctx.want_fire || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
-        return;
-    }
-    helpers::fire_projectile(ctx, world, commands);
-    #[cfg(feature = "client")]
-    helpers::apply_local_predicted_impulse(
-        ctx,
-        world,
-        -ctx.aim_dir * 3.0 * helpers::shooter_mass(world, ctx.shooter),
-    );
-    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/SniperShotLocal");
-    if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick((8.0, 10.0), (-2.0, 2.0), 8.0);
-        #[cfg(feature = "client")]
-        cam.add_shake(CameraShake {
+    projectile_behavior: Some(ProjectileBehavior {
+        semi_auto: false,
+        spread: 0.0,
+        sound: "event:/Weapons/SniperShotLocal",
+        recoil_scale: 1.0,
+        kick_vertical: (8.0, 10.0),
+        kick_horizontal: (-2.0, 2.0),
+        kick_recovery: 8.0,
+        zoomed_kick_scale: 1.0,
+        shake: Some(CameraShake {
             translation: Vec3::new(0.01, 0.01, 0.08),
             rotation: Vec2::new(0.02, 0.015),
             roll: 0.01,
             duration: 0.18,
             frequency: 16.0,
-        });
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn drive_coil_launchers(
-    mut weapons: Query<(
-        Entity,
-        &mut CoilLauncherComponent,
-        &mut WeaponState,
-        &WeaponConfig,
-        &PendingWeaponInput,
-    )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
-) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_coil_launcher,
-    );
-}
+        }),
+    }),
+};
 
 pub fn spawn_coil_launcher(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(CoilLauncherComponent, CONFIG);

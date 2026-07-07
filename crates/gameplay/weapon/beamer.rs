@@ -1,7 +1,7 @@
 #[cfg(feature = "client")]
 use bevy::pbr::MeshMaterial3d;
 use bevy::prelude::*;
-use net::quic::{Channel, ConnectionId, QuicManager, SendTarget};
+use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
@@ -11,7 +11,7 @@ use crate::flash::{FlashMaterial, FlashMaterialUniform, update_flash_material};
 use crate::{
     NetworkEntityMap,
     health::{DamageCause, Health, LastDamageSource, attribute_damage},
-    pawn::{PlayerRegistry, WeaponSlots},
+    pawn::PlayerRegistry,
 };
 
 pub const MAGAZINE_SIZE: u16 = 80;
@@ -59,6 +59,118 @@ impl Plugin for BeamerPlugin {
     fn build(&self, _app: &mut App) {
         #[cfg(feature = "client")]
         _app.add_systems(Update, (add_visuals, sync_visuals));
+        #[cfg(not(feature = "client"))]
+        _app.add_systems(
+            FixedUpdate,
+            drive_authoritative_beams
+                .before(super::tick_weapon_state)
+                .in_set(super::SimulateItemSet),
+        );
+    }
+}
+
+#[cfg(not(feature = "client"))]
+fn drive_authoritative_beams(
+    mut beamers: Query<(
+        Entity,
+        &net::message::NetworkID,
+        &WeaponFireInput,
+        &mut BeamerComponent,
+        &mut WeaponState,
+        &WeaponConfig,
+    )>,
+    registry: Res<PlayerRegistry>,
+    world: Res<PhysicsWorld>,
+    mut health_q: Query<&mut Health>,
+    mut last_damage_q: Query<&mut LastDamageSource>,
+    mut quic: ResMut<QuicManager>,
+    mut commands: Commands,
+) {
+    for (entity, net_id, input, mut beam, mut state, config) in &mut beamers {
+        let target = registry
+            .conn_id_for_character(input.shooter)
+            .map_or(SendTarget::All, SendTarget::AllExcept);
+        if input.reload_pressed || !input.want_fire {
+            if beam.phase != BeamPhase::Idle {
+                beam.phase = BeamPhase::Idle;
+                beam.beam_dir = Vec3::ZERO;
+                state.cooldown_ticks = COOLDOWN_TICKS;
+                quic.send(
+                    target,
+                    Channel::Ordered,
+                    &net::message::MsgType::EndBeam(net_id.clone()),
+                );
+            }
+            if input.reload_pressed {
+                super::start_reload(&mut state, config);
+            }
+            commands.entity(entity).remove::<WeaponFireInput>();
+            continue;
+        }
+        if beam.phase == BeamPhase::Idle && super::can_fire(&state) {
+            beam.phase = BeamPhase::Charging;
+            beam.phase_started_tick = input.tick;
+            quic.send(
+                target.clone(),
+                Channel::Ordered,
+                &net::message::MsgType::StartBeamCharge(net_id.clone()),
+            );
+        } else if beam.phase == BeamPhase::Charging
+            && input.tick.saturating_sub(beam.phase_started_tick) + 1 >= CHARGE_TICKS as u64
+        {
+            beam.phase = BeamPhase::Beaming;
+            beam.damage_tick_accum = DAMAGE_INTERVAL_TICKS - 1;
+            quic.send(
+                target.clone(),
+                Channel::Ordered,
+                &net::message::MsgType::StartBeam {
+                    weapon: net_id.clone(),
+                    origin: input.origin,
+                    dir: input.aim_dir,
+                },
+            );
+        }
+        beam.beam_origin = input.origin;
+        beam.beam_dir = input.aim_dir.normalize_or_zero();
+        if beam.phase == BeamPhase::Beaming {
+            beam.damage_tick_accum += 1;
+            if beam.damage_tick_accum >= DAMAGE_INTERVAL_TICKS && state.ammo_in_mag > 0 {
+                beam.damage_tick_accum = 0;
+                state.ammo_in_mag -= 1;
+                if let Some((hit, _)) =
+                    beam_hit(&world, input.origin, beam.beam_dir, Some(input.shooter))
+                    && let Ok(mut health) = health_q.get_mut(hit)
+                {
+                    attribute_damage(
+                        &mut last_damage_q,
+                        hit,
+                        Some(input.shooter),
+                        DamageCause::Projectile,
+                    );
+                    health.apply_damage(DAMAGE_PER_TICK);
+                }
+                quic.send(
+                    target.clone(),
+                    Channel::Unordered,
+                    &net::message::MsgType::BeamHitReport {
+                        weapon: net_id.clone(),
+                        origin: input.origin,
+                        dir: beam.beam_dir,
+                        target: None,
+                    },
+                );
+                if state.ammo_in_mag == 0 {
+                    beam.phase = BeamPhase::Idle;
+                    super::start_reload(&mut state, config);
+                    quic.send(
+                        target,
+                        Channel::Ordered,
+                        &net::message::MsgType::EndBeam(net_id.clone()),
+                    );
+                }
+            }
+        }
+        commands.entity(entity).remove::<WeaponFireInput>();
     }
 }
 
@@ -78,75 +190,59 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 0.0,
     mass_scaled_shooter_impulse: false,
     decorate_projectile: None,
+    projectile_behavior: None,
 };
 
 #[cfg(feature = "client")]
 fn update_beamer(
     weapon: &mut BeamerComponent,
-    _world: &mut PhysicsWorld,
-    _commands: &mut Commands,
-    ctx: &mut FireCtx,
+    world: &mut PhysicsWorld,
+    commands: &mut Commands,
+    input: &WeaponFireInput,
+    state: &mut WeaponState,
+    config: &WeaponConfig,
+    multiplayer: bool,
 ) {
-    apply_zoom(ctx);
-
-    if ctx.reload_pressed {
-        end_local_beam(weapon, ctx, true);
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
+    if input.reload_pressed {
+        end_local_beam(weapon, state, true);
+        super::start_reload(state, config);
         return;
     }
 
-    if !ctx.want_fire {
-        end_local_beam(weapon, ctx, true);
+    if !input.want_fire {
+        end_local_beam(weapon, state, true);
         return;
     }
 
     if weapon.phase == BeamPhase::Idle {
-        if !super::can_fire(ctx.weapon_state) {
+        if !super::can_fire(state) {
             return;
         }
         weapon.phase = BeamPhase::Charging;
-        weapon.phase_started_tick = ctx.tick;
+        weapon.phase_started_tick = input.tick;
         weapon.damage_tick_accum = 0;
-        weapon.beam_origin = ctx.origin;
-        weapon.beam_dir = ctx.aim_dir.normalize_or_zero();
-        #[cfg(feature = "client")]
-        if let (Some(quic), Some(weapon_net_id)) = (ctx.quic.as_deref_mut(), ctx.net_id) {
-            quic.send_to_server(
-                Channel::Ordered,
-                &net::message::MsgType::StartBeamCharge(weapon_net_id.clone()),
-            );
-        }
+        weapon.beam_origin = input.origin;
+        weapon.beam_dir = input.aim_dir.normalize_or_zero();
         return;
     }
 
     if weapon.phase == BeamPhase::Charging {
-        weapon.beam_origin = ctx.origin;
-        weapon.beam_dir = ctx.aim_dir.normalize_or_zero();
-        if ctx.tick.saturating_sub(weapon.phase_started_tick) + 1 < CHARGE_TICKS as u64 {
+        weapon.beam_origin = input.origin;
+        weapon.beam_dir = input.aim_dir.normalize_or_zero();
+        if input.tick.saturating_sub(weapon.phase_started_tick) + 1 < CHARGE_TICKS as u64 {
             return;
         }
         weapon.phase = BeamPhase::Beaming;
-        weapon.phase_started_tick = ctx.tick;
+        weapon.phase_started_tick = input.tick;
         weapon.damage_tick_accum = DAMAGE_INTERVAL_TICKS - 1;
-        #[cfg(feature = "client")]
-        if let (Some(quic), Some(weapon_net_id)) = (ctx.quic.as_deref_mut(), ctx.net_id) {
-            quic.send_to_server(
-                Channel::Ordered,
-                &net::message::MsgType::StartBeam {
-                    weapon: weapon_net_id.clone(),
-                    origin: ctx.origin,
-                    dir: weapon.beam_dir,
-                },
-            );
-        }
     }
 
     if weapon.phase != BeamPhase::Beaming {
         return;
     }
 
-    weapon.beam_origin = ctx.origin;
-    weapon.beam_dir = ctx.aim_dir.normalize_or_zero();
+    weapon.beam_origin = input.origin;
+    weapon.beam_dir = input.aim_dir.normalize_or_zero();
     if weapon.beam_dir == Vec3::ZERO {
         return;
     }
@@ -157,30 +253,28 @@ fn update_beamer(
     }
     weapon.damage_tick_accum = 0;
 
-    if ctx.weapon_state.ammo_in_mag == 0 {
-        end_local_beam(weapon, ctx, true);
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
+    if state.ammo_in_mag == 0 {
+        end_local_beam(weapon, state, true);
+        super::start_reload(state, config);
         return;
     }
-    ctx.weapon_state.ammo_in_mag -= 1;
-    if ctx.weapon_state.ammo_in_mag == 0 {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
+    state.ammo_in_mag -= 1;
+    if state.ammo_in_mag == 0 {
+        super::start_reload(state, config);
     }
 
     #[cfg(feature = "client")]
-    let hit = beam_hit(_world, ctx.origin, weapon.beam_dir, ctx.shooter);
+    let hit = beam_hit(world, input.origin, weapon.beam_dir, Some(input.shooter));
     #[cfg(feature = "client")]
-    if let Some(weapon_net_id) = ctx.net_id.cloned() {
-        queue_beam_hit_report(_commands, weapon_net_id, ctx.origin, weapon.beam_dir, hit);
-    } else if ctx.quic.is_none() {
-        let shooter = ctx.shooter;
-        _commands.queue(move |world: &mut World| {
+    if !multiplayer {
+        let shooter = Some(input.shooter);
+        commands.queue(move |world: &mut World| {
             apply_singleplayer_beam_hit(world, shooter, hit.map(|(entity, _)| entity));
         });
     }
 
-    if ctx.weapon_state.ammo_in_mag == 0 {
-        end_local_beam(weapon, ctx, false);
+    if state.ammo_in_mag == 0 {
+        end_local_beam(weapon, state, false);
     }
 }
 
@@ -191,31 +285,24 @@ pub fn drive_beamers(
         &mut BeamerComponent,
         &mut WeaponState,
         &WeaponConfig,
-        &PendingWeaponInput,
+        &WeaponFireInput,
     )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
+    mut world: ResMut<PhysicsWorld>,
+    mut commands: Commands,
+    quic: Option<Res<QuicManager>>,
 ) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_beamer,
-    );
+    for (entity, mut beam, mut state, config, input) in &mut weapons {
+        update_beamer(
+            &mut beam,
+            &mut world,
+            &mut commands,
+            input,
+            &mut state,
+            config,
+            quic.is_some(),
+        );
+        commands.entity(entity).remove::<WeaponFireInput>();
+    }
 }
 
 pub fn spawn_beamer(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
@@ -261,7 +348,7 @@ fn beam_len(world: &PhysicsWorld, origin: Vec3, dir: Vec3, exclude: &[Entity]) -
 }
 
 #[cfg(feature = "client")]
-fn end_local_beam(beam: &mut BeamerComponent, ctx: &mut FireCtx, apply_cooldown: bool) {
+fn end_local_beam(beam: &mut BeamerComponent, state: &mut WeaponState, apply_cooldown: bool) {
     if beam.phase == BeamPhase::Idle {
         return;
     }
@@ -269,46 +356,11 @@ fn end_local_beam(beam: &mut BeamerComponent, ctx: &mut FireCtx, apply_cooldown:
     beam.damage_tick_accum = 0;
     beam.beam_dir = Vec3::ZERO;
     if apply_cooldown {
-        ctx.weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-    }
-    #[cfg(feature = "client")]
-    if let (Some(quic), Some(weapon_net_id)) = (ctx.quic.as_deref_mut(), ctx.net_id) {
-        quic.send_to_server(
-            Channel::Ordered,
-            &net::message::MsgType::EndBeam(weapon_net_id.clone()),
-        );
+        state.cooldown_ticks = COOLDOWN_TICKS;
     }
 }
 
 #[cfg(feature = "client")]
-fn queue_beam_hit_report(
-    commands: &mut Commands,
-    weapon_net_id: net::message::NetworkID,
-    origin: Vec3,
-    dir: Vec3,
-    hit: Option<(Entity, Vec3)>,
-) {
-    commands.queue(move |world: &mut World| {
-        let target = hit.and_then(|(entity, _)| {
-            world
-                .get_resource::<NetworkEntityMap>()
-                .and_then(|networked| networked.get_net_id_for_entity(entity).cloned())
-        });
-        let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
-            return;
-        };
-        quic.send_to_server(
-            Channel::Ordered,
-            &net::message::MsgType::BeamHitReport {
-                weapon: weapon_net_id.clone(),
-                origin,
-                dir,
-                target,
-            },
-        );
-    });
-}
-
 fn apply_singleplayer_beam_hit(world: &mut World, shooter: Option<Entity>, hit: Option<Entity>) {
     let Some(hit) = hit else {
         return;
@@ -323,348 +375,6 @@ fn apply_singleplayer_beam_hit(world: &mut World, shooter: Option<Entity>, hit: 
     }
 }
 
-fn owned_beamer_entity(
-    conn_id: ConnectionId,
-    weapon_net_id: &net::message::NetworkID,
-    registry: &PlayerRegistry,
-    all_networked: &NetworkEntityMap,
-    pawn_slots: &Query<&mut WeaponSlots>,
-) -> Option<(Entity, Entity)> {
-    let (shooter_entity, _) = registry.character(conn_id)?;
-    let shooter_holds = pawn_slots
-        .get(shooter_entity)
-        .map(|s| s.contains_net_id(weapon_net_id))
-        .unwrap_or(false);
-    if !shooter_holds {
-        return None;
-    }
-    Some((shooter_entity, all_networked.get(weapon_net_id)?))
-}
-
-pub fn handle_start_charge_request(
-    conn_id: ConnectionId,
-    weapon_net_id: net::message::NetworkID,
-    registry: &PlayerRegistry,
-    all_networked: &NetworkEntityMap,
-    pawn_slots: &Query<&mut WeaponSlots>,
-    beamers: &mut Query<&mut BeamerComponent>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &super::WeaponConfig)>,
-    quic: &mut QuicManager,
-    tick: u64,
-) {
-    let Some((_shooter_entity, weapon_entity)) =
-        owned_beamer_entity(conn_id, &weapon_net_id, registry, all_networked, pawn_slots)
-    else {
-        return;
-    };
-    let Ok((weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) else {
-        return;
-    };
-    if !super::can_fire(&weapon_state) {
-        return;
-    }
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    if beamer.phase != BeamPhase::Idle {
-        return;
-    }
-    beamer.phase = BeamPhase::Charging;
-    beamer.phase_started_tick = tick;
-    beamer.damage_tick_accum = 0;
-    quic.send(
-        SendTarget::AllExcept(conn_id),
-        Channel::Ordered,
-        &net::message::MsgType::StartBeamCharge(weapon_net_id),
-    );
-}
-
-pub fn handle_start_beam_request(
-    conn_id: ConnectionId,
-    weapon_net_id: net::message::NetworkID,
-    origin: Vec3,
-    dir: Vec3,
-    registry: &PlayerRegistry,
-    all_networked: &NetworkEntityMap,
-    pawn_slots: &Query<&mut WeaponSlots>,
-    beamers: &mut Query<&mut BeamerComponent>,
-    quic: &mut QuicManager,
-    tick: u64,
-) {
-    let Some((_shooter_entity, weapon_entity)) =
-        owned_beamer_entity(conn_id, &weapon_net_id, registry, all_networked, pawn_slots)
-    else {
-        return;
-    };
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    if beamer.phase != BeamPhase::Charging
-        || tick.saturating_sub(beamer.phase_started_tick) + 1 < CHARGE_TICKS as u64
-    {
-        return;
-    }
-    beamer.phase = BeamPhase::Beaming;
-    beamer.phase_started_tick = tick;
-    beamer.damage_tick_accum = 0;
-    beamer.beam_origin = origin;
-    beamer.beam_dir = dir.normalize_or_zero();
-    quic.send(
-        SendTarget::AllExcept(conn_id),
-        Channel::Ordered,
-        &net::message::MsgType::StartBeam {
-            weapon: weapon_net_id,
-            origin,
-            dir,
-        },
-    );
-}
-
-pub fn handle_beam_hit_report(
-    conn_id: ConnectionId,
-    weapon_net_id: net::message::NetworkID,
-    origin: Vec3,
-    dir: Vec3,
-    target: Option<net::message::NetworkID>,
-    registry: &PlayerRegistry,
-    all_networked: &NetworkEntityMap,
-    pawn_slots: &Query<&mut WeaponSlots>,
-    beamers: &mut Query<&mut BeamerComponent>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &super::WeaponConfig)>,
-    health_q: &mut Query<&mut Health>,
-    last_damage_q: &mut Query<&mut LastDamageSource>,
-    quic: &mut QuicManager,
-    tick: u64,
-) {
-    let Some((shooter_entity, weapon_entity)) =
-        owned_beamer_entity(conn_id, &weapon_net_id, registry, all_networked, pawn_slots)
-    else {
-        return;
-    };
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    if beamer.phase != BeamPhase::Beaming
-        || tick.saturating_sub(beamer.last_server_damage_tick) < DAMAGE_INTERVAL_TICKS as u64
-    {
-        return;
-    }
-    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
-        return;
-    };
-    if weapon_state.ammo_in_mag == 0 {
-        beamer.phase = BeamPhase::Idle;
-        super::start_reload(&mut weapon_state, weapon_config);
-        quic.send(
-            SendTarget::AllExcept(conn_id),
-            Channel::Ordered,
-            &net::message::MsgType::EndBeam(weapon_net_id),
-        );
-        return;
-    }
-    weapon_state.ammo_in_mag -= 1;
-    if weapon_state.ammo_in_mag == 0 {
-        super::start_reload(&mut weapon_state, weapon_config);
-        beamer.phase = BeamPhase::Idle;
-    }
-    beamer.last_server_damage_tick = tick;
-    beamer.beam_origin = origin;
-    beamer.beam_dir = dir.normalize_or_zero();
-
-    if let Some(target_net_id) = target
-        && let Some(target_entity) = all_networked.get(&target_net_id)
-        && target_entity != shooter_entity
-        && origin.distance_squared(beamer.beam_origin) < 9.0
-        && origin.distance_squared(Vec3::ZERO).is_finite()
-    {
-        if let Ok(mut health) = health_q.get_mut(target_entity) {
-            attribute_damage(
-                last_damage_q,
-                target_entity,
-                Some(shooter_entity),
-                DamageCause::Projectile,
-            );
-            health.apply_damage(DAMAGE_PER_TICK);
-        }
-    }
-
-    quic.send(
-        SendTarget::AllExcept(conn_id),
-        Channel::Unordered,
-        &net::message::MsgType::BeamHitReport {
-            weapon: weapon_net_id.clone(),
-            origin,
-            dir,
-            target: None,
-        },
-    );
-    if beamer.phase == BeamPhase::Idle {
-        quic.send(
-            SendTarget::AllExcept(conn_id),
-            Channel::Ordered,
-            &net::message::MsgType::EndBeam(weapon_net_id),
-        );
-    }
-}
-
-pub fn handle_end_beam_request(
-    conn_id: ConnectionId,
-    weapon_net_id: net::message::NetworkID,
-    registry: &PlayerRegistry,
-    all_networked: &NetworkEntityMap,
-    pawn_slots: &Query<&mut WeaponSlots>,
-    beamers: &mut Query<&mut BeamerComponent>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &super::WeaponConfig)>,
-    quic: &mut QuicManager,
-) {
-    let Some((_shooter_entity, weapon_entity)) =
-        owned_beamer_entity(conn_id, &weapon_net_id, registry, all_networked, pawn_slots)
-    else {
-        return;
-    };
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    if beamer.phase == BeamPhase::Idle {
-        return;
-    }
-    beamer.phase = BeamPhase::Idle;
-    beamer.damage_tick_accum = 0;
-    beamer.beam_dir = Vec3::ZERO;
-    if let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
-        weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-    }
-    quic.send(
-        SendTarget::AllExcept(conn_id),
-        Channel::Ordered,
-        &net::message::MsgType::EndBeam(weapon_net_id),
-    );
-}
-
-pub fn interrupt_server_beam(
-    weapon_net_id: &net::message::NetworkID,
-    weapon_entity: Entity,
-    beamers: &mut Query<&mut BeamerComponent>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &super::WeaponConfig)>,
-    quic: &mut QuicManager,
-) {
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    if beamer.phase == BeamPhase::Idle {
-        return;
-    }
-    beamer.phase = BeamPhase::Idle;
-    beamer.damage_tick_accum = 0;
-    beamer.beam_dir = Vec3::ZERO;
-    if let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
-        weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-    }
-    quic.send(
-        SendTarget::All,
-        Channel::Ordered,
-        &net::message::MsgType::EndBeam(weapon_net_id.clone()),
-    );
-}
-
-pub fn tick_singleplayer_beam(
-    weapon_entity: Entity,
-    shooter: Entity,
-    origin: Vec3,
-    dir: Vec3,
-    tick: u64,
-    beamers: &mut Query<&mut BeamerComponent>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &super::WeaponConfig)>,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) {
-    let Ok((mut weapon_state, weapon_config)) = weapon_runtime.get_mut(weapon_entity) else {
-        return;
-    };
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    let dir = dir.normalize_or_zero();
-    if dir == Vec3::ZERO {
-        return;
-    }
-
-    if beamer.phase == BeamPhase::Idle {
-        if !super::can_fire(&weapon_state) {
-            return;
-        }
-        beamer.phase = BeamPhase::Charging;
-        beamer.phase_started_tick = tick;
-        beamer.damage_tick_accum = 0;
-        beamer.beam_origin = origin;
-        beamer.beam_dir = dir;
-        return;
-    }
-
-    if beamer.phase == BeamPhase::Charging {
-        beamer.beam_origin = origin;
-        beamer.beam_dir = dir;
-        if tick.saturating_sub(beamer.phase_started_tick) + 1 < CHARGE_TICKS as u64 {
-            return;
-        }
-        beamer.phase = BeamPhase::Beaming;
-        beamer.phase_started_tick = tick;
-        beamer.damage_tick_accum = DAMAGE_INTERVAL_TICKS - 1;
-    }
-
-    if beamer.phase != BeamPhase::Beaming {
-        return;
-    }
-
-    beamer.beam_origin = origin;
-    beamer.beam_dir = dir;
-    beamer.damage_tick_accum += 1;
-    if beamer.damage_tick_accum < DAMAGE_INTERVAL_TICKS {
-        return;
-    }
-    beamer.damage_tick_accum = 0;
-
-    if weapon_state.ammo_in_mag == 0 {
-        beamer.phase = BeamPhase::Idle;
-        beamer.beam_dir = Vec3::ZERO;
-        weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-        super::start_reload(&mut weapon_state, weapon_config);
-        return;
-    }
-    weapon_state.ammo_in_mag -= 1;
-    if weapon_state.ammo_in_mag == 0 {
-        super::start_reload(&mut weapon_state, weapon_config);
-    }
-    let hit = beam_hit(world, origin, dir, Some(shooter));
-    commands.queue(move |world: &mut World| {
-        apply_singleplayer_beam_hit(world, Some(shooter), hit.map(|(entity, _)| entity));
-    });
-    if weapon_state.ammo_in_mag == 0 {
-        beamer.phase = BeamPhase::Idle;
-        beamer.beam_dir = Vec3::ZERO;
-    }
-}
-
-pub fn end_singleplayer_beam(
-    weapon_entity: Entity,
-    beamers: &mut Query<&mut BeamerComponent>,
-    weapon_runtime: &mut Query<(&mut WeaponState, &super::WeaponConfig)>,
-) {
-    let Ok(mut beamer) = beamers.get_mut(weapon_entity) else {
-        return;
-    };
-    if beamer.phase == BeamPhase::Idle {
-        return;
-    }
-    beamer.phase = BeamPhase::Idle;
-    beamer.damage_tick_accum = 0;
-    beamer.beam_dir = Vec3::ZERO;
-    if let Ok((mut weapon_state, _)) = weapon_runtime.get_mut(weapon_entity) {
-        weapon_state.cooldown_ticks = COOLDOWN_TICKS;
-    }
-}
-
-#[cfg(feature = "client")]
 pub fn apply_remote_start_charge(world: &mut World, weapon_net_id: net::message::NetworkID) {
     let Some(weapon_entity) = world.resource::<NetworkEntityMap>().get(&weapon_net_id) else {
         return;
@@ -676,7 +386,6 @@ pub fn apply_remote_start_charge(world: &mut World, weapon_net_id: net::message:
     beamer.damage_tick_accum = 0;
 }
 
-#[cfg(feature = "client")]
 pub fn apply_remote_start_beam(
     world: &mut World,
     weapon_net_id: net::message::NetworkID,

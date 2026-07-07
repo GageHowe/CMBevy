@@ -23,9 +23,7 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
     explosion: None,
 };
 #[derive(Component, Default, Reflect)]
-pub struct PistolComponent {
-    pub trigger_down: bool,
-}
+pub struct PistolComponent;
 
 pub const CONFIG: WeaponConfig = WeaponConfig {
     display_name: "Pistol",
@@ -43,68 +41,18 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     shooter_impulse: 0.1,
     mass_scaled_shooter_impulse: false,
     decorate_projectile: Some(decorate_projectile),
+    projectile_behavior: Some(ProjectileBehavior {
+        semi_auto: true,
+        spread: 0.0,
+        sound: "event:/Weapons/RifleShotLocal",
+        recoil_scale: 0.6,
+        kick_vertical: (1.2, 0.3),
+        kick_horizontal: (-0.6, 0.6),
+        kick_recovery: 22.0,
+        zoomed_kick_scale: 1.0,
+        shake: None,
+    }),
 };
-
-#[cfg(feature = "client")]
-fn update_pistol(
-    weapon: &mut PistolComponent,
-    world: &mut PhysicsWorld,
-    commands: &mut Commands,
-    ctx: &mut FireCtx,
-) {
-    if ctx.reload_pressed {
-        super::start_reload(ctx.weapon_state, &ctx.weapon_config);
-    }
-    if !ctx.want_fire {
-        weapon.trigger_down = false;
-        return;
-    }
-    if weapon.trigger_down || !super::consume_round(ctx.weapon_state, &ctx.weapon_config) {
-        return;
-    }
-    weapon.trigger_down = true;
-    helpers::fire_projectile(ctx, world, commands);
-    #[cfg(feature = "client")]
-    projectile::apply_recoil(0.1, false, ctx, world, 0.6);
-    helpers::queue_fire_sound(ctx.sound.as_deref_mut(), "event:/Weapons/RifleShotLocal");
-    if let Some(cam) = ctx.camera.as_mut() {
-        cam.add_kick((1.2, 0.3), (-0.6, 0.6), 22.0);
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn drive_pistols(
-    mut weapons: Query<(
-        Entity,
-        &mut PistolComponent,
-        &mut WeaponState,
-        &WeaponConfig,
-        &PendingWeaponInput,
-    )>,
-    net_ids: Query<&net::message::NetworkID>,
-    world: ResMut<PhysicsWorld>,
-    commands: Commands,
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    sound_queue: Option<ResMut<crate::sound::SoundQueue>>,
-    possessed: Query<Entity, With<crate::pawn::Possessed>>,
-    camera_fx: Query<(&mut crate::pawn::CameraEffector, &GlobalTransform), With<Camera3d>>,
-    id_counter: Option<ResMut<crate::projectile::ProjectileIdCounter>>,
-    predicted: Option<ResMut<common::PredictedCommands>>,
-) {
-    super::drive_weapon_inputs(
-        &mut weapons,
-        net_ids,
-        world,
-        commands,
-        quic,
-        sound_queue,
-        possessed,
-        camera_fx,
-        id_counter,
-        predicted,
-        update_pistol,
-    );
-}
 
 pub fn spawn_pistol(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(PistolComponent::default(), CONFIG);
