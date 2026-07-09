@@ -59,7 +59,7 @@ impl Plugin for WeaponPlugin {
         )
         .add_systems(
             FixedUpdate,
-            (predict_projectile_shots, beamer::drive_beamers)
+            (predict_projectile_shots, beamer::drive_beamers_client)
                 .chain()
                 .after(prepare_projectile_shots)
                 .before(tick_weapon_state)

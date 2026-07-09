@@ -61,6 +61,9 @@ impl BotController {
     }
 }
 
+/// TODO: make this function more efficient:
+/// - only gather nearby objects
+/// - possibly reuse contexts for bots who are close together
 pub fn collect_contexts(
     actors: &Query<(Entity, &Team, &Health)>,
     slots: &Query<&WeaponSlots>,

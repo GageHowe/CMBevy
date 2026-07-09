@@ -4,7 +4,7 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 
 ## hard requirements
 * Never use Local unless for data we'll definitely want to keep in between games.
-* If you don't understand something I ask, look it up or clarify.
+* If you don't understand something I ask, look it up or clarify instead of guessing.
 * No special-case systems. We're trying to minimize Update overhead.
 * Linear damping is banned.
 * Use #[cfg(feature = client)] and GameState to gate functionality. 
@@ -15,19 +15,20 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 ## rules
 * Prefer glob imports over verbose manual imports.
 * Inline wrapper functions if they have many inputs/outputs, unless when it would to duplication.
-* Do not delete comments with lowercase first letters. DO NOT delete todos.
+* Do not delete comments with lowercase first letters, or TODOs.
 * Use minimal words/tokens.
 * When fixing bugs:
   * Find root cause, exact fix, minimal patch.
 * No new structs unless absolutely necessary.
 * Everything should be clean and minimal. Every line of code counts against you.
-* Don't use bevy's events/messages.
+* Never use bevy's events/messages, since most work is done in FixedUpdate
 * Simplicity: Simplicity and decoupling is everything. I prefer simple-looking imperative code over functional programming or clever one-liners.
 * Schedules: Use Update sparingly to keep framerate fast. Use SlowUpdate for things that don't have to happen each FixedUpdate.
-* No CCD.
+* No CCD, since it breaks relative motion.
 * for imports used for one package and not another, prefer `#[allow(unused_imports)]` over `#[cfg(feature = "<package>")]` 
 * keep struct impls right next to their struct.
 * all entity "types" like vehicles and weapons should be completely self-contained inside their plugins; no central registries, match statements, etc.
+* functions/systems only used on the client should include `client`, `visuals`, or `local` in their name, unless already in a client-only file.
 
 * When finished with a task, use make to build, addressing warnings (and test if necessary)
 * All movement and physics should be relative. When attaching, detaching, or spawning anything, it should inherit the velocity of its owner.
