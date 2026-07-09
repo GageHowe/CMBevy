@@ -8,5 +8,7 @@ SERVICE_NAME="${SERVICE_NAME:-beacon}"
 git pull --ff-only origin main
 make beacon-release
 sudo systemctl restart "$SERVICE_NAME"
+sudo cp beacon/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl reload caddy
 
 echo "Updated $SERVICE_NAME"

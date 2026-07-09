@@ -15,7 +15,7 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 ## rules
 * Prefer glob imports over verbose manual imports.
 * Inline wrapper functions if they have many inputs/outputs, unless when it would to duplication.
-* If code is commented in lines with lowercase first letters, it's handwritten; be hesitant about changing/removing it. DO NOT delete todos.
+* Do not delete comments with lowercase first letters. DO NOT delete todos.
 * Use minimal words/tokens.
 * When fixing bugs:
   * Find root cause, exact fix, minimal patch.

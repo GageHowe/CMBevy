@@ -12,6 +12,7 @@ use zstd::stream::{decode_all, encode_all};
 
 use crate::message::MsgType;
 
+/// TODO: make this a setting for performance/net ratio
 const ZSTD_LEVEL: i32 = 3;
 const ZSTD_FILE_LEVEL: i32 = 9;
 const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
