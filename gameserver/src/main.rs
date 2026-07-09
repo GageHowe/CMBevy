@@ -1,13 +1,15 @@
 // server executable
+#![allow(linker_messages)]
 
 use std::{io, net::SocketAddr, process::exit};
 
 use bevy::{
+    asset::AssetMetaCheck,
     log::{Level, LogPlugin},
     prelude::*,
 };
 use http_common::RegisterRequest;
-use master_plugin::MasterPlugin;
+use master_plugin::{MasterPlugin, register_asset_pak};
 use physics::physics_world::*;
 use session::ServerSessionPlugin;
 
@@ -131,11 +133,13 @@ fn main() {
     start_lan_discovery(bind_addr.port());
 
     let mut app = App::new();
+    register_asset_pak(&mut app);
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy::asset::AssetPlugin {
             file_path: gameplay::level::default_asset_dir()
                 .to_string_lossy()
                 .into_owned(),
+            meta_check: AssetMetaCheck::Never,
             ..default()
         })
         .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader
@@ -159,3 +163,6 @@ fn main() {
     println!("starting server...\n");
     app.run();
 }
+
+#[cfg(test)]
+mod tests;

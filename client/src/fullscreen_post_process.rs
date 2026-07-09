@@ -45,10 +45,14 @@ pub(crate) fn init_fullscreen_post_process(
     };
     let pipeline_cache = world.resource::<PipelineCache>();
     let pipeline_id = pipeline_cache.queue_render_pipeline(descriptor.clone());
-    descriptor.fragment.as_mut().unwrap().targets[0]
+    if let Some(target) = descriptor
+        .fragment
         .as_mut()
-        .unwrap()
-        .format = ViewTarget::TEXTURE_FORMAT_HDR;
+        .and_then(|fragment| fragment.targets.first_mut())
+        .and_then(Option::as_mut)
+    {
+        target.format = ViewTarget::TEXTURE_FORMAT_HDR;
+    }
     let pipeline_id_hdr = pipeline_cache.queue_render_pipeline(descriptor);
     (sampler, pipeline_id, pipeline_id_hdr)
 }

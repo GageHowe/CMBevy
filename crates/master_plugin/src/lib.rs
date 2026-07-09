@@ -2,6 +2,7 @@
 // we can do timing-dependent stuff here thanks to .before() etc
 // this will get compiled twice due the disabled feature unification
 
+pub use asset_pak::{register_asset_pak, register_asset_pak_with};
 use bevy::prelude::*;
 use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
 use gameplay::{
@@ -22,27 +23,27 @@ impl Plugin for MasterPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(common::config::FIXED_TICK_RATE));
         app.insert_resource(Ticker { tick: 0 });
 
-        /// core rapier plugin
+        // core rapier plugin
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(GravityPlugin);
         app.add_plugins(SnapPlugin);
 
-        /// might delete this unless it's just the shader, then i'd move it to client
+        // might delete this unless it's just the shader, then i'd move it to client
         app.add_plugins(AtmospherePlugin);
 
-        /// lua scripting
+        // lua scripting
         app.add_plugins(ScriptingPlugin);
 
-        /// game-specific logic
+        // game-specific logic
         app.add_plugins(GameplayPlugin);
 
-        /// collision detection and dispatch
+        // collision detection and dispatch
         app.add_plugins(CollisionPlugin);
 
-        /// health component and systems
+        // health component and systems
         app.add_plugins(HealthPlugin);
 
-        /// deprecated/changed very soon
+        // deprecated/changed very soon
         app.add_plugins(LevelPlugin);
 
         app.init_resource::<HeldWeaponMap>();

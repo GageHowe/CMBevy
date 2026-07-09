@@ -29,10 +29,10 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 * keep struct impls right next to their struct.
 * all entity "types" like vehicles and weapons should be completely self-contained inside their plugins; no central registries, match statements, etc.
 * functions/systems only used on the client should include `client`, `visuals`, or `local` in their name, unless already in a client-only file.
-
 * When finished with a task, use make to build, addressing warnings (and test if necessary)
 * All movement and physics should be relative. When attaching, detaching, or spawning anything, it should inherit the velocity of its owner.
 * If a cleanup makes a generic subsystem smaller and pushes object-specific behavior back to the object implementation, that is usually a good cleanup.
+* comment your code if it's not obvious why you wrote it that way
 
 ## efficiency
 * Drop pleasantries, filler, hedging, niceties, repetition, and "if you want,..."

@@ -1,0 +1,12 @@
+[package]
+name = "pack_assets"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+asset_pak = { path = "../../crates/asset_pak" }
+serde = { workspace = true }
+toml = "1.1.2"

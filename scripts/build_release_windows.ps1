@@ -1,45 +1,36 @@
-# Build and package CriticalMass for Windows (itch.io release)
-# Run from repo root: ./scripts/build_release_windows.ps1
-
-# todo: convert this to a rust script that encrypts all assets maybe
-
-param(
-    [string]$Version = "0.1.0"
-)
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path $PSScriptRoot -Parent
-$DistDir = "$RepoRoot\dist\windows"
+$DistDir = "$RepoRoot\dist"
+$OldKey = $env:CM_ASSET_KEY
 
 Push-Location $RepoRoot
-make build-release
-if ($LASTEXITCODE -ne 0) { throw "make build-release failed" }
-Pop-Location
+try {
+    if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }
+    $Bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($Bytes)
+    $Key = -join ($Bytes | ForEach-Object { $_.ToString("x2") })
 
-if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }
-New-Item -ItemType Directory -Path $DistDir | Out-Null
+    cargo run -p pack_assets --release -- --key $Key --dist dist
+    if ($LASTEXITCODE -ne 0) { throw "pack_assets failed" }
+    $env:CM_ASSET_KEY = $Key
+    cargo build -p client --release
+    if ($LASTEXITCODE -ne 0) { throw "client build failed" }
+    cargo build -p gameserver --release
+    if ($LASTEXITCODE -ne 0) { throw "gameserver build failed" }
 
-Write-Host "Copying binaries..."
-Copy-Item "$RepoRoot\target\release\client.exe"     "$DistDir\client.exe"
-Copy-Item "$RepoRoot\target\release\gameserver.exe" "$DistDir\gameserver.exe"
-
-Write-Host "Copying runtime libraries..."
-foreach ($runtimeDll in @("steam_api64.dll", "fmod.dll", "fmodstudio.dll")) {
-    $src = "$RepoRoot\target\release\$runtimeDll"
-    if (-not (Test-Path $src)) { throw "$runtimeDll not found in target/release" }
-    Copy-Item $src "$DistDir\$runtimeDll"
+    Copy-Item target\release\client.exe "$DistDir\client.exe"
+    Copy-Item target\release\gameserver.exe "$DistDir\gameserver.exe"
+    foreach ($dll in @("steam_api64.dll", "fmod.dll", "fmodstudio.dll")) {
+        Copy-Item "target\release\$dll" "$DistDir\$dll"
+    }
+    Write-Host "packaged dist"
+} finally {
+    if ($null -eq $OldKey) {
+        Remove-Item Env:\CM_ASSET_KEY -ErrorAction SilentlyContinue
+    } else {
+        $env:CM_ASSET_KEY = $OldKey
+    }
+    Pop-Location
 }
-
-Write-Host "Copying assets..."
-$AssetsDir = "$RepoRoot\assets"
-New-Item -ItemType Directory -Path "$DistDir\assets" -Force | Out-Null
-Copy-Item "$AssetsDir\*" "$DistDir\assets" -Recurse
-
-Write-Host "Zipping..."
-$ZipPath = "$RepoRoot\dist\criticalmass-windows-$Version.zip"
-if (Test-Path $ZipPath) { Remove-Item $ZipPath }
-Compress-Archive -Path "$DistDir\*" -DestinationPath $ZipPath
-
-Write-Host "Done: $ZipPath"

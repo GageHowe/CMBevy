@@ -3,6 +3,7 @@
 [workspace]
 members = [
     "crates/audio",
+    "crates/asset_pak",
     "crates/particles_plugin",
     "crates/common",
     "crates/gameplay",
@@ -23,10 +24,10 @@ resolver = "3"
 unused_must_use = "deny" # return values of functions marked with #[must_use] must not be ignored
 
 [workspace.lints.clippy]
-perf = { level = "warn"}
-style = { level = "warn"}
-complexity = { level = "warn"}
-suspicious = { level = "warn"}
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 expect_used = "deny"
 cognitive_complexity = "warn"
@@ -56,6 +57,7 @@ bytes = "1"
 ureq = { version = "2", features = ["json"] }
 bevy_egui = "0.39.1"
 noise-functions = "0.8.2"
+chacha20poly1305 = "0.10"
 
 [profile.dev]
 opt-level = 1
