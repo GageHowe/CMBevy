@@ -48,26 +48,14 @@ fn add_fmod_link_paths(root: &Path, os: &str) {
             &["fmod_vc.lib", "fmodstudio_vc.lib"],
         ),
         "linux" => {
-            let arch = match std::env::var("CARGO_CFG_TARGET_ARCH")
-                .unwrap_or_default()
-                .as_str()
-            {
-                "x86_64" => "x86_64",
-                "x86" => "x86",
-                "aarch64" => "arm64",
-                "arm" => "arm",
-                _ => return,
-            };
-            let sdk = root.join("assets/lib");
+            let dir = root.join("assets/lib/linux");
+            for file in ["libfmod.so", "libfmodstudio.so"] {
+                if !dir.join(file).exists() {
+                    panic!("{} not found under {}", file, dir.display());
+                }
+            }
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-            println!(
-                "cargo:rustc-link-search=native={}",
-                sdk.join(format!("api/core/lib/{arch}")).display()
-            );
-            println!(
-                "cargo:rustc-link-search=native={}",
-                sdk.join(format!("api/studio/lib/{arch}")).display()
-            );
+            println!("cargo:rustc-link-search=native={}", dir.display());
         }
         _ => {}
     }
@@ -98,14 +86,8 @@ fn runtime_libs(root: &Path, os: &str) -> Vec<(PathBuf, &'static str)> {
             (lib.join("windows/fmodstudio.dll"), "fmodstudio.dll"),
         ],
         "linux" => vec![
-            (
-                lib.join("api/core/lib/x86_64/libfmod.so.14"),
-                "libfmod.so.14",
-            ),
-            (
-                lib.join("api/studio/lib/x86_64/libfmodstudio.so.14"),
-                "libfmodstudio.so.14",
-            ),
+            (lib.join("linux/libfmod.so.14"), "libfmod.so.14"),
+            (lib.join("linux/libfmodstudio.so.14"), "libfmodstudio.so.14"),
         ],
         _ => Vec::new(),
     }
