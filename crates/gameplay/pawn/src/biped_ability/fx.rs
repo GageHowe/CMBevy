@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use net::{
-    message::{MsgType, NetworkID},
+    message::{AbilityFx, NetworkID},
     quic::Channel,
 };
 #[cfg(feature = "client")]
@@ -16,12 +16,6 @@ use crate::{NetworkEntityMap, pawn::biped::BipedPawnComponent};
 #[cfg(feature = "client")]
 const JETPACK_OFFSET: Vec3 = Vec3::new(0.0, -0.7, 0.0);
 
-#[derive(Clone, Copy)]
-pub enum AbilityFx {
-    Jetpack(bool),
-    Dash(Vec3),
-}
-
 #[cfg(feature = "client")]
 #[derive(Component)]
 pub(crate) struct JetpackFxTag;
@@ -34,13 +28,6 @@ pub fn fx_channel(fx: AbilityFx) -> Channel {
     match fx {
         AbilityFx::Jetpack(_) => Channel::Ordered,
         AbilityFx::Dash(_) => Channel::Unreliable,
-    }
-}
-
-pub fn fx_message(net_id: NetworkID, fx: AbilityFx) -> MsgType {
-    match fx {
-        AbilityFx::Jetpack(active) => MsgType::JetpackFx(net_id, active),
-        AbilityFx::Dash(dir) => MsgType::DashFx(net_id, dir),
     }
 }
 

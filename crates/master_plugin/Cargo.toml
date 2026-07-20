@@ -11,6 +11,7 @@ client = ["net/client", "scripting/client"]
 server = ["net/server"]
 
 [dependencies]
+asset_pak = { path = "../asset_pak", features = ["bevy_reader"] }
 gameplay = { path = "../gameplay" }
 scripting = { path = "../scripting" }
 common = { path = "../common" }

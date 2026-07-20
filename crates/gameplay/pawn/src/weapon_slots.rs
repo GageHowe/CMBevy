@@ -5,7 +5,6 @@ use net::message::NetworkID;
 pub struct WeaponSlots {
     pub slots: Vec<(Option<NetworkID>, Option<Entity>)>,
     pub active_index: usize,
-    pub delete_on_out_of_ammo: bool,
     pub block_fire_until_release: bool,
 }
 
@@ -20,14 +19,8 @@ impl WeaponSlots {
         Self {
             slots: vec![(None, None); count.max(1)],
             active_index: 0,
-            delete_on_out_of_ammo: false,
             block_fire_until_release: false,
         }
-    }
-
-    pub fn with_delete_on_out_of_ammo(mut self, delete_on_out_of_ammo: bool) -> Self {
-        self.delete_on_out_of_ammo = delete_on_out_of_ammo;
-        self
     }
 
     pub fn active(&self) -> &(Option<NetworkID>, Option<Entity>) {

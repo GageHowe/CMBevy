@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::{NetworkID, PawnInputKind};
+use crate::{NetworkID, PawnInput};
 
 /// A locally predicted impulse that must be replayed during rollback.
 /// Discrete things like jump, self-knockback, etc.
@@ -20,7 +20,7 @@ pub struct PredictedImpulse {
 #[derive(Clone)]
 pub struct PredictedTick {
     /// Input sent to the server for this tick.
-    pub input: PawnInputKind,
+    pub input: PawnInput,
     /// Extra side effects predicted locally on top of the raw input.
     pub impulses: Vec<PredictedImpulse>,
 }
@@ -33,7 +33,7 @@ pub struct PredictedCommands {
 }
 
 impl PredictedCommands {
-    pub fn record_input(&mut self, input: PawnInputKind) -> u64 {
+    pub fn record_input(&mut self, input: PawnInput) -> u64 {
         let seq = self.next_seq.max(1);
         self.next_seq = seq + 1;
         self.history.insert(

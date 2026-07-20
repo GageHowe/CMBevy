@@ -1,142 +1,113 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let Some(target_dir) = target_dir() else {
         return;
     };
+    let root = repo_root();
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../dev-assets/lib");
+    println!("cargo:rerun-if-changed=../assets/lib");
+    println!("cargo:rerun-if-env-changed=CM_ASSET_KEY");
 
-    configure_windows_fmod();
-    add_linux_fmod_rpath();
-    stage_fmod_runtime(&target_dir);
-    copy_steam_runtime(&target_dir);
+    if std::env::var_os("FMOD_LIB_DIR").is_none() && std::env::var_os("FMOD_SDK_DIR").is_none() {
+        add_fmod_link_paths(&root, &os);
+    }
+    for (src, dst) in runtime_libs(&root, &os) {
+        stage_file(&src, &target_dir.join(dst));
+    }
+    copy_steam_runtime(&target_dir, &os);
 }
 
 fn target_dir() -> Option<PathBuf> {
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR").ok()?);
-    out_dir.ancestors().nth(3).map(std::path::Path::to_path_buf)
+    PathBuf::from(std::env::var("OUT_DIR").ok()?)
+        .ancestors()
+        .nth(3)
+        .map(Path::to_path_buf)
 }
 
 fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
-    manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf()
+    PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default())
+        .parent()
+        .unwrap_or(Path::new(""))
+        .to_path_buf()
 }
 
-fn target_os() -> String {
-    std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default()
-}
-
-fn configure_windows_fmod() {
-    if target_os() != "windows" {
-        return;
-    }
-
-    if std::env::var_os("FMOD_LIB_DIR").is_some() || std::env::var_os("FMOD_SDK_DIR").is_some() {
-        return;
-    }
-
-    let lib_root = repo_root().join("dev-assets/lib");
-    if let Some(path) = find_fmod_lib_dir(&lib_root, "fmod_vc.lib") {
-        println!("cargo:rustc-link-search=native={}", path.display());
-    } else {
-        panic!(
-            "FMOD import library 'fmod_vc.lib' not found. Set FMOD_SDK_DIR or FMOD_LIB_DIR, \
-or put the Windows FMOD SDK under dev-assets/lib. FMOD DLLs alone are not enough to link."
-        );
-    }
-
-    if let Some(path) = find_fmod_lib_dir(&lib_root, "fmodstudio_vc.lib") {
-        println!("cargo:rustc-link-search=native={}", path.display());
-    } else {
-        panic!(
-            "FMOD import library 'fmodstudio_vc.lib' not found. Set FMOD_SDK_DIR or FMOD_LIB_DIR, \
-or put the Windows FMOD SDK under dev-assets/lib. FMOD DLLs alone are not enough to link."
-        );
-    }
-}
-
-fn find_fmod_lib_dir(root: &std::path::Path, file_name: &str) -> Option<PathBuf> {
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            if path.file_name().is_some_and(|name| name == file_name) {
-                return path.parent().map(std::path::Path::to_path_buf);
-            }
-        }
-    }
-    None
-}
-
-fn add_linux_fmod_rpath() {
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-
-    if target_os() != "linux" {
-        return;
-    }
-    let arch_dir = match target_arch.as_str() {
-        "x86_64" => "x86_64",
-        "x86" => "x86",
-        "aarch64" => "arm64",
-        "arm" => "arm",
-        _ => return,
-    };
-    let sdk_root = repo_root().join("dev-assets/lib/fmodstudioapi20312linux");
-    let core_dir = sdk_root.join(format!("api/core/lib/{arch_dir}"));
-    let studio_dir = sdk_root.join(format!("api/studio/lib/{arch_dir}"));
-    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-    println!("cargo:rustc-link-search=native={}", core_dir.display());
-    println!("cargo:rustc-link-search=native={}", studio_dir.display());
-}
-
-fn stage_fmod_runtime(target_dir: &std::path::Path) {
-    match target_os().as_str() {
-        "linux" => {
-            let sdk_root = repo_root().join("dev-assets/lib/fmodstudioapi20312linux");
-            let core_lib = sdk_root.join("api/core/lib/x86_64/libfmod.so.14");
-            let studio_lib = sdk_root.join("api/studio/lib/x86_64/libfmodstudio.so.14");
-            stage_file(&core_lib, &target_dir.join("libfmod.so.14"));
-            stage_file(&studio_lib, &target_dir.join("libfmodstudio.so.14"));
-        }
-        "windows" => {
-            let lib_root = repo_root().join("dev-assets/lib");
-            stage_file(&lib_root.join("fmod.dll"), &target_dir.join("fmod.dll"));
-            stage_file(
-                &lib_root.join("fmodstudio.dll"),
-                &target_dir.join("fmodstudio.dll"),
+fn add_fmod_link_paths(root: &Path, os: &str) {
+    match os {
+        "macos" => {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+            add_fmod_dir(
+                root.join("assets/lib/mac"),
+                &["libfmod.dylib", "libfmodstudio.dylib"],
             );
+        }
+        "windows" => add_fmod_dir(
+            root.join("assets/lib/windows"),
+            &["fmod_vc.lib", "fmodstudio_vc.lib"],
+        ),
+        "linux" => {
+            let dir = root.join("assets/lib/linux");
+            for file in ["libfmod.so", "libfmodstudio.so"] {
+                if !dir.join(file).exists() {
+                    panic!("{} not found under {}", file, dir.display());
+                }
+            }
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+            println!("cargo:rustc-link-search=native={}", dir.display());
         }
         _ => {}
     }
 }
 
-fn stage_file(src: &std::path::Path, dst: &std::path::Path) {
-    if !src.exists() {
-        return;
+fn add_fmod_dir(dir: PathBuf, required_files: &[&str]) {
+    for file in required_files {
+        if !dir.join(file).exists() {
+            panic!(
+                "{} not found. Put FMOD programmer API libraries under {} or set FMOD_LIB_DIR.",
+                file,
+                dir.display()
+            );
+        }
     }
-    if std::fs::symlink_metadata(dst).is_ok() {
-        let _ = std::fs::remove_file(dst);
-    }
-    let _ = std::fs::copy(src, dst);
+    println!("cargo:rustc-link-search=native={}", dir.display());
 }
 
-fn copy_steam_runtime(target_dir: &std::path::Path) {
-    let build_dir = target_dir.join("build");
-    let lib_name = match target_os().as_str() {
+fn runtime_libs(root: &Path, os: &str) -> Vec<(PathBuf, &'static str)> {
+    let lib = root.join("assets/lib");
+    match os {
+        "macos" => vec![
+            (lib.join("mac/libfmod.dylib"), "libfmod.dylib"),
+            (lib.join("mac/libfmodstudio.dylib"), "libfmodstudio.dylib"),
+        ],
+        "windows" => vec![
+            (lib.join("windows/fmod.dll"), "fmod.dll"),
+            (lib.join("windows/fmodstudio.dll"), "fmodstudio.dll"),
+        ],
+        "linux" => vec![
+            (lib.join("linux/libfmod.so.14"), "libfmod.so.14"),
+            (lib.join("linux/libfmodstudio.so.14"), "libfmodstudio.so.14"),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn stage_file(src: &Path, dst: &Path) {
+    if src.exists() {
+        let _ = std::fs::remove_file(dst);
+        let _ = std::fs::copy(src, dst);
+    }
+}
+
+fn copy_steam_runtime(target_dir: &Path, os: &str) {
+    let lib_name = match os {
+        "macos" => "libsteam_api.dylib",
         "windows" => "steam_api64.dll",
         "linux" => "libsteam_api.so",
         _ => return,
     };
-    if let Ok(entries) = std::fs::read_dir(build_dir) {
+    if let Ok(entries) = std::fs::read_dir(target_dir.join("build")) {
         for entry in entries.flatten() {
             let candidate = entry.path().join("out").join(lib_name);
             if candidate.exists() {

@@ -7,6 +7,7 @@ use net::message::SpawnCommand;
 
 use crate::gc::WorldObjectGc;
 
+/// function type that determines how an entity "kind" is spawned
 pub type SpawnFn = fn(Entity, &SpawnCommand, &mut World);
 
 #[derive(Resource, Default)]
@@ -15,12 +16,14 @@ pub struct SpawnRegistry(pub HashMap<&'static str, SpawnFn>);
 #[derive(Component, Clone, Copy)]
 pub struct SpawnReplicated(pub &'static str);
 
+/// i think this determines if an object should have splash damage dealt to it
 #[derive(Component)]
 pub struct CenterOfMassSplashDamage;
 
 #[derive(Component, Clone, Copy)]
 pub struct DespawnOnDeath;
 
+/// tells the sound engine to play a fmod sound reference when this object collides with something else
 #[derive(Component, Clone, Copy)]
 pub struct CollisionSound(pub &'static str);
 
@@ -40,21 +43,29 @@ pub fn insert_spawn_metadata(
     use_center_of_mass_splash_damage: bool,
 ) {
     let mut entity = world.entity_mut(entity);
+
+    // should this entity die when health reaches zero?
     if despawn_on_death {
         entity.insert(DespawnOnDeath);
     } else {
         entity.remove::<DespawnOnDeath>();
     }
+
+    // collision sound
     if let Some(sound) = collision_sound {
         entity.insert(CollisionSound(sound));
     } else {
         entity.remove::<CollisionSound>();
     }
+
+    // splash damage
     if use_center_of_mass_splash_damage {
         entity.insert(CenterOfMassSplashDamage);
     } else {
         entity.remove::<CenterOfMassSplashDamage>();
     }
+
+    // if this object should despawn after some time, add a WorldObjectGc component
     if let Some(reset_secs) = gc_lifetime_secs {
         if entity.get::<WorldObjectGc>().is_none() {
             entity.insert(WorldObjectGc::new(reset_secs));
@@ -96,7 +107,6 @@ pub struct SpawnGameObjectCommand {
     pub entity: Entity,
     pub cmd: SpawnCommand,
 }
-
 impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
         world

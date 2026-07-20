@@ -116,19 +116,13 @@ pub fn place_world_weapon(
 }
 
 pub fn drop_pose(world: &PhysicsWorld, owner: Entity, drop_dir: Vec3) -> (Vec3, Vec3) {
-    let Some(body) = world
-        .entity_to_handle
-        .get(&owner)
-        .and_then(|&handle| world.rigid_body_set.get(handle))
-    else {
-        return (Vec3::ZERO, Vec3::ZERO);
-    };
     let forward = drop_dir
         .normalize_or_zero()
         .try_normalize()
-        .unwrap_or_else(|| rb_rot(body) * Vec3::NEG_Z);
-    let velocity = rb_vel(body) + forward * 8.0;
-    (rb_pos(body) + forward, velocity)
+        .or_else(|| world.body(owner).map(|body| rb_rot(body) * Vec3::NEG_Z));
+    forward
+        .and_then(|forward| world.body_drop_pose(owner, forward * 8.0, Vec3::ZERO))
+        .unwrap_or((Vec3::ZERO, Vec3::ZERO))
 }
 
 pub fn restore_world_weapon(

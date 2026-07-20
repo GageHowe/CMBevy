@@ -5,6 +5,7 @@ use net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
+// TODO FIX: beam is not visible
 use super::*;
 #[cfg(feature = "client")]
 use crate::flash::{FlashMaterial, FlashMaterialUniform, update_flash_material};
@@ -40,7 +41,6 @@ pub struct BeamerComponent {
     pub beam_dir: Vec3,
     pub last_server_damage_tick: u64,
 }
-
 impl Default for BeamerComponent {
     fn default() -> Self {
         Self {
@@ -64,7 +64,7 @@ impl Plugin for BeamerPlugin {
             FixedUpdate,
             drive_authoritative_beams
                 .before(super::tick_weapon_state)
-                .in_set(super::SimulateItemSet),
+                .in_set(super::SimulateWeaponSet),
         );
     }
 }
@@ -194,7 +194,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
 };
 
 #[cfg(feature = "client")]
-fn update_beamer(
+fn update_beamer_client(
     weapon: &mut BeamerComponent,
     world: &mut PhysicsWorld,
     commands: &mut Commands,
@@ -279,7 +279,7 @@ fn update_beamer(
 }
 
 #[cfg(feature = "client")]
-pub fn drive_beamers(
+pub fn drive_beamers_client(
     mut weapons: Query<(
         Entity,
         &mut BeamerComponent,
@@ -292,7 +292,7 @@ pub fn drive_beamers(
     quic: Option<Res<QuicManager>>,
 ) {
     for (entity, mut beam, mut state, config, input) in &mut weapons {
-        update_beamer(
+        update_beamer_client(
             &mut beam,
             &mut world,
             &mut commands,
@@ -465,7 +465,7 @@ fn add_visuals(
                 MeshMaterial3d(flash_materials.add(FlashMaterial {
                     params: FlashMaterialUniform {
                         color: Color::srgb(1.0, 0.16, 0.16).to_linear().to_vec4(),
-                        alpha: 0.0,
+                        alpha: 0.5,
                         camera_pos: Vec3::ZERO,
                         _pad0: 0.0,
                     },

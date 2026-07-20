@@ -2,18 +2,31 @@ use bevy::prelude::*;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
-use super::super::{AbilityFx, AbilityKind, AbilitySpec, BipedAbilityState, drain_meter};
+use super::super::{AbilityFx, AbilitySpec, BipedAbilityState, drain_meter};
 
 const THRUST: f32 = 0.5;
 const DRAIN: f32 = 1.5;
 
 pub const JETPACK: AbilitySpec = AbilitySpec {
-    kind: AbilityKind::Jetpack,
     spawn_name: "jetpack",
     meter_max: 100.0,
     meter_regen: 0.4,
     spawn_pickup: spawn_jetpack_pickup,
+    apply: apply_jetpack_input,
 };
+
+pub fn spawn_jetpack(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+    spawn_jetpack_pickup(
+        entity,
+        cmd.position_or_zero(),
+        cmd.velocity_or_zero(),
+        world,
+    );
+    world
+        .entity_mut(entity)
+        .insert(crate::SpawnReplicated("jetpack"));
+    crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
+}
 
 pub fn spawn_jetpack_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut World) {
     let rb_handle = {
@@ -38,7 +51,7 @@ pub fn spawn_jetpack_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut Wo
         RigidBodyHandleComponent(rb_handle),
         crate::interaction::Interactable { range: 3.0 },
         crate::interaction::InteractionName("Jetpack"),
-        super::super::OnPickup(super::super::equip_jetpack),
+        super::super::AbilityPickup(&JETPACK),
     ));
     #[cfg(feature = "client")]
     {

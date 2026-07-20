@@ -17,3 +17,6 @@ master_plugin = { path = "../crates/master_plugin", features = ["server"] }
 bevy = { workspace = true, features = ["bevy_log", "multi_threaded", "std"] }
 session = { path = "../crates/session" }
 http_common = { path = "../crates/http_common" }
+
+[dev-dependencies]
+asset_pak = { path = "../crates/asset_pak" }

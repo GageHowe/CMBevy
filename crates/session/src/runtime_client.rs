@@ -60,7 +60,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .add_systems(
                 FixedUpdate,
                 run_singleplayer_bots
-                    .before(gameplay::weapon::SimulateItemSet)
+                    .before(gameplay::weapon::SimulateWeaponSet)
                     .run_if(in_state(single_player)),
             )
             .add_systems(
@@ -287,10 +287,12 @@ fn disconnect(
     mut quic: ResMut<QuicManager>,
     mut pending: ResMut<PendingReconciliation>,
     mut last_acked: ResMut<LastAckedInputSeq>,
+    mut last_server: ResMut<LastServerState>,
     mut local_character: ResMut<LocalCharacterNetId>,
     mut gui: ResMut<GuiState>,
 ) {
     last_acked.0 = 0;
+    last_server.0 = None;
     local_character.0 = None;
     gui.scoreboard = None;
     quic.disconnect();

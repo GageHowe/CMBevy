@@ -1,4 +1,5 @@
 // client executable
+#![allow(linker_messages)]
 // WARNING: don't put common dependencies here, put them in MasterPlugin
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -6,6 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use audio::SoundPlugin;
 use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy::{
+    asset::AssetMetaCheck,
     log::{Level, LogPlugin},
     pbr::DefaultOpaqueRendererMethod,
     post_process::auto_exposure::AutoExposurePlugin,
@@ -36,7 +38,7 @@ mod reconciliation;
 mod sound;
 mod tick_sync;
 mod ui;
-use master_plugin::MasterPlugin;
+use master_plugin::{MasterPlugin, register_asset_pak};
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
 use physics::physics_world::{step_physics, sync_physics_visual};
@@ -80,12 +82,15 @@ fn main() {
     let server_addr = parse_server_addr();
     let mut app = App::new();
     app.insert_resource(DefaultOpaqueRendererMethod::deferred());
+    register_asset_pak(&mut app);
 
     app.add_plugins(
         DefaultPlugins
             .build()
             .set(AssetPlugin {
                 file_path: common::config::asset_dir().to_string_lossy().into_owned(),
+                meta_check: AssetMetaCheck::Never,
+                watch_for_changes_override: Some(cfg!(debug_assertions)),
                 ..default()
             })
             .set(LogPlugin {

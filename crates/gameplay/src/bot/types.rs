@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use common::PawnInputKind;
+use common::PawnInput;
 use physics::physics_world::{PhysicsWorld, rb_pos, rb_rot, rb_vel};
 
 use crate::{Team, health::Health, pawn::WeaponSlots, reticle::AimReticle};
@@ -33,7 +33,7 @@ impl Clone for BotContext {
 
 /// Decision output emitted by a bot brain for the current think step. TODO: investigate changing to dedicated pawn input structs
 pub struct BotOutput {
-    pub input: PawnInputKind,
+    pub input: PawnInput,
     pub fire: bool,
     pub reload: bool,
     pub aim_origin: Vec3,
@@ -61,6 +61,9 @@ impl BotController {
     }
 }
 
+/// TODO: make this function more efficient:
+/// - only gather nearby objects
+/// - possibly reuse contexts for bots who are close together
 pub fn collect_contexts(
     actors: &Query<(Entity, &Team, &Health)>,
     slots: &Query<&WeaponSlots>,

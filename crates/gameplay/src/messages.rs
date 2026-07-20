@@ -26,8 +26,9 @@ pub fn push(commands: &mut Commands, text: impl Into<String>) {
     commands.queue(move |world: &mut World| push_world(world, text));
 }
 
-pub fn push_world(_world: &mut World, text: impl Into<String>) {
-    let text = text.into();
+pub fn push_world(_world: &mut World, _text: impl Into<String>) {
+    #[cfg(any(feature = "client", debug_assertions))]
+    let text = _text.into();
     #[cfg(feature = "client")]
     {
         let now = _world.resource::<Time>().elapsed_secs_f64();

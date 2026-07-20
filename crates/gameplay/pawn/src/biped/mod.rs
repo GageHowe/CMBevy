@@ -119,7 +119,7 @@ fn move_bipeds(
     )>,
 ) {
     for (pawn_entity, mut possessed, handle, mut biped) in pawns.iter_mut() {
-        let Some(common::PawnInputKind::Biped(input)) = possessed.consume() else {
+        let Some(input) = possessed.consume() else {
             continue;
         };
         apply_biped_input(&mut world, pawn_entity, input, handle, &mut biped);

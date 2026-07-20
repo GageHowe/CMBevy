@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 #[cfg(not(feature = "client"))]
-use gameplay::pawn::PawnInputKind;
+use gameplay::pawn::PawnInput;
 use net::message::{NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
 use net::quic::ConnectionId;
@@ -90,13 +90,13 @@ pub struct PendingInputs(pub HashMap<ConnectionId, PendingInputState>);
 #[derive(Default)]
 pub struct PendingInputState {
     pub applied_seq: u64,
-    pub held: Option<PawnInputKind>,
-    pub queue: BTreeMap<u64, PawnInputKind>,
+    pub held: Option<PawnInput>,
+    pub queue: BTreeMap<u64, PawnInput>,
 }
 
 #[cfg(not(feature = "client"))]
 impl PendingInputState {
-    pub fn push(&mut self, seq: u64, input: PawnInputKind) {
+    pub fn push(&mut self, seq: u64, input: PawnInput) {
         if seq <= self.applied_seq {
             merge_edges(&mut self.held, input);
             return;
@@ -111,7 +111,7 @@ impl PendingInputState {
         }
     }
 
-    pub fn next(&mut self) -> Option<(u64, PawnInputKind, bool)> {
+    pub fn next(&mut self) -> Option<(u64, PawnInput, bool)> {
         if let Some((seq, input)) = self.queue.pop_first() {
             self.applied_seq = seq;
             self.held = Some(input.clone());
@@ -130,7 +130,7 @@ impl PendingInputState {
 }
 
 #[cfg(not(feature = "client"))]
-fn merge_edges(held: &mut Option<PawnInputKind>, input: PawnInputKind) {
+fn merge_edges(held: &mut Option<PawnInput>, input: PawnInput) {
     match held {
         Some(held) => merge_biped_edges(held, input),
         None => *held = Some(input),
@@ -138,11 +138,7 @@ fn merge_edges(held: &mut Option<PawnInputKind>, input: PawnInputKind) {
 }
 
 #[cfg(not(feature = "client"))]
-fn merge_biped_edges(current: &mut PawnInputKind, incoming: PawnInputKind) {
-    let (PawnInputKind::Biped(current), PawnInputKind::Biped(incoming)) = (current, incoming)
-    else {
-        return;
-    };
+fn merge_biped_edges(current: &mut PawnInput, incoming: PawnInput) {
     current.item.primary_pressed |= incoming.item.primary_pressed;
     current.item.secondary_pressed |= incoming.item.secondary_pressed;
     current.item.reload_pressed |= incoming.item.reload_pressed;
@@ -160,14 +156,12 @@ fn merge_biped_edges(current: &mut PawnInputKind, incoming: PawnInputKind) {
 }
 
 #[cfg(not(feature = "client"))]
-fn clear_biped_edges(input: &mut PawnInputKind) {
-    if let PawnInputKind::Biped(input) = input {
-        input.item.primary_pressed = false;
-        input.item.secondary_pressed = false;
-        input.item.reload_pressed = false;
-        input.ability1_pressed = false;
-        input.melee_pressed = false;
-    }
+fn clear_biped_edges(input: &mut PawnInput) {
+    input.item.primary_pressed = false;
+    input.item.secondary_pressed = false;
+    input.item.reload_pressed = false;
+    input.ability1_pressed = false;
+    input.melee_pressed = false;
 }
 
 #[cfg(not(feature = "client"))]

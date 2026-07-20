@@ -32,9 +32,9 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
     let mut server_addr: SocketAddr = "127.0.0.1:42070"
         .parse::<SocketAddr>()
         .map_err(|err| err.to_string())?;
+    let mut server_bind_addr = None;
     let mut buf_size = 65_535usize;
     let mut seed = 1u64;
-    let mut stats_interval = Duration::from_secs(5);
 
     let mut uplink = DirectionConfig {
         loss: 0.1,
@@ -65,6 +65,13 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
                     .parse()
                     .map_err(|err| format!("invalid server addr: {}", err))?;
             }
+            "--server-bind" => {
+                server_bind_addr = Some(
+                    next(&mut index)?
+                        .parse()
+                        .map_err(|err| format!("invalid server bind addr: {}", err))?,
+                );
+            }
             "--buf" => {
                 buf_size = next(&mut index)?
                     .parse()
@@ -74,13 +81,6 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
                 seed = next(&mut index)?
                     .parse()
                     .map_err(|err| format!("invalid seed: {}", err))?;
-            }
-            "--stats" => {
-                stats_interval = Duration::from_secs(
-                    next(&mut index)?
-                        .parse()
-                        .map_err(|err| format!("invalid stats interval: {}", err))?,
-                );
             }
             "--loss" => {
                 let value = parse_probability(next(&mut index)?)?;
@@ -148,9 +148,9 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
     Ok(Config {
         listen_addr,
         server_addr,
+        server_bind_addr,
         buf_size,
         seed,
-        stats_interval,
         uplink,
         downlink,
     })
@@ -191,9 +191,9 @@ Usage:
 Common flags:
   --listen ADDR              address clients connect to (default 127.0.0.1:42069)
   --server ADDR              real server address (default 127.0.0.1:42070)
+  --server-bind ADDR         local upstream bind address (default wildcard, ephemeral port)
   --buf BYTES                UDP receive buffer size (default 65535)
   --seed N                   deterministic seed (default 1)
-  --stats SECONDS            stats print interval; 0 disables (default 5)
 
 Shared impairment flags:
   --loss P                   packet loss probability

@@ -9,3 +9,5 @@ serde = { workspace = true }
 tokio = { workspace = true }
 http_common = { path = "../crates/http_common" }
 fastrand = { workspace = true }
+
+# don't use minify-html, caddy already does html gzip compression

@@ -1,13 +1,8 @@
 use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashMap},
+    collections::HashMap,
     io,
     net::{SocketAddr, UdpSocket},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering as AtomicOrdering},
-        mpsc,
-    },
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -41,46 +36,22 @@ impl Default for DirectionConfig {
 pub struct Config {
     pub listen_addr: SocketAddr,
     pub server_addr: SocketAddr,
+    pub server_bind_addr: Option<SocketAddr>,
     pub buf_size: usize,
     pub seed: u64,
-    pub stats_interval: Duration,
     pub uplink: DirectionConfig,
     pub downlink: DirectionConfig,
 }
 
-#[derive(Default)]
-struct Stats {
-    client_packets: AtomicU64,
-    server_packets: AtomicU64,
-    client_bytes: AtomicU64,
-    server_bytes: AtomicU64,
-    sent_to_server: AtomicU64,
-    sent_to_client: AtomicU64,
-    dropped_up: AtomicU64,
-    dropped_down: AtomicU64,
-    duplicated_up: AtomicU64,
-    duplicated_down: AtomicU64,
-    corrupted_up: AtomicU64,
-    corrupted_down: AtomicU64,
-    reordered_up: AtomicU64,
-    reordered_down: AtomicU64,
-}
-
-#[derive(Clone, Copy)]
-enum Direction {
-    Uplink,
-    Downlink,
-}
-
 struct LinkState {
-    rng: Rng64,
+    rng: fastrand::Rng,
     config: DirectionConfig,
 }
 
 impl LinkState {
     fn new(seed: u64, config: DirectionConfig) -> Self {
         Self {
-            rng: Rng64::new(seed),
+            rng: fastrand::Rng::with_seed(seed),
             config,
         }
     }
@@ -89,47 +60,21 @@ impl LinkState {
         &mut self,
         data: &[u8],
         now: Instant,
-        direction: Direction,
         target: PacketTarget,
         tx: &mpsc::Sender<ScheduledPacket>,
-        stats: &Stats,
     ) {
-        if self.rng.chance(self.config.loss) {
-            match direction {
-                Direction::Uplink => {
-                    stats.dropped_up.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-                Direction::Downlink => {
-                    stats.dropped_down.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-            }
+        if self.chance(self.config.loss) {
             return;
         }
 
         let mut payload = data.to_vec();
-        if self.rng.chance(self.config.corrupt) && !payload.is_empty() {
-            let index = self.rng.index(payload.len());
-            let bit = 1u8 << self.rng.index(8);
+        if self.chance(self.config.corrupt) && !payload.is_empty() {
+            let index = self.rng.usize(..payload.len());
+            let bit = 1u8 << self.rng.usize(..8);
             payload[index] ^= bit;
-            match direction {
-                Direction::Uplink => {
-                    stats.corrupted_up.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-                Direction::Downlink => {
-                    stats.corrupted_down.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-            }
         }
 
-        let extra_reorder = if self.rng.chance(self.config.reorder) {
-            match direction {
-                Direction::Uplink => {
-                    stats.reordered_up.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-                Direction::Downlink => {
-                    stats.reordered_down.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-            }
+        let extra_reorder = if self.chance(self.config.reorder) {
             self.config.reorder_window
         } else {
             Duration::ZERO
@@ -138,29 +83,17 @@ impl LinkState {
         let due = now + self.sample_delay() + extra_reorder;
         let _ = tx.send(ScheduledPacket {
             due,
-            sequence: 0,
             payload: payload.clone(),
             target: target.clone(),
-            direction,
         });
 
-        if self.rng.chance(self.config.duplicate) {
+        if self.chance(self.config.duplicate) {
             let duplicate_due = due + self.sample_delay().min(Duration::from_millis(5));
             let _ = tx.send(ScheduledPacket {
                 due: duplicate_due,
-                sequence: 0,
                 payload,
                 target,
-                direction,
             });
-            match direction {
-                Direction::Uplink => {
-                    stats.duplicated_up.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-                Direction::Downlink => {
-                    stats.duplicated_down.fetch_add(1, AtomicOrdering::Relaxed);
-                }
-            }
         }
     }
 
@@ -169,7 +102,11 @@ impl LinkState {
             return self.config.min_delay;
         }
         let span = self.config.max_delay - self.config.min_delay;
-        self.config.min_delay + Duration::from_nanos(self.rng.range_u64(span.as_nanos() as u64 + 1))
+        self.config.min_delay + Duration::from_nanos(self.rng.u64(..span.as_nanos() as u64 + 1))
+    }
+
+    fn chance(&mut self, probability: f64) -> bool {
+        probability > 0.0 && (probability >= 1.0 || self.rng.f64() < probability)
     }
 }
 
@@ -181,53 +118,25 @@ enum PacketTarget {
 
 struct ScheduledPacket {
     due: Instant,
-    sequence: u64,
     payload: Vec<u8>,
     target: PacketTarget,
-    direction: Direction,
-}
-
-impl PartialEq for ScheduledPacket {
-    fn eq(&self, other: &Self) -> bool {
-        self.due == other.due && self.sequence == other.sequence
-    }
-}
-
-impl Eq for ScheduledPacket {}
-
-impl PartialOrd for ScheduledPacket {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ScheduledPacket {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .due
-            .cmp(&self.due)
-            .then_with(|| other.sequence.cmp(&self.sequence))
-    }
 }
 
 struct ClientLink {
     server_socket: Arc<UdpSocket>,
-    uplink: Mutex<LinkState>,
+    uplink: LinkState,
 }
 
 pub fn run(config: Config) -> io::Result<()> {
     let listener = Arc::new(UdpSocket::bind(config.listen_addr)?);
     listener.set_nonblocking(false)?;
 
-    let stats = Arc::new(Stats::default());
     let (tx, rx) = mpsc::channel::<ScheduledPacket>();
 
-    start_scheduler(rx, Arc::clone(&stats));
-    start_stats_logger(Arc::clone(&stats), config.stats_interval);
+    start_scheduler(rx);
 
-    let clients: Arc<Mutex<HashMap<SocketAddr, Arc<ClientLink>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let client_seed = AtomicU64::new(config.seed.wrapping_add(1));
+    let mut clients = HashMap::new();
+    let mut client_seed = config.seed.wrapping_add(1);
 
     println!(
         "network_emulator listening on {} and forwarding to {}",
@@ -255,87 +164,66 @@ pub fn run(config: Config) -> io::Result<()> {
     let mut buf = vec![0u8; config.buf_size];
     loop {
         let (count, client_addr) = listener.recv_from(&mut buf)?;
-        stats.client_packets.fetch_add(1, AtomicOrdering::Relaxed);
-        stats
-            .client_bytes
-            .fetch_add(count as u64, AtomicOrdering::Relaxed);
-
         let client = get_or_create_client(
             client_addr,
-            &clients,
+            &mut clients,
             &listener,
             &tx,
-            &stats,
             &config,
-            &client_seed,
+            &mut client_seed,
         )?;
 
         let now = Instant::now();
-        let mut uplink = client
-            .uplink
-            .lock()
-            .map_err(|_| io::Error::other("uplink mutex poisoned"))?;
-        uplink.schedule(
+        client.uplink.schedule(
             &buf[..count],
             now,
-            Direction::Uplink,
             PacketTarget::Connected(Arc::clone(&client.server_socket)),
             &tx,
-            &stats,
         );
     }
 }
 
-fn get_or_create_client(
+fn get_or_create_client<'a>(
     client_addr: SocketAddr,
-    clients: &Arc<Mutex<HashMap<SocketAddr, Arc<ClientLink>>>>,
+    clients: &'a mut HashMap<SocketAddr, ClientLink>,
     listener: &Arc<UdpSocket>,
     tx: &mpsc::Sender<ScheduledPacket>,
-    stats: &Arc<Stats>,
     config: &Config,
-    client_seed: &AtomicU64,
-) -> io::Result<Arc<ClientLink>> {
-    if let Some(existing) = clients
-        .lock()
-        .map_err(|_| io::Error::other("clients mutex poisoned"))?
-        .get(&client_addr)
-        .cloned()
-    {
-        return Ok(existing);
+    client_seed: &mut u64,
+) -> io::Result<&'a mut ClientLink> {
+    if clients.contains_key(&client_addr) {
+        return Ok(clients.get_mut(&client_addr).unwrap());
     }
 
-    let server_socket = Arc::new(UdpSocket::bind(local_bind_addr(config.server_addr))?);
+    let server_socket = Arc::new(UdpSocket::bind(
+        config
+            .server_bind_addr
+            .unwrap_or_else(|| wildcard_bind_addr(config.server_addr)),
+    )?);
     server_socket.connect(config.server_addr)?;
-    let seed = client_seed.fetch_add(2, AtomicOrdering::Relaxed);
-    let client = Arc::new(ClientLink {
+    let seed = *client_seed;
+    *client_seed = client_seed.wrapping_add(2);
+    let client = ClientLink {
         server_socket: Arc::clone(&server_socket),
-        uplink: Mutex::new(LinkState::new(seed, config.uplink.clone())),
-    });
-
-    let mut guard = clients
-        .lock()
-        .map_err(|_| io::Error::other("clients mutex poisoned"))?;
-    let entry = guard.entry(client_addr).or_insert_with(|| {
-        spawn_downlink_thread(
-            Arc::clone(&server_socket),
-            Arc::clone(listener),
-            client_addr,
-            tx.clone(),
-            Arc::clone(stats),
-            config.downlink.clone(),
-            seed ^ 0x9E37_79B9_7F4A_7C15,
-            config.buf_size,
-        );
-        println!("new emulated client: {}", client_addr);
-        Arc::clone(&client)
-    });
-    Ok(Arc::clone(entry))
+        uplink: LinkState::new(seed, config.uplink.clone()),
+    };
+    spawn_downlink_thread(
+        server_socket,
+        Arc::clone(listener),
+        client_addr,
+        tx.clone(),
+        config.downlink.clone(),
+        seed ^ 0x9E37_79B9_7F4A_7C15,
+        config.buf_size,
+    );
+    println!("new emulated client: {}", client_addr);
+    Ok(clients.entry(client_addr).or_insert(client))
 }
 
-fn local_bind_addr(server_addr: SocketAddr) -> SocketAddr {
+fn wildcard_bind_addr(server_addr: SocketAddr) -> SocketAddr {
     match server_addr {
-        SocketAddr::V4(_) => SocketAddr::from(([127, 0, 0, 1], 0)),
-        SocketAddr::V6(_) => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
+        SocketAddr::V4(_) => SocketAddr::from(([0, 0, 0, 0], 0)),
+        SocketAddr::V6(_) => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0)),
     }
 }
 
@@ -344,7 +232,6 @@ fn spawn_downlink_thread(
     listener: Arc<UdpSocket>,
     client_addr: SocketAddr,
     tx: mpsc::Sender<ScheduledPacket>,
-    stats: Arc<Stats>,
     config: DirectionConfig,
     seed: u64,
     buf_size: usize,
@@ -360,160 +247,48 @@ fn spawn_downlink_thread(
                     return;
                 }
             };
-            stats.server_packets.fetch_add(1, AtomicOrdering::Relaxed);
-            stats
-                .server_bytes
-                .fetch_add(count as u64, AtomicOrdering::Relaxed);
             downlink.schedule(
                 &buf[..count],
                 Instant::now(),
-                Direction::Downlink,
                 PacketTarget::ToClient(Arc::clone(&listener), client_addr),
                 &tx,
-                &stats,
             );
         }
     });
 }
 
-fn start_scheduler(rx: mpsc::Receiver<ScheduledPacket>, stats: Arc<Stats>) {
+fn start_scheduler(rx: mpsc::Receiver<ScheduledPacket>) {
     thread::spawn(move || {
-        let mut heap: BinaryHeap<ScheduledPacket> = BinaryHeap::new();
-        let mut sequence = 0u64;
-        let mut disconnected = false;
+        let mut packets = Vec::new();
 
         loop {
-            while let Some(packet) = heap.peek() {
-                let now = Instant::now();
-                if packet.due > now {
-                    break;
-                }
-
-                let Some(packet) = heap.pop() else {
-                    break;
-                };
-                let result = match packet.target {
+            packets.sort_by_key(|packet: &ScheduledPacket| packet.due);
+            while packets
+                .first()
+                .is_some_and(|packet| packet.due <= Instant::now())
+            {
+                let packet = packets.remove(0);
+                if let Err(err) = match packet.target {
                     PacketTarget::Connected(socket) => socket.send(&packet.payload).map(|_| ()),
                     PacketTarget::ToClient(socket, addr) => {
                         socket.send_to(&packet.payload, addr).map(|_| ())
                     }
-                };
-                if let Err(err) = result {
+                } {
                     eprintln!("scheduled send error: {}", err);
-                } else {
-                    match packet.direction {
-                        Direction::Uplink => {
-                            stats.sent_to_server.fetch_add(1, AtomicOrdering::Relaxed);
-                        }
-                        Direction::Downlink => {
-                            stats.sent_to_client.fetch_add(1, AtomicOrdering::Relaxed);
-                        }
-                    }
                 }
             }
 
-            if disconnected && heap.is_empty() {
-                return;
-            }
-
-            match heap.peek() {
-                Some(packet) => {
-                    let timeout = packet.due.saturating_duration_since(Instant::now());
-                    match rx.recv_timeout(timeout) {
-                        Ok(mut packet) => {
-                            packet.sequence = sequence;
-                            sequence = sequence.wrapping_add(1);
-                            heap.push(packet);
-                        }
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
-                        Err(mpsc::RecvTimeoutError::Disconnected) => disconnected = true,
-                    }
+            if let Some(packet) = packets.first() {
+                let timeout = packet.due.saturating_duration_since(Instant::now());
+                match rx.recv_timeout(timeout) {
+                    Ok(packet) => packets.push(packet),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
-                None => match rx.recv() {
-                    Ok(mut packet) => {
-                        packet.sequence = sequence;
-                        sequence = sequence.wrapping_add(1);
-                        heap.push(packet);
-                    }
-                    Err(_) => return,
-                },
+            } else {
+                let Ok(packet) = rx.recv() else { return };
+                packets.push(packet);
             }
         }
     });
-}
-
-fn start_stats_logger(stats: Arc<Stats>, interval: Duration) {
-    if interval.is_zero() {
-        return;
-    }
-
-    thread::spawn(move || {
-        loop {
-            thread::sleep(interval);
-            println!(
-                "stats: client_rx={} server_rx={} sent_up={} sent_down={} drop_up={} drop_down={} dup_up={} dup_down={} corrupt_up={} corrupt_down={} reorder_up={} reorder_down={}",
-                stats.client_packets.load(AtomicOrdering::Relaxed),
-                stats.server_packets.load(AtomicOrdering::Relaxed),
-                stats.sent_to_server.load(AtomicOrdering::Relaxed),
-                stats.sent_to_client.load(AtomicOrdering::Relaxed),
-                stats.dropped_up.load(AtomicOrdering::Relaxed),
-                stats.dropped_down.load(AtomicOrdering::Relaxed),
-                stats.duplicated_up.load(AtomicOrdering::Relaxed),
-                stats.duplicated_down.load(AtomicOrdering::Relaxed),
-                stats.corrupted_up.load(AtomicOrdering::Relaxed),
-                stats.corrupted_down.load(AtomicOrdering::Relaxed),
-                stats.reordered_up.load(AtomicOrdering::Relaxed),
-                stats.reordered_down.load(AtomicOrdering::Relaxed),
-            );
-        }
-    });
-}
-
-#[derive(Clone, Debug)]
-struct Rng64 {
-    state: u64,
-}
-
-impl Rng64 {
-    fn new(seed: u64) -> Self {
-        let mut state = seed;
-        if state == 0 {
-            state = 0xA076_1D64_78BD_642F;
-        }
-        Self { state }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    fn next_f64(&mut self) -> f64 {
-        let bits = self.next_u64() >> 11;
-        bits as f64 / ((1u64 << 53) as f64)
-    }
-
-    fn chance(&mut self, probability: f64) -> bool {
-        if probability <= 0.0 {
-            return false;
-        }
-        if probability >= 1.0 {
-            return true;
-        }
-        self.next_f64() < probability
-    }
-
-    fn range_u64(&mut self, upper_exclusive: u64) -> u64 {
-        if upper_exclusive <= 1 {
-            return 0;
-        }
-        self.next_u64() % upper_exclusive
-    }
-
-    fn index(&mut self, upper_exclusive: usize) -> usize {
-        self.range_u64(upper_exclusive as u64) as usize
-    }
 }

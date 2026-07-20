@@ -1,0 +1,18 @@
+[package]
+name = "asset_pak"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy = { workspace = true, features = ["multi_threaded", "std"], optional = true }
+chacha20poly1305 = { workspace = true }
+common = { path = "../common", optional = true }
+postcard = { workspace = true, features = ["use-std"] }
+serde = { workspace = true }
+zstd = { workspace = true }
+
+[features]
+bevy_reader = ["dep:bevy", "dep:common"]

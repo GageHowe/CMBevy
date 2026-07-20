@@ -170,6 +170,7 @@ fn maybe_reconcile(
     networked: Res<NetworkEntityMap>,
     possessed: Query<&NetworkID, With<Possessed>>,
     bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<Mounted>)>,
+    vehicles: Query<&gameplay::pawn::vehicle::VehicleComponent, With<Possessed>>,
     seated: Query<&Mounted>,
     env: ReplayPhysicsEnv,
     predicted: Res<PredictedCommands>,
@@ -244,23 +245,24 @@ fn maybe_reconcile(
     for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
         if let Some(tick) = predicted.get(replay_seq) {
             let handle = RigidBodyHandleComponent(our_rb);
-            if let Ok(mut biped) = possessed_bipeds.single_mut() {
-                if let (Some(owner_entity), common::PawnInputKind::Biped(input)) =
-                    (possessed_entity, tick.input.clone())
-                {
+            if let Some(owner_entity) = possessed_entity {
+                if let Ok(mut biped) = possessed_bipeds.single_mut() {
                     gameplay::pawn::biped::apply_biped_input(
                         &mut world,
                         owner_entity,
-                        input,
+                        tick.input,
                         &handle,
                         &mut biped,
                     );
                     let _ = gameplay::pawn::biped_ability::apply_input(
                         owner_entity,
-                        input,
+                        tick.input,
                         &mut world,
                         &mut biped,
                     );
+                }
+                if let Ok(vehicle) = vehicles.get(owner_entity) {
+                    (vehicle.apply_input)(&mut world, owner_entity, tick.input);
                 }
             }
             for impulse in tick.impulses.iter().cloned() {
