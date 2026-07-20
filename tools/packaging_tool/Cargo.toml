@@ -1,5 +1,5 @@
 [package]
-name = "network_emulator"
+name = "packaging_tool"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,4 +7,4 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-fastrand.workspace = true
+getrandom = "0.3"

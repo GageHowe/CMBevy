@@ -49,7 +49,7 @@ emulator:
 	cargo run -p network_emulator --release
 
 build-release:
-	./scripts/build_release_mac.sh
+	cargo run -p packaging_tool --release
 
 build-testing: # optimized, contains debug info
 	cargo build -p gameserver --profile profiling
