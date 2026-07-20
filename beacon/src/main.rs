@@ -15,6 +15,7 @@ use axum::{
 };
 const BEACON_RENDEZVOUS_PORT: u16 = 42072;
 
+/// wtf is this?
 #[derive(Default)]
 pub(crate) struct RendezvousState {
     pub(crate) hosts: HashMap<String, SocketAddr>,

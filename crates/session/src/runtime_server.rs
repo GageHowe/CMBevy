@@ -633,7 +633,9 @@ fn apply_inputs(
     registry: Res<PlayerRegistry>,
     ticker: Res<common::tick::Ticker>,
     weapon_slots: Query<&gameplay::pawn::WeaponSlots>,
+    body_handles: Query<&RigidBodyHandleComponent>,
     networked: Res<gameplay::NetworkEntityMap>,
+    physics: Res<PhysicsWorld>,
     mut commands: Commands,
     mut possessed: Query<&mut Possessed>,
 ) {
@@ -644,29 +646,35 @@ fn apply_inputs(
         let Some((input_seq, kind, advanced)) = pending.next() else {
             continue;
         };
-        if let PawnInputKind::Biped(input) = &kind
-            && let (Some(command_weapon), Ok(slots)) = (input.item.weapon, weapon_slots.get(entity))
+        if let (Some(command_weapon), Ok(slots)) = (kind.item.weapon, weapon_slots.get(entity))
             && slots
                 .active()
                 .0
                 .as_ref()
                 .is_some_and(|id| id.0 == command_weapon)
             && let Some(weapon) = networked.get(&NetworkID(command_weapon))
+            && let Ok(body_handle) = body_handles.get(entity)
+            && let Some((origin, aim_dir)) = gameplay::pawn::biped::aim_pose(
+                &physics,
+                body_handle,
+                kind.look_yaw,
+                kind.look_pitch,
+            )
         {
             commands
                 .entity(weapon)
                 .insert(gameplay::weapon::WeaponFireInput {
-                    want_fire: input.item.primary,
-                    fire_pressed: input.item.primary_pressed,
-                    want_alt_fire: input.item.secondary,
-                    alt_fire_pressed: input.item.secondary_pressed,
-                    reload_pressed: input.item.reload_pressed,
-                    origin: input.item.origin,
-                    aim_dir: input.item.aim_dir,
+                    want_fire: kind.item.primary,
+                    fire_pressed: kind.item.primary_pressed,
+                    want_alt_fire: kind.item.secondary,
+                    alt_fire_pressed: kind.item.secondary_pressed,
+                    reload_pressed: kind.item.reload_pressed,
+                    origin,
+                    aim_dir,
                     shooter: entity,
                     tick: ticker.tick,
                     prediction_id: if advanced {
-                        input.item.tick
+                        kind.item.tick
                     } else {
                         ticker.tick
                     } as u32,

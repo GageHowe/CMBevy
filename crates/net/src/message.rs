@@ -3,7 +3,7 @@ use bevy::{
     prelude::*,
 };
 pub use common::{
-    BodyState, LeaderboardScope, NetworkID, NetworkIDResource, PawnInputKind, ScoringOption,
+    BodyState, LeaderboardScope, NetworkID, NetworkIDResource, PawnInput, ScoringOption,
     SimulationState, WeaponState,
 };
 use serde::{Deserialize, Serialize};
@@ -126,6 +126,12 @@ pub struct ScoreboardSnapshot {
     pub teams: Vec<ScoreboardEntry>,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub enum AbilityFx {
+    Jetpack(bool),
+    Dash(Vec3),
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 /// Transport-level message enum shared by client and server.
 pub enum MsgType {
@@ -140,7 +146,7 @@ pub enum MsgType {
     ChatMessage(String, String),
     Ping(String),
     Pong(String),
-    Input(u64, PawnInputKind),
+    Input(u64, PawnInput),
     /// map of NetworkID to rigidbody state
     State(SimulationState),
     SpawnCommand(SpawnCommand),
@@ -184,9 +190,8 @@ pub enum MsgType {
     TimePing(u64),
     TimePong(u64),
     OnscreenMessage(String),
-    JetpackFx(NetworkID, bool),
-    DashFx(NetworkID, Vec3),
-    AbilityPickup(NetworkID, NetworkID),
+    AbilityFx(NetworkID, AbilityFx),
+    AbilityState(NetworkID, Option<String>),
     WeaponState(NetworkID, WeaponState),
     Health(NetworkID, i32, i32, i32, u16, u16, i32, i32),
     Scoreboard(ScoreboardSnapshot),

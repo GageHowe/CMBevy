@@ -1,3 +1,5 @@
+//! core weapon logic and individual weapon registration lives here
+
 use bevy::prelude::*;
 pub use common::WeaponState;
 #[cfg(feature = "client")]
@@ -27,9 +29,9 @@ pub mod weapon_flash;
 
 /// Shared weapon plugin.
 pub struct WeaponPlugin;
-
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
+        // register weapon "types"s' functions so they can be spawned by anything that passes a string
         crate::register_spawnable(app, "pistol", pistol::spawn_pistol);
         crate::register_spawnable(app, "beamer", beamer::spawn_beamer);
         crate::register_spawnable(app, "rifle", rifle::spawn_rifle);
@@ -41,21 +43,21 @@ impl Plugin for WeaponPlugin {
         app.add_plugins((beamer::BeamerPlugin, weapon_flash::WeaponFlashPlugin))
             .configure_sets(
                 FixedUpdate,
-                SimulateItemSet.before(physics::physics_world::step_physics),
+                SimulateWeaponSet.before(physics::physics_world::step_physics),
             )
             .add_systems(FixedUpdate, tick_weapon_state);
         app.add_systems(
             FixedUpdate,
             prepare_projectile_shots
                 .before(tick_weapon_state)
-                .in_set(SimulateItemSet),
+                .in_set(SimulateWeaponSet),
         );
         #[cfg(feature = "client")]
         app.add_systems(
             FixedUpdate,
             update_weapon_zoom
                 .before(prepare_projectile_shots)
-                .in_set(SimulateItemSet),
+                .in_set(SimulateWeaponSet),
         )
         .add_systems(
             FixedUpdate,
@@ -63,14 +65,14 @@ impl Plugin for WeaponPlugin {
                 .chain()
                 .after(prepare_projectile_shots)
                 .before(tick_weapon_state)
-                .in_set(SimulateItemSet),
+                .in_set(SimulateWeaponSet),
         );
         #[cfg(not(feature = "client"))]
         app.add_systems(
             FixedUpdate,
             drive_authoritative_projectiles
                 .after(prepare_projectile_shots)
-                .in_set(SimulateItemSet),
+                .in_set(SimulateWeaponSet),
         );
     }
 }
@@ -81,7 +83,6 @@ fn drive_authoritative_projectiles(
     registry: Res<PlayerRegistry>,
     mut pawn_slots: Query<&mut WeaponSlots>,
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
-    mut held_weapons: ResMut<HeldWeaponMap>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
     mut net_ids: ResMut<net::message::NetworkIDResource>,
@@ -98,7 +99,6 @@ fn drive_authoritative_projectiles(
             shot.dir,
             &mut pawn_slots,
             &mut weapon_runtime,
-            &mut held_weapons,
             &mut commands,
             &mut world,
             &mut net_ids,
@@ -111,7 +111,7 @@ fn drive_authoritative_projectiles(
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SimulateItemSet;
+pub struct SimulateWeaponSet;
 
 fn prepare_projectile_shots(
     mut weapons: Query<(
@@ -409,13 +409,12 @@ pub fn fire_held_weapon(
     dir: Vec3,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    held_weapons: &mut HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut net::message::NetworkIDResource,
     consume_ammo: bool,
 ) -> Option<FiredHeldWeapon> {
-    let Ok(mut slots) = pawn_slots.get_mut(shooter_entity) else {
+    let Ok(slots) = pawn_slots.get_mut(shooter_entity) else {
         return None;
     };
     if !slots.contains_net_id(weapon_net_id) {
@@ -431,7 +430,6 @@ pub fn fire_held_weapon(
         return None;
     };
     let weapon_state_after_fire = *weapon_state;
-    let depleted = is_depleted(&weapon_state);
     let fired = crate::projectile::fire_authoritative(
         projectile,
         weapon_config.prediction_projectile_speed.unwrap_or(0.0),
@@ -455,12 +453,6 @@ pub fn fire_held_weapon(
     }
     drop(weapon_state);
 
-    if depleted {
-        held_weapons.0.remove(weapon_net_id);
-        slots.remove_by_net_id(weapon_net_id);
-        commands.entity(weapon_entity).despawn();
-    }
-
     Some(FiredHeldWeapon {
         weapon_net_id: weapon_net_id.clone(),
         weapon_state: weapon_state_after_fire,
@@ -477,7 +469,6 @@ pub fn fire_authoritative_with_replication(
     dir: Vec3,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    held_weapons: &mut HeldWeaponMap,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     net_ids: &mut net::message::NetworkIDResource,
@@ -494,7 +485,6 @@ pub fn fire_authoritative_with_replication(
         dir,
         pawn_slots,
         weapon_runtime,
-        held_weapons,
         commands,
         world,
         net_ids,

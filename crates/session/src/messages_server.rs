@@ -5,7 +5,7 @@ use gameplay::{
     level::{LevelBytes, SpawnPoint},
     pawn::{
         HeldWeaponMap, PendingRespawns, PlayerRegistry, VehicleComponent, WeaponSlots,
-        biped_ability::OnPickup,
+        biped_ability::AbilityPickup,
     },
     weapon::{WeaponConfig, WeaponState},
 };
@@ -35,7 +35,7 @@ pub fn on_message(
         Query<&mut gameplay::pawn::CharacterMount>,
         Query<&Transform>,
         Query<(&mut WeaponState, &WeaponConfig)>,
-        Query<&OnPickup>,
+        Query<&AbilityPickup>,
     ),
     level_bytes: Option<Res<LevelBytes>>,
 ) {
@@ -50,7 +50,7 @@ pub fn on_message(
         ref mut mounts,
         ref mount_anchor_transforms,
         ref mut weapon_runtime,
-        ref on_pickup_q,
+        ref ability_pickups,
     ) = gameplay_params;
     crate::helpers::drain_inbound(&mut quic, |msg, quic| {
         process_server_message(
@@ -77,7 +77,7 @@ pub fn on_message(
             mounts,
             mount_anchor_transforms,
             weapon_runtime,
-            on_pickup_q,
+            ability_pickups,
         );
     });
 }
@@ -262,7 +262,7 @@ fn process_server_message(
     mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
-    on_pickup_q: &Query<&OnPickup>,
+    ability_pickups: &Query<&AbilityPickup>,
 ) {
     match msg {
         MsgType::Connected => {
@@ -290,6 +290,9 @@ fn process_server_message(
             pending_connections.0.remove(&conn_id);
         }
         MsgType::Input(input_seq, kind) => {
+            if !kind.is_valid() {
+                return;
+            }
             pending_inputs
                 .0
                 .entry(conn_id)
@@ -317,7 +320,7 @@ fn process_server_message(
                 mounts,
                 mount_anchor_transforms,
                 commands,
-                on_pickup_q,
+                ability_pickups,
             );
         }
         MsgType::DropWeapon(drop_dir) => gameplay::weapon::handle_drop_request(
@@ -420,7 +423,7 @@ fn handle_interact(
     mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     commands: &mut Commands,
-    on_pickup_q: &Query<&OnPickup>,
+    ability_pickups: &Query<&AbilityPickup>,
 ) {
     let Some((controlled, _)) = registry.controlled_pawn(conn_id) else {
         return;
@@ -464,17 +467,12 @@ fn handle_interact(
     }
 
     if gameplay::pawn::biped_ability::interact_pickup(
-        conn_id,
         character,
-        character_net_id.clone(),
         target,
-        target_net_id.clone(),
         world,
         interactables,
-        on_pickup_q,
+        ability_pickups,
         commands,
-        quic,
-        aim_dir,
     ) {
         return;
     }

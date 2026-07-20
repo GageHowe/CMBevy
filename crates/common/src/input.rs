@@ -15,12 +15,14 @@ pub struct ItemInput {
 }
 
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub struct BipedInput {
+pub struct PawnInput {
     pub forward: f32,
     pub right: f32,
+    pub up: f32,
     pub jump: bool,
     pub slide: bool,
     pub ability1: bool,
+    pub ability2: bool,
     pub ability1_pressed: bool,
     pub melee_pressed: bool,
     pub item: ItemInput,
@@ -28,15 +30,6 @@ pub struct BipedInput {
     pub look_yaw: f32,
     /// camera pitch from the PitchPivot at input time (radians, absolute)
     pub look_pitch: f32,
-}
-
-#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub struct SpaceshipInput {
-    pub forward: f32,
-    pub right: f32,
-    pub up: f32,
-    pub ability1: bool,
-    pub ability2: bool,
     /// mouse-driven yaw delta this tick (radians)
     pub yaw: f32,
     /// mouse-driven pitch delta this tick (radians)
@@ -44,20 +37,23 @@ pub struct SpaceshipInput {
     /// keyboard-driven roll (±1.0 from Q/E)
     pub roll: f32,
 }
+pub type BipedInput = PawnInput;
 
-#[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub struct HovercraftInput {
-    pub throttle: f32,
-    pub steer: f32,
-    pub brake: f32,
-}
-
-/// Discriminated union of all pawn input types.
-/// Serialized directly into MsgType::Input; net layer is transport-only.
-/// should this be an enum? We could also give all pawns the same input, just some fields may be unused
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub enum PawnInputKind {
-    Biped(BipedInput),
-    Spaceship(SpaceshipInput),
-    Hovercraft(HovercraftInput),
+impl PawnInput {
+    pub fn is_valid(&self) -> bool {
+        self.forward.is_finite()
+            && self.forward.abs() <= 1.0
+            && self.right.is_finite()
+            && self.right.abs() <= 1.0
+            && self.up.is_finite()
+            && self.up.abs() <= 1.0
+            && self.look_yaw.is_finite()
+            && self.look_pitch.is_finite()
+            && self.yaw.is_finite()
+            && self.yaw.abs() <= 1.0
+            && self.pitch.is_finite()
+            && self.pitch.abs() <= 1.0
+            && self.roll.is_finite()
+            && self.roll.abs() <= 1.0
+    }
 }

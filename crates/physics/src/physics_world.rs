@@ -201,6 +201,20 @@ impl PhysicsWorld {
         self.body(entity).map(rb_pos)
     }
 
+    pub fn body_drop_pose(
+        &self,
+        entity: Entity,
+        throw_vel: Vec3,
+        local_offset: Vec3,
+    ) -> Option<(Vec3, Vec3)> {
+        let body = self.body(entity)?;
+        let forward = throw_vel.normalize_or_zero();
+        Some((
+            rb_pos(body) + rb_rot(body) * local_offset + forward,
+            rb_vel(body) + throw_vel,
+        ))
+    }
+
     pub fn entities_within_range(&self, a: Entity, b: Entity, range: f32) -> bool {
         self.body_pos(a)
             .zip(self.body_pos(b))

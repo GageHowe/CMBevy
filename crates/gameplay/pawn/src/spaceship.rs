@@ -13,7 +13,7 @@ use rapier3d::prelude::*;
 #[cfg(feature = "client")]
 use super::{GatherInputSet, MouseSensitivity};
 use super::{
-    MovePawnsSet, PawnInputKind, Possessed,
+    MovePawnsSet, Possessed,
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
 };
 #[cfg(feature = "client")]
@@ -62,6 +62,13 @@ impl VehiclePawn for SpaceshipPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
     const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);
     const DRIVER_INTERACT_RADIUS: f32 = 0.8;
+
+    fn apply_input(world: &mut PhysicsWorld, entity: Entity, input: common::PawnInput) {
+        let Some(&handle) = world.entity_to_handle.get(&entity) else {
+            return;
+        };
+        apply_spaceship_movement(world, &RigidBodyHandleComponent(handle), input);
+    }
 }
 
 pub fn spawn_spaceship(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
@@ -205,7 +212,7 @@ fn gather_spaceship_input(
         })
         .unwrap_or(Vec2::ZERO);
 
-    let mut input = common::SpaceshipInput::default();
+    let mut input = common::PawnInput::default();
     if bindings.pressed(
         common::InputAction::MoveForward,
         &keyboard,
@@ -290,14 +297,13 @@ fn gather_spaceship_input(
                 1.0
             };
 
-    possessed.push(PawnInputKind::Spaceship(input));
+    possessed.push(input);
 }
 
 pub fn apply_spaceship_movement(
     world: &mut PhysicsWorld,
     body_handle: &RigidBodyHandleComponent,
-    input: common::SpaceshipInput,
-    _spaceship: &mut SpaceshipPawnComponent,
+    input: common::PawnInput,
 ) {
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
         return;
@@ -327,16 +333,12 @@ pub fn apply_spaceship_movement(
 
 fn move_spaceships(
     mut world: ResMut<PhysicsWorld>,
-    mut pawns: Query<(
-        &mut Possessed,
-        &RigidBodyHandleComponent,
-        &mut SpaceshipPawnComponent,
-    )>,
+    mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent), With<SpaceshipPawnComponent>>,
 ) {
-    for (mut possessed, handle, mut spaceship) in &mut pawns {
-        let Some(PawnInputKind::Spaceship(input)) = possessed.consume() else {
+    for (mut possessed, handle) in &mut pawns {
+        let Some(input) = possessed.consume() else {
             continue;
         };
-        apply_spaceship_movement(&mut world, handle, input, &mut spaceship);
+        apply_spaceship_movement(&mut world, handle, input);
     }
 }

@@ -165,7 +165,7 @@ fn gather_biped_input(
     {
         input.look_pitch = pp.pitch;
     }
-    possessed.push(common::PawnInputKind::Biped(input));
+    possessed.push(input);
 }
 
 fn mouse_look(
@@ -483,7 +483,7 @@ fn biped_fire(
         tick: ticker.tick,
         prediction_id: ticker.tick as u32,
     };
-    if let Some(common::PawnInputKind::Biped(biped_input)) = possessed.peek_newest_mut() {
+    if let Some(biped_input) = possessed.peek_newest_mut() {
         biped_input.item = common::ItemInput {
             weapon: slots.active().0.as_ref().map(|id| id.0),
             primary: input.want_fire,
@@ -497,19 +497,6 @@ fn biped_fire(
         };
     }
     commands.entity(weapon_entity).insert(input);
-    let Ok(weapon_state) = weapon_states.get(weapon_entity) else {
-        return;
-    };
-    if !slots.delete_on_out_of_ammo || !crate::weapon::is_depleted(weapon_state) {
-        return;
-    }
-    let Some((_weapon_id, depleted_weapon_entity)) = slots.remove_active() else {
-        return;
-    };
-    slots.block_fire_until_release = want_fire;
-    commands.entity(depleted_weapon_entity).despawn();
-    crate::weapon::helpers::sync_local_active_weapon(&mut commands, &slots, &mut camera_fx);
-    crate::messages::push(&mut commands, "Out of ammo");
 }
 
 enum InteractTarget {
@@ -536,7 +523,7 @@ struct InteractWorldParams<'w, 's> {
     camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
     mount_net_ids: Query<'w, 's, &'static net::message::NetworkID, With<CharacterMount>>,
     interaction_names: Query<'w, 's, &'static InteractionName>,
-    pickup_fns: Query<'w, 's, &'static crate::pawn::biped_ability::OnPickup>,
+    ability_pickups: Query<'w, 's, &'static crate::pawn::biped_ability::AbilityPickup>,
     mounts: ParamSet<
         'w,
         's,
@@ -639,7 +626,7 @@ fn update_interaction_hint(
     world: Res<PhysicsWorld>,
     interaction_names: Query<&InteractionName>,
     weapon_q: Query<(), With<crate::weapon::WeaponComponent>>,
-    pickup_q: Query<(), With<crate::pawn::biped_ability::OnPickup>>,
+    pickup_q: Query<(), With<crate::pawn::biped_ability::AbilityPickup>>,
     mount_q: Query<(Entity, &CharacterMount)>,
     mount_anchor_q: Query<&GlobalTransform>,
     mut hint: ResMut<InteractionHint>,
@@ -796,12 +783,16 @@ fn interact(
             hit_entity,
             net_id: interact_net_id,
         } => {
-            if let Ok(pickup) = sp.pickup_fns.get(hit_entity) {
+            if let Ok(pickup) = sp.ability_pickups.get(hit_entity) {
                 match state.get() {
                     GameState::SinglePlayer => sp.commands.queue({
                         let pickup = *pickup;
                         move |world: &mut World| {
-                            let _ = pickup.0(pawn_entity, world);
+                            let _ = crate::pawn::biped_ability::set_ability_kind(
+                                pawn_entity,
+                                pickup.0.spawn_name,
+                                world,
+                            );
                             if let Ok(entity) = world.get_entity_mut(hit_entity) {
                                 entity.despawn();
                             }

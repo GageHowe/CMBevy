@@ -10,7 +10,7 @@ use net::{
     message::NetworkID,
     quic::{Channel, QuicManager, SendTarget},
 };
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
 
 #[cfg(not(feature = "client"))]
@@ -20,24 +20,25 @@ use crate::pawn::biped::BipedPawnComponent;
 use crate::pawn::biped::consume_fixed_press;
 pub mod fx;
 pub mod implementors;
-pub use fx::{AbilityFx, fx_channel, fx_message};
+pub use fx::fx_channel;
 #[cfg(feature = "client")]
 use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
 #[cfg(feature = "client")]
 pub use fx::{queue_fx, queue_remote_fx};
+pub use net::message::AbilityFx;
 
 pub struct BipedAbilityPlugin;
 impl Plugin for BipedAbilityPlugin {
     fn build(&self, app: &mut App) {
-        crate::register_spawnable(app, "jetpack", spawn_jetpack_pickup);
-        crate::register_spawnable(app, "dash", spawn_dash_pickup);
+        crate::register_spawnable(app, "jetpack", implementors::spawn_jetpack);
+        crate::register_spawnable(app, "dash", implementors::spawn_dash);
         app.add_systems(
             FixedPreUpdate,
             tick_biped_ability_state.before(super::MovePawnsSet),
         )
         .add_systems(
             FixedUpdate,
-            simulate_abilities.in_set(crate::weapon::SimulateItemSet),
+            simulate_abilities.in_set(crate::weapon::SimulateWeaponSet),
         );
         #[cfg(feature = "client")]
         app.add_systems(
@@ -51,9 +52,8 @@ impl Plugin for BipedAbilityPlugin {
     }
 }
 
-/// Stored on pickup entities. Called by the interact system when a biped picks it up.
 #[derive(Component, Clone, Copy)]
-pub struct OnPickup(pub fn(Entity, &mut World) -> bool);
+pub struct AbilityPickup(pub &'static AbilitySpec);
 
 #[derive(Clone, Copy, Default)]
 pub struct BipedAbilityState {
@@ -66,7 +66,6 @@ pub struct EquippedAbility {
     pub state: BipedAbilityState,
     spec: &'static AbilitySpec,
 }
-
 impl EquippedAbility {
     pub fn new(spec: &'static AbilitySpec) -> Self {
         Self {
@@ -82,6 +81,11 @@ impl EquippedAbility {
         (self.state.meter / self.spec.meter_max).clamp(0.0, 1.0)
     }
 
+    pub fn spawn_name(&self) -> &'static str {
+        self.spec.spawn_name
+    }
+
+    /// drop an ability to the ground
     fn drop(self, pos: Vec3, vel: Vec3, world: &mut World) {
         #[cfg(not(feature = "client"))]
         {
@@ -120,11 +124,16 @@ impl EquippedAbility {
 }
 
 pub struct AbilitySpec {
-    pub kind: AbilityKind,
     pub spawn_name: &'static str,
     pub meter_max: f32,
     pub meter_regen: f32,
     pub spawn_pickup: fn(Entity, Vec3, Vec3, &mut World),
+    pub apply: fn(
+        &mut PhysicsWorld,
+        Entity,
+        common::BipedInput,
+        &mut BipedAbilityState,
+    ) -> Option<AbilityFx>,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -155,17 +164,15 @@ fn simulate_abilities(
                 .as_deref()
                 .and_then(|registry| registry.conn_id_for_character(entity))
                 .map_or(net::quic::SendTarget::All, net::quic::SendTarget::AllExcept);
-            quic.send(target, fx_channel(fx), &fx_message(net_id.clone(), fx));
+            quic.send(
+                target,
+                fx_channel(fx),
+                &net::message::MsgType::AbilityFx(net_id.clone(), fx),
+            );
         }
         #[cfg(feature = "client")]
         let _ = (&registry, &mut quic, net_id);
     }
-}
-
-#[derive(Clone, Copy)]
-pub enum AbilityKind {
-    Jetpack,
-    Dash,
 }
 
 /// Spawns a standard ability pickup: dynamic physics body, sphere collider, interactable marker,
@@ -217,13 +224,13 @@ pub fn spawn_ability_pickup(
 }
 
 fn pickup_ability(
-    pickup_behavior: OnPickup,
+    pickup_ability: AbilityPickup,
     biped: Entity,
     pickup: Entity,
     commands: &mut Commands,
 ) {
     commands.queue(move |world: &mut World| {
-        let _ = pickup_behavior.0(biped, world);
+        set_ability(biped, EquippedAbility::new(pickup_ability.0), world);
     });
     commands.entity(pickup).despawn();
 }
@@ -232,31 +239,15 @@ pub(crate) const DROP_SPEED: f32 = 8.0;
 
 /// Drops the equipped ability of `owner`. `throw_vel` is added on top of the owner's physics velocity.
 fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
-    let (vel, pos) = {
-        let physics = world.resource::<PhysicsWorld>();
-        let forward = throw_vel.normalize_or_zero();
-        let vel = physics
-            .entity_to_handle
-            .get(&owner)
-            .and_then(|h| physics.rigid_body_set.get(*h))
-            .map(|rb| {
-                let v = rb.linvel();
-                Vec3::new(v.x, v.y, v.z)
-            })
-            .unwrap_or(Vec3::ZERO);
-        let pos = physics
-            .entity_to_handle
-            .get(&owner)
-            .and_then(|h| physics.rigid_body_set.get(*h))
-            .map(|rb| rb_pos(rb) + rb_rot(rb) * Vec3::Y * 1.2 + forward)
-            .or_else(|| {
-                world
-                    .get::<Transform>(owner)
-                    .map(|t| t.translation + Vec3::Y * 1.2)
-            })
-            .unwrap_or(Vec3::Y * 1.2);
-        (vel + throw_vel, pos)
-    };
+    let (pos, vel) = world
+        .resource::<PhysicsWorld>()
+        .body_drop_pose(owner, throw_vel, Vec3::Y * 1.2)
+        .or_else(|| {
+            world
+                .get::<Transform>(owner)
+                .map(|t| (t.translation + Vec3::Y * 1.2, throw_vel))
+        })
+        .unwrap_or((Vec3::Y * 1.2, throw_vel));
     let Some(ability) = world
         .get_mut::<BipedPawnComponent>(owner)
         .and_then(|mut biped| biped.ability.take())
@@ -264,12 +255,42 @@ fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
         return;
     };
     ability.drop(pos, vel, world);
+    sync_ability_state(owner, world);
 }
 
 fn set_ability(owner: Entity, ability: EquippedAbility, world: &mut World) {
     if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
         biped.ability = Some(ability);
     }
+    sync_ability_state(owner, world);
+}
+
+fn sync_ability_state(owner: Entity, world: &mut World) {
+    #[cfg(not(feature = "client"))]
+    {
+        let Some(net_id) = world.get::<NetworkID>(owner).cloned() else {
+            return;
+        };
+        let ability = world
+            .get::<BipedPawnComponent>(owner)
+            .and_then(|biped| biped.ability.as_ref())
+            .map(|ability| ability.spawn_name().to_string());
+        let Some(conn_id) = world
+            .get_resource::<crate::pawn::PlayerRegistry>()
+            .and_then(|registry| registry.conn_id_for_character(owner))
+        else {
+            return;
+        };
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            quic.send(
+                SendTarget::One(conn_id),
+                Channel::Ordered,
+                &net::message::MsgType::AbilityState(net_id, ability),
+            );
+        }
+    }
+    #[cfg(feature = "client")]
+    let _ = (owner, world);
 }
 
 pub fn set_ability_kind(owner: Entity, spawn_name: &str, world: &mut World) -> bool {
@@ -279,14 +300,6 @@ pub fn set_ability_kind(owner: Entity, spawn_name: &str, world: &mut World) -> b
     let ability = EquippedAbility::new(spec);
     set_ability(owner, ability, world);
     true
-}
-
-pub fn equip_jetpack(owner: Entity, world: &mut World) -> bool {
-    set_ability_kind(owner, "jetpack", world)
-}
-
-pub fn equip_dash(owner: Entity, world: &mut World) -> bool {
-    set_ability_kind(owner, "dash", world)
 }
 
 pub fn swap_ability_kind(
@@ -300,9 +313,7 @@ pub fn swap_ability_kind(
     };
     let ability = EquippedAbility::new(spec);
     drop_owned_ability(owner, throw_vel, world);
-    if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
-        biped.ability = Some(ability);
-    }
+    set_ability(owner, ability, world);
     true
 }
 
@@ -311,19 +322,14 @@ pub fn drop_ability_on_death(owner: Entity, world: &mut World) {
 }
 
 pub fn interact_pickup(
-    conn_id: net::quic::ConnectionId,
     character: Entity,
-    character_net_id: NetworkID,
     target: Entity,
-    target_net_id: NetworkID,
     world: &PhysicsWorld,
     interactables: &Query<&crate::interaction::Interactable>,
-    on_pickup_q: &Query<&OnPickup>,
+    pickups: &Query<&AbilityPickup>,
     commands: &mut Commands,
-    quic: &mut QuicManager,
-    aim_dir: Vec3,
 ) -> bool {
-    let Ok(pickup) = on_pickup_q.get(target) else {
+    let Ok(pickup) = pickups.get(target) else {
         return false;
     };
     let Ok(interactable) = interactables.get(target) else {
@@ -332,21 +338,7 @@ pub fn interact_pickup(
     if !world.entities_within_range(character, target, interactable.range) {
         return true;
     }
-    let _ = aim_dir;
     pickup_ability(*pickup, character, target, commands);
-    // tell the interacting client to pick up and enable the ability
-    quic.send(
-        net::quic::SendTarget::One(conn_id),
-        Channel::Ordered,
-        &net::message::MsgType::AbilityPickup(character_net_id, target_net_id.clone()),
-    );
-    // tell clients to despawn this pickup
-    quic.send(
-        net::quic::SendTarget::All,
-        net::quic::Channel::Ordered,
-        &net::message::MsgType::DespawnCommand(target_net_id),
-    );
-
     true
 }
 
@@ -366,55 +358,26 @@ pub fn handle_drop_request(
 }
 
 #[cfg(feature = "client")]
-pub fn apply_pickup_message(
-    carrier_net_id: &NetworkID,
-    pickup_net_id: &NetworkID,
+pub fn apply_state_message(
+    owner_net_id: &NetworkID,
+    ability: Option<String>,
     local_net_id: Option<&NetworkID>,
     networked: &crate::NetworkEntityMap,
-    pickup_q: &Query<&OnPickup>,
     commands: &mut Commands,
 ) {
-    if local_net_id != Some(carrier_net_id) {
+    if local_net_id != Some(owner_net_id) {
         return;
     }
-    let Some(carrier) = networked.get_entity(carrier_net_id) else {
-        return;
-    };
-    let Some(pickup) = networked.get_entity(pickup_net_id) else {
-        return;
-    };
-    let Ok(&pickup) = pickup_q.get(pickup) else {
+    let Some(owner) = networked.get_entity(owner_net_id) else {
         return;
     };
     commands.queue(move |world: &mut World| {
-        let _ = pickup.0(carrier, world);
+        if let Some(ability) = ability {
+            let _ = set_ability_kind(owner, &ability, world);
+        } else if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(owner) {
+            biped.ability = None;
+        }
     });
-}
-
-pub fn spawn_jetpack_pickup(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    implementors::spawn_jetpack_pickup(
-        entity,
-        cmd.position_or_zero(),
-        cmd.velocity_or_zero(),
-        world,
-    );
-    world
-        .entity_mut(entity)
-        .insert(crate::SpawnReplicated("jetpack"));
-    crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
-}
-
-pub fn spawn_dash_pickup(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
-    implementors::spawn_dash_pickup(
-        entity,
-        cmd.position_or_zero(),
-        cmd.velocity_or_zero(),
-        world,
-    );
-    world
-        .entity_mut(entity)
-        .insert(crate::SpawnReplicated("dash"));
-    crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
 }
 
 pub struct DropActiveAbility {
@@ -458,14 +421,7 @@ pub fn apply_input(
     let Some(ability) = &mut biped.ability else {
         return None;
     };
-    match ability.spec.kind {
-        AbilityKind::Jetpack => {
-            implementors::jetpack::apply_jetpack_input(world, owner, input, &mut ability.state)
-        }
-        AbilityKind::Dash => {
-            implementors::dash::apply_dash_input(world, owner, input, &mut ability.state)
-        }
-    }
+    (ability.spec.apply)(world, owner, input, &mut ability.state)
 }
 
 fn ability_spec(spawn_name: &str) -> Option<&'static AbilitySpec> {

@@ -17,7 +17,7 @@ pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 pub use camera_effects::{CameraEffector, CameraShake};
 #[cfg(feature = "client")]
 use common::PredictedCommands;
-pub use common::{BipedInput, PawnInputKind, SpaceshipInput};
+pub use common::{BipedInput, PawnInput};
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
 use net::{
@@ -279,24 +279,18 @@ impl InteractionGate {
 /// UI-facing interaction prompt text for the locally controlled player.
 pub struct InteractionHint(pub Option<String>);
 
-pub fn aim_dir(
-    world: &PhysicsWorld,
-    entity: Entity,
-    input: Option<&PawnInputKind>,
-) -> Option<Vec3> {
-    match input? {
-        PawnInputKind::Biped(input) => world
-            .entity_to_handle
-            .get(&entity)
-            .and_then(|&h| world.rigid_body_set.get(h))
-            .map(|rb| {
-                rb_rot(rb)
-                    * Quat::from_rotation_y(input.look_yaw)
-                    * Quat::from_rotation_x(input.look_pitch)
-                    * Vec3::NEG_Z
-            }),
-        _ => None,
-    }
+pub fn aim_dir(world: &PhysicsWorld, entity: Entity, input: Option<&PawnInput>) -> Option<Vec3> {
+    let input = input?;
+    world
+        .entity_to_handle
+        .get(&entity)
+        .and_then(|&h| world.rigid_body_set.get(h))
+        .map(|rb| {
+            rb_rot(rb)
+                * Quat::from_rotation_y(input.look_yaw)
+                * Quat::from_rotation_x(input.look_pitch)
+                * Vec3::NEG_Z
+        })
 }
 
 // CAMERA
@@ -378,7 +372,7 @@ impl Default for MouseSensitivity {
 #[component(storage = "SparseSet")]
 /// Marker for the single locally controlled pawn and its latest buffered input.
 pub struct Possessed {
-    pending_input: Option<PawnInputKind>,
+    pending_input: Option<PawnInput>,
 }
 impl Possessed {
     pub fn new(_capacity: usize) -> Self {
@@ -386,17 +380,17 @@ impl Possessed {
             pending_input: None,
         }
     }
-    pub fn push(&mut self, input: PawnInputKind) {
+    pub fn push(&mut self, input: PawnInput) {
         self.pending_input = Some(input);
     }
-    pub fn consume(&mut self) -> Option<PawnInputKind> {
+    pub fn consume(&mut self) -> Option<PawnInput> {
         self.pending_input.take()
     }
     /// peek at the most recently pushed input without consuming it.
-    pub fn peek_newest(&self) -> Option<&PawnInputKind> {
+    pub fn peek_newest(&self) -> Option<&PawnInput> {
         self.pending_input.as_ref()
     }
-    pub fn peek_newest_mut(&mut self) -> Option<&mut PawnInputKind> {
+    pub fn peek_newest_mut(&mut self) -> Option<&mut PawnInput> {
         self.pending_input.as_mut()
     }
 }
@@ -433,16 +427,12 @@ pub fn send_pawn_input(
         net::quic::Channel::Unreliable,
         &MsgType::Input(seq, input.clone()),
     );
-    if let PawnInputKind::Biped(input) = &input
-        && (input.item.primary_pressed
-            || input.item.secondary_pressed
-            || input.item.reload_pressed
-            || input.ability1_pressed
-            || input.melee_pressed)
+    if input.item.primary_pressed
+        || input.item.secondary_pressed
+        || input.item.reload_pressed
+        || input.ability1_pressed
+        || input.melee_pressed
     {
-        quic.send_to_server(
-            net::quic::Channel::Unordered,
-            &MsgType::Input(seq, PawnInputKind::Biped(*input)),
-        );
+        quic.send_to_server(net::quic::Channel::Unordered, &MsgType::Input(seq, input));
     }
 }

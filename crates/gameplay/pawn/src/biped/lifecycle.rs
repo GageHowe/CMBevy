@@ -21,7 +21,7 @@ pub fn spawn_biped(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut
     };
     world.entity_mut(entity).insert((
         crate::SpawnReplicated("biped"),
-        WeaponSlots::new(2).with_delete_on_out_of_ammo(true),
+        WeaponSlots::new(2),
         Health::new(
             100,
             BIPED_HEALTH_REGEN_PER_SECOND,

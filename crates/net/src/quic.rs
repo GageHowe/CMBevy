@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    io::Read,
     net::SocketAddr,
     sync::{Mutex, Once},
 };
@@ -8,7 +9,7 @@ use bevy::prelude::*;
 use bytes::Bytes;
 use common::config::MAX_UDP_SIZE;
 use tokio::sync::mpsc;
-use zstd::stream::{decode_all, encode_all};
+use zstd::stream::encode_all;
 
 use crate::message::MsgType;
 
@@ -16,6 +17,7 @@ use crate::message::MsgType;
 const ZSTD_LEVEL: i32 = 3;
 const ZSTD_FILE_LEVEL: i32 = 9;
 const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 const ALPN_PROTOCOL_PREFIX: &str = "critical-mass/";
 
 #[cfg(feature = "client")]
@@ -764,7 +766,20 @@ async fn send_punch(socket: std::net::UdpSocket, addr: SocketAddr) {
 }
 
 fn decode_message(bytes: &[u8]) -> Result<MsgType, String> {
-    let bytes = decode_all(bytes).map_err(|e| format!("decompress: {e}"))?;
+    if bytes.len() > MAX_MESSAGE_SIZE {
+        return Err("compressed message too large".into());
+    }
+    let mut decoder =
+        zstd::stream::read::Decoder::new(bytes).map_err(|e| format!("decompress: {e}"))?;
+    let mut bytes = Vec::new();
+    decoder
+        .by_ref()
+        .take((MAX_DECOMPRESSED_MESSAGE_SIZE + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("decompress: {e}"))?;
+    if bytes.len() > MAX_DECOMPRESSED_MESSAGE_SIZE {
+        return Err("decompressed message too large".into());
+    }
     postcard::from_bytes(&bytes).map_err(|e| format!("deserialize: {e}"))
 }
 
@@ -894,6 +909,7 @@ pub(crate) async fn send_on_connection(
                     MAX_UDP_SIZE,
                     msg
                 );
+                return;
             }
             let _ = connection.send_datagram(Bytes::from(bytes));
         }
@@ -961,7 +977,11 @@ async fn bidi_receiver_task(
                 if recv.read_exact(&mut len).await.is_err() {
                     break;
                 }
-                let mut bytes = vec![0; u32::from_le_bytes(len) as usize];
+                let len = u32::from_le_bytes(len) as usize;
+                if len > MAX_MESSAGE_SIZE {
+                    break;
+                }
+                let mut bytes = vec![0; len];
                 if recv.read_exact(&mut bytes).await.is_err() {
                     break;
                 }

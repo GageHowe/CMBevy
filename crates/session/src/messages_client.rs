@@ -41,7 +41,6 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
         Query<(Entity, &'static ProjectileTempId)>,
         ResMut<projectile::PredictedProjectileMap>,
         Query<&'static gameplay::interaction::InteractionName>,
-        Query<&'static gameplay::pawn::biped_ability::OnPickup>,
         Query<&'static gameplay::pawn::Mounted>,
         Query<&'static gameplay::pawn::CharacterMount>,
         Query<&'static Transform>,
@@ -49,6 +48,7 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
     ),
     mut ticker: ResMut<Ticker>,
     mut pending: ResMut<PendingReconciliation>,
+    mut last_server_state: ResMut<LastServerState>,
     mut net_stats: ResMut<NetworkStats>,
     mut last_acked_input_seq: ResMut<LastAckedInputSeq>,
     mut local_character: ResMut<LocalCharacterNetId>,
@@ -69,7 +69,6 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
         ref projectile_q,
         ref mut predicted_projectiles,
         ref interaction_names,
-        ref pickup_fns,
         ref mounted,
         ref mounts,
         ref mount_anchor_transforms,
@@ -91,13 +90,13 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
             projectile_q,
             predicted_projectiles,
             interaction_names,
-            pickup_fns,
             mounted,
             mounts,
             mount_anchor_transforms,
             pending_weapon_pickups,
             &mut ticker,
             &mut pending,
+            &mut last_server_state,
             &mut net_stats,
             &mut last_acked_input_seq,
             &mut local_character,
@@ -128,13 +127,13 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
     projectile_q: &Query<(Entity, &'static ProjectileTempId)>,
     predicted_projectiles: &mut projectile::PredictedProjectileMap,
     interaction_names: &Query<&'static gameplay::interaction::InteractionName>,
-    pickup_fns: &Query<&'static gameplay::pawn::biped_ability::OnPickup>,
     mounted: &Query<&'static gameplay::pawn::Mounted>,
     mounts: &Query<&'static gameplay::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&'static Transform>,
     pending_weapon_pickups: &mut PendingWeaponPickups,
     ticker: &mut Ticker,
     pending: &mut PendingReconciliation,
+    last_server_state: &mut LastServerState,
     net_stats: &mut NetworkStats,
     last_acked_input_seq: &mut LastAckedInputSeq,
     local_character: &mut LocalCharacterNetId,
@@ -224,13 +223,12 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             networked,
             &mut biped_q.p2(),
         ),
-        MsgType::AbilityPickup(carrier_net_id, pickup_net_id) => {
-            gameplay::pawn::biped_ability::apply_pickup_message(
-                &carrier_net_id,
-                &pickup_net_id,
+        MsgType::AbilityState(owner_net_id, ability) => {
+            gameplay::pawn::biped_ability::apply_state_message(
+                &owner_net_id,
+                ability,
                 local_net_id.as_ref(),
                 networked,
-                pickup_fns,
                 commands,
             )
         }
@@ -349,23 +347,20 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
         MsgType::OnscreenMessage(text) => gameplay::messages::push(commands, text),
         MsgType::TimePong(bits) => net_stats.record_pong(bits, time.elapsed_secs_f64()),
         MsgType::State(st) => {
-            if st.last_input_seq >= last_acked_input_seq.0 {
+            if last_server_state
+                .0
+                .as_ref()
+                .is_none_or(|last| st.tick > last.tick)
+            {
                 last_acked_input_seq.0 = st.last_input_seq;
+                last_server_state.0 = Some(st.clone());
                 pending.0 = Some(st);
             }
         }
         MsgType::FileData(name, compressed) => handle_file_data(name, compressed, commands),
-        MsgType::JetpackFx(net_id, active) => gameplay::pawn::biped_ability::queue_remote_fx(
+        MsgType::AbilityFx(net_id, fx) => gameplay::pawn::biped_ability::queue_remote_fx(
             &net_id,
-            gameplay::pawn::biped_ability::AbilityFx::Jetpack(active),
-            local_net_id.as_ref(),
-            networked,
-            world,
-            commands,
-        ),
-        MsgType::DashFx(net_id, dir) => gameplay::pawn::biped_ability::queue_remote_fx(
-            &net_id,
-            gameplay::pawn::biped_ability::AbilityFx::Dash(dir),
+            fx,
             local_net_id.as_ref(),
             networked,
             world,

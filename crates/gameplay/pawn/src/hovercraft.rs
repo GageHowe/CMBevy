@@ -11,7 +11,7 @@ use rapier3d::prelude::*;
 #[cfg(feature = "client")]
 use super::GatherInputSet;
 use super::{
-    MovePawnsSet, PawnInputKind, Possessed,
+    MovePawnsSet, Possessed,
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
 };
 use crate::{
@@ -71,6 +71,13 @@ impl VehiclePawn for HovercraftPawnComponent {
     const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.9, -0.2);
     const DRIVER_INTERACT_RADIUS: f32 = 1.2;
     const EXIT_OFFSET: Vec3 = Vec3::new(-1.6, 0.0, 0.0);
+
+    fn apply_input(world: &mut PhysicsWorld, entity: Entity, input: common::PawnInput) {
+        let Some(&handle) = world.entity_to_handle.get(&entity) else {
+            return;
+        };
+        apply_hovercraft_movement(world, &RigidBodyHandleComponent(handle), input);
+    }
 }
 
 pub fn spawn_hovercraft(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
@@ -168,14 +175,14 @@ fn gather_hovercraft_input(
         })
         .unwrap_or(Vec2::ZERO);
 
-    let mut input = common::HovercraftInput::default();
+    let mut input = common::PawnInput::default();
     if bindings.pressed(
         common::InputAction::MoveForward,
         &keyboard,
         &mouse_buttons,
         gamepad,
     ) {
-        input.throttle += 1.0;
+        input.forward += 1.0;
     }
     if bindings.pressed(
         common::InputAction::MoveBackward,
@@ -183,7 +190,7 @@ fn gather_hovercraft_input(
         &mouse_buttons,
         gamepad,
     ) {
-        input.throttle -= 1.0;
+        input.forward -= 1.0;
     }
     if bindings.pressed(
         common::InputAction::MoveRight,
@@ -191,7 +198,7 @@ fn gather_hovercraft_input(
         &mouse_buttons,
         gamepad,
     ) {
-        input.steer += 1.0;
+        input.right += 1.0;
     }
     if bindings.pressed(
         common::InputAction::MoveLeft,
@@ -199,25 +206,25 @@ fn gather_hovercraft_input(
         &mouse_buttons,
         gamepad,
     ) {
-        input.steer -= 1.0;
+        input.right -= 1.0;
     }
-    input.throttle = (input.throttle + move_stick.y).clamp(-1.0, 1.0);
-    input.steer = (input.steer + move_stick.x).clamp(-1.0, 1.0);
+    input.forward = (input.forward + move_stick.y).clamp(-1.0, 1.0);
+    input.right = (input.right + move_stick.x).clamp(-1.0, 1.0);
     if bindings.pressed(
         common::InputAction::Crouch,
         &keyboard,
         &mouse_buttons,
         gamepad,
     ) {
-        input.brake = 1.0;
+        input.slide = true;
     }
-    possessed.push(PawnInputKind::Hovercraft(input));
+    possessed.push(input);
 }
 
 pub fn apply_hovercraft_movement(
     world: &mut PhysicsWorld,
     body_handle: &RigidBodyHandleComponent,
-    input: common::HovercraftInput,
+    input: common::PawnInput,
 ) {
     let entity = world.handle_to_entity.get(&body_handle.0).copied();
     let Some(body) = world.rigid_body_set.get(body_handle.0) else {
@@ -278,7 +285,7 @@ pub fn apply_hovercraft_movement(
     let steer_dir = if forward_speed.abs() > 0.5 {
         forward_speed.signum()
     } else {
-        input.throttle.signum()
+        input.forward.signum()
     };
     let upright_axis = Vec3::new(up.x, up.y, up.z).cross(support_normal);
     let Some(body) = world.rigid_body_set.get_mut(body_handle.0) else {
@@ -289,7 +296,7 @@ pub fn apply_hovercraft_movement(
     }
     body.apply_impulse(
         Vector3::new(plane_forward.x, plane_forward.y, plane_forward.z)
-            * (input.throttle * DRIVE_FORCE),
+            * (input.forward * DRIVE_FORCE),
         true,
     );
     body.apply_impulse(
@@ -300,11 +307,11 @@ pub fn apply_hovercraft_movement(
     body.apply_impulse(
         -(Vector3::new(plane_forward.x, plane_forward.y, plane_forward.z) * forward_speed
             + Vector3::new(plane_right.x, plane_right.y, plane_right.z) * sideways_speed)
-            * (input.brake * BRAKE_FORCE),
+            * (input.slide as u8 as f32 * BRAKE_FORCE),
         true,
     );
     if steer_dir != 0.0 {
-        body.apply_torque_impulse(steer_axis * (input.steer * steer_dir * STEER_TORQUE), true);
+        body.apply_torque_impulse(steer_axis * (input.right * steer_dir * STEER_TORQUE), true);
     }
     if upright_axis != Vec3::ZERO {
         body.apply_torque_impulse(
@@ -319,7 +326,7 @@ fn move_hovercrafts(
     mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent), With<HovercraftPawnComponent>>,
 ) {
     for (mut possessed, handle) in &mut pawns {
-        let Some(PawnInputKind::Hovercraft(input)) = possessed.consume() else {
+        let Some(input) = possessed.consume() else {
             continue;
         };
         apply_hovercraft_movement(&mut world, handle, input);

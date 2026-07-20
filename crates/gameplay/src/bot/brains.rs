@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use common::{BipedInput, PawnInputKind};
+use common::BipedInput;
 
 use super::{BotBehavior, BotContext, BotOutput};
 
@@ -89,13 +89,13 @@ fn output(ctx: &BotContext, aim_dir: Vec3, forward: f32, right: f32, fire: bool)
     let look_yaw = (-local_aim.x).atan2(-local_aim.z);
     let look_pitch = local_aim.y.clamp(-0.99, 0.99).asin();
     BotOutput {
-        input: PawnInputKind::Biped(BipedInput {
+        input: BipedInput {
             forward,
             right,
             look_yaw,
             look_pitch,
             ..default()
-        }),
+        },
         fire,
         reload: false,
         aim_origin: ctx.pos + ctx.rot * Vec3::Y * 0.5,

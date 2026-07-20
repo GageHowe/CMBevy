@@ -5,6 +5,7 @@ use net::{
     message::NetworkID,
     quic::{QuicManager, SendTarget},
 };
+use physics::physics_world::PhysicsWorld;
 
 #[cfg(feature = "client")]
 use super::*;
@@ -13,16 +14,18 @@ use super::{PlayerRegistry, mount};
 use crate::interaction::InteractionName;
 
 /// Marker shared by drivable vehicles.
-#[derive(Component, Reflect)]
+#[derive(Component)]
 pub struct VehicleComponent {
     /// Third-person local-space camera offset used while this vehicle is possessed.
     pub camera_offset: Vec3,
+    pub apply_input: fn(&mut PhysicsWorld, Entity, common::PawnInput),
 }
 
 impl VehicleComponent {
     pub fn for_vehicle<T: VehiclePawn>() -> Self {
         Self {
             camera_offset: T::CAMERA_OFFSET,
+            apply_input: T::apply_input,
         }
     }
 }
@@ -33,13 +36,15 @@ pub trait VehiclePawn: Component {
     const DRIVER_MOUNT_OFFSET: Vec3;
     const DRIVER_INTERACT_RADIUS: f32 = 1.0;
     const EXIT_OFFSET: Vec3 = Vec3::ZERO;
+    fn apply_input(world: &mut PhysicsWorld, entity: Entity, input: common::PawnInput);
 }
 
 /// Shared plugin for generic vehicle driver-mount behavior.
 pub struct VehiclePlugin;
 impl Plugin for VehiclePlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<VehicleComponent>();
+        #[cfg(not(feature = "client"))]
+        let _ = app;
         #[cfg(feature = "client")]
         {
             app.add_systems(FixedPreUpdate, attach_camera_on_possess_vehicle);

@@ -41,7 +41,6 @@ pub struct BeamerComponent {
     pub beam_dir: Vec3,
     pub last_server_damage_tick: u64,
 }
-
 impl Default for BeamerComponent {
     fn default() -> Self {
         Self {
@@ -65,7 +64,7 @@ impl Plugin for BeamerPlugin {
             FixedUpdate,
             drive_authoritative_beams
                 .before(super::tick_weapon_state)
-                .in_set(super::SimulateItemSet),
+                .in_set(super::SimulateWeaponSet),
         );
     }
 }
