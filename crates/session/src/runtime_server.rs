@@ -96,7 +96,7 @@ impl Plugin for ServerSessionPlugin {
                 gameplay::health::broadcast_dirty_health,
                 gameplay::weapon::broadcast_dirty_weapon_states,
             )
-                .after(step_physics)
+                .after(gameplay::health::handle_deaths)
                 .before(broadcast_tick),
         )
         .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))

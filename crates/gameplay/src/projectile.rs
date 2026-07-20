@@ -93,6 +93,7 @@ impl Plugin for ProjectilePlugin {
             FixedUpdate,
             tick_projectiles
                 .after(step_physics)
+                .in_set(ProjectileDamageSet)
                 .in_set(AuthoritySystems),
         );
         #[cfg(feature = "client")]
@@ -104,6 +105,9 @@ impl Plugin for ProjectilePlugin {
         );
     }
 }
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ProjectileDamageSet;
 
 pub fn shooter_velocity(world: &PhysicsWorld, shooter: Option<Entity>) -> Vec3 {
     shooter
@@ -375,39 +379,30 @@ fn cast_projectile(
     let exclude = [entity, projectile.shooter.unwrap_or(entity)];
     let origin = prev;
     let remaining = step;
-    let radius = projectile.radius.unwrap_or(0.0);
     let hit = if let Some(radius) = projectile.radius {
-        world
+        let hit = world
             .cast_sphere(origin, dir, radius, remaining, &exclude)
-            .map(|(entity, collider, toi, _)| (entity, collider, toi))
+            .map(|(entity, collider, toi, _)| (entity, collider, toi));
+        if let Some((_, collider, _)) = hit
+            && shield_should_skip_inside_hit(world, shield_q, collider, origin, radius)
+        {
+            world
+                .cast_sphere_ignoring_shields(origin, dir, radius, remaining, &exclude)
+                .map(|(entity, collider, toi, _)| (entity, collider, toi))
+        } else {
+            hit
+        }
     } else {
         world
-            .cast_ray_detailed(origin, dir, remaining, &exclude)
+            .cast_ray_hits(origin, dir, remaining, &exclude)
+            .into_iter()
+            .find(|hit| !shield_should_skip_inside_hit(world, shield_q, hit.collider, origin, 0.0))
             .map(|hit| (hit.entity, hit.collider, hit.toi))
     };
     let Some((hit_entity, hit_collider, toi)) = hit else {
         projectile.last_position = curr;
         return None;
     };
-    let (hit_entity, hit_collider, toi) =
-        if shield_should_skip_inside_hit(world, shield_q, hit_collider, origin, radius) {
-            let hit = if let Some(radius) = projectile.radius {
-                world
-                    .cast_sphere_ignoring_shields(origin, dir, radius, remaining, &exclude)
-                    .map(|(entity, collider, toi, _)| (entity, collider, toi))
-            } else {
-                world
-                    .cast_ray_detailed_ignoring_shields(origin, dir, remaining, &exclude)
-                    .map(|hit| (hit.entity, hit.collider, hit.toi))
-            };
-            let Some(hit) = hit else {
-                projectile.last_position = curr;
-                return None;
-            };
-            hit
-        } else {
-            (hit_entity, hit_collider, toi)
-        };
     Some(ProjectileHit {
         entity: hit_entity,
         collider: hit_collider,
@@ -426,15 +421,11 @@ fn apply_direct_hit(
     last_damage_q: &mut Query<&mut LastDamageSource>,
     shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
 ) {
-    if let Some(blocked) =
-        apply_direct_shield_hit(world, hit.collider, projectile.contact_damage, shield_q)
-    {
-        if blocked && projectile.despawn_on_contact {
+    if apply_direct_shield_hit(world, hit.collider, projectile.contact_damage, shield_q) {
+        if projectile.despawn_on_contact {
             commands.entity(projectile_entity).despawn();
         }
-        if blocked {
-            return;
-        }
+        return;
     }
     if projectile.despawn_on_contact {
         commands.entity(projectile_entity).despawn();
@@ -494,7 +485,7 @@ fn explode(
         .collect();
     let pred = |_: ColliderHandle, col: &Collider| {
         col.parent()
-            .map_or(true, |rb_handle| !excluded.contains(&rb_handle))
+            .is_none_or(|rb_handle| !excluded.contains(&rb_handle))
     };
     let filter = QueryFilter::new().predicate(&pred);
     let qp = world.broad_phase.as_query_pipeline(
@@ -548,33 +539,28 @@ fn explode(
         let net_id = net_ids.and_then(|ids| ids.get(entity).ok());
         let point =
             direct_hit_impulse.and_then(|(hit, _, _, point)| (hit == entity).then_some(point));
-        if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut()) {
-            if predicted.is_none() {
-                if let Some((hit, collider, _, _)) = direct_hit_impulse
-                    && hit == entity
-                    && apply_direct_shield_collider_damage(
-                        world,
-                        collider,
-                        contact_damage,
-                        shield_q,
-                    )
-                {
-                    continue;
-                }
-                let mut damage = contact_damage * falloff;
-                if shooter == Some(entity) {
-                    damage *= explosion.self_damage_scale;
-                }
-                apply_entity_damage(
-                    entity,
-                    shooter,
-                    damage,
-                    explosion.percent_max_health_damage * falloff,
-                    DamageCause::Explosion,
-                    health_q,
-                    last_damage_q,
-                );
+        if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut())
+            && predicted.is_none()
+        {
+            if let Some((hit, collider, _, _)) = direct_hit_impulse
+                && hit == entity
+                && apply_direct_shield_hit(world, collider, contact_damage, shield_q)
+            {
+                continue;
             }
+            let mut damage = contact_damage * falloff;
+            if shooter == Some(entity) {
+                damage *= explosion.self_damage_scale;
+            }
+            apply_entity_damage(
+                entity,
+                shooter,
+                damage,
+                explosion.percent_max_health_damage * falloff,
+                DamageCause::Explosion,
+                health_q,
+                last_damage_q,
+            );
         }
     }
     commands.entity(projectile_entity).despawn();
@@ -585,71 +571,55 @@ fn apply_direct_shield_hit(
     collider: ColliderHandle,
     damage: f32,
     shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
-) -> Option<bool> {
+) -> bool {
     let flags = world
         .collider_set
         .get(collider)
         .map(|collider| collider_flags(collider.user_data))
         .unwrap_or_else(ColliderFlags::empty);
     if !flags.contains(ColliderFlags::SHIELD) {
-        return Some(false);
+        return false;
     }
-    let Some(shield_entity) = shield_entity_for_collider(collider, &shield_q.as_readonly()) else {
-        return Some(false);
-    };
-    let Ok((_, _, mut charge)) = shield_q.get_mut(shield_entity) else {
-        return Some(false);
+    let Some((_, _, mut charge)) = shield_q
+        .iter_mut()
+        .find(|(_, shield, _)| shield.collider == Some(collider))
+    else {
+        return false;
     };
     if charge.is_dead() {
-        return Some(false);
+        return false;
     }
     charge.apply_damage(damage);
-    Some(true)
-}
-
-fn apply_direct_shield_collider_damage(
-    world: &PhysicsWorld,
-    collider: ColliderHandle,
-    damage: f32,
-    shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
-) -> bool {
-    apply_direct_shield_hit(world, collider, damage, shield_q).unwrap_or(false)
+    true
 }
 
 fn shield_should_skip_inside_hit(
     world: &PhysicsWorld,
     shield_q: &Query<(Entity, &Shield, &Health)>,
-    collider: ColliderHandle,
+    collider_handle: ColliderHandle,
     center: Vec3,
     radius: f32,
 ) -> bool {
-    let Some(shield_entity) = shield_entity_for_collider(collider, shield_q) else {
+    let Some(collider) = world.collider_set.get(collider_handle) else {
         return false;
     };
-    let Ok((_, shield, charge)) = shield_q.get(shield_entity) else {
+    if !collider_flags(collider.user_data).contains(ColliderFlags::SHIELD) {
+        return false;
+    }
+    let Some((_, shield, charge)) = shield_q
+        .iter()
+        .find(|(_, shield, _)| shield.collider == Some(collider_handle))
+    else {
         return false;
     };
     if charge.is_dead() || shield.double_sided {
         return false;
     }
-    let Some(collider) = world.collider_set.get(collider) else {
-        return false;
-    };
-    collider_flags(collider.user_data).contains(ColliderFlags::SHIELD)
-        && collider.shape().distance_to_point(
-            collider.position(),
-            Vector::new(center.x, center.y, center.z),
-            true,
-        ) <= radius + SHIELD_EXIT_EPSILON
-}
-
-fn shield_entity_for_collider(
-    collider: ColliderHandle,
-    shield_q: &Query<(Entity, &Shield, &Health)>,
-) -> Option<Entity> {
-    shield_q
-        .iter()
-        .find_map(|(entity, shield, _)| (shield.collider == Some(collider)).then_some(entity))
+    collider.shape().distance_to_point(
+        collider.position(),
+        Vector::new(center.x, center.y, center.z),
+        true,
+    ) <= radius + SHIELD_EXIT_EPSILON
 }
 
 // does projectile damage to a non-shield entity if they have a Health component

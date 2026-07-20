@@ -105,7 +105,7 @@ pub struct RayHit {
     pub collider: ColliderHandle,
     /// time of impact; 0 is immediate hit, 1 is hit at very tip of ray. maybe use this for damage scaling or something
     pub toi: f32,
-    /// direction to
+    /// surface normal at the hit point
     pub normal: Vec3,
     /// world-space position of hit
     pub point_of_impact: Vec3,
@@ -409,12 +409,11 @@ impl PhysicsWorld {
         let rb_handle = collider.parent()?;
         self.handle_to_entity.get(&rb_handle).copied()
     }
-    pub fn cast_ray_generic(
+    fn cast_hits(
         &self,
         origin: Vec3,
         direction: Vec3,
         radius: f32,
-        multiple: bool,
         exclude: &[Entity],
         ignored_bitflags: Option<ColliderFlags>,
     ) -> Vec<RayHit> {
@@ -452,19 +451,12 @@ impl PhysicsWorld {
             })
         };
         if radius <= f32::EPSILON {
-            if multiple {
-                let mut hits: Vec<_> = query_pipeline
-                    .intersect_ray(ray, max_toi, true)
-                    .filter_map(|(collider, _, hit)| make_ray_hit(collider, hit))
-                    .collect();
-                hits.sort_by(|a, b| a.toi.total_cmp(&b.toi));
-                return hits;
-            }
-            return query_pipeline
-                .cast_ray_and_get_normal(&ray, max_toi, true)
-                .and_then(|(collider, hit)| make_ray_hit(collider, hit))
-                .into_iter()
+            let mut hits: Vec<_> = query_pipeline
+                .intersect_ray(ray, max_toi, true)
+                .filter_map(|(collider, _, hit)| make_ray_hit(collider, hit))
                 .collect();
+            hits.sort_by(|a, b| a.toi.total_cmp(&b.toi));
+            return hits;
         }
         let shape = Ball::new(radius);
         let options = ShapeCastOptions {
@@ -495,21 +487,19 @@ impl PhysicsWorld {
         max_toi: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, f32)> {
-        self.cast_ray_generic(origin, direction * max_toi, 0.0, false, exclude, None)
+        self.cast_hits(origin, direction * max_toi, 0.0, exclude, None)
             .first()
             .map(|hit| (hit.entity, hit.toi))
     }
 
-    pub fn cast_ray_detailed(
+    pub fn cast_ray_hits(
         &self,
         origin: Vec3,
         direction: Vec3,
         max_toi: f32,
         exclude: &[Entity],
-    ) -> Option<RayHit> {
-        self.cast_ray_generic(origin, direction * max_toi, 0.0, false, exclude, None)
-            .into_iter()
-            .next()
+    ) -> Vec<RayHit> {
+        self.cast_hits(origin, direction * max_toi, 0.0, exclude, None)
     }
 
     pub fn cast_ray_ignoring_shields(
@@ -519,11 +509,10 @@ impl PhysicsWorld {
         max_toi: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, f32)> {
-        self.cast_ray_generic(
+        self.cast_hits(
             origin,
             direction * max_toi,
             0.0,
-            false,
             exclude,
             Some(ColliderFlags::SHIELD),
         )
@@ -538,11 +527,10 @@ impl PhysicsWorld {
         max_toi: f32,
         exclude: &[Entity],
     ) -> Option<RayHit> {
-        self.cast_ray_generic(
+        self.cast_hits(
             origin,
             direction * max_toi,
             0.0,
-            false,
             exclude,
             Some(ColliderFlags::SHIELD),
         )
@@ -558,7 +546,7 @@ impl PhysicsWorld {
         max_toi: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
-        self.cast_ray_generic(origin, direction * max_toi, radius, false, exclude, None)
+        self.cast_hits(origin, direction * max_toi, radius, exclude, None)
             .first()
             .map(|hit| (hit.entity, hit.collider, hit.toi, hit.normal))
     }
@@ -571,11 +559,10 @@ impl PhysicsWorld {
         max_toi: f32,
         exclude: &[Entity],
     ) -> Option<(Entity, ColliderHandle, f32, Vec3)> {
-        self.cast_ray_generic(
+        self.cast_hits(
             origin,
             direction * max_toi,
             radius,
-            false,
             exclude,
             Some(ColliderFlags::SHIELD),
         )
@@ -600,7 +587,7 @@ impl PhysicsWorld {
             .filter_map(|entity| self.entity_to_handle.get(entity).copied())
             .collect();
         let pred = |_: ColliderHandle, col: &Collider| {
-            col.parent().map_or(true, |rb_h| !excluded.contains(&rb_h))
+            col.parent().is_none_or(|rb_h| !excluded.contains(&rb_h))
         };
         let filter = QueryFilter::new().predicate(&pred);
         let qp = self.broad_phase.as_query_pipeline(

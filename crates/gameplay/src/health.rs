@@ -30,7 +30,12 @@ impl Plugin for HealthPlugin {
                 .after(CollisionImpactSet)
                 .in_set(AuthoritySystems),
         );
-        app.add_systems(FixedUpdate, handle_deaths.in_set(AuthoritySystems));
+        app.add_systems(
+            FixedUpdate,
+            handle_deaths
+                .after(crate::projectile::ProjectileDamageSet)
+                .in_set(AuthoritySystems),
+        );
         app.add_systems(FixedLast, flush_pending_death_despawns);
     }
 }
@@ -294,6 +299,10 @@ pub fn apply_health(
             pool,
             on_death: None,
         });
+    }
+    #[cfg(feature = "client")]
+    if current <= 0 {
+        run_death_behavior(entity, world);
     }
 }
 
