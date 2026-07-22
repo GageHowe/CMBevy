@@ -1,2 +1,4 @@
+* text=auto eol=lf
+
 assets/** filter=lfs diff=lfs merge=lfs -text
 dev-assets/** filter=lfs diff=lfs merge=lfs -text
