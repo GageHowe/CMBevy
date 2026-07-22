@@ -141,6 +141,8 @@ pub fn fire_authoritative(
     net_ids: &mut NetworkIDResource,
 ) -> Option<FiredProjectile> {
     let dir = dir.normalize_or_zero();
+    let starting_velocity = projectile_velocity(world, Some(shooter), dir, projectile_speed);
+    let inherited_launch_velocity = shooter_velocity(world, Some(shooter));
     if dir != Vec3::ZERO && shooter_impulse != 0.0 {
         let impulse = if mass_scaled_shooter_impulse {
             -dir * shooter_mass(world, shooter) * shooter_impulse
@@ -149,8 +151,6 @@ pub fn fire_authoritative(
         };
         world.apply_game_impulse(shooter, impulse, None, None);
     }
-    let starting_velocity = projectile_velocity(world, Some(shooter), dir, projectile_speed);
-    let inherited_launch_velocity = shooter_velocity(world, Some(shooter));
     let entity = spawn(
         projectile,
         gravity_scale,
@@ -196,9 +196,8 @@ pub fn spawn(
         commands.entity(entity).insert(ProjectileTempId(temp_id));
     }
 
-    // attach a GravityScale component; is this needed? TODO
-    if gravity_scale != 1.0 {
-        commands.entity(entity).insert(GravityScale(gravity_scale));
+    if let Some(gravity_scale) = projectile_gravity(gravity_scale) {
+        commands.entity(entity).insert(gravity_scale);
     }
     let rb_handle = make_kinematic_body(entity, origin, velocity, projectile.radius, world);
     commands
@@ -221,8 +220,8 @@ pub fn spawn_remote(
     world
         .entity_mut(entity)
         .insert((projectile, Transform::from_translation(position)));
-    if gravity_scale != 0.0 {
-        world.entity_mut(entity).insert(GravityScale(gravity_scale));
+    if let Some(gravity_scale) = projectile_gravity(gravity_scale) {
+        world.entity_mut(entity).insert(gravity_scale);
     }
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
@@ -238,6 +237,10 @@ pub fn spawn_remote(
         .entity_mut(entity)
         .insert(RigidBodyHandleComponent(rb_handle));
     crate::insert_spawn_metadata(entity, world, None, true, None, true);
+}
+
+fn projectile_gravity(gravity_scale: f32) -> Option<GravityScale> {
+    (gravity_scale != 1.0).then_some(GravityScale(gravity_scale))
 }
 
 fn tick_projectiles(
