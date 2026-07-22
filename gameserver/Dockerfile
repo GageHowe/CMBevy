@@ -13,7 +13,7 @@ WORKDIR /app
 COPY . .
 
 RUN sed -i '/codegen-backend/d' .cargo/config.toml
-RUN cargo build --release --locked -p gameserver --bin gameserver
+RUN cargo build --release -p gameserver --bin gameserver
 
 # Runtime
 FROM debian:bookworm-slim
