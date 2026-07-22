@@ -53,6 +53,25 @@ pub fn on_message(
         ref ability_pickups,
     ) = gameplay_params;
     crate::helpers::drain_inbound(&mut quic, |msg, quic| {
+        if matches!(msg.msg, MsgType::Disconnected) {
+            handle_server_disconnect(
+                msg.conn_id,
+                &mut active_connections,
+                &mut registry,
+                &mut pending_connections,
+                &mut pending_inputs,
+                &mut pending_melee_hits,
+                &mut pending_respawns,
+                commands,
+                world,
+                held_weapons,
+                pawn_slots,
+                mounted_bipeds,
+                mounts,
+                quic,
+            );
+            return;
+        }
         process_server_message(
             msg.conn_id,
             msg.msg,
@@ -64,7 +83,6 @@ pub fn on_message(
             &mut pending_connections,
             &mut pending_inputs,
             &mut pending_melee_hits,
-            &mut pending_respawns,
             commands,
             world,
             held_weapons,
@@ -73,7 +91,6 @@ pub fn on_message(
             vehicles,
             interactables,
             net_id_q,
-            mounted_bipeds,
             mounts,
             mount_anchor_transforms,
             weapon_runtime,
@@ -249,7 +266,6 @@ fn process_server_message(
     pending_connections: &mut PendingConnections,
     pending_inputs: &mut PendingInputs,
     pending_melee_hits: &mut PendingMeleeHits,
-    pending_respawns: &mut PendingRespawns,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     held_weapons: &mut HeldWeaponMap,
@@ -258,7 +274,6 @@ fn process_server_message(
     vehicles: &Query<&VehicleComponent>,
     interactables: &Query<&gameplay::interaction::Interactable>,
     net_id_q: &Query<&NetworkID>,
-    _mounted_bipeds: &Query<(&NetworkID, &gameplay::pawn::Mounted)>,
     mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
@@ -275,20 +290,7 @@ fn process_server_message(
             eprintln!("GameServer: conn {conn_id} sent ClientReady");
             pending_connections.0.insert(conn_id);
         }
-        MsgType::Disconnected => {
-            active_connections.0.remove(&conn_id);
-            handle_disconnected(
-                conn_id,
-                pending_respawns,
-                registry,
-                pawn_slots,
-                held_weapons,
-                quic,
-                commands,
-                world,
-            );
-            pending_connections.0.remove(&conn_id);
-        }
+        MsgType::Disconnected => {}
         MsgType::Input(input_seq, kind) => {
             if !kind.is_valid() {
                 return;
@@ -376,6 +378,40 @@ fn process_server_message(
         }
         other => eprintln!("Unhandled: {other:?}"),
     }
+}
+
+fn handle_server_disconnect(
+    conn_id: ConnectionId,
+    active_connections: &mut ActiveConnections,
+    registry: &mut PlayerRegistry,
+    pending_connections: &mut PendingConnections,
+    pending_inputs: &mut PendingInputs,
+    pending_melee_hits: &mut PendingMeleeHits,
+    pending_respawns: &mut PendingRespawns,
+    commands: &mut Commands,
+    world: &mut PhysicsWorld,
+    held_weapons: &mut HeldWeaponMap,
+    pawn_slots: &Query<&mut WeaponSlots>,
+    mounted_bipeds: &Query<(&NetworkID, &gameplay::pawn::Mounted)>,
+    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    quic: &mut QuicManager,
+) {
+    active_connections.0.remove(&conn_id);
+    pending_connections.0.remove(&conn_id);
+    pending_inputs.0.remove(&conn_id);
+    pending_melee_hits.0.remove(&conn_id);
+    handle_disconnected(
+        conn_id,
+        pending_respawns,
+        registry,
+        pawn_slots,
+        held_weapons,
+        quic,
+        commands,
+        world,
+        mounted_bipeds,
+        mounts,
+    );
 }
 
 fn level_ready_reason(

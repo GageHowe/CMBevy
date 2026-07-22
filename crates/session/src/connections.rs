@@ -208,6 +208,8 @@ pub(super) fn handle_disconnected(
     quic: &mut QuicManager,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
+    mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
+    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
 ) {
     pending_respawns.0.remove(&conn_id);
     if let Some((entity, net_id)) = registry.remove_character_for_conn(conn_id) {
@@ -215,6 +217,7 @@ pub(super) fn handle_disconnected(
             "GameServer: Player disconnected: entity={entity} conn={:?}",
             conn_id
         );
+        clear_mount_on_disconnect(entity, &net_id, mounted_bipeds, mounts, quic);
         let held = slots_to_held(&pawn_slots.get(entity).ok());
         kill_player(
             entity,
@@ -226,5 +229,27 @@ pub(super) fn handle_disconnected(
             commands,
             world,
         );
+    }
+}
+
+fn clear_mount_on_disconnect(
+    entity: Entity,
+    net_id: &NetworkID,
+    mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
+    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    quic: &mut QuicManager,
+) {
+    let Some(parent) = mounted_bipeds
+        .iter()
+        .find_map(|(biped_net_id, mounted)| (biped_net_id == net_id).then_some(mounted.0))
+    else {
+        return;
+    };
+    let Ok(mut mount) = mounts.get_mut(parent) else {
+        return;
+    };
+    if mount.occupant == Some(entity) {
+        mount.occupant = None;
+        gameplay::pawn::send_mount_state(quic, SendTarget::All, net_id, None);
     }
 }

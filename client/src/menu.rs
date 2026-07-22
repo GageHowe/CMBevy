@@ -1,20 +1,20 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 
 use audio::SoundQueue;
 use bevy::{app::AppExit, prelude::*};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use common::{InputAction, config::CRITICAL_MASS_VERSION};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use common::{config::CRITICAL_MASS_VERSION, InputAction};
 use http_common::{LobbyInfo, RegisterRequest};
 use session::{ServerAddr, SinglePlayerConfig};
 
 use crate::{
-    GameState, UiState,
     hosting::{
         available_gametypes, available_maps, fetch_lan_lobbies, fetch_remote_lobbies,
         gametype_path, start_hosted_server,
     },
-    settings::{ControlsCapture, Settings, SettingsSection, show_settings_ui},
-    sound::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound},
+    settings::{show_settings_ui, ControlsCapture, Settings, SettingsSection},
+    sound::{queue_ui_sound, AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT},
+    GameState, UiState,
 };
 
 pub struct MenuPlugin;
@@ -56,6 +56,7 @@ enum Screen {
     Multiplayer,
     CustomGames,
     JoinLan,
+    JoinByIp,
     Matchmaking,
     Host,
 }
@@ -70,6 +71,7 @@ impl Screen {
             Screen::Multiplayer => Screen::Root,
             Screen::CustomGames => Screen::Multiplayer,
             Screen::JoinLan => Screen::Multiplayer,
+            Screen::JoinByIp => Screen::Multiplayer,
             Screen::Matchmaking => Screen::Multiplayer,
             Screen::Host => Screen::Multiplayer,
         }
@@ -82,6 +84,9 @@ struct HostState {
     map_idx: usize,
     gametype_idx: usize,
     port: String,
+    join_host: String,
+    join_port: String,
+    join_error: String,
     name: String,
     max_players: String,
     advertise: bool,
@@ -95,6 +100,9 @@ impl Default for HostState {
             map_idx: 0,
             gametype_idx: 0,
             port: "42070".to_string(),
+            join_host: String::new(),
+            join_port: default_server_port(),
+            join_error: String::new(),
             name: "My Lobby".to_string(),
             max_players: "8".to_string(),
             advertise: false,
@@ -177,6 +185,7 @@ fn main_menu(
         Screen::Multiplayer => "Multiplayer",
         Screen::CustomGames => "Custom Games",
         Screen::JoinLan => "LAN Games",
+        Screen::JoinByIp => "Join by IP",
         Screen::Matchmaking => "Matchmaking",
         Screen::Host => "Host",
     };
@@ -258,6 +267,16 @@ fn main_menu(
                 |ui, lobby| {
                     ui.label(format!("{} · {}", lobby.name, lobby.host));
                 },
+            ),
+            Screen::JoinByIp => show_join_by_ip_screen(
+                ui,
+                &mut host,
+                &mut server_addr,
+                &mut next_state,
+                &mut screen,
+                &mut credits,
+                &mut browser,
+                &mut sound_queue,
             ),
             Screen::Matchmaking => show_matchmaking_screen(
                 ui,
@@ -470,6 +489,10 @@ fn show_multiplayer_screen(
         *browser = LobbyBrowser::default();
         go_to_screen(screen, Screen::JoinLan, sound_queue);
     }
+    if ui.button("Join by IP").clicked() {
+        host.join_error.clear();
+        go_to_screen(screen, Screen::JoinByIp, sound_queue);
+    }
     if ui.button("Custom Games").clicked() {
         *browser = LobbyBrowser::default();
         go_to_screen(screen, Screen::CustomGames, sound_queue);
@@ -539,6 +562,68 @@ fn connect_to_lobby(
         *screen = Screen::Root;
         next_state.set(GameState::Multiplayer);
         *browser = LobbyBrowser::default();
+    }
+}
+
+fn default_server_port() -> String {
+    common::config::SERVER_BIND_ADDRESS
+        .parse::<SocketAddr>()
+        .map(|addr| addr.port())
+        .unwrap_or(42070)
+        .to_string()
+}
+
+fn show_join_by_ip_screen(
+    ui: &mut egui::Ui,
+    host: &mut HostState,
+    server_addr: &mut ServerAddr,
+    next_state: &mut NextState<GameState>,
+    screen: &mut Screen,
+    credits: &mut CreditsState,
+    browser: &mut LobbyBrowser,
+    sound_queue: &mut SoundQueue,
+) {
+    egui::Grid::new("join_by_ip_grid")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label("Host/IP");
+            ui.text_edit_singleline(&mut host.join_host);
+            ui.end_row();
+
+            ui.label("Port");
+            ui.text_edit_singleline(&mut host.join_port);
+            ui.end_row();
+        });
+
+    if !host.join_error.is_empty() {
+        ui.colored_label(egui::Color32::RED, &host.join_error);
+    }
+
+    let can_join = !host.join_host.trim().is_empty() && host.join_port.parse::<u16>().is_ok();
+    if ui
+        .add_enabled(can_join, egui::Button::new("Join"))
+        .clicked()
+    {
+        let addr = format!("{}:{}", host.join_host.trim(), host.join_port.trim());
+        match addr
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.next())
+        {
+            Some(addr) => {
+                queue_ui_sound(sound_queue, UI_CLICK_EVENT);
+                server_addr.addr = addr;
+                server_addr.lobby_id = None;
+                host.join_error.clear();
+                *screen = Screen::Root;
+                next_state.set(GameState::Multiplayer);
+            }
+            None => host.join_error = format!("Invalid server address: {addr}"),
+        }
+    }
+    if ui.button("Back").clicked() {
+        back_screen(screen, credits, browser, sound_queue);
     }
 }
 
