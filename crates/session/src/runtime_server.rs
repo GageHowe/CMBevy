@@ -654,13 +654,19 @@ fn apply_inputs(
                 .is_some_and(|id| id.0 == command_weapon)
             && let Some(weapon) = networked.get(&NetworkID(command_weapon))
             && let Ok(body_handle) = body_handles.get(entity)
-            && let Some((origin, aim_dir)) = gameplay::pawn::biped::aim_pose(
+            && let Some((origin, fallback_aim_dir)) = gameplay::pawn::biped::aim_pose(
                 &physics,
                 body_handle,
                 kind.look_yaw,
                 kind.look_pitch,
             )
         {
+            let input_aim_dir = kind.item.aim_dir.normalize_or_zero();
+            let aim_dir = if input_aim_dir == Vec3::ZERO {
+                fallback_aim_dir
+            } else {
+                input_aim_dir
+            };
             commands
                 .entity(weapon)
                 .insert(gameplay::weapon::WeaponFireInput {
