@@ -83,19 +83,14 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
         .get_resource::<PlayerRegistry>()
         .and_then(|registry| registry.conn_id_for_character(biped_entity));
     if let (Some(conn_id), Some(biped_net_id)) = (conn_id, biped_net_id) {
-        world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
-            let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
-                return;
-            };
-            super::possess_pawn(
-                conn_id,
-                biped_entity,
-                &biped_net_id,
-                &mut registry,
-                &mut quic,
-            );
+        world.entity_mut(vehicle_entity).remove::<super::Controller>();
+        world
+            .entity_mut(biped_entity)
+            .insert(super::Controller::for_client(conn_id));
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            super::possess_pawn(conn_id, &biped_net_id, &mut quic);
             super::send_mount_state(&mut quic, SendTarget::All, &biped_net_id, None);
-        });
+        }
     }
 }
 

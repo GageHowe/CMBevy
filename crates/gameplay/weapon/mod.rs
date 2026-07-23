@@ -581,7 +581,7 @@ pub fn handle_set_active_slot_request(
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     _quic: &mut QuicManager,
 ) {
-    let Some((player_entity, _)) = registry.controlled_pawn(conn_id) else {
+    let Some((player_entity, _)) = registry.character(conn_id) else {
         return;
     };
     let Ok(mut slots) = pawn_slots.get_mut(player_entity) else {

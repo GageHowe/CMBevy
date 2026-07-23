@@ -4,7 +4,7 @@ use gameplay::{
     NetworkEntityMap,
     level::{LevelBytes, SpawnPoint},
     pawn::{
-        HeldWeaponMap, PendingRespawns, PlayerRegistry, VehicleComponent, WeaponSlots,
+        Controller, HeldWeaponMap, PendingRespawns, PlayerRegistry, VehicleComponent, WeaponSlots,
         biped_ability::AbilityPickup,
     },
     weapon::{WeaponConfig, WeaponState},
@@ -36,6 +36,7 @@ pub fn on_message(
         Query<&Transform>,
         Query<(&mut WeaponState, &WeaponConfig)>,
         Query<&AbilityPickup>,
+        Query<(Entity, &Controller)>,
     ),
     level_bytes: Option<Res<LevelBytes>>,
 ) {
@@ -51,6 +52,7 @@ pub fn on_message(
         ref mount_anchor_transforms,
         ref mut weapon_runtime,
         ref ability_pickups,
+        ref controllers,
     ) = gameplay_params;
     crate::helpers::drain_inbound(&mut quic, |msg, quic| {
         if matches!(msg.msg, MsgType::Disconnected) {
@@ -95,6 +97,7 @@ pub fn on_message(
             mount_anchor_transforms,
             weapon_runtime,
             ability_pickups,
+            controllers,
         );
     });
 }
@@ -181,7 +184,7 @@ pub fn flush_pending_connections(world: &mut World) {
         ) = state.get_mut(world);
         let pending_conn_ids: Vec<_> = pending_connections.0.iter().copied().collect();
         for conn_id in pending_conn_ids {
-            if registry.controlled_pawn(conn_id).is_some() {
+            if registry.character(conn_id).is_some() {
                 pending_connections.0.remove(&conn_id);
                 continue;
             }
@@ -278,6 +281,7 @@ fn process_server_message(
     mount_anchor_transforms: &Query<&Transform>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     ability_pickups: &Query<&AbilityPickup>,
+    controllers: &Query<(Entity, &Controller)>,
 ) {
     match msg {
         MsgType::Connected => {
@@ -323,6 +327,7 @@ fn process_server_message(
                 mount_anchor_transforms,
                 commands,
                 ability_pickups,
+                controllers,
             );
         }
         MsgType::DropWeapon(drop_dir) => gameplay::weapon::handle_drop_request(
@@ -460,8 +465,12 @@ fn handle_interact(
     mount_anchor_transforms: &Query<&Transform>,
     commands: &mut Commands,
     ability_pickups: &Query<&AbilityPickup>,
+    controllers: &Query<(Entity, &Controller)>,
 ) {
-    let Some((controlled, _)) = registry.controlled_pawn(conn_id) else {
+    let Some((controlled, _)) = controllers
+        .iter()
+        .find(|(_, controller)| controller.client == Some(conn_id))
+    else {
         return;
     };
     let Some((character, character_net_id)) = registry.character(conn_id) else {

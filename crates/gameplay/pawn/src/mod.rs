@@ -29,39 +29,13 @@ pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::VehicleComponent;
 pub use weapon_slots::WeaponSlots;
 
-/// Tracks two different pawn identities per connection.
-///
-/// `controlled_by_conn` is the pawn currently receiving that client's inputs.
-/// This can be a vehicle while the player is driving.
-///
-/// `character_by_conn` is the player's persistent biped character.
-/// Interactions, inventory, respawns, and other character-owned state should use this.
 #[derive(Resource, Default)]
-/// Maps connection ids to both their persistent character and their currently controlled pawn.
 pub struct PlayerRegistry {
-    controlled_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
     character_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,
 }
 impl PlayerRegistry {
     pub fn register_character(&mut self, conn_id: ConnectionId, entity: Entity, net_id: NetworkID) {
-        self.controlled_by_conn
-            .insert(conn_id, (entity, net_id.clone()));
         self.character_by_conn.insert(conn_id, (entity, net_id));
-    }
-
-    pub fn set_controlled_pawn(
-        &mut self,
-        conn_id: ConnectionId,
-        entity: Entity,
-        net_id: NetworkID,
-    ) {
-        self.controlled_by_conn.insert(conn_id, (entity, net_id));
-    }
-
-    pub fn controlled_pawn(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
-        self.controlled_by_conn
-            .get(&conn_id)
-            .map(|(entity, net_id)| (*entity, net_id))
     }
 
     pub fn character(&self, conn_id: ConnectionId) -> Option<(Entity, &NetworkID)> {
@@ -74,13 +48,11 @@ impl PlayerRegistry {
         &mut self,
         conn_id: ConnectionId,
     ) -> Option<(Entity, NetworkID)> {
-        self.controlled_by_conn.remove(&conn_id);
         self.character_by_conn.remove(&conn_id)
     }
 
     pub fn remove_character(&mut self, entity: Entity) -> Option<(ConnectionId, NetworkID)> {
         let conn_id = self.conn_id_for_character(entity)?;
-        self.controlled_by_conn.remove(&conn_id);
         let (_, net_id) = self.character_by_conn.remove(&conn_id)?;
         Some((conn_id, net_id))
     }
@@ -92,17 +64,11 @@ impl PlayerRegistry {
     }
 
     pub fn controlled_count(&self) -> usize {
-        self.controlled_by_conn.len()
+        self.character_by_conn.len()
     }
 
     pub fn controlled_conn_ids(&self) -> impl Iterator<Item = ConnectionId> + '_ {
-        self.controlled_by_conn.keys().copied()
-    }
-
-    pub fn controlled_entries(
-        &self,
-    ) -> impl Iterator<Item = (&ConnectionId, &(Entity, NetworkID))> + '_ {
-        self.controlled_by_conn.iter()
+        self.character_by_conn.keys().copied()
     }
 
     pub fn character_entries(
@@ -119,12 +85,9 @@ impl PlayerRegistry {
 /// Switches the input-controlled pawn for a connection and tells that client to possess it.
 pub fn possess_pawn(
     conn_id: ConnectionId,
-    entity: Entity,
     net_id: &NetworkID,
-    registry: &mut PlayerRegistry,
     quic: &mut QuicManager,
 ) {
-    registry.set_controlled_pawn(conn_id, entity, net_id.clone());
     send_possess(quic, conn_id, net_id);
 }
 
@@ -428,9 +391,12 @@ fn apply_local_control(mut control: ResMut<LocalControl>, mut pawns: Query<&mut 
 /// records it for replay, and sends it serialized over the unreliable channel.
 /// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
 #[cfg(feature = "client")]
-pub fn send_pawn_input(quic: Option<ResMut<net::quic::QuicManager>>, control: Res<LocalControl>) {
+pub fn send_pawn_input(
+    quic: Option<ResMut<net::quic::QuicManager>>,
+    mut control: ResMut<LocalControl>,
+) {
     let Some(mut quic) = quic else { return };
-    let Some((seq, input)) = control.newest() else {
+    let Some((seq, input)) = control.take_newest_to_send() else {
         return;
     };
     quic.send_to_server(

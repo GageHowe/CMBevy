@@ -224,7 +224,7 @@ pub fn handle_server_interact(
     character_net_id: &NetworkID,
     target: Entity,
     target_net_id: &NetworkID,
-    registry: &mut crate::pawn::PlayerRegistry,
+    _registry: &mut crate::pawn::PlayerRegistry,
     quic: &mut QuicManager,
     world: &mut PhysicsWorld,
     net_ids: &Query<&NetworkID>,
@@ -248,12 +248,20 @@ pub fn handle_server_interact(
                 return;
             };
             commands.entity(biped_entity).remove::<Mounted>();
-            crate::pawn::possess_pawn(conn_id, biped_entity, biped_net_id, registry, quic);
+            commands.entity(controlled).remove::<crate::pawn::Controller>();
+            commands
+                .entity(biped_entity)
+                .insert(crate::pawn::Controller::for_client(conn_id));
+            crate::pawn::possess_pawn(conn_id, biped_net_id, quic);
             crate::pawn::send_mount_state(quic, SendTarget::All, biped_net_id, None);
         }
         Some(MountInteractResult::Mounted) => {
             commands.entity(character).insert(Mounted(target));
-            crate::pawn::possess_pawn(conn_id, target, target_net_id, registry, quic);
+            commands.entity(controlled).remove::<crate::pawn::Controller>();
+            commands
+                .entity(target)
+                .insert(crate::pawn::Controller::for_client(conn_id));
+            crate::pawn::possess_pawn(conn_id, target_net_id, quic);
             crate::pawn::send_mount_state(
                 quic,
                 SendTarget::All,

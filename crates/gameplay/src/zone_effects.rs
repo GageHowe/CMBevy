@@ -235,31 +235,12 @@ fn tick_zone_messages(world: &mut World) {
 }
 
 fn collect_player_entities(world: &mut World) -> Vec<Entity> {
-    let mut players = Vec::new();
-    if let Some(registry) = world.get_resource::<PlayerRegistry>() {
-        for (_, (entity, _)) in registry.controlled_entries() {
-            if !players.contains(entity) {
-                players.push(*entity);
-            }
-        }
-    }
-    #[cfg(feature = "client")]
-    {
-        let mut possessed = world.query_filtered::<Entity, With<Possessed>>();
-        for entity in possessed.iter(world) {
-            if !players.contains(&entity) {
-                players.push(entity);
-            }
-        }
-    }
-    players
+    let mut controllers = world.query_filtered::<Entity, With<crate::pawn::Controller>>();
+    controllers.iter(world).collect()
 }
 
 fn connection_for_player(world: &World, entity: Entity) -> Option<ConnectionId> {
-    let registry = world.get_resource::<PlayerRegistry>()?;
-    registry
-        .controlled_entries()
-        .find_map(|(conn_id, (controlled, _))| (*controlled == entity).then_some(*conn_id))
+    world.get::<crate::pawn::Controller>(entity)?.client
 }
 
 fn send_zone_message(world: &mut World, entity: Entity, text: String) {

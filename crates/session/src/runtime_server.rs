@@ -375,7 +375,7 @@ fn process_console_commands(
             }
             "status" => {
                 println!("{} player(s) connected:", registry.controlled_count());
-                for (conn_id, (entity, net_id)) in registry.controlled_entries() {
+                for (conn_id, (entity, net_id)) in registry.character_entries() {
                     println!("  conn={conn_id} entity={entity:?} net_id={net_id:?}");
                 }
             }
@@ -562,18 +562,9 @@ fn reset_existing_player(
             Vec3::ZERO,
         );
     }
-    world.resource_scope(|world, mut registry: Mut<PlayerRegistry>| {
-        let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
-            return;
-        };
-        gameplay::pawn::possess_pawn(
-            conn_id,
-            character_entity,
-            &character_net_id,
-            &mut registry,
-            &mut quic,
-        );
-    });
+    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+        gameplay::pawn::possess_pawn(conn_id, &character_net_id, &mut quic);
+    }
 }
 
 fn spawn_restarted_player(
@@ -635,17 +626,19 @@ fn spawn_restarted_player(
 fn apply_inputs(
     mut pending_inputs: ResMut<PendingInputs>,
     mut last_input_seq: ResMut<LastProcessedInputSeq>,
-    registry: Res<PlayerRegistry>,
     ticker: Res<common::tick::Ticker>,
     weapon_slots: Query<&gameplay::pawn::WeaponSlots>,
     body_handles: Query<&RigidBodyHandleComponent>,
     networked: Res<gameplay::NetworkEntityMap>,
     physics: Res<PhysicsWorld>,
     mut commands: Commands,
-    mut controllers: Query<&mut Controller>,
+    mut controllers: Query<(Entity, &mut Controller)>,
 ) {
-    for (&conn_id, pending) in pending_inputs.0.iter_mut() {
-        let Some((entity, _)) = registry.controlled_pawn(conn_id) else {
+    for (entity, mut controller) in &mut controllers {
+        let Some(conn_id) = controller.client else {
+            continue;
+        };
+        let Some(pending) = pending_inputs.0.get_mut(&conn_id) else {
             continue;
         };
         let Some((input_seq, kind, advanced)) = pending.next() else {
@@ -691,10 +684,6 @@ fn apply_inputs(
                     } as u32,
                 });
         }
-        let Ok(mut controller) = controllers.get_mut(entity) else {
-            continue;
-        };
-        controller.client = Some(conn_id);
         controller.push(kind);
         if advanced {
             last_input_seq.0.insert(conn_id, input_seq);

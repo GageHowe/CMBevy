@@ -63,7 +63,7 @@ pub struct InboundMessage {
 /// destination set for an outgoing message
 #[derive(Debug, Clone)]
 pub enum SendTarget {
-    One(ConnectionId),
+    One(ConnectionId), // hey you!
     All,
     /// e.g., for replicating animations or weapon state to other clients
     AllExcept(ConnectionId),
@@ -196,9 +196,11 @@ pub struct NetPlugin;
 impl Plugin for NetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuicManager>();
+
         #[cfg(feature = "client")]
         app.add_systems(PreUpdate, process_inbound_client)
             .add_systems(PostUpdate, flush_outbound_client);
+
         #[cfg(not(feature = "client"))]
         app.add_systems(PreUpdate, process_inbound_server)
             .add_systems(PostUpdate, flush_outbound_server);
