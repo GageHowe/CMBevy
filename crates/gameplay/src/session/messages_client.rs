@@ -7,12 +7,12 @@ use crate::{
     weapon::helpers as weapon_helpers,
 };
 use crate::net::{
-    message::{MsgType, NetworkID},
+    message::{MsgType, NetworkID, ProjectileConfirmation},
     quic::QuicManager,
 };
 use physics::physics_world::PhysicsWorld;
 
-use crate::{
+use crate::session::{
     resources::*,
     runtime::{ClientSessionState, handle_file_data, handle_map_hash},
 };
@@ -197,7 +197,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             commands,
         ),
         MsgType::Disconnected => {
-            crate::session::messages::push(commands, "Disconnected.");
+            crate::messages::push(commands, "Disconnected.");
             next_state.set(config.main_menu);
         }
         MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
@@ -265,7 +265,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             crate::weapon::beamer::apply_remote_end_beam(world, weapon_net_id);
         }),
         MsgType::HitResult(_, _, _) => {}
-        MsgType::ProjectileConfirm { temp_id, net_id } => projectile::confirm_projectile(
+        MsgType::ProjectileConfirm(ProjectileConfirmation { temp_id, net_id }) => projectile::confirm_projectile(
             temp_id,
             net_id,
             predicted_projectiles,
@@ -344,7 +344,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             gui.push_log(format!("pong: {text}"));
         }
         MsgType::ChatMessage(sender, text) => gui.push_log(format!("[{sender}] {text}")),
-        MsgType::OnscreenMessage(text) => crate::session::messages::push(commands, text),
+        MsgType::OnscreenMessage(text) => crate::messages::push(commands, text),
         MsgType::TimePong(bits) => net_stats.record_pong(bits, time.elapsed_secs_f64()),
         MsgType::State(st) => {
             if last_server_state

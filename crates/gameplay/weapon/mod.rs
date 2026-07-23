@@ -2,16 +2,13 @@
 
 use bevy::prelude::*;
 pub use common::WeaponState;
-#[cfg(feature = "client")]
-use crate::net::message::WeaponState as NetWeaponState;
-use crate::net::{
-    message::NetworkID,
-    quic::{Channel, ConnectionId, QuicManager, SendTarget},
-};
 use physics::physics_world::PhysicsWorld;
 
+#[cfg(feature = "client")]
+use crate::net::message::WeaponState as NetWeaponState;
 use crate::{
-    pawn::{CameraEffector, CameraShake, HeldWeaponMap, PlayerRegistry, WeaponSlots},
+    net::{message::NetworkID, quic::*},
+    pawn::*,
     projectile::FiredProjectile,
     sound::SoundQueue,
 };
@@ -514,10 +511,12 @@ pub fn fire_authoritative_with_replication(
                 quic.send(
                     SendTarget::One(conn_id),
                     Channel::Ordered,
-                    &crate::net::message::MsgType::ProjectileConfirm {
-                        temp_id,
-                        net_id: fired.fired.net_id,
-                    },
+                    &crate::net::message::MsgType::ProjectileConfirm(
+                        crate::net::message::ProjectileConfirmation {
+                            temp_id,
+                            net_id: fired.fired.net_id,
+                        },
+                    ),
                 );
             }
         }

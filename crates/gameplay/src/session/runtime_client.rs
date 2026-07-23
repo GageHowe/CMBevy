@@ -13,7 +13,7 @@ use crate::net::{
 };
 use physics::physics_world::*;
 
-use crate::{messages, resources::*};
+use crate::session::{messages, resources::*};
 
 pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
     pub main_menu: S,
@@ -105,7 +105,7 @@ fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: C
         return;
     };
     while let Some(message) = quic.notices.pop_front() {
-        crate::session::messages::push(&mut commands, message);
+        crate::messages::push(&mut commands, message);
     }
 }
 
@@ -136,7 +136,7 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
 ) {
     let _ = std::marker::PhantomData::<S>;
     if sp.map.is_empty() || sp.gametype.is_empty() {
-        crate::session::messages::push(&mut commands, "No map or mode selected.");
+        crate::messages::push(&mut commands, "No map or mode selected.");
         return;
     }
     commands.insert_resource(crate::scripting::ScriptConfig {
@@ -144,10 +144,10 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
         is_server: true,
         source: None,
     });
-    crate::session::messages::push(&mut commands, "Loading map...");
+    crate::messages::push(&mut commands, "Loading map...");
     match load_level_source(&sp.map, &default_asset_dir()) {
         Ok(level) => commands.insert_resource(PendingMapScene(level.compressed)),
-        Err(err) => crate::session::messages::push(&mut commands, format!("Map load failed: {err}")),
+        Err(err) => crate::messages::push(&mut commands, format!("Map load failed: {err}")),
     };
 }
 
@@ -263,7 +263,7 @@ pub fn cleanup_world(
 }
 
 fn connect(mut commands: Commands, mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
-    crate::session::messages::push(&mut commands, "Connecting...");
+    crate::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.addr, addr.lobby_id.clone());
 }
 
@@ -308,13 +308,13 @@ fn remove_script(mut commands: Commands) {
 pub(crate) fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
     if let Some(compressed) = read_cached_map(&hash) {
         if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
-            crate::session::messages::push(commands, "Using cached map.");
+            crate::messages::push(commands, "Using cached map.");
             commands.insert_resource(PendingMapScene(compressed));
             return;
         }
-        crate::session::messages::push(commands, "Cached map invalid. Redownloading.");
+        crate::messages::push(commands, "Cached map invalid. Redownloading.");
     }
-    crate::session::messages::push(commands, "Downloading map...");
+    crate::messages::push(commands, "Downloading map...");
     quic.send(
         crate::net::quic::SendTarget::One(crate::net::quic::SERVER_CONN_ID),
         crate::net::quic::Channel::Ordered,

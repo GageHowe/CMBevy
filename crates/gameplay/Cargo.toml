@@ -22,6 +22,7 @@ bevy = { workspace = true, features = ["https", "scene", "serialize", "std", "mu
 bytes = { workspace = true }
 rapier3d = { workspace = true }
 bitflags = { workspace = true }
+enum_dispatch = "0.3.13"
 bevy_egui = { workspace = true, optional = true }
 particles_plugin = { path = "../particles_plugin", optional = true }
 postcard = { workspace = true }

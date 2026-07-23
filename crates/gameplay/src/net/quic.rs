@@ -73,7 +73,7 @@ pub enum SendTarget {
 pub(crate) enum ClientCommand {
     Send {
         channel: Channel,
-        msg: crate::message::MsgType,
+        msg: MsgType,
     },
     Shutdown,
 }
@@ -130,9 +130,9 @@ impl QuicManager {
     }
 
     #[cfg(feature = "client")]
-    pub fn send_to_server(&mut self, channel: Channel, msg: &crate::message::MsgType) {
+    pub fn send_to_server(&mut self, channel: Channel, msg: &MsgType) {
         self.outbound.push_back((
-            crate::quic::SendTarget::One(SERVER_CONN_ID),
+            SendTarget::One(SERVER_CONN_ID),
             channel,
             msg.clone(),
         ));

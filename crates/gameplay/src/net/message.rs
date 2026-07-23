@@ -213,13 +213,22 @@ pub trait Message: Serialize + serde::de::DeserializeOwned + Debug + PartialEq +
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ProjectileConfirmation {
-    temp_id: u32,
-    net_id: NetworkID,
+    pub temp_id: u32,
+    pub net_id: NetworkID,
 }
 impl Message for ProjectileConfirmation {
-    fn handle(self, world: &mut World) {
+    fn handle(self, _world: &mut World) {
         // let res = world.resource::<SomeResource>();
         // res.DoSomething();
+    }
+}
+
+impl Message for MsgType {
+    fn handle(self, world: &mut World) {
+        match self {
+            Self::ProjectileConfirm(message) => message.handle(world),
+            message => eprintln!("packet message is not migrated yet: {message:?}"),
+        }
     }
 }
 
