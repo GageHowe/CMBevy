@@ -12,3 +12,4 @@ ssh
 build
 criticalmass-*-.zip
 encrypted_assets
+.idea/
