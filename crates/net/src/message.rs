@@ -1,3 +1,5 @@
+use std::{fmt::Debug, io::Read};
+
 use bevy::{
     math::{Quat, Vec3},
     prelude::*,
@@ -6,7 +8,10 @@ pub use common::{
     BodyState, LeaderboardScope, NetworkID, NetworkIDResource, PawnInput, ScoringOption,
     SimulationState, WeaponState,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+const MAX_DECOMPRESSED_PACKET_MESSAGES_SIZE: usize = 64 * 1024 * 1024;
+const ZSTD_LEVEL: i32 = 3;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -196,11 +201,15 @@ pub enum MsgType {
     FileData(String, Vec<u8>),
 }
 
+// ----------- IT'S BEAUTIFUL
+
 /// trait all networked message types are required to implement
-pub trait Message: Serialize + Deserialize + Debug + PartialEq + Clone {
+pub trait Message: Serialize + serde::de::DeserializeOwned + Debug + PartialEq + Clone {
     /// mutate the world in some way in response to receiving this message
     fn handle(self, world: &mut World);
 }
+
+// ----------- INDIVIDUAL PACKET TYPES ------------
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ProjectileConfirmation {
@@ -209,34 +218,61 @@ pub struct ProjectileConfirmation {
 }
 impl Message for ProjectileConfirmation {
     fn handle(self, world: &mut World) {
-        let res = world.resource::<SomeResource>();
-        res.DoSomething();
+        // let res = world.resource::<SomeResource>();
+        // res.DoSomething();
     }
 }
 
-#[serde(deserialize_with = "decompress_then_deserialize")]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Packet {
+    #[serde(
+        serialize_with = "serialize_then_compress",
+        deserialize_with = "decompress_then_deserialize"
+    )]
     messages: Vec<MsgType>,
     frame_number: u64,
 }
 impl Packet {
-    fn handle_all(self) {
+    fn handle_all(self, world: &mut World) {
         for msg in self.messages {
-            msg.handle(world)
+            msg.handle(world);
         }
     }
 }
-fn decompress_then_deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
+
+// ---------- SERDE FOR Packet -----------
+
+fn serialize_then_compress<S>(messages: &Vec<MsgType>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let serialized = postcard::to_allocvec(messages).map_err(serde::ser::Error::custom)?;
+    let compressed = zstd::stream::encode_all(serialized.as_slice(), ZSTD_LEVEL)
+        .map_err(serde::ser::Error::custom)?;
+
+    compressed.serialize(serializer)
+}
+
+fn decompress_then_deserialize<'de, D>(deserializer: D) -> Result<Vec<MsgType>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let compressed_bytes: Vec<u8> = Vec::deserialize(deserializer)?;
+    let compressed = Vec::<u8>::deserialize(deserializer)?;
+    let mut decoder = zstd::stream::read::Decoder::new(compressed.as_slice())
+        .map_err(serde::de::Error::custom)?;
+    let mut serialized = Vec::new();
 
-    let mut decoder = GzDecoder::new(&compressed_bytes[..]);
-    let mut decompressed_string = String::new();
     decoder
-        .read_to_string(&mut decompressed_string)
+        .by_ref()
+        .take((MAX_DECOMPRESSED_PACKET_MESSAGES_SIZE + 1) as u64)
+        .read_to_end(&mut serialized)
         .map_err(serde::de::Error::custom)?;
 
-    Ok(decompressed_string)
+    if serialized.len() > MAX_DECOMPRESSED_PACKET_MESSAGES_SIZE {
+        return Err(serde::de::Error::custom(
+            "decompressed packet messages exceed the size limit",
+        ));
+    }
+
+    postcard::from_bytes(&serialized).map_err(serde::de::Error::custom)
 }
