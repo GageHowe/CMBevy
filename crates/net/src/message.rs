@@ -182,10 +182,7 @@ pub enum MsgType {
         target: Option<NetworkID>,
     },
     EndBeam(NetworkID),
-    ProjectileConfirm {
-        temp_id: u32,
-        net_id: NetworkID,
-    },
+    ProjectileConfirm(ProjectileConfirmation),
     HitResult(Vec3, Vec3, Option<NetworkID>),
     TimePing(u64),
     TimePong(u64),
@@ -197,4 +194,49 @@ pub enum MsgType {
     Scoreboard(ScoreboardSnapshot),
     MapHash(String),
     FileData(String, Vec<u8>),
+}
+
+/// trait all networked message types are required to implement
+pub trait Message: Serialize + Deserialize + Debug + PartialEq + Clone {
+    /// mutate the world in some way in response to receiving this message
+    fn handle(self, world: &mut World);
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ProjectileConfirmation {
+    temp_id: u32,
+    net_id: NetworkID,
+}
+impl Message for ProjectileConfirmation {
+    fn handle(self, world: &mut World) {
+        let res = world.resource::<SomeResource>();
+        res.DoSomething();
+    }
+}
+
+#[serde(deserialize_with = "decompress_then_deserialize")]
+pub struct Packet {
+    messages: Vec<MsgType>,
+    frame_number: u64,
+}
+impl Packet {
+    fn handle_all(self) {
+        for msg in self.messages {
+            msg.handle(world)
+        }
+    }
+}
+fn decompress_then_deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let compressed_bytes: Vec<u8> = Vec::deserialize(deserializer)?;
+
+    let mut decoder = GzDecoder::new(&compressed_bytes[..]);
+    let mut decompressed_string = String::new();
+    decoder
+        .read_to_string(&mut decompressed_string)
+        .map_err(serde::de::Error::custom)?;
+
+    Ok(decompressed_string)
 }
