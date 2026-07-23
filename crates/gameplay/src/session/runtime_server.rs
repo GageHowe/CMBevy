@@ -3,22 +3,21 @@ use bevy::{
     prelude::*,
 };
 use common::{LeaderboardScope, ScoringOption};
+use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
+use physics::physics_world::*;
+
 use crate::{
     SpawnGameObjectCommand,
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
+    net::{message::*, quic::*},
     pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry, Possessed},
-};
-use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
-use crate::net::{message::*, quic::*};
-use physics::physics_world::*;
-use crate::scripting::{ScriptConfig, get_script_global};
-
-use crate::session::{
-    messages_server::apply_melee_hit_requests,
-    replication::{broadcast_scoreboard, broadcast_tick, spawn_player},
-    resources::*,
+    scripting::{ScriptConfig, get_script_global},
+    session::{
+        replication::{broadcast_tick, spawn_player},
+        resources::*,
+    },
 };
 
 pub struct ServerSessionPlugin {
@@ -64,10 +63,9 @@ impl Plugin for ServerSessionPlugin {
         .init_resource::<TeamNumbers>()
         .init_resource::<PlayerRegistry>()
         .init_resource::<PendingRespawns>()
-        .init_resource::<PendingConnections>()
         .init_resource::<ActiveConnections>()
         .init_resource::<PendingInputs>()
-        .init_resource::<PendingMeleeHits>()
+        .init_resource::<crate::pawn::biped::PendingMeleeHits>()
         .init_resource::<LastProcessedInputSeq>()
         .init_resource::<BodyHistory>()
         .add_systems(Update, (tick_respawns, process_console_commands))
@@ -90,7 +88,7 @@ impl Plugin for ServerSessionPlugin {
         )
         .add_systems(
             FixedUpdate,
-            apply_melee_hit_requests.in_set(ForceApplication),
+            crate::pawn::biped::apply_melee_hit_requests.in_set(ForceApplication),
         )
         .add_systems(FixedUpdate, advance_match_state_time)
         .add_systems(
@@ -102,15 +100,9 @@ impl Plugin for ServerSessionPlugin {
                 .after(crate::health::handle_deaths)
                 .before(broadcast_tick),
         )
-        .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
         .add_systems(
             FixedUpdate,
             broadcast_tick.after(crate::health::handle_deaths),
-        )
-        .add_systems(
-            FixedPreUpdate,
-            crate::session::messages_server::flush_pending_connections
-                .after(crate::session::on_message),
         );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobby {
@@ -345,7 +337,11 @@ fn process_console_commands(
         let mut parts = line.trim().splitn(2, ' ');
         match parts.next().unwrap_or("") {
             "shutdown" | "quit" => {
-                quic.send(SendTarget::All, Channel::Ordered, &MsgType::Disconnected);
+                quic.send(
+                    SendTarget::All,
+                    Channel::Ordered,
+                    &MsgType::Disconnected(Disconnected),
+                );
                 std::process::exit(0);
             }
             "kick" => {
@@ -353,13 +349,13 @@ fn process_console_commands(
                     quic.send(
                         SendTarget::One(id),
                         Channel::Ordered,
-                        &MsgType::Disconnected,
+                        &MsgType::Disconnected(Disconnected),
                     );
                     quic.inbound.push_back(InboundMessage {
                         conn_id: id,
                         channel: Channel::Ordered,
                         packet_size: 0,
-                        msg: MsgType::Disconnected,
+                        packet: Packet::new(vec![MsgType::Disconnected(Disconnected)], 0),
                     });
                 } else {
                     println!("Usage: kick <conn_id>");
@@ -370,7 +366,10 @@ fn process_console_commands(
                 quic.send(
                     SendTarget::All,
                     Channel::Ordered,
-                    &MsgType::ChatMessage("[Server]".into(), text.clone()),
+                    &MsgType::ChatMessage(ChatMessage {
+                        sender: "[Server]".into(),
+                        text: text.clone(),
+                    }),
                 );
                 println!("[Server] {text}");
             }
@@ -404,10 +403,7 @@ fn process_console_commands(
                     commands.entity(entity).insert((
                         Team(team),
                         Possessed::new(128),
-                        crate::bot::BotController::new(
-                            Team(team),
-                            crate::bot::HeuristicKillerBot,
-                        ),
+                        crate::bot::BotController::new(Team(team), crate::bot::HeuristicKillerBot),
                     ));
                     quic.send(
                         SendTarget::All,
@@ -653,12 +649,8 @@ fn apply_inputs(
                 .is_some_and(|id| id.0 == command_weapon)
             && let Some(weapon) = networked.get(&NetworkID(command_weapon))
             && let Ok(body_handle) = body_handles.get(entity)
-            && let Some((origin, fallback_aim_dir)) = crate::pawn::biped::aim_pose(
-                &physics,
-                body_handle,
-                kind.look_yaw,
-                kind.look_pitch,
-            )
+            && let Some((origin, fallback_aim_dir)) =
+                crate::pawn::biped::aim_pose(&physics, body_handle, kind.look_yaw, kind.look_pitch)
         {
             let input_aim_dir = kind.item.aim_dir.normalize_or_zero();
             let aim_dir = if input_aim_dir == Vec3::ZERO {

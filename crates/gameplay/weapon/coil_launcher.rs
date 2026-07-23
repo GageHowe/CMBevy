@@ -75,7 +75,11 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     }),
 };
 
-pub fn spawn_coil_launcher(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_coil_launcher(
+    entity: Entity,
+    cmd: &crate::net::message::SpawnCommand,
+    world: &mut World,
+) {
     let weapon = weapon_bundle(CoilLauncherComponent, CONFIG);
     helpers::insert_generic_weapon(
         entity,

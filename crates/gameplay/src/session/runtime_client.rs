@@ -1,19 +1,21 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
+use physics::physics_world::*;
+
 use crate::{
     Team,
     bot::run_singleplayer_bots,
     level::*,
     lifecycle::*,
     mode::MatchState,
+    net::{
+        message::{
+            ClientReady, FileData, MapHash, Message, MsgType, NetworkIDResource, RequestMap,
+        },
+        quic::QuicManager,
+    },
     pawn::{InteractionGate, Possessed},
+    session::{messages, resources::*},
 };
-use crate::net::{
-    message::{MsgType, NetworkIDResource},
-    quic::QuicManager,
-};
-use physics::physics_world::*;
-
-use crate::session::{messages, resources::*};
 
 pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
     pub main_menu: S,
@@ -23,7 +25,6 @@ pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
 
 impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
     fn build(&self, app: &mut App) {
-        let main_menu = self.main_menu;
         let single_player = self.single_player;
         let multiplayer = self.multiplayer;
         crate::session::runtime::configure_authority_sets(app);
@@ -32,8 +33,6 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<LocalCharacterNetId>()
             .init_resource::<PendingReconciliation>()
-            .init_resource::<PendingWeaponPickups>()
-            .insert_resource(ClientSessionState { main_menu })
             .add_systems(
                 OnEnter(single_player),
                 (
@@ -80,13 +79,9 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
                 (cleanup_world, disconnect, remove_script).chain(),
             )
             .add_systems(Update, show_transport_notices.run_if(in_state(multiplayer)))
-            .add_systems(
-                Update,
-                messages::retry_weapon_pickups.run_if(in_state(multiplayer)),
-            )
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
-            .add_systems(FixedPostUpdate, messages::on_message::<S>)
+            .add_systems(FixedPostUpdate, messages::on_message)
             .add_systems(
                 FixedLast,
                 crate::session::runtime::snapshot_server_state
@@ -95,9 +90,12 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
     }
 }
 
-#[derive(Resource, Clone, Copy)]
-pub(crate) struct ClientSessionState<S: States + Copy> {
-    pub main_menu: S,
+pub fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
+    let Some(state) = &last.0 else { return };
+    for body in state.bodies.values() {
+        let pos: Vec3 = body.position.into();
+        gizmos.sphere(pos, 0.15, Color::srgb(1.0, 0.2, 0.2));
+    }
 }
 
 fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: Commands) {
@@ -278,7 +276,7 @@ fn send_world_ready(
     quic.send(
         crate::net::quic::SendTarget::One(crate::net::quic::SERVER_CONN_ID),
         crate::net::quic::Channel::Ordered,
-        &MsgType::ClientReady,
+        &MsgType::ClientReady(ClientReady),
     );
     info!("Client: sent ClientReady");
 }
@@ -289,12 +287,10 @@ fn disconnect(
     mut last_acked: ResMut<LastAckedInputSeq>,
     mut last_server: ResMut<LastServerState>,
     mut local_character: ResMut<LocalCharacterNetId>,
-    mut gui: ResMut<GuiState>,
 ) {
     last_acked.0 = 0;
     last_server.0 = None;
     local_character.0 = None;
-    gui.scoreboard = None;
     quic.disconnect();
     quic.inbound.clear();
     pending.0 = None;
@@ -305,46 +301,54 @@ fn remove_script(mut commands: Commands) {
     commands.remove_resource::<crate::scripting::ScriptConfig>();
 }
 
-pub(crate) fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
-    if let Some(compressed) = read_cached_map(&hash) {
-        if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
-            crate::messages::push(commands, "Using cached map.");
-            commands.insert_resource(PendingMapScene(compressed));
-            return;
+impl Message for MapHash {
+    fn handle(self, world: &mut World) {
+        let hash = self.0;
+        if let Some(compressed) = read_cached_map(&hash) {
+            if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
+                crate::messages::push_world(world, "Using cached map.");
+                world.insert_resource(PendingMapScene(compressed));
+                return;
+            }
+            crate::messages::push_world(world, "Cached map invalid. Redownloading.");
         }
-        crate::messages::push(commands, "Cached map invalid. Redownloading.");
+        crate::messages::push_world(world, "Downloading map...");
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            quic.send(
+                crate::net::quic::SendTarget::One(crate::net::quic::SERVER_CONN_ID),
+                crate::net::quic::Channel::Ordered,
+                &MsgType::RequestMap(RequestMap),
+            );
+        }
     }
-    crate::messages::push(commands, "Downloading map...");
-    quic.send(
-        crate::net::quic::SendTarget::One(crate::net::quic::SERVER_CONN_ID),
-        crate::net::quic::Channel::Ordered,
-        &MsgType::RequestMap,
-    );
 }
 
-pub(crate) fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut Commands) {
-    if name == "map.scn.ron" {
-        let Some(hash) = compressed_level_hash(&compressed) else {
-            eprintln!("FileData: failed to hash map.scn.ron");
+impl Message for FileData {
+    fn handle(self, world: &mut World) {
+        let Self { name, compressed } = self;
+        if name == "map.scn.ron" {
+            let Some(hash) = compressed_level_hash(&compressed) else {
+                eprintln!("FileData: failed to hash map.scn.ron");
+                return;
+            };
+            info!("Client: received map.scn.ron {hash}");
+            write_cached_map(&hash, &compressed);
+            world.insert_resource(PendingMapScene(compressed));
             return;
+        }
+        if name != "gametype.lua" {
+            return;
+        }
+        match zstd::stream::decode_all(compressed.as_slice()) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(src) => world.insert_resource(crate::scripting::ScriptConfig {
+                    path: String::new(),
+                    is_server: false,
+                    source: Some(src),
+                }),
+                Err(e) => eprintln!("FileData: gametype.lua not valid utf8: {e}"),
+            },
+            Err(e) => eprintln!("FileData: failed to decompress gametype.lua: {e}"),
         };
-        info!("Client: received map.scn.ron {hash}");
-        write_cached_map(&hash, &compressed);
-        commands.insert_resource(PendingMapScene(compressed));
-        return;
     }
-    if name != "gametype.lua" {
-        return;
-    }
-    match zstd::stream::decode_all(compressed.as_slice()) {
-        Ok(bytes) => match String::from_utf8(bytes) {
-            Ok(src) => commands.insert_resource(crate::scripting::ScriptConfig {
-                path: String::new(),
-                is_server: false,
-                source: Some(src),
-            }),
-            Err(e) => eprintln!("FileData: gametype.lua not valid utf8: {e}"),
-        },
-        Err(e) => eprintln!("FileData: failed to decompress gametype.lua: {e}"),
-    };
 }

@@ -12,13 +12,13 @@ use gameplay::{
         snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
     pawn::{GatherInputSet, Mounted, Possessed, biped::BipedPawnComponent},
+    session::PendingReconciliation,
 };
 use physics::physics_world::{
     GravityScale, PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_rot, rb_vel,
     restore_snapshot, snapshot_body_handles,
 };
 use rapier3d::prelude::{RigidBodyHandle, Vector};
-use gameplay::session::PendingReconciliation;
 
 #[derive(Clone, Copy)]
 struct BipedReplayState {

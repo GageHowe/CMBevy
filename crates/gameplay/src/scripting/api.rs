@@ -5,6 +5,9 @@ use bevy::{
     prelude::*,
 };
 use common::{NetworkID, NetworkIDResource};
+use mlua::prelude::*;
+use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
+
 use crate::{
     SpawnGameObjectCommand, Team,
     bot::{BotController, HeuristicKillerBot},
@@ -12,19 +15,16 @@ use crate::{
     level::{ScriptZone, SpawnPoint, parented_world_pose},
     messages::push_world,
     mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
+    net::{
+        message::{MsgType, OnscreenMessage, SpawnCommand},
+        quic::{Channel, QuicManager, SendTarget},
+    },
     pawn::{PlayerRegistry, Possessed, WeaponSlots},
-};
-use mlua::prelude::*;
-use crate::net::{
-    message::{MsgType, SpawnCommand},
-    quic::{Channel, QuicManager, SendTarget},
-};
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
-
-use crate::scripting::{
-    plugin::{PendingWeaponGrants, WeaponGrant},
-    runtime::ScriptRuntime,
-    tag_index::ScriptTagIndex,
+    scripting::{
+        plugin::{PendingWeaponGrants, WeaponGrant},
+        runtime::ScriptRuntime,
+        tag_index::ScriptTagIndex,
+    },
 };
 
 fn lua_world(lua: &Lua) -> LuaResult<&mut World> {
@@ -214,7 +214,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                     quic.send(
                         SendTarget::All,
                         Channel::Ordered,
-                        &MsgType::OnscreenMessage(text),
+                        &MsgType::OnscreenMessage(OnscreenMessage(text)),
                     );
                 }
             } else {

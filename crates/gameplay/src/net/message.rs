@@ -4,11 +4,11 @@ use bevy::{
     math::{Quat, Vec3},
     prelude::*,
 };
-pub use common::{
-    BodyState, LeaderboardScope, NetworkID, NetworkIDResource, PawnInput, ScoringOption,
-    SimulationState, WeaponState,
-};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+pub use common::*;
+use enum_dispatch::enum_dispatch;
+use serde::*;
+
+pub use crate::{projectile::ProjectileConfirmation, weapon::beamer::*};
 
 const MAX_DECOMPRESSED_PACKET_MESSAGES_SIZE: usize = 64 * 1024 * 1024;
 const ZSTD_LEVEL: i32 = 3;
@@ -109,101 +109,217 @@ impl SpawnCommand {
     }
 }
 
-/// Compact replicated scoreboard data used by the client HUD.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct ScoreboardEntry {
-    pub net_id: NetworkID,
-    pub label: String,
-    pub team: u8,
-    pub value: i32,
-}
-
-/// Match-level scoreboard metadata plus either per-player or per-team rows.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct ScoreboardSnapshot {
-    pub teams_enabled: bool,
-    pub scoring: ScoringOption,
-    pub leaderboard_scope: LeaderboardScope,
-    pub time_limit_secs: f32,
-    pub leaderboard_label: String,
-    pub primary_objective_label: String,
-    pub players: Vec<ScoreboardEntry>,
-    pub teams: Vec<ScoreboardEntry>,
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub enum AbilityFx {
     Jetpack(bool),
     Dash(Vec3),
 }
 
+// random Messages
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Connected;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct JoinChallenge(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct JoinRejected(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ClientReady;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct RequestMap;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Disconnected;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ChatMessage {
+    pub sender: String,
+    pub text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Ping(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Pong(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Input {
+    pub seq: u64,
+    pub input: PawnInput,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct State(pub SimulationState);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct DespawnCommand(pub NetworkID);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Possess(pub NetworkID);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct MountState {
+    pub biped_net_id: NetworkID,
+    pub parent_net_id: Option<NetworkID>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Interact(pub NetworkID);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct DropWeapon(pub Vec3);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct DropAbility(pub Vec3);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct SetActiveWeaponSlot(pub bool);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct WeaponPickup {
+    pub weapon_id: NetworkID,
+    pub carrier_net_id: NetworkID,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct WeaponDrop {
+    pub weapon_id: NetworkID,
+    pub carrier_net_id: NetworkID,
+    pub drop_pos: Vec3,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BipedLook {
+    pub net_id: NetworkID,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct MeleeHitRequest(pub NetworkID);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ProjectileSpawn {
+    pub weapon: NetworkID,
+    pub net_id: NetworkID,
+    pub position: Vec3,
+    pub starting_velocity: Vec3,
+    pub shooter_velocity: Vec3,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct HitResult {
+    pub position: Vec3,
+    pub normal: Vec3,
+    pub target: Option<NetworkID>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct TimePing(pub u64);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct TimePong(pub u64);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct OnscreenMessage(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct AbilityFxMessage {
+    pub net_id: NetworkID,
+    pub fx: AbilityFx,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct AbilityState {
+    pub owner_net_id: NetworkID,
+    pub ability: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct WeaponStateMessage {
+    pub net_id: NetworkID,
+    pub weapon_state: WeaponState,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Health {
+    pub net_id: NetworkID,
+    pub current: i32,
+    pub max: i32,
+    pub regen_per_tick_num: i32,
+    pub regen_delay_ticks: u16,
+    pub regen_delay_remaining_ticks: u16,
+    pub regen_accum: i32,
+    pub damage_accum_millis: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct MapHash(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct FileData {
+    pub name: String,
+    pub compressed: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[enum_dispatch(Message)]
 /// Transport-level message enum shared by client and server.
 pub enum MsgType {
-    Connected,
-    JoinChallenge(String),
+    Connected(Connected),
+    JoinChallenge(JoinChallenge),
     ClientHello(ClientHello),
     JoinAccepted(JoinAccepted),
-    JoinRejected(String),
-    ClientReady,
-    RequestMap,
-    Disconnected,
-    ChatMessage(String, String),
-    Ping(String),
-    Pong(String),
-    Input(u64, PawnInput),
+    JoinRejected(JoinRejected),
+    ClientReady(ClientReady),
+    RequestMap(RequestMap),
+    Disconnected(Disconnected),
+    ChatMessage(ChatMessage),
+    Ping(Ping),
+    Pong(Pong),
+    Input(Input),
     /// map of NetworkID to rigidbody state
-    State(SimulationState),
+    State(State),
     SpawnCommand(SpawnCommand),
-    DespawnCommand(NetworkID),
-    Possess(NetworkID),
-    MountState(NetworkID, Option<NetworkID>),
-    Interact(NetworkID),
-    DropWeapon(Vec3),
-    DropAbility(Vec3),
-    SetActiveWeaponSlot(bool),
-    WeaponPickup(NetworkID, NetworkID),
-    WeaponDrop(NetworkID, NetworkID, Vec3),
+    DespawnCommand(DespawnCommand),
+    Possess(Possess),
+    MountState(MountState),
+    Interact(Interact),
+    DropWeapon(DropWeapon),
+    DropAbility(DropAbility),
+    SetActiveWeaponSlot(SetActiveWeaponSlot),
+    WeaponPickup(WeaponPickup),
+    WeaponDrop(WeaponDrop),
     /// client-authoritative: "I am looking with this yaw and pitch"
-    PawnLook(NetworkID, f32, f32),
-    MeleeHitRequest(NetworkID),
-    ProjectileSpawn {
-        weapon: NetworkID,
-        net_id: NetworkID,
-        position: Vec3,
-        starting_velocity: Vec3,
-        shooter_velocity: Vec3,
-    },
-    StartBeamCharge(NetworkID),
-    StartBeam {
-        weapon: NetworkID,
-        origin: Vec3,
-        dir: Vec3,
-    },
-    BeamHitReport {
-        weapon: NetworkID,
-        origin: Vec3,
-        dir: Vec3,
-        target: Option<NetworkID>,
-    },
-    EndBeam(NetworkID),
+    BipedLook(BipedLook),
+    MeleeHitRequest(MeleeHitRequest),
+    ProjectileSpawn(ProjectileSpawn),
+    StartBeamCharge(StartBeamCharge),
+    StartBeam(StartBeam),
+    BeamHitReport(BeamHitReport),
+    EndBeam(EndBeam),
     ProjectileConfirm(ProjectileConfirmation),
-    HitResult(Vec3, Vec3, Option<NetworkID>),
-    TimePing(u64),
-    TimePong(u64),
-    OnscreenMessage(String),
-    AbilityFx(NetworkID, AbilityFx),
-    AbilityState(NetworkID, Option<String>),
-    WeaponState(NetworkID, WeaponState),
-    Health(NetworkID, i32, i32, i32, u16, u16, i32, i32),
-    Scoreboard(ScoreboardSnapshot),
-    MapHash(String),
-    FileData(String, Vec<u8>),
+    HitResult(HitResult),
+    TimePing(TimePing),
+    TimePong(TimePong),
+    OnscreenMessage(OnscreenMessage),
+    AbilityFx(AbilityFxMessage),
+    AbilityState(AbilityState),
+    WeaponState(WeaponStateMessage),
+    Health(Health),
+    MapHash(MapHash),
+    FileData(FileData),
 }
 
 // ----------- IT'S BEAUTIFUL
 
 /// trait all networked message types are required to implement
+#[enum_dispatch]
 pub trait Message: Serialize + serde::de::DeserializeOwned + Debug + PartialEq + Clone {
     /// mutate the world in some way in response to receiving this message
     fn handle(self, world: &mut World);
@@ -211,26 +327,52 @@ pub trait Message: Serialize + serde::de::DeserializeOwned + Debug + PartialEq +
 
 // ----------- INDIVIDUAL PACKET TYPES ------------
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct ProjectileConfirmation {
-    pub temp_id: u32,
-    pub net_id: NetworkID,
-}
-impl Message for ProjectileConfirmation {
-    fn handle(self, _world: &mut World) {
-        // let res = world.resource::<SomeResource>();
-        // res.DoSomething();
+macro_rules! impl_noop_message {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl Message for $ty {
+                fn handle(self, _world: &mut World) {}
+            }
+        )*
     }
 }
 
-impl Message for MsgType {
-    fn handle(self, world: &mut World) {
-        match self {
-            Self::ProjectileConfirm(message) => message.handle(world),
-            message => eprintln!("packet message is not migrated yet: {message:?}"),
-        }
-    }
-}
+impl_noop_message!(
+    Connected,
+    JoinChallenge,
+    ClientHello,
+    JoinAccepted,
+    JoinRejected,
+    ClientReady,
+    RequestMap,
+    Disconnected,
+    ChatMessage,
+    Ping,
+    Pong,
+    Input,
+    State,
+    DespawnCommand,
+    Possess,
+    MountState,
+    Interact,
+    DropWeapon,
+    DropAbility,
+    SetActiveWeaponSlot,
+    BipedLook,
+    MeleeHitRequest,
+    ProjectileSpawn,
+    HitResult,
+    TimePing,
+    TimePong,
+    OnscreenMessage,
+    AbilityFxMessage,
+    AbilityState,
+    WeaponStateMessage,
+    Health,
+);
+
+#[cfg(not(feature = "client"))]
+impl_noop_message!(MapHash, FileData);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Packet {
@@ -242,7 +384,14 @@ pub struct Packet {
     frame_number: u64,
 }
 impl Packet {
-    fn handle_all(self, world: &mut World) {
+    pub fn new(messages: Vec<MsgType>, frame_number: u64) -> Self {
+        Self {
+            messages,
+            frame_number,
+        }
+    }
+
+    pub fn handle_all(self, world: &mut World) {
         for msg in self.messages {
             msg.handle(world);
         }

@@ -274,7 +274,10 @@ pub fn send_weapon_state(
     quic.send(
         target,
         Channel::Ordered,
-        &crate::net::message::MsgType::WeaponState(weapon_net_id.clone(), weapon_state),
+        &crate::net::message::MsgType::WeaponState(crate::net::message::WeaponStateMessage {
+            net_id: weapon_net_id.clone(),
+            weapon_state,
+        }),
     );
 }
 
@@ -499,13 +502,15 @@ pub fn fire_authoritative_with_replication(
             quic.send(
                 SendTarget::AllExcept(conn_id),
                 Channel::Unordered,
-                &crate::net::message::MsgType::ProjectileSpawn {
-                    weapon: weapon_net_id.clone(),
-                    net_id: fired.fired.net_id.clone(),
-                    position: fired.fired.position,
-                    starting_velocity: fired.fired.starting_velocity,
-                    shooter_velocity: fired.fired.shooter_velocity,
-                },
+                &crate::net::message::MsgType::ProjectileSpawn(
+                    crate::net::message::ProjectileSpawn {
+                        weapon: weapon_net_id.clone(),
+                        net_id: fired.fired.net_id.clone(),
+                        position: fired.fired.position,
+                        starting_velocity: fired.fired.starting_velocity,
+                        shooter_velocity: fired.fired.shooter_velocity,
+                    },
+                ),
             );
             if let Some(temp_id) = temp_id {
                 quic.send(
@@ -523,13 +528,13 @@ pub fn fire_authoritative_with_replication(
         None => quic.send(
             SendTarget::All,
             Channel::Unordered,
-            &crate::net::message::MsgType::ProjectileSpawn {
+            &crate::net::message::MsgType::ProjectileSpawn(crate::net::message::ProjectileSpawn {
                 weapon: weapon_net_id.clone(),
                 net_id: fired.fired.net_id,
                 position: fired.fired.position,
                 starting_velocity: fired.fired.starting_velocity,
                 shooter_velocity: fired.fired.shooter_velocity,
-            },
+            }),
         ),
     }
     true

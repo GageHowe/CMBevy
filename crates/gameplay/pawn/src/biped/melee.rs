@@ -1,16 +1,23 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use common::{LocalControl, PredictedImpulses};
-#[cfg(feature = "client")]
-use crate::net::message::NetworkID;
-#[cfg(feature = "client")]
-use crate::net::quic::Channel;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
 
 use super::*;
-use crate::health::{DamageCause, Health, LastDamageSource, attribute_damage};
+#[cfg(feature = "client")]
+use crate::net::quic::Channel;
 #[cfg(feature = "client")]
 use crate::pawn::Possessed;
+use crate::{
+    health::{DamageCause, Health, LastDamageSource, attribute_damage},
+    net::message::NetworkID,
+};
+
+#[cfg(not(feature = "client"))]
+#[derive(Resource, Default)]
+pub(crate) struct PendingMeleeHits(
+    pub std::collections::HashMap<crate::net::quic::ConnectionId, NetworkID>,
+);
 
 const MELEE_DELAY_TICKS: u8 = 8;
 const MELEE_COOLDOWN_TICKS: u8 = 24;
@@ -82,6 +89,51 @@ pub fn apply_melee_hits(
     }
 }
 
+#[cfg(not(feature = "client"))]
+pub fn apply_melee_hit_requests(
+    mut pending_melee_hits: ResMut<PendingMeleeHits>,
+    registry: Res<crate::pawn::PlayerRegistry>,
+    networked: Res<crate::NetworkEntityMap>,
+    mut world: ResMut<PhysicsWorld>,
+    mut bipeds: Query<&mut BipedPawnComponent>,
+    mut health_q: Query<&mut Health>,
+    mut last_damage_q: Query<&mut LastDamageSource>,
+) {
+    let requests = std::mem::take(&mut pending_melee_hits.0);
+    for (conn_id, target_net_id) in requests {
+        let Some((attacker, _)) = registry.character(conn_id) else {
+            continue;
+        };
+        let Some(target) = networked.get(&target_net_id) else {
+            continue;
+        };
+        let Ok(mut biped) = bipeds.get_mut(attacker) else {
+            continue;
+        };
+        if biped.melee_debug_ticks == 0 {
+            continue;
+        }
+        let start = biped.melee_debug_start;
+        let end = biped.melee_debug_end;
+        if !validate_melee_target(&mut world, attacker, target, start, end) {
+            continue;
+        }
+        let impulse = melee_impulse(start, end);
+        world.apply_game_impulse(attacker, -impulse, None, None);
+        if let Ok(mut health) = health_q.get_mut(target) {
+            attribute_damage(
+                &mut last_damage_q,
+                target,
+                Some(attacker),
+                DamageCause::Unknown,
+            );
+            health.apply_damage(MELEE_DAMAGE);
+        }
+        world.apply_game_impulse(target, impulse, None, None);
+        biped.melee_debug_ticks = 0;
+    }
+}
+
 #[cfg(feature = "client")]
 pub fn send_predicted_melee_hit(
     mut world: ResMut<PhysicsWorld>,
@@ -115,7 +167,9 @@ pub fn send_predicted_melee_hit(
     if let Ok(victim_net_id) = net_ids.get(victim) {
         quic.send_to_server(
             Channel::Ordered,
-            &crate::net::message::MsgType::MeleeHitRequest(victim_net_id.clone()),
+            &crate::net::message::MsgType::MeleeHitRequest(crate::net::message::MeleeHitRequest(
+                victim_net_id.clone(),
+            )),
         );
     }
 }

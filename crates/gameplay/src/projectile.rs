@@ -1,8 +1,7 @@
 use bevy::prelude::*;
-use common::{LocalControl, PredictedImpulses};
 #[cfg(feature = "client")]
 use common::game_state::GameState;
-use crate::net::message::*;
+use common::{LocalControl, PredictedImpulses};
 use physics::{
     collider_flags::{ColliderFlags, collider_flags},
     physics_world::*,
@@ -11,10 +10,12 @@ use rapier3d::prelude::{
     Ball, Collider, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
     Pose, QueryFilter, RigidBodyBuilder, Vector,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     AuthoritySystems,
     health::{DamageCause, Health, LastDamageSource, attribute_damage},
+    net::message::*,
     shield::Shield,
     spawn::CenterOfMassSplashDamage,
 };
@@ -28,6 +29,18 @@ pub const COIL_LAUNCHER_SPEED: f32 = 100.0;
 
 const SHIELD_EXIT_EPSILON: f32 = 0.001;
 const DEFAULT_SENSOR_RADIUS: f32 = 0.03;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ProjectileConfirmation {
+    pub temp_id: u32,
+    pub net_id: NetworkID,
+}
+
+impl crate::net::message::Message for ProjectileConfirmation {
+    fn handle(self, _world: &mut World) {
+        // Confirmation reconciliation is still performed by the client session system.
+    }
+}
 
 pub struct FiredProjectile {
     pub entity: Entity,

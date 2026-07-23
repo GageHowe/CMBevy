@@ -1,4 +1,8 @@
-use std::{env, fs, io, path::{Path, PathBuf}, process::Command};
+use std::{
+    env, fs, io,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[cfg(target_os = "windows")]
 const PLATFORM: (&str, &[&str]) = (".exe", &["steam_api64.dll", "fmod.dll", "fmodstudio.dll"]);

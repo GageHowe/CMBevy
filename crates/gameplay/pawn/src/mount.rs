@@ -1,14 +1,14 @@
 use bevy::prelude::*;
-use crate::net::{
-    message::NetworkID,
-    quic::{ConnectionId, QuicManager, SendTarget},
-};
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
 use physics::physics_world::{ForceApplication, PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel};
 
 #[cfg(feature = "client")]
 use crate::NetworkEntityMap;
+use crate::net::{
+    message::NetworkID,
+    quic::{ConnectionId, QuicManager, SendTarget},
+};
 #[cfg(feature = "client")]
 use crate::pawn::Possessed;
 
@@ -248,7 +248,9 @@ pub fn handle_server_interact(
                 return;
             };
             commands.entity(biped_entity).remove::<Mounted>();
-            commands.entity(controlled).remove::<crate::pawn::Controller>();
+            commands
+                .entity(controlled)
+                .remove::<crate::pawn::Controller>();
             commands
                 .entity(biped_entity)
                 .insert(crate::pawn::Controller::for_client(conn_id));
@@ -257,7 +259,9 @@ pub fn handle_server_interact(
         }
         Some(MountInteractResult::Mounted) => {
             commands.entity(character).insert(Mounted(target));
-            commands.entity(controlled).remove::<crate::pawn::Controller>();
+            commands
+                .entity(controlled)
+                .remove::<crate::pawn::Controller>();
             commands
                 .entity(target)
                 .insert(crate::pawn::Controller::for_client(conn_id));

@@ -2,7 +2,7 @@
 use bevy::input::{gamepad::Gamepad, mouse::AccumulatedMouseMotion};
 use bevy::prelude::*;
 #[cfg(feature = "client")]
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::window::*;
 #[cfg(feature = "client")]
 use bevy_egui::input::EguiWantsInput;
 #[cfg(feature = "client")]
@@ -10,12 +10,12 @@ use particles_plugin::prelude::spawn_spaceship_death_explosion_effect;
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
-#[cfg(feature = "client")]
-use super::{GatherInputSet, MouseSensitivity};
 use super::{
     Controller, MovePawnsSet, Possessed,
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
 };
+#[cfg(feature = "client")]
+use super::{GatherInputSet, MouseSensitivity};
 #[cfg(feature = "client")]
 use crate::flash::spawn_flash;
 use crate::{

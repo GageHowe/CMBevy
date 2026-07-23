@@ -6,7 +6,6 @@ use bevy::render::render_resource::AsBindGroup;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
 use common::{NetworkID, NetworkIDResource, tick::Ticker};
-use crate::net::message::SpawnCommand;
 use physics::{
     collider_flags::ColliderFlags,
     physics_world::{PhysicsWorld, RigidBodyHandleComponent},
@@ -16,7 +15,7 @@ use rapier3d::prelude::{
     RigidBodyHandle,
 };
 
-use crate::{find_entity_by_net_id, health::Health};
+use crate::{find_entity_by_net_id, health::Health, net::message::SpawnCommand};
 
 const SPACESHIP_SHIELD_MAX_HEALTH: i32 = 300;
 const SPACESHIP_SHIELD_REGEN_PER_SECOND: i32 = 60;
@@ -234,7 +233,11 @@ pub fn spawn_box_shield_visual(
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipShieldComponent;
 
-pub fn spawn_spaceship_shield(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_spaceship_shield(
+    entity: Entity,
+    cmd: &crate::net::message::SpawnCommand,
+    world: &mut World,
+) {
     let Some(parent_net_id) = cmd.parent_net_id.as_ref() else {
         return;
     };

@@ -5,24 +5,19 @@ use common::game_state::GameState;
 use crate::session::resources::{LastServerState, PendingReconciliation};
 #[cfg(feature = "client")]
 pub use crate::session::runtime_client::{ClientSessionPlugin, cleanup_world};
-#[cfg(feature = "client")]
-pub(crate) use crate::session::runtime_client::{ClientSessionState, handle_file_data, handle_map_hash};
 #[cfg(not(feature = "client"))]
 pub use crate::session::runtime_server::ServerSessionPlugin;
 
 pub(crate) fn configure_authority_sets(app: &mut App) {
-    app.configure_sets(
-        FixedUpdate,
-        crate::AuthoritySystems.run_if(has_authority),
-    )
-    .configure_sets(
-        common::slow_update::SlowUpdate,
-        crate::AuthoritySystems.run_if(has_authority),
-    )
-    .configure_sets(
-        common::slow_update::SemiSlowUpdate,
-        crate::AuthoritySystems.run_if(has_authority),
-    );
+    app.configure_sets(FixedUpdate, crate::AuthoritySystems.run_if(has_authority))
+        .configure_sets(
+            common::slow_update::SlowUpdate,
+            crate::AuthoritySystems.run_if(has_authority),
+        )
+        .configure_sets(
+            common::slow_update::SemiSlowUpdate,
+            crate::AuthoritySystems.run_if(has_authority),
+        );
 }
 
 pub fn has_authority(state: Option<Res<State<GameState>>>) -> bool {

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+
 use crate::level::ScriptTags;
 
 #[derive(Resource, Default)]

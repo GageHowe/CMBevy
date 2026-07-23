@@ -1,20 +1,17 @@
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
+use physics::physics_world::*;
+use rapier3d::prelude::*;
+
+#[cfg(not(feature = "client"))]
+use crate::SpawnGameObjectCommand;
 #[cfg(feature = "client")]
 use crate::net::message::NetworkID;
 #[cfg(feature = "client")]
 use crate::net::quic::{Channel, QuicManager};
 #[cfg(not(feature = "client"))]
-use crate::net::{
-    message::NetworkID,
-    quic::{Channel, QuicManager, SendTarget},
-};
-use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
-use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, Vector3};
-
-#[cfg(not(feature = "client"))]
-use crate::SpawnGameObjectCommand;
+use crate::net::{message::NetworkID, quic::*};
 use crate::pawn::biped::BipedPawnComponent;
 #[cfg(feature = "client")]
 use crate::pawn::biped::consume_fixed_press;
@@ -25,6 +22,7 @@ pub use fx::fx_channel;
 use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
 #[cfg(feature = "client")]
 pub use fx::{queue_fx, queue_remote_fx};
+
 pub use crate::net::message::AbilityFx;
 
 pub struct BipedAbilityPlugin;
@@ -163,11 +161,17 @@ fn simulate_abilities(
             let target = registry
                 .as_deref()
                 .and_then(|registry| registry.conn_id_for_character(entity))
-                .map_or(crate::net::quic::SendTarget::All, crate::net::quic::SendTarget::AllExcept);
+                .map_or(
+                    crate::net::quic::SendTarget::All,
+                    crate::net::quic::SendTarget::AllExcept,
+                );
             quic.send(
                 target,
                 fx_channel(fx),
-                &crate::net::message::MsgType::AbilityFx(net_id.clone(), fx),
+                &crate::net::message::MsgType::AbilityFx(crate::net::message::AbilityFxMessage {
+                    net_id: net_id.clone(),
+                    fx,
+                }),
             );
         }
         #[cfg(feature = "client")]
@@ -285,7 +289,10 @@ fn sync_ability_state(owner: Entity, world: &mut World) {
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &crate::net::message::MsgType::AbilityState(net_id, ability),
+                &crate::net::message::MsgType::AbilityState(crate::net::message::AbilityState {
+                    owner_net_id: net_id,
+                    ability,
+                }),
             );
         }
     }
@@ -471,7 +478,9 @@ fn drop_active_ability_input(
         {
             quic.send_to_server(
                 Channel::Ordered,
-                &crate::net::message::MsgType::DropAbility(aim_dir),
+                &crate::net::message::MsgType::DropAbility(crate::net::message::DropAbility(
+                    aim_dir,
+                )),
             );
         } else {
             commands.queue(DropActiveAbility {

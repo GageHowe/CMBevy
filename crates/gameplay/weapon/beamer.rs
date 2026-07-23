@@ -1,9 +1,9 @@
 #[cfg(feature = "client")]
 use bevy::pbr::MeshMaterial3d;
 use bevy::prelude::*;
-use crate::net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
+use serde::{Deserialize, Serialize};
 
 // TODO FIX: beam is not visible
 use super::*;
@@ -12,6 +12,10 @@ use crate::flash::{FlashMaterial, FlashMaterialUniform, update_flash_material};
 use crate::{
     NetworkEntityMap,
     health::{DamageCause, Health, LastDamageSource, attribute_damage},
+    net::{
+        message::{Message, NetworkID},
+        quic::{Channel, QuicManager, SendTarget},
+    },
     pawn::PlayerRegistry,
 };
 
@@ -23,6 +27,63 @@ pub const CHARGE_TICKS: u16 = 45;
 pub const DAMAGE_INTERVAL_TICKS: u16 = 4;
 pub const DAMAGE_PER_TICK: f32 = 8.0;
 pub const RANGE: f32 = 180.0;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct StartBeamCharge {
+    pub weapon: NetworkID,
+}
+impl Message for StartBeamCharge {
+    fn handle(self, world: &mut World) {
+        #[cfg(feature = "client")]
+        apply_remote_start_charge(world, self.weapon);
+        #[cfg(not(feature = "client"))]
+        let _ = world;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct StartBeam {
+    pub weapon: NetworkID,
+    pub origin: Vec3,
+    pub dir: Vec3,
+}
+impl Message for StartBeam {
+    fn handle(self, world: &mut World) {
+        #[cfg(feature = "client")]
+        apply_remote_start_beam(world, self.weapon, self.origin, self.dir);
+        #[cfg(not(feature = "client"))]
+        let _ = world;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BeamHitReport {
+    pub weapon: NetworkID,
+    pub origin: Vec3,
+    pub dir: Vec3,
+    pub target: Option<NetworkID>,
+}
+impl Message for BeamHitReport {
+    fn handle(self, world: &mut World) {
+        #[cfg(feature = "client")]
+        apply_remote_beam_report(world, self.weapon, self.origin, self.dir);
+        #[cfg(not(feature = "client"))]
+        let _ = world;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct EndBeam {
+    pub weapon: NetworkID,
+}
+impl Message for EndBeam {
+    fn handle(self, world: &mut World) {
+        #[cfg(feature = "client")]
+        apply_remote_end_beam(world, self.weapon);
+        #[cfg(not(feature = "client"))]
+        let _ = world;
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Reflect, Default)]
 pub enum BeamPhase {
@@ -98,7 +159,9 @@ fn drive_authoritative_beams(
                 quic.send(
                     target,
                     Channel::Ordered,
-                    &crate::net::message::MsgType::EndBeam(net_id.clone()),
+                    &crate::net::message::MsgType::EndBeam(EndBeam {
+                        weapon: net_id.clone(),
+                    }),
                 );
             }
             if input.reload_pressed {
@@ -113,7 +176,9 @@ fn drive_authoritative_beams(
             quic.send(
                 target.clone(),
                 Channel::Ordered,
-                &crate::net::message::MsgType::StartBeamCharge(net_id.clone()),
+                &crate::net::message::MsgType::StartBeamCharge(StartBeamCharge {
+                    weapon: net_id.clone(),
+                }),
             );
         } else if beam.phase == BeamPhase::Charging
             && input.tick.saturating_sub(beam.phase_started_tick) + 1 >= CHARGE_TICKS as u64
@@ -123,11 +188,11 @@ fn drive_authoritative_beams(
             quic.send(
                 target.clone(),
                 Channel::Ordered,
-                &crate::net::message::MsgType::StartBeam {
+                &crate::net::message::MsgType::StartBeam(StartBeam {
                     weapon: net_id.clone(),
                     origin: input.origin,
                     dir: input.aim_dir,
-                },
+                }),
             );
         }
         beam.beam_origin = input.origin;
@@ -152,12 +217,12 @@ fn drive_authoritative_beams(
                 quic.send(
                     target.clone(),
                     Channel::Unordered,
-                    &crate::net::message::MsgType::BeamHitReport {
+                    &crate::net::message::MsgType::BeamHitReport(BeamHitReport {
                         weapon: net_id.clone(),
                         origin: input.origin,
                         dir: beam.beam_dir,
                         target: None,
-                    },
+                    }),
                 );
                 if state.ammo_in_mag == 0 {
                     beam.phase = BeamPhase::Idle;
@@ -165,7 +230,9 @@ fn drive_authoritative_beams(
                     quic.send(
                         target,
                         Channel::Ordered,
-                        &crate::net::message::MsgType::EndBeam(net_id.clone()),
+                        &crate::net::message::MsgType::EndBeam(EndBeam {
+                            weapon: net_id.clone(),
+                        }),
                     );
                 }
             }

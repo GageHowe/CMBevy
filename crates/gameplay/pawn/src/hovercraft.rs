@@ -80,7 +80,11 @@ impl VehiclePawn for HovercraftPawnComponent {
     }
 }
 
-pub fn spawn_hovercraft(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_hovercraft(
+    entity: Entity,
+    cmd: &crate::net::message::SpawnCommand,
+    world: &mut World,
+) {
     let position = cmd.position_or_zero();
     let rotation = cmd.rotation_or_identity();
     let velocity = cmd.velocity_or_zero();

@@ -403,7 +403,9 @@ fn assign_scene_network_ids(
         let id = (index + 1) as u64;
         net_ids.reserve(id);
         if current_id.is_none() {
-            commands.entity(entity).insert(crate::net::message::NetworkID(id));
+            commands
+                .entity(entity)
+                .insert(crate::net::message::NetworkID(id));
         }
     }
 }

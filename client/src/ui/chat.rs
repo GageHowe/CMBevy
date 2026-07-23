@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use common::{ActiveBindings, InputAction, active_gamepad};
-use gameplay::net::{
-    message::MsgType,
-    quic::{Channel, QuicManager},
+use gameplay::{
+    net::{
+        message::{ChatMessage, MsgType},
+        quic::{Channel, QuicManager},
+    },
+    session::GuiState,
 };
-use gameplay::session::GuiState;
 
 use crate::steam::SteamClient;
 
@@ -64,7 +66,13 @@ pub fn gui_chat(
                         .as_ref()
                         .map(|s| s.friends().name())
                         .unwrap_or_else(|| "Player".to_string());
-                    quic.send_to_server(Channel::Ordered, &MsgType::ChatMessage(name, txt));
+                    quic.send_to_server(
+                        Channel::Ordered,
+                        &MsgType::ChatMessage(ChatMessage {
+                            sender: name,
+                            text: txt,
+                        }),
+                    );
                 }
                 state.command_input.clear();
             }

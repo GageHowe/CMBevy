@@ -228,7 +228,10 @@ pub fn interact_pickup(
     quic.send(
         crate::net::quic::SendTarget::All,
         crate::net::quic::Channel::Ordered,
-        &crate::net::message::MsgType::WeaponPickup(target_net_id, player_net_id),
+        &crate::net::message::MsgType::WeaponPickup(crate::net::message::WeaponPickup {
+            weapon_id: target_net_id,
+            carrier_net_id: player_net_id,
+        }),
     );
 }
 
@@ -266,7 +269,11 @@ pub fn drop_from_owner(
     quic.send(
         crate::net::quic::SendTarget::All,
         crate::net::quic::Channel::Ordered,
-        &crate::net::message::MsgType::WeaponDrop(weapon_id, owner_id, drop_pos),
+        &crate::net::message::MsgType::WeaponDrop(crate::net::message::WeaponDrop {
+            weapon_id,
+            carrier_net_id: owner_id,
+            drop_pos,
+        }),
     );
 }
 
@@ -335,11 +342,7 @@ pub fn pickup_local_world_weapon(
 }
 
 #[cfg(feature = "client")]
-pub fn attach_viewmodel(
-    commands: &mut Commands,
-    weapon_entity: Entity,
-    parent: Entity,
-) {
+pub fn attach_viewmodel(commands: &mut Commands, weapon_entity: Entity, parent: Entity) {
     commands
         .entity(weapon_entity)
         .remove::<crate::interaction::Interactable>()
@@ -387,93 +390,171 @@ pub fn sync_local_active_weapon(
 }
 
 #[cfg(feature = "client")]
-pub fn apply_pickup_message(
-    weapon_id: &NetworkID,
-    carrier_net_id: &NetworkID,
-    local_net_id: Option<&NetworkID>,
-    networked: &crate::NetworkEntityMap,
-    camera: &Query<Entity, With<Camera3d>>,
-    biped_q: &mut bevy::ecs::system::ParamSet<(
-        Query<(&mut WeaponSlots, &BipedPawnComponent), With<crate::pawn::Possessed>>,
-        Query<&BipedPawnComponent>,
-        Query<&mut BipedPawnComponent>,
-    )>,
-    interaction_names: &Query<&InteractionName>,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) -> bool {
-    let Some(weapon_entity) = networked.get_entity(weapon_id) else {
+impl crate::net::message::Message for crate::net::message::WeaponPickup {
+    fn handle(self, world: &mut World) {
+        if !apply_pickup_packet(&self, world) {
+            warn!("WeaponPickup could not resolve entities: {:?}", self);
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+impl crate::net::message::Message for crate::net::message::WeaponDrop {
+    fn handle(self, world: &mut World) {
+        apply_drop_packet(&self, world);
+    }
+}
+
+#[cfg(feature = "client")]
+fn apply_pickup_packet(msg: &crate::net::message::WeaponPickup, world: &mut World) -> bool {
+    let Some(weapon_entity) = crate::find_entity_by_net_id(world, &msg.weapon_id) else {
         return false;
     };
-    pickup_world_weapon(world, weapon_entity);
-    if local_net_id == Some(carrier_net_id) {
-        let (slot_result, pivot_e) = if let Ok((mut slots, biped)) = biped_q.p0().single_mut() {
+    pickup_world_weapon(&mut world.resource_mut::<PhysicsWorld>(), weapon_entity);
+    if local_net_id(world).as_ref() == Some(&msg.carrier_net_id) {
+        let mut q = world.query_filtered::<
+            (&mut WeaponSlots, &BipedPawnComponent),
+            With<crate::pawn::Possessed>,
+        >();
+        let (pickup, pivot) = if let Ok((mut slots, biped)) = q.single_mut(world) {
             (
-                slots.assign_pickup(weapon_id.clone(), weapon_entity),
+                slots.assign_pickup(msg.weapon_id.clone(), weapon_entity),
                 biped.pitch_pivot,
             )
         } else {
             (None, None)
         };
-        if let Some((_, prev_to_hide)) = slot_result {
-            if let Some(prev) = prev_to_hide {
-                commands.entity(prev).insert(Visibility::Hidden);
+        if let Some((_, prev)) = pickup {
+            if let Some(prev) = prev {
+                world.entity_mut(prev).insert(Visibility::Hidden);
             }
-            if let Some(parent) = camera.single().ok().or(pivot_e) {
-                attach_viewmodel(commands, weapon_entity, parent);
+            let mut camera = world.query_filtered::<Entity, With<Camera3d>>();
+            if let Some(parent) = camera.single(world).ok().or(pivot) {
+                attach_viewmodel_world(world, weapon_entity, parent);
             }
-            if let Ok(name) = interaction_names.get(weapon_entity) {
-                crate::messages::push(commands, format!("Picked up {}", name.0));
+            if let Some(name) = world.get::<InteractionName>(weapon_entity).copied() {
+                crate::messages::push_world(world, format!("Picked up {}", name.0));
             }
         }
         return true;
     }
-    let Some(carrier) = networked.get_entity(carrier_net_id) else {
+    let Some(carrier) = crate::find_entity_by_net_id(world, &msg.carrier_net_id) else {
         return false;
     };
-    let Some(parent) = ({
-        let q = biped_q.p1();
-        q.get(carrier).ok().and_then(|b| b.pitch_pivot)
-    }) else {
+    let Some(parent) = world
+        .query::<&BipedPawnComponent>()
+        .get(world, carrier)
+        .ok()
+        .and_then(|biped| biped.pitch_pivot)
+    else {
         return false;
     };
-    attach_viewmodel(commands, weapon_entity, parent);
+    attach_viewmodel_world(world, weapon_entity, parent);
     true
 }
 
 #[cfg(feature = "client")]
-pub fn apply_drop_message(
-    weapon_id: &NetworkID,
-    carrier_id: &NetworkID,
-    drop_pos: Vec3,
-    rtt_secs: f32,
-    local_net_id: Option<&NetworkID>,
-    networked: &crate::NetworkEntityMap,
-    biped_q: &mut bevy::ecs::system::ParamSet<(
-        Query<(&mut WeaponSlots, &BipedPawnComponent), With<crate::pawn::Possessed>>,
-        Query<&BipedPawnComponent>,
-        Query<&mut BipedPawnComponent>,
-    )>,
-    commands: &mut Commands,
-    world: &mut PhysicsWorld,
-) {
-    let Some(weapon_entity) = networked.get_entity(weapon_id) else {
+fn apply_drop_packet(msg: &crate::net::message::WeaponDrop, world: &mut World) {
+    let Some(weapon_entity) = crate::find_entity_by_net_id(world, &msg.weapon_id) else {
         return;
     };
-    let Some(carrier_entity) = networked.get_entity(carrier_id) else {
+    let Some(carrier_entity) = crate::find_entity_by_net_id(world, &msg.carrier_net_id) else {
         return;
     };
-    let drop_velocity = world.body(carrier_entity).map(rb_vel).unwrap_or(Vec3::ZERO);
-    let is_local = local_net_id == Some(carrier_id);
-    let drop_pos = if !is_local {
-        drop_pos + drop_velocity * (rtt_secs * 0.5)
-    } else {
-        world.body_pos(carrier_entity).unwrap_or(drop_pos) + drop_velocity.normalize_or_zero()
+    let is_local = local_net_id(world).as_ref() == Some(&msg.carrier_net_id);
+    let (drop_pos, drop_velocity) = {
+        let physics = world.resource::<PhysicsWorld>();
+        let velocity = physics
+            .body(carrier_entity)
+            .map(rb_vel)
+            .unwrap_or(Vec3::ZERO);
+        let position = if is_local {
+            physics.body_pos(carrier_entity).unwrap_or(msg.drop_pos) + velocity.normalize_or_zero()
+        } else {
+            msg.drop_pos
+        };
+        (position, velocity)
     };
-    place_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
-    if is_local && let Ok((mut slots, _)) = biped_q.p0().single_mut() {
-        slots.remove_by_net_id(weapon_id);
-        set_local_slot_visibility(commands, &slots);
+    place_world_weapon(
+        &mut world.resource_mut::<PhysicsWorld>(),
+        weapon_entity,
+        drop_pos,
+        drop_velocity,
+    );
+    if is_local {
+        let updates = {
+            let mut q = world.query_filtered::<
+                (&mut WeaponSlots, &BipedPawnComponent),
+                With<crate::pawn::Possessed>,
+            >();
+            if let Ok((mut slots, _)) = q.single_mut(world) {
+                slots.remove_by_net_id(&msg.weapon_id);
+                Some(slot_visibilities(&slots))
+            } else {
+                None
+            }
+        };
+        if let Some(updates) = updates {
+            for (entity, visibility) in updates {
+                world.entity_mut(entity).insert(visibility);
+            }
+        }
     }
-    detach_viewmodel(commands, weapon_entity);
+    detach_viewmodel_world(world, weapon_entity);
+}
+
+#[cfg(feature = "client")]
+fn local_net_id(world: &World) -> Option<NetworkID> {
+    world
+        .get_resource::<crate::session::LocalCharacterNetId>()
+        .and_then(|id| id.0.clone())
+}
+
+#[cfg(feature = "client")]
+fn slot_visibilities(slots: &WeaponSlots) -> Vec<(Entity, Visibility)> {
+    slots
+        .slots
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, (_, weapon))| {
+            weapon.map(|weapon| {
+                let visibility = if idx == slots.active_index {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+                (weapon, visibility)
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "client")]
+fn attach_viewmodel_world(world: &mut World, weapon_entity: Entity, parent: Entity) {
+    world
+        .entity_mut(weapon_entity)
+        .remove::<crate::interaction::Interactable>()
+        .insert((Transform::from_xyz(0.4, -0.3, 0.0), Visibility::Inherited));
+    world.entity_mut(parent).add_child(weapon_entity);
+}
+
+#[cfg(feature = "client")]
+fn detach_viewmodel_world(world: &mut World, weapon_entity: Entity) {
+    world
+        .entity_mut(weapon_entity)
+        .remove_parent_in_place()
+        .insert((
+            crate::interaction::Interactable { range: 2.0 },
+            Visibility::Inherited,
+        ));
+}
+
+#[cfg(not(feature = "client"))]
+impl crate::net::message::Message for crate::net::message::WeaponPickup {
+    fn handle(self, _world: &mut World) {}
+}
+
+#[cfg(not(feature = "client"))]
+impl crate::net::message::Message for crate::net::message::WeaponDrop {
+    fn handle(self, _world: &mut World) {}
 }

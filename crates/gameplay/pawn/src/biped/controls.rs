@@ -4,15 +4,14 @@ use bevy::{
         mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
     },
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::*,
 };
 use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::PhysicsWorld;
 
 use super::{
-    BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
-    Controller, PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
     mount::{CharacterMount, Mounted, ray_hits_mount},
+    *,
 };
 use crate::{interaction::InteractionName, weapon::WeaponFireInput};
 
@@ -266,7 +265,9 @@ fn switch_weapon_slot(
     {
         quic.send_to_server(
             crate::net::quic::Channel::Ordered,
-            &crate::net::message::MsgType::SetActiveWeaponSlot(slots.active_primary()),
+            &crate::net::message::MsgType::SetActiveWeaponSlot(
+                crate::net::message::SetActiveWeaponSlot(slots.active_primary()),
+            ),
         );
     }
 }
@@ -775,7 +776,9 @@ fn interact(
                 };
                 quic.send_to_server(
                     crate::net::quic::Channel::Ordered,
-                    &crate::net::message::MsgType::Interact(parent_net_id.clone()),
+                    &crate::net::message::MsgType::Interact(crate::net::message::Interact(
+                        parent_net_id.clone(),
+                    )),
                 );
             }
             _ => {}
@@ -803,7 +806,9 @@ fn interact(
                         if let Some(interact_net_id) = interact_net_id {
                             quic.send_to_server(
                                 crate::net::quic::Channel::Ordered,
-                                &crate::net::message::MsgType::Interact(interact_net_id),
+                                &crate::net::message::MsgType::Interact(
+                                    crate::net::message::Interact(interact_net_id),
+                                ),
                             );
                         }
                     }
@@ -842,7 +847,9 @@ fn interact(
                     if let Some(interact_net_id) = interact_net_id {
                         quic.send_to_server(
                             crate::net::quic::Channel::Ordered,
-                            &crate::net::message::MsgType::Interact(interact_net_id),
+                            &crate::net::message::MsgType::Interact(crate::net::message::Interact(
+                                interact_net_id,
+                            )),
                         );
                     }
                 }
@@ -897,7 +904,9 @@ fn drop_active_weapon(
             let (_, rot, _) = pivot_gt.to_scale_rotation_translation();
             quic.send_to_server(
                 crate::net::quic::Channel::Ordered,
-                &crate::net::message::MsgType::DropWeapon(rot * Vec3::NEG_Z),
+                &crate::net::message::MsgType::DropWeapon(crate::net::message::DropWeapon(
+                    rot * Vec3::NEG_Z,
+                )),
             );
         }
         GameState::SinglePlayer => {

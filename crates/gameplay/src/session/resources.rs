@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-#[cfg(not(feature = "client"))]
-use crate::pawn::PawnInput;
+
 use crate::net::message::{NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
 use crate::net::quic::ConnectionId;
+#[cfg(not(feature = "client"))]
+use crate::pawn::PawnInput;
 
 #[cfg(feature = "client")]
 #[derive(Resource, Clone)]
@@ -43,7 +44,6 @@ pub struct PendingReconciliation(pub Option<SimulationState>);
 pub struct GuiState {
     pub command_input: String,
     pub log: Vec<String>,
-    pub scoreboard: Option<crate::net::message::ScoreboardSnapshot>,
 }
 
 #[cfg(feature = "client")]
@@ -65,13 +65,6 @@ pub struct SinglePlayerConfig {
     pub(crate) timer: Option<f32>,
     pub(crate) spawned_once: bool,
 }
-
-#[cfg(feature = "client")]
-pub(crate) type JustSpawned = HashMap<NetworkID, (Entity, u64)>;
-
-#[cfg(feature = "client")]
-#[derive(Resource, Default)]
-pub(crate) struct PendingWeaponPickups(pub Vec<(NetworkID, NetworkID)>);
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource)]
@@ -166,16 +159,7 @@ fn clear_biped_edges(input: &mut PawnInput) {
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource, Default)]
-pub struct PendingMeleeHits(pub HashMap<ConnectionId, NetworkID>);
-
-#[cfg(not(feature = "client"))]
-#[derive(Resource, Default)]
 pub(crate) struct LastProcessedInputSeq(pub HashMap<ConnectionId, u64>);
-
-#[cfg(not(feature = "client"))]
-#[derive(Resource, Default)]
-/// Connections that have completed transport setup and are ready for initial world sync.
-pub struct PendingConnections(pub std::collections::HashSet<ConnectionId>);
 
 #[cfg(not(feature = "client"))]
 #[derive(Resource, Default)]

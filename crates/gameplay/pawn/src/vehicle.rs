@@ -1,10 +1,6 @@
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
-use crate::net::{
-    message::NetworkID,
-    quic::{QuicManager, SendTarget},
-};
 use physics::physics_world::PhysicsWorld;
 
 #[cfg(feature = "client")]
@@ -12,6 +8,10 @@ use super::*;
 use super::{PlayerRegistry, mount};
 #[cfg(feature = "client")]
 use crate::interaction::InteractionName;
+use crate::net::{
+    message::NetworkID,
+    quic::{QuicManager, SendTarget},
+};
 
 /// Marker shared by drivable vehicles.
 #[derive(Component)]
@@ -83,7 +83,9 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
         .get_resource::<PlayerRegistry>()
         .and_then(|registry| registry.conn_id_for_character(biped_entity));
     if let (Some(conn_id), Some(biped_net_id)) = (conn_id, biped_net_id) {
-        world.entity_mut(vehicle_entity).remove::<super::Controller>();
+        world
+            .entity_mut(vehicle_entity)
+            .remove::<super::Controller>();
         world
             .entity_mut(biped_entity)
             .insert(super::Controller::for_client(conn_id));
@@ -175,7 +177,9 @@ fn vehicle_exit_interact(
             let Some(net_id) = net_id else { return };
             quic.send_to_server(
                 crate::net::quic::Channel::Ordered,
-                &crate::net::message::MsgType::Interact(net_id.clone()),
+                &crate::net::message::MsgType::Interact(crate::net::message::Interact(
+                    net_id.clone(),
+                )),
             );
         }
         GameState::SinglePlayer => {

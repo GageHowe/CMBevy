@@ -220,6 +220,9 @@ impl Plugin for SnapPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<SnapKind>()
             .register_type::<SnapSource>()
-            .add_systems(FixedUpdate, orient_bipeds_to_snap_sources.in_set(ForceApplication));
+            .add_systems(
+                FixedUpdate,
+                orient_bipeds_to_snap_sources.in_set(ForceApplication),
+            );
     }
 }

@@ -11,11 +11,11 @@ use gameplay::{
     components::{atmosphere::AtmospherePlugin, gravity::GravityPlugin, snap::SnapPlugin},
     health::HealthPlugin,
     level::LevelPlugin,
+    net::quic::NetPlugin,
     pawn::HeldWeaponMap,
+    scripting::ScriptingPlugin,
 };
-use gameplay::net::quic::NetPlugin;
 use physics::physics_world::*;
-use gameplay::scripting::ScriptingPlugin;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {

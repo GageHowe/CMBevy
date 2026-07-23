@@ -2,7 +2,6 @@ mod chat;
 mod debug;
 mod hud;
 mod reticle;
-mod scoreboard;
 pub mod window;
 
 use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, prelude::*};
@@ -42,7 +41,6 @@ impl Plugin for UIPlugin {
                 EguiPrimaryContextPass,
                 chat::gui_chat.run_if(in_state(GameState::Multiplayer)),
             )
-            .add_systems(EguiPrimaryContextPass, scoreboard::gui_scoreboard)
             .add_systems(EguiPrimaryContextPass, hud::gui_health)
             .add_systems(EguiPrimaryContextPass, hud::gui_ability_status)
             .add_systems(EguiPrimaryContextPass, hud::gui_ammo);

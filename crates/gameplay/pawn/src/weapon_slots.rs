@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+
 use crate::net::message::NetworkID;
 
 #[derive(Component)]

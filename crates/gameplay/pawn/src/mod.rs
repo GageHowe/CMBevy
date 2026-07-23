@@ -20,14 +20,15 @@ use common::LocalControl;
 pub use common::{BipedInput, PawnInput};
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
-use crate::net::{
-    message::{MsgType, NetworkID},
-    quic::{Channel, ConnectionId, QuicManager, SendTarget},
-};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_rot};
 pub use spaceship::SpaceshipPawnComponent;
 pub use vehicle::VehicleComponent;
 pub use weapon_slots::WeaponSlots;
+
+use crate::net::{
+    message::{BipedLook, Input, MsgType, NetworkID},
+    quic::{Channel, ConnectionId, QuicManager, SendTarget},
+};
 
 #[derive(Resource, Default)]
 pub struct PlayerRegistry {
@@ -83,11 +84,7 @@ impl PlayerRegistry {
 }
 
 /// Switches the input-controlled pawn for a connection and tells that client to possess it.
-pub fn possess_pawn(
-    conn_id: ConnectionId,
-    net_id: &NetworkID,
-    quic: &mut QuicManager,
-) {
+pub fn possess_pawn(conn_id: ConnectionId, net_id: &NetworkID, quic: &mut QuicManager) {
     send_possess(quic, conn_id, net_id);
 }
 
@@ -95,7 +92,7 @@ pub fn send_possess(quic: &mut QuicManager, conn_id: ConnectionId, net_id: &Netw
     quic.send(
         SendTarget::One(conn_id),
         Channel::Ordered,
-        &crate::net::message::MsgType::Possess(net_id.clone()),
+        &crate::net::message::MsgType::Possess(crate::net::message::Possess(net_id.clone())),
     );
 }
 
@@ -108,11 +105,14 @@ pub fn send_mount_state(
     quic.send(
         target,
         Channel::Ordered,
-        &crate::net::message::MsgType::MountState(biped_net_id.clone(), parent_net_id.cloned()),
+        &crate::net::message::MsgType::MountState(crate::net::message::MountState {
+            biped_net_id: biped_net_id.clone(),
+            parent_net_id: parent_net_id.cloned(),
+        }),
     );
 }
 
-/// Broadcasts all dirty replicated look state owned by free-look pawns.
+/// Broadcasts all dirty replicated look state owned by bipeds (which have free look)
 pub fn broadcast_dirty_look_updates(
     quic: &mut QuicManager,
     biped_looks: &mut Query<(&NetworkID, &mut biped::BipedPawnComponent)>,
@@ -125,7 +125,11 @@ pub fn broadcast_dirty_look_updates(
         quic.send(
             SendTarget::All,
             Channel::Unreliable,
-            &MsgType::PawnLook(net_id.clone(), biped.look_yaw, biped.look_pitch),
+            &MsgType::BipedLook(BipedLook {
+                net_id: net_id.clone(),
+                yaw: biped.look_yaw,
+                pitch: biped.look_pitch,
+            }),
         );
     }
 }
@@ -401,7 +405,10 @@ pub fn send_pawn_input(
     };
     quic.send_to_server(
         crate::net::quic::Channel::Unreliable,
-        &MsgType::Input(seq, input.clone()),
+        &MsgType::Input(Input {
+            seq,
+            input: input.clone(),
+        }),
     );
     if input.item.primary_pressed
         || input.item.secondary_pressed
@@ -411,7 +418,10 @@ pub fn send_pawn_input(
     {
         quic.send_to_server(
             crate::net::quic::Channel::Unordered, // shouldnt this be unreliable? it'll be way too late if resent
-            &MsgType::Input(seq, input.clone()),
+            &MsgType::Input(Input {
+                seq,
+                input: input.clone(),
+            }),
         );
     }
 }

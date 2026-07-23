@@ -1,8 +1,4 @@
 use bevy::prelude::*;
-use crate::net::{
-    message::{AbilityFx, NetworkID},
-    quic::Channel,
-};
 #[cfg(feature = "client")]
 use particles_plugin::prelude::{EffectSpawner, spawn_dash_effect, spawn_jetpack_effect};
 #[cfg(feature = "client")]
@@ -10,6 +6,10 @@ use physics::physics_world::PhysicsWorld;
 #[cfg(feature = "client")]
 use physics::physics_world::{rb_pos, rb_rot};
 
+use crate::net::{
+    message::{AbilityFx, NetworkID},
+    quic::Channel,
+};
 #[cfg(feature = "client")]
 use crate::{NetworkEntityMap, pawn::biped::BipedPawnComponent};
 

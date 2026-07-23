@@ -2,13 +2,13 @@ use std::ops::{Deref, DerefMut};
 
 use bevy::prelude::*;
 use common::config::FIXED_TICK_RATE;
-use crate::net::{message::MsgType, quic::*};
 use physics::physics_world::PhysicsWorld;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     AuthoritySystems,
     collision::{CollisionImpactSet, CollisionImpacts},
+    net::{message::MsgType, quic::*},
 };
 
 const FIXED_TICK_RATE_I32: i32 = FIXED_TICK_RATE as i32;
@@ -235,16 +235,16 @@ pub fn send_health(
     quic.send(
         target,
         Channel::Ordered,
-        &MsgType::Health(
-            net_id.clone(),
-            pool.current,
-            pool.max,
-            pool.regen_per_tick_num,
-            pool.regen_delay_ticks,
-            pool.regen_delay_remaining_ticks,
-            pool.regen_accum,
-            pool.damage_accum_millis,
-        ),
+        &MsgType::Health(crate::net::message::Health {
+            net_id: net_id.clone(),
+            current: pool.current,
+            max: pool.max,
+            regen_per_tick_num: pool.regen_per_tick_num,
+            regen_delay_ticks: pool.regen_delay_ticks,
+            regen_delay_remaining_ticks: pool.regen_delay_remaining_ticks,
+            regen_accum: pool.regen_accum,
+            damage_accum_millis: pool.damage_accum_millis,
+        }),
     );
 }
 

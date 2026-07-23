@@ -1,17 +1,17 @@
 //! Wires the scripting runtime into Bevy schedules and keeps the Lua VM hot-reloaded.
 
 use bevy::prelude::*;
+use mlua::prelude::Lua;
+
 use crate::{
     health::{PendingPlayerKills, PendingPlayerRemovals, handle_deaths},
     pawn::PlayerRegistry,
-};
-use mlua::prelude::Lua;
-
-use crate::scripting::{
-    api::register_script_functions,
-    config::ScriptConfig,
-    runtime::{ScriptRuntime, call_script, call_script_args, compile_script},
-    tag_index::{ScriptTagIndex, sync_script_tags},
+    scripting::{
+        api::register_script_functions,
+        config::ScriptConfig,
+        runtime::{ScriptRuntime, call_script, call_script_args, compile_script},
+        tag_index::{ScriptTagIndex, sync_script_tags},
+    },
 };
 
 #[derive(Resource, Default)]
@@ -71,16 +71,17 @@ fn eval_script_fixed_update(world: &mut World) {
 }
 
 fn process_weapon_grants(world: &mut World) {
+    use physics::physics_world::{PhysicsWorld, rb_pos};
+
     use crate::{
         SpawnGameObjectCommand,
         interaction::Interactable,
+        net::{
+            message::{MsgType, WeaponPickup},
+            quic::{Channel, QuicManager, SendTarget},
+        },
         pawn::{HeldWeaponMap, WeaponSlots},
     };
-    use crate::net::{
-        message::MsgType,
-        quic::{Channel, QuicManager, SendTarget},
-    };
-    use physics::physics_world::{PhysicsWorld, rb_pos};
 
     let mut grants = world
         .get_resource_mut::<PendingWeaponGrants>()
@@ -103,10 +104,13 @@ fn process_weapon_grants(world: &mut World) {
             };
             let weapon_id =
                 common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
-            let spawn_cmd =
-                crate::net::message::SpawnCommand::new(weapon_id.clone(), grant.spawn_name.clone(), tick)
-                    .position(pos)
-                    .rotation(Quat::IDENTITY);
+            let spawn_cmd = crate::net::message::SpawnCommand::new(
+                weapon_id.clone(),
+                grant.spawn_name.clone(),
+                tick,
+            )
+            .position(pos)
+            .rotation(Quat::IDENTITY);
             let weapon_entity = world.spawn_empty().id();
             SpawnGameObjectCommand {
                 entity: weapon_entity,
@@ -179,7 +183,10 @@ fn process_weapon_grants(world: &mut World) {
             quic.send(
                 SendTarget::All,
                 Channel::Ordered,
-                &MsgType::WeaponPickup(weapon_id, owner_net_id),
+                &MsgType::WeaponPickup(WeaponPickup {
+                    weapon_id,
+                    carrier_net_id: owner_net_id,
+                }),
             );
         }
     }

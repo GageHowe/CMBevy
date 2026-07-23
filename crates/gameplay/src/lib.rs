@@ -23,10 +23,10 @@ mod network_index;
 pub mod pawn;
 pub mod projectile;
 pub mod reticle;
-pub mod shield;
-pub mod sound;
 pub mod scripting;
 pub mod session;
+pub mod shield;
+pub mod sound;
 mod spawn;
 #[cfg(feature = "client")]
 pub mod spring_arm;
@@ -109,7 +109,9 @@ fn cm_on_remove_networked_entity(
         quic.send(
             crate::net::quic::SendTarget::All,
             crate::net::quic::Channel::Ordered,
-            &crate::net::message::MsgType::DespawnCommand(net_id),
+            &crate::net::message::MsgType::DespawnCommand(crate::net::message::DespawnCommand(
+                net_id,
+            )),
         );
     }
 }

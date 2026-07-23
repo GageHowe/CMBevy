@@ -1,6 +1,19 @@
-#[cfg(feature = "client")]
-pub use crate::session::messages_client::draw_server_state;
-#[cfg(feature = "client")]
-pub(crate) use crate::session::messages_client::{on_message, retry_weapon_pickups};
-#[cfg(not(feature = "client"))]
-pub use crate::session::messages_server::on_message;
+use bevy::prelude::*;
+
+use crate::net::quic::QuicManager;
+
+pub fn on_message(world: &mut World) {
+    let packets = {
+        let Some(mut quic) = world.get_resource_mut::<QuicManager>() else {
+            return;
+        };
+        quic.inbound
+            .drain(..)
+            .map(|inbound| inbound.packet)
+            .collect::<Vec<_>>()
+    };
+
+    for packet in packets {
+        packet.handle_all(world);
+    }
+}

@@ -3,9 +3,8 @@
 use std::collections::HashMap;
 
 use bevy::prelude::{Command, *};
-use crate::net::message::SpawnCommand;
 
-use crate::gc::WorldObjectGc;
+use crate::{gc::WorldObjectGc, net::message::SpawnCommand};
 
 /// function type that determines how an entity "kind" is spawned
 pub type SpawnFn = fn(Entity, &SpawnCommand, &mut World);
@@ -113,10 +112,27 @@ impl Command for SpawnGameObjectCommand {
             .entity_mut(self.entity)
             .insert(self.cmd.net_id.clone());
         spawn_game_object(self.cmd.spawn_name.as_str(), self.entity, &self.cmd, world);
+        let body = world
+            .get::<physics::physics_world::RigidBodyHandleComponent>(self.entity)
+            .map(|body| body.0);
+        if let Some(mut map) = world.get_resource_mut::<crate::NetworkEntityMap>() {
+            map.insert(self.cmd.net_id.clone(), self.entity);
+            if let Some(body) = body {
+                map.insert_body(self.cmd.net_id.clone(), body);
+            }
+        }
         if let Some(parent_net_id) = &self.cmd.parent_net_id
             && let Some(parent) = find_entity_by_net_id(world, parent_net_id)
         {
             world.entity_mut(parent).add_child(self.entity);
         }
+    }
+}
+
+impl crate::net::message::Message for SpawnCommand {
+    fn handle(self, world: &mut World) {
+        let entity = crate::find_entity_by_net_id(world, &self.net_id)
+            .unwrap_or_else(|| world.spawn_empty().id());
+        SpawnGameObjectCommand { entity, cmd: self }.apply(world);
     }
 }

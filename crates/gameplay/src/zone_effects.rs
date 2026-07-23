@@ -2,16 +2,16 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::{ecs::system::SystemState, prelude::*};
 use common::slow_update::{SEMI_SLOW_UPDATE_FREQUENCY, SemiSlowUpdate, SlowUpdate};
-use crate::net::{
-    message::MsgType,
-    quic::{Channel, ConnectionId, QuicManager, SendTarget},
-};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
     AuthoritySystems,
     health::Health,
     level::{ScriptZone, parented_world_pose},
+    net::{
+        message::{MsgType, OnscreenMessage},
+        quic::{Channel, ConnectionId, QuicManager, SendTarget},
+    },
     pawn::PlayerRegistry,
 };
 #[cfg(feature = "client")]
@@ -249,7 +249,7 @@ fn send_zone_message(world: &mut World, entity: Entity, text: String) {
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &MsgType::OnscreenMessage(text),
+                &MsgType::OnscreenMessage(OnscreenMessage(text)),
             );
             return;
         }

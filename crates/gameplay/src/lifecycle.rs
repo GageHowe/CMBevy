@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use crate::net::message::{NetworkID, NetworkIDResource, SpawnCommand};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, rb_pos, rb_vel};
 
 #[cfg(feature = "client")]
@@ -7,6 +6,7 @@ use crate::NetworkEntityMap;
 use crate::{
     SpawnGameObjectCommand,
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
+    net::message::{NetworkID, NetworkIDResource, SpawnCommand},
 };
 
 pub fn spawn_game_object(
@@ -50,7 +50,9 @@ pub fn send_despawn_command(
     quic.send(
         target,
         crate::net::quic::Channel::Ordered,
-        &crate::net::message::MsgType::DespawnCommand(net_id),
+        &crate::net::message::MsgType::DespawnCommand(crate::net::message::DespawnCommand(
+            net_id,
+        )),
     );
 }
 */

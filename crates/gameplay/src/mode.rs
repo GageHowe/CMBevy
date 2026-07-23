@@ -1,9 +1,10 @@
-//! Authoritative match-level state shared by gametypes, scoring, and HUD replication.
+//! Authoritative match-level state shared by gametypes and scoring.
 
 use std::collections::HashMap;
 
 use bevy::prelude::*;
 use common::{LeaderboardScope, ScoringOption};
+
 use crate::net::quic::ConnectionId;
 
 #[derive(Component, Clone, Copy, Reflect)]
@@ -42,7 +43,7 @@ impl Default for ModeConfig {
 
 /// Per-connection number vectors owned by the authoritative match/session.
 #[derive(Resource, Default)]
-/// Script-owned per-player counters used for scoreboard/objective presentation.
+/// Script-owned per-player counters used by gametypes.
 pub struct PlayerNumbers(pub HashMap<ConnectionId, Vec<i32>>);
 
 /// Per-team number vectors owned by the authoritative match/session.

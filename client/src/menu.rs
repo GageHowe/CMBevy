@@ -2,19 +2,19 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 
 use audio::SoundQueue;
 use bevy::{app::AppExit, prelude::*};
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use common::{config::CRITICAL_MASS_VERSION, InputAction};
-use http_common::{LobbyInfo, RegisterRequest};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use common::{InputAction, config::CRITICAL_MASS_VERSION};
 use gameplay::session::{ServerAddr, SinglePlayerConfig};
+use http_common::{LobbyInfo, RegisterRequest};
 
 use crate::{
+    GameState, UiState,
     hosting::{
         available_gametypes, available_maps, fetch_lan_lobbies, fetch_remote_lobbies,
         gametype_path, start_hosted_server,
     },
-    settings::{show_settings_ui, ControlsCapture, Settings, SettingsSection},
-    sound::{queue_ui_sound, AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT},
-    GameState, UiState,
+    settings::{ControlsCapture, Settings, SettingsSection, show_settings_ui},
+    sound::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound},
 };
 
 pub struct MenuPlugin;

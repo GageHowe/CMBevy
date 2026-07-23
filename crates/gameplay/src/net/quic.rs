@@ -11,7 +11,7 @@ use common::config::MAX_UDP_SIZE;
 use tokio::sync::mpsc;
 use zstd::stream::encode_all;
 
-use crate::net::message::MsgType;
+use crate::net::message::*;
 
 /// TODO: make this a setting for performance/net ratio
 const ZSTD_LEVEL: i32 = 3;
@@ -52,12 +52,12 @@ pub enum Channel {
 }
 
 #[derive(Debug, Clone)]
-/// A decoded message delivered by the transport into the game layer.
+/// A decoded packet delivered by the transport into the game layer.
 pub struct InboundMessage {
     pub conn_id: ConnectionId,
     pub channel: Channel,
     pub packet_size: usize,
-    pub msg: MsgType,
+    pub packet: Packet,
 }
 
 /// destination set for an outgoing message
@@ -71,10 +71,7 @@ pub enum SendTarget {
 
 #[cfg(feature = "client")]
 pub(crate) enum ClientCommand {
-    Send {
-        channel: Channel,
-        msg: MsgType,
-    },
+    Send { channel: Channel, packet: Packet },
     Shutdown,
 }
 #[cfg(feature = "client")]
@@ -91,7 +88,7 @@ pub(crate) enum ServerCommand {
     Send {
         target: SendTarget,
         channel: Channel,
-        msg: MsgType,
+        packet: Packet,
     },
     ConnectionClosed(ConnectionId),
 }
@@ -124,18 +121,22 @@ impl QuicManager {
 
     pub fn send_file(&mut self, target: SendTarget, name: String, data: Vec<u8>) {
         match encode_all(data.as_slice(), ZSTD_FILE_LEVEL) {
-            Ok(data) => self.send(target, Channel::Ordered, &MsgType::FileData(name, data)),
+            Ok(data) => self.send(
+                target,
+                Channel::Ordered,
+                &MsgType::FileData(FileData {
+                    name,
+                    compressed: data,
+                }),
+            ),
             Err(e) => eprintln!("send_file compress error: {e}"),
         }
     }
 
     #[cfg(feature = "client")]
     pub fn send_to_server(&mut self, channel: Channel, msg: &MsgType) {
-        self.outbound.push_back((
-            SendTarget::One(SERVER_CONN_ID),
-            channel,
-            msg.clone(),
-        ));
+        self.outbound
+            .push_back((SendTarget::One(SERVER_CONN_ID), channel, msg.clone()));
     }
 
     #[cfg(feature = "client")]
@@ -215,8 +216,8 @@ pub(crate) enum TransportEvent {
     Notice(String),
 }
 
-pub(crate) fn encode_message(msg: &MsgType) -> Result<Vec<u8>, String> {
-    let bytes = postcard::to_allocvec(msg).map_err(|e| format!("serialize: {e}"))?;
+pub(crate) fn encode_packet(packet: &Packet) -> Result<Vec<u8>, String> {
+    let bytes = postcard::to_allocvec(packet).map_err(|e| format!("serialize: {e}"))?;
     encode_all(bytes.as_slice(), ZSTD_LEVEL).map_err(|e| format!("compress: {e}"))
 }
 
@@ -272,8 +273,11 @@ fn flush_outbound_client(mut quic: ResMut<QuicManager>) {
         quic.outbound.clear();
         return;
     };
-    for (_, channel, msg) in quic.outbound.drain(..) {
-        let _ = tx.send(ClientCommand::Send { channel, msg });
+    for (channel, messages) in drain_client_packets(&mut quic.outbound) {
+        let _ = tx.send(ClientCommand::Send {
+            channel,
+            packet: Packet::new(messages, 0),
+        });
     }
 }
 
@@ -296,12 +300,76 @@ fn flush_outbound_server(mut quic: ResMut<QuicManager>) {
         quic.outbound.clear();
         return;
     };
-    for (target, channel, msg) in quic.outbound.drain(..) {
+    for (target, channel, messages) in drain_server_packets(&mut quic.outbound) {
         let _ = tx.send(ServerCommand::Send {
             target,
             channel,
-            msg,
+            packet: Packet::new(messages, 0),
         });
+    }
+}
+
+#[cfg(feature = "client")]
+fn drain_client_packets(
+    outbound: &mut VecDeque<(SendTarget, Channel, MsgType)>,
+) -> Vec<(Channel, Vec<MsgType>)> {
+    let mut ordered = Vec::new();
+    let mut unordered = Vec::new();
+    let mut unreliable = Vec::new();
+    for (_, channel, msg) in outbound.drain(..) {
+        match channel {
+            Channel::Ordered => ordered.push(msg),
+            Channel::Unordered => unordered.push(msg),
+            Channel::Unreliable => unreliable.push(msg),
+        }
+    }
+    let mut packets = Vec::new();
+    if !ordered.is_empty() {
+        packets.push((Channel::Ordered, ordered));
+    }
+    if !unordered.is_empty() {
+        packets.push((Channel::Unordered, unordered));
+    }
+    if !unreliable.is_empty() {
+        packets.push((Channel::Unreliable, unreliable));
+    }
+    packets
+}
+
+#[cfg(not(feature = "client"))]
+fn drain_server_packets(
+    outbound: &mut VecDeque<(SendTarget, Channel, MsgType)>,
+) -> Vec<(SendTarget, Channel, Vec<MsgType>)> {
+    let mut packets = Vec::new();
+    let mut current: Option<(SendTarget, Channel, Vec<MsgType>)> = None;
+    for (target, channel, msg) in outbound.drain(..) {
+        match &mut current {
+            Some((current_target, current_channel, messages))
+                if same_target(current_target, &target) && *current_channel == channel =>
+            {
+                messages.push(msg);
+            }
+            Some(_) => {
+                if let Some(packet) = current.replace((target, channel, vec![msg])) {
+                    packets.push(packet);
+                }
+            }
+            None => current = Some((target, channel, vec![msg])),
+        }
+    }
+    if let Some(packet) = current {
+        packets.push(packet);
+    }
+    packets
+}
+
+#[cfg(not(feature = "client"))]
+fn same_target(a: &SendTarget, b: &SendTarget) -> bool {
+    match (a, b) {
+        (SendTarget::One(a), SendTarget::One(b)) => a == b,
+        (SendTarget::All, SendTarget::All) => true,
+        (SendTarget::AllExcept(a), SendTarget::AllExcept(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -429,8 +497,8 @@ fn run_client_worker(
 
         while let Some(command) = cmd_rx.recv().await {
             match command {
-                ClientCommand::Send { channel, msg } => {
-                    send_on_connection(&connection, &ordered_tx, channel, &msg).await
+                ClientCommand::Send { channel, packet } => {
+                    send_on_connection(&connection, &ordered_tx, channel, &packet).await
                 }
                 ClientCommand::Shutdown => {
                     connection.close(0u32.into(), b"shutdown");
@@ -578,7 +646,7 @@ fn make_client_config() -> quinn::ClientConfig {
 #[cfg(not(feature = "client"))]
 struct ServerConnection {
     connection: quinn::Connection,
-    ordered_tx: mpsc::UnboundedSender<MsgType>,
+    ordered_tx: mpsc::UnboundedSender<Packet>,
 }
 
 #[cfg(not(feature = "client"))]
@@ -659,8 +727,8 @@ fn run_server_worker(
                 ServerCommand::Send {
                     target,
                     channel,
-                    msg,
-                } => send_to_targets(&connections, target, channel, &msg).await,
+                    packet,
+                } => send_to_targets(&connections, target, channel, &packet).await,
                 ServerCommand::ConnectionClosed(conn_id) => {
                     connections.remove(&conn_id);
                     println!("Client disconnected: {conn_id}");
@@ -677,19 +745,29 @@ async fn send_to_targets(
     connections: &std::collections::HashMap<ConnectionId, ServerConnection>,
     target: SendTarget,
     channel: Channel,
-    msg: &MsgType,
+    packet: &Packet,
 ) {
     match target {
         SendTarget::All => {
             for connection in connections.values() {
-                send_on_connection(&connection.connection, &connection.ordered_tx, channel, msg)
-                    .await;
+                send_on_connection(
+                    &connection.connection,
+                    &connection.ordered_tx,
+                    channel,
+                    packet,
+                )
+                .await;
             }
         }
         SendTarget::One(conn_id) => {
             if let Some(connection) = connections.get(&conn_id) {
-                send_on_connection(&connection.connection, &connection.ordered_tx, channel, msg)
-                    .await;
+                send_on_connection(
+                    &connection.connection,
+                    &connection.ordered_tx,
+                    channel,
+                    packet,
+                )
+                .await;
             }
         }
         SendTarget::AllExcept(excluded) => {
@@ -699,7 +777,7 @@ async fn send_to_targets(
                         &connection.connection,
                         &connection.ordered_tx,
                         channel,
-                        msg,
+                        packet,
                     )
                     .await;
                 }
@@ -765,7 +843,7 @@ async fn send_punch(socket: std::net::UdpSocket, addr: SocketAddr) {
     }
 }
 
-fn decode_message(bytes: &[u8]) -> Result<MsgType, String> {
+fn decode_packet(bytes: &[u8]) -> Result<Packet, String> {
     if bytes.len() > MAX_MESSAGE_SIZE {
         return Err("compressed message too large".into());
     }
@@ -789,12 +867,12 @@ pub(crate) fn drain_transport_events(quic: &mut QuicManager, events: Vec<Transpo
             TransportEvent::Connected(conn_id) => {
                 #[cfg(feature = "client")]
                 update_client_connection_state(quic, conn_id, true);
-                push_status_message(quic, conn_id, MsgType::Connected);
+                push_status_message(quic, conn_id, MsgType::Connected(Connected));
             }
             TransportEvent::Disconnected(conn_id) => {
                 #[cfg(feature = "client")]
                 update_client_connection_state(quic, conn_id, false);
-                push_status_message(quic, conn_id, MsgType::Disconnected);
+                push_status_message(quic, conn_id, MsgType::Disconnected(Disconnected));
             }
             TransportEvent::Message(message) => quic.inbound.push_back(message),
             #[cfg(feature = "client")]
@@ -808,7 +886,7 @@ fn push_status_message(quic: &mut QuicManager, conn_id: ConnectionId, msg: MsgTy
         conn_id,
         channel: Channel::Ordered,
         packet_size: 0,
-        msg,
+        packet: Packet::new(vec![msg], 0),
     });
 }
 
@@ -835,13 +913,13 @@ pub(crate) fn forward_decoded_message(
     event_tx: &std::sync::mpsc::Sender<TransportEvent>,
 ) {
     let packet_size = bytes.len();
-    match decode_message(&bytes) {
-        Ok(msg) => {
+    match decode_packet(&bytes) {
+        Ok(packet) => {
             let _ = event_tx.send(TransportEvent::Message(InboundMessage {
                 conn_id,
                 channel,
                 packet_size,
-                msg,
+                packet,
             }));
         }
         Err(e) => eprintln!("[conn {conn_id}] decode error: {e}"),
@@ -853,7 +931,7 @@ pub(crate) fn spawn_connection_tasks<F>(
     connection: quinn::Connection,
     event_tx: std::sync::mpsc::Sender<TransportEvent>,
     on_close: F,
-) -> mpsc::UnboundedSender<MsgType>
+) -> mpsc::UnboundedSender<Packet>
 where
     F: FnOnce(ConnectionId) + Send + 'static,
 {
@@ -883,14 +961,14 @@ where
 
 pub(crate) async fn send_on_connection(
     connection: &quinn::Connection,
-    ordered_tx: &mpsc::UnboundedSender<MsgType>,
+    ordered_tx: &mpsc::UnboundedSender<Packet>,
     channel: Channel,
-    msg: &MsgType,
+    packet: &Packet,
 ) {
     match channel {
-        Channel::Ordered => _ = ordered_tx.send(msg.clone()),
+        Channel::Ordered => _ = ordered_tx.send(packet.clone()),
         Channel::Unordered => {
-            let Some(bytes) = encoded_bytes(msg, "unordered") else {
+            let Some(bytes) = encoded_bytes(packet, "unordered") else {
                 return;
             };
             if let Ok(mut stream) = connection.open_uni().await {
@@ -899,7 +977,7 @@ pub(crate) async fn send_on_connection(
             }
         }
         Channel::Unreliable => {
-            let Some(bytes) = encoded_bytes(msg, "unreliable") else {
+            let Some(bytes) = encoded_bytes(packet, "unreliable") else {
                 return;
             };
             if bytes.len() > MAX_UDP_SIZE {
@@ -907,7 +985,7 @@ pub(crate) async fn send_on_connection(
                     "unreliable packet too large: {} bytes > {} for {:?}",
                     bytes.len(),
                     MAX_UDP_SIZE,
-                    msg
+                    packet
                 );
                 return;
             }
@@ -916,8 +994,8 @@ pub(crate) async fn send_on_connection(
     }
 }
 
-fn encoded_bytes(msg: &MsgType, label: &str) -> Option<Vec<u8>> {
-    match encode_message(msg) {
+fn encoded_bytes(packet: &Packet, label: &str) -> Option<Vec<u8>> {
+    match encode_packet(packet) {
         Ok(bytes) => Some(bytes),
         Err(e) => {
             eprintln!("{label} encode error: {e}");
@@ -939,7 +1017,7 @@ fn cloned_socket(socket: &Option<std::net::UdpSocket>) -> Option<std::net::UdpSo
 
 async fn ordered_sender_task(
     connection: quinn::Connection,
-    mut rx: mpsc::UnboundedReceiver<MsgType>,
+    mut rx: mpsc::UnboundedReceiver<Packet>,
 ) {
     let (mut send, _) = match connection.open_bi().await {
         Ok(stream) => stream,
@@ -948,8 +1026,8 @@ async fn ordered_sender_task(
             return;
         }
     };
-    while let Some(msg) = rx.recv().await {
-        let bytes = match encode_message(&msg) {
+    while let Some(packet) = rx.recv().await {
+        let bytes = match encode_packet(&packet) {
             Ok(bytes) => bytes,
             Err(e) => {
                 eprintln!("ordered encode error: {e}");

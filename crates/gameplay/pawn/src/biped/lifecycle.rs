@@ -1,13 +1,15 @@
 use bevy::prelude::*;
-use crate::net::{
-    message::{MsgType, NetworkID},
-    quic::{Channel, QuicManager, SendTarget},
-};
 use physics::physics_world::*;
 use rapier3d::prelude::*;
 
 use super::*;
-use crate::health::{DamageCause, Health, LastDamageSource};
+use crate::{
+    health::{DamageCause, Health, LastDamageSource},
+    net::{
+        message::{MsgType, NetworkID, OnscreenMessage, WeaponDrop},
+        quic::{Channel, QuicManager, SendTarget},
+    },
+};
 
 pub fn spawn_biped(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let position = cmd.position_or_zero();
@@ -127,7 +129,11 @@ pub fn on_biped_death(entity: Entity, world: &mut World) {
                 quic.send(
                     SendTarget::All,
                     Channel::Ordered,
-                    &MsgType::WeaponDrop(weapon_id, net_id.clone(), drop_pos),
+                    &MsgType::WeaponDrop(WeaponDrop {
+                        weapon_id,
+                        carrier_net_id: net_id.clone(),
+                        drop_pos,
+                    }),
                 );
             }
         }
@@ -235,7 +241,7 @@ fn push_death_message(
         quic.send(
             SendTarget::All,
             Channel::Ordered,
-            &MsgType::OnscreenMessage(text),
+            &MsgType::OnscreenMessage(OnscreenMessage(text)),
         );
         return;
     }
