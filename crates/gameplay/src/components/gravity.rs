@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use physics::physics_world::{
-    self, PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot, step_physics,
+    self, ForceApplication, PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot,
 };
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -256,6 +256,6 @@ impl Plugin for GravityPlugin {
         app.register_type::<GravityProfile>()
             .register_type::<GravityKind>()
             .register_type::<GravitySource>()
-            .add_systems(FixedUpdate, apply_gravity.before(step_physics));
+            .add_systems(FixedUpdate, apply_gravity.in_set(ForceApplication));
     }
 }

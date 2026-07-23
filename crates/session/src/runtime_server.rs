@@ -88,7 +88,10 @@ impl Plugin for ServerSessionPlugin {
                 gameplay::bot::run_bots.before(gameplay::pawn::MovePawnsSet),
             ),
         )
-        .add_systems(FixedUpdate, apply_melee_hit_requests.before(step_physics))
+        .add_systems(
+            FixedUpdate,
+            apply_melee_hit_requests.in_set(ForceApplication),
+        )
         .add_systems(FixedUpdate, advance_match_state_time)
         .add_systems(
             FixedUpdate,

@@ -52,7 +52,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     reload_ticks: RELOAD_TICKS,
     fire_cooldown_ticks: COOLDOWN_TICKS as u16,
     projectile: Some(PROJECTILE),
-    projectile_gravity_scale: 0.1,
+    projectile_gravity_scale: 0.2,
     shooter_impulse: 3.0,
     mass_scaled_shooter_impulse: true,
     decorate_projectile: Some(decorate_projectile),

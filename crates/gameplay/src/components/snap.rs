@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use bevy::prelude::*;
 use physics::physics_world::{
-    PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot, step_physics,
+    ForceApplication, PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot,
 };
 use rapier3d::prelude::{RigidBody, RigidBodyHandle};
 use serde::{Deserialize, Serialize};
@@ -220,9 +220,6 @@ impl Plugin for SnapPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<SnapKind>()
             .register_type::<SnapSource>()
-            .add_systems(
-                FixedUpdate,
-                orient_bipeds_to_snap_sources.before(step_physics),
-            );
+            .add_systems(FixedUpdate, orient_bipeds_to_snap_sources.in_set(ForceApplication));
     }
 }

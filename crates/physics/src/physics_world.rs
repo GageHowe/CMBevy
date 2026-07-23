@@ -628,6 +628,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
+            .configure_sets(FixedUpdate, ForceApplication.before(step_physics))
             .register_type::<InitialVelocity>()
             .register_type::<InitialAngularVelocity>()
             .register_type::<SceneRigidBody>()
@@ -635,6 +636,9 @@ impl Plugin for PhysicsPlugin {
             .add_observer(on_remove_rigidbody_handle);
     }
 }
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForceApplication;
 
 /// makes sure to delete the rapier rigidbody when killing an entity recursively
 fn on_remove_rigidbody_handle(

@@ -5,7 +5,7 @@ use net::{
 };
 #[cfg(feature = "client")]
 use physics::physics_world::sync_physics_visual;
-use physics::physics_world::{PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel, step_physics};
+use physics::physics_world::{ForceApplication, PhysicsWorld, rb_angvel, rb_pos, rb_rot, rb_vel};
 
 #[cfg(feature = "client")]
 use crate::NetworkEntityMap;
@@ -35,7 +35,7 @@ impl Plugin for MountPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<CharacterMount>();
         app.register_type::<Mounted>();
-        app.add_systems(FixedUpdate, sync_mounted_bipeds.before(step_physics));
+        app.add_systems(FixedUpdate, sync_mounted_bipeds.in_set(ForceApplication));
         #[cfg(feature = "client")]
         app.add_systems(
             Update,

@@ -43,7 +43,7 @@ impl Plugin for WeaponPlugin {
         app.add_plugins((beamer::BeamerPlugin, weapon_flash::WeaponFlashPlugin))
             .configure_sets(
                 FixedUpdate,
-                SimulateWeaponSet.before(physics::physics_world::step_physics),
+                SimulateWeaponSet.before(physics::physics_world::ForceApplication),
             )
             .add_systems(FixedUpdate, tick_weapon_state);
         app.add_systems(
