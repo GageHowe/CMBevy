@@ -3,7 +3,7 @@ use common::tick::Ticker;
 use gameplay::{
     lifecycle::spawn_game_object,
     mode::ModeConfig,
-    pawn::{HeldWeaponMap, PlayerRegistry, Possessed, WeaponSlots},
+    pawn::{Controller, HeldWeaponMap, PlayerRegistry, WeaponSlots},
     *,
 };
 use net::{message::*, quic::*};
@@ -35,7 +35,7 @@ pub(super) fn spawn_player(
         commands,
         net_ids,
     );
-    commands.entity(entity).insert((team, Possessed::new(128)));
+    commands.entity(entity).insert((team, Controller::for_client(conn_id)));
 
     for other_conn_id in registry.controlled_conn_ids() {
         quic.send(

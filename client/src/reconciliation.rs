@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::{ecs::system::SystemParam, prelude::*};
 use common::{
-    NetworkID, PredictedCommands, PredictedImpulse,
+    LocalControl, NetworkID, PredictedImpulse, PredictedImpulses,
     tick::{NetworkStats, Ticker},
 };
 use gameplay::{
@@ -36,7 +36,8 @@ impl<S: States + Copy> ReconciliationPlugin<S> {
 impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
     fn build(&self, app: &mut App) {
         let state = self.0;
-        app.init_resource::<PredictedCommands>()
+        app.init_resource::<LocalControl>()
+            .init_resource::<PredictedImpulses>()
             .init_resource::<ReplayStateHistory>()
             .init_resource::<PhysicsErrors>()
             .add_systems(
@@ -86,10 +87,10 @@ struct ReplayPhysicsEnv<'w, 's> {
 
 fn record_biped_state(
     bipeds: Query<&BipedPawnComponent, With<Possessed>>,
-    predicted: Res<PredictedCommands>,
+    control: Res<LocalControl>,
     mut history: ResMut<ReplayStateHistory>,
 ) {
-    let seq = predicted.latest_seq();
+    let seq = control.latest_seq();
     if seq == 0 {
         return;
     }
@@ -173,7 +174,8 @@ fn maybe_reconcile(
     vehicles: Query<&gameplay::pawn::vehicle::VehicleComponent, With<Possessed>>,
     seated: Query<&Mounted>,
     env: ReplayPhysicsEnv,
-    predicted: Res<PredictedCommands>,
+    control: Res<LocalControl>,
+    impulses: Res<PredictedImpulses>,
     history: Res<ReplayStateHistory>,
     mut errors: ResMut<PhysicsErrors>,
     mut possessed_bipeds: Query<&mut BipedPawnComponent, With<Possessed>>,
@@ -242,30 +244,30 @@ fn maybe_reconcile(
         .iter()
         .map(|(net_id, handle)| (net_id.clone(), *handle))
         .collect();
-    for replay_seq in (snapshot.last_input_seq + 1)..=predicted.latest_seq() {
-        if let Some(tick) = predicted.get(replay_seq) {
+    for replay_seq in (snapshot.last_input_seq + 1)..=control.latest_seq() {
+        if let Some(input) = control.get(replay_seq) {
             let handle = RigidBodyHandleComponent(our_rb);
             if let Some(owner_entity) = possessed_entity {
                 if let Ok(mut biped) = possessed_bipeds.single_mut() {
                     gameplay::pawn::biped::apply_biped_input(
                         &mut world,
                         owner_entity,
-                        tick.input,
+                        input.clone(),
                         &handle,
                         &mut biped,
                     );
                     let _ = gameplay::pawn::biped_ability::apply_input(
                         owner_entity,
-                        tick.input,
+                        input.clone(),
                         &mut world,
                         &mut biped,
                     );
                 }
                 if let Ok(vehicle) = vehicles.get(owner_entity) {
-                    (vehicle.apply_input)(&mut world, owner_entity, tick.input);
+                    (vehicle.apply_input)(&mut world, owner_entity, input.clone());
                 }
             }
-            for impulse in tick.impulses.iter().cloned() {
+            for impulse in impulses.get(replay_seq).into_iter().flatten().cloned() {
                 apply_predicted_impulse(&mut world, &replay_handles, our_net_id, our_rb, impulse);
             }
         }

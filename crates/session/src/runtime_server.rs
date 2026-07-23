@@ -8,7 +8,7 @@ use gameplay::{
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
-    pawn::{Mounted, PendingRespawns, PlayerRegistry, Possessed},
+    pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry, Possessed},
 };
 use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
 use net::{message::*, quic::*};
@@ -550,7 +550,7 @@ fn reset_existing_player(
     world.entity_mut(character_entity).insert(team);
     world
         .entity_mut(character_entity)
-        .insert(Possessed::new(128));
+        .insert(Controller::for_client(conn_id));
     {
         let mut physics = world.resource_mut::<PhysicsWorld>();
         physics.set_body_enabled(character_entity, true);
@@ -601,7 +601,9 @@ fn spawn_restarted_player(
         cmd: spawn_cmd.clone(),
     }
     .apply(world);
-    world.entity_mut(entity).insert((team, Possessed::new(128)));
+    world
+        .entity_mut(entity)
+        .insert((team, Controller::for_client(conn_id)));
 
     let existing_conn_ids = world
         .get_resource::<PlayerRegistry>()
@@ -640,7 +642,7 @@ fn apply_inputs(
     networked: Res<gameplay::NetworkEntityMap>,
     physics: Res<PhysicsWorld>,
     mut commands: Commands,
-    mut possessed: Query<&mut Possessed>,
+    mut controllers: Query<&mut Controller>,
 ) {
     for (&conn_id, pending) in pending_inputs.0.iter_mut() {
         let Some((entity, _)) = registry.controlled_pawn(conn_id) else {
@@ -689,10 +691,11 @@ fn apply_inputs(
                     } as u32,
                 });
         }
-        let Ok(mut possessed) = possessed.get_mut(entity) else {
+        let Ok(mut controller) = controllers.get_mut(entity) else {
             continue;
         };
-        possessed.push(kind);
+        controller.client = Some(conn_id);
+        controller.push(kind);
         if advanced {
             last_input_seq.0.insert(conn_id, input_seq);
         }

@@ -129,8 +129,6 @@ impl QuicManager {
         }
     }
 
-    /// Client-side send path. `SendTarget` is meaningless on the client.
-
     #[cfg(feature = "client")]
     pub fn send_to_server(&mut self, channel: Channel, msg: &crate::message::MsgType) {
         self.outbound.push_back((

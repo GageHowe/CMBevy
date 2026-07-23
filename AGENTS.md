@@ -22,7 +22,7 @@ This file is for getting a fresh LLM instance productive quickly and keeping it 
 * No new structs unless absolutely necessary.
 * Everything should be clean and minimal. Every line of code counts against you.
 * Never use bevy's events/messages, since most work is done in FixedUpdate
-* Simplicity: Simplicity and decoupling is everything. I prefer simple-looking imperative code over functional programming or clever one-liners.
+* Simplicity: Simplicity and decoupling is everything. I prefer simple-looking, c-style, imperative code over clever one-liners with closures or map.
 * Schedules: Use Update sparingly to keep framerate fast. Use SlowUpdate for things that don't have to happen each FixedUpdate.
 * No CCD, since it breaks relative motion.
 * for imports used for one package and not another, prefer `#[allow(unused_imports)]` over `#[cfg(feature = "<package>")]` 

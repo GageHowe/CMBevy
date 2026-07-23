@@ -16,7 +16,7 @@ use bevy::prelude::*;
 pub use biped::{BipedPawnComponent, PitchPivot, YawPivot};
 pub use camera_effects::{CameraEffector, CameraShake};
 #[cfg(feature = "client")]
-use common::PredictedCommands;
+use common::LocalControl;
 pub use common::{BipedInput, PawnInput};
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
@@ -371,58 +371,68 @@ impl Default for MouseSensitivity {
 #[derive(Component)]
 #[component(storage = "SparseSet")]
 /// Marker for the single locally controlled pawn and its latest buffered input.
-pub struct Possessed {
-    pending_input: Option<PawnInput>,
+pub struct Controller {
+    pub client: Option<ConnectionId>,
+    input: Option<PawnInput>,
 }
-impl Possessed {
+impl Controller {
     pub fn new(_capacity: usize) -> Self {
         Self {
-            pending_input: None,
+            client: None,
+            input: None,
+        }
+    }
+    pub fn for_client(client: ConnectionId) -> Self {
+        Self {
+            client: Some(client),
+            input: None,
         }
     }
     pub fn push(&mut self, input: PawnInput) {
-        self.pending_input = Some(input);
+        self.input = Some(input);
     }
     pub fn consume(&mut self) -> Option<PawnInput> {
-        self.pending_input.take()
+        self.input.take()
     }
     /// peek at the most recently pushed input without consuming it.
     pub fn peek_newest(&self) -> Option<&PawnInput> {
-        self.pending_input.as_ref()
+        self.input.as_ref()
     }
     pub fn peek_newest_mut(&mut self) -> Option<&mut PawnInput> {
-        self.pending_input.as_mut()
+        self.input.as_mut()
     }
 }
+
+pub type Possessed = Controller;
 
 // SYSTEMS
 
 /// System set covering all gather-input systems. Reconciliation runs before this.
 #[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-/// System set covering local input gathering for pawns.
 pub struct GatherInputSet;
 
-/// System set covering all local pawn movement systems. Use for ordering against pawn movement.
 #[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MovePawnsSet;
+
+#[cfg(feature = "client")]
+fn apply_local_control(mut control: ResMut<LocalControl>, mut pawns: Query<&mut Controller>) {
+    let Ok(mut pawn) = pawns.single_mut() else {
+        return;
+    };
+    if let Some(input) = control.consume() {
+        pawn.push(input);
+    }
+}
 
 /// Peeks the newest buffered input, stamps it with the current tick,
 /// records it for replay, and sends it serialized over the unreliable channel.
 /// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
 #[cfg(feature = "client")]
-pub fn send_pawn_input(
-    quic: Option<ResMut<net::quic::QuicManager>>,
-    pawns: Query<&Possessed>,
-    mut predicted: ResMut<PredictedCommands>,
-) {
+pub fn send_pawn_input(quic: Option<ResMut<net::quic::QuicManager>>, control: Res<LocalControl>) {
     let Some(mut quic) = quic else { return };
-    let Ok(possessed) = pawns.single() else {
+    let Some((seq, input)) = control.newest() else {
         return;
     };
-    let Some(input) = possessed.peek_newest().cloned() else {
-        return;
-    };
-    let seq = predicted.record_input(input.clone());
     quic.send_to_server(
         net::quic::Channel::Unreliable,
         &MsgType::Input(seq, input.clone()),
@@ -433,6 +443,9 @@ pub fn send_pawn_input(
         || input.ability1_pressed
         || input.melee_pressed
     {
-        quic.send_to_server(net::quic::Channel::Unordered, &MsgType::Input(seq, input));
+        quic.send_to_server(
+            net::quic::Channel::Unordered, // shouldnt this be unreliable? it'll be way too late if resent
+            &MsgType::Input(seq, input.clone()),
+        );
     }
 }

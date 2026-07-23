@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use common::{BodyState, NetworkID, PredictedCommands, SimulationState};
+use common::{BodyState, LocalControl, NetworkID, PredictedImpulses, SimulationState};
 pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
 use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -325,7 +325,7 @@ impl PhysicsWorld {
         entity: Entity,
         impulse: Vec3,
         net_id: Option<&NetworkID>,
-        predicted: Option<&mut PredictedCommands>,
+        predicted: Option<(&LocalControl, &mut PredictedImpulses)>,
     ) -> bool {
         self.apply_game_impulse_at(entity, impulse, None, net_id, predicted)
     }
@@ -339,7 +339,7 @@ impl PhysicsWorld {
         impulse: Vec3,
         point: Option<Vec3>,
         net_id: Option<&NetworkID>,
-        predicted: Option<&mut PredictedCommands>,
+        predicted: Option<(&LocalControl, &mut PredictedImpulses)>,
     ) -> bool {
         let Some(&handle) = self.entity_to_handle.get(&entity) else {
             return false;
@@ -354,8 +354,8 @@ impl PhysicsWorld {
         } else {
             rb.apply_impulse(impulse, true);
         }
-        if let (Some(net_id), Some(predicted)) = (net_id, predicted) {
-            predicted.record_impulse_at(net_id.clone(), impulse_vec, point);
+        if let (Some(net_id), Some((control, impulses))) = (net_id, predicted) {
+            impulses.record(control.latest_seq(), net_id.clone(), impulse_vec, point);
         }
         true
     }

@@ -11,7 +11,7 @@ use physics::physics_world::PhysicsWorld;
 
 use super::{
     BipedPawnComponent, CameraEffector, InteractionGate, InteractionHint, MouseSensitivity,
-    PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
+    Controller, PITCH_MAX, PitchPivot, Possessed, WeaponSlots, YawPivot, apply_biped_input,
     mount::{CharacterMount, Mounted, ray_hits_mount},
 };
 use crate::{interaction::InteractionName, weapon::WeaponFireInput};
@@ -80,7 +80,8 @@ fn gather_biped_input(
     bindings: Res<common::ActiveBindings>,
     sensitivity: Res<MouseSensitivity>,
     mut fixed_presses: ResMut<FixedPressQueue>,
-    mut pawns: Query<(&mut Possessed, &BipedPawnComponent)>,
+    pawns: Query<&BipedPawnComponent, With<Controller>>,
+    mut control: ResMut<common::LocalControl>,
     yaw_pivots: Query<&YawPivot>,
     pitch_pivots: Query<&PitchPivot>,
 ) {
@@ -89,7 +90,7 @@ fn gather_biped_input(
         fixed_presses.clear_melee();
         return;
     }
-    let Ok((mut possessed, biped)) = pawns.single_mut() else {
+    let Ok(biped) = pawns.single() else {
         fixed_presses.clear_ability1();
         fixed_presses.clear_melee();
         return;
@@ -165,7 +166,7 @@ fn gather_biped_input(
     {
         input.look_pitch = pp.pitch;
     }
-    possessed.push(input);
+    control.push(input);
 }
 
 fn mouse_look(
@@ -418,7 +419,6 @@ fn biped_fire(
     mut pawn: Query<
         (
             Entity,
-            &mut Possessed,
             &mut WeaponSlots,
             &BipedPawnComponent,
             &physics::physics_world::RigidBodyHandleComponent,
@@ -432,12 +432,13 @@ fn biped_fire(
     mut commands: Commands,
     mut fixed_presses: ResMut<FixedPressQueue>,
     ticker: Res<common::tick::Ticker>,
+    mut control: ResMut<common::LocalControl>,
 ) {
     let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
     let gamepad = common::active_gamepad(gamepads.iter());
     let want_fire =
         !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad);
-    let Ok((pawn_entity, mut possessed, mut slots, biped, body_handle)) = pawn.single_mut() else {
+    let Ok((pawn_entity, mut slots, biped, body_handle)) = pawn.single_mut() else {
         return;
     };
     if !want_fire {
@@ -483,7 +484,7 @@ fn biped_fire(
         tick: ticker.tick,
         prediction_id: ticker.tick as u32,
     };
-    if let Some(biped_input) = possessed.peek_newest_mut() {
+    if let Some(biped_input) = control.newest_mut() {
         biped_input.item = common::ItemInput {
             weapon: slots.active().0.as_ref().map(|id| id.0),
             primary: input.want_fire,

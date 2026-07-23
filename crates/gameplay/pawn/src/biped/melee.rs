@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
-use common::PredictedCommands;
+use common::{LocalControl, PredictedImpulses};
 #[cfg(feature = "client")]
 use net::message::NetworkID;
 #[cfg(feature = "client")]
@@ -86,7 +86,8 @@ pub fn apply_melee_hits(
 pub fn send_predicted_melee_hit(
     mut world: ResMut<PhysicsWorld>,
     mut quic: Option<ResMut<net::quic::QuicManager>>,
-    mut predicted: Option<ResMut<PredictedCommands>>,
+    control: Option<Res<LocalControl>>,
+    mut impulses: Option<ResMut<PredictedImpulses>>,
     possessed: Query<(Entity, &BipedPawnComponent, &NetworkID), With<Possessed>>,
     net_ids: Query<&NetworkID>,
 ) {
@@ -109,7 +110,7 @@ pub fn send_predicted_melee_hit(
         attacker,
         -impulse,
         Some(attacker_net_id),
-        predicted.as_deref_mut(),
+        control.as_deref().zip(impulses.as_deref_mut()),
     );
     if let Ok(victim_net_id) = net_ids.get(victim) {
         quic.send_to_server(

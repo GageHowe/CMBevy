@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use common::PredictedCommands;
+use common::{LocalControl, PredictedImpulses};
 #[cfg(feature = "client")]
 use common::game_state::GameState;
 use net::message::*;
@@ -279,7 +279,8 @@ fn tick_predicted_projectiles(
     mut shield_q: Query<(Entity, &Shield, &mut Health)>,
     splash_q: Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Query<&NetworkID>,
-    mut predicted: ResMut<PredictedCommands>,
+    control: Res<LocalControl>,
+    mut impulses: ResMut<PredictedImpulses>,
 ) {
     for (entity, mut projectile, body) in &mut q {
         tick_projectile(
@@ -293,7 +294,7 @@ fn tick_predicted_projectiles(
             &mut shield_q,
             &splash_q,
             Some(&net_ids),
-            Some(&mut predicted),
+            Some((&control, &mut impulses)),
         );
     }
 }
@@ -309,7 +310,7 @@ fn tick_projectile(
     shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
-    predicted: Option<&mut PredictedCommands>,
+    predicted: Option<(&LocalControl, &mut PredictedImpulses)>,
 ) {
     let Some(hit) = cast_projectile(
         projectile,
@@ -465,7 +466,7 @@ fn explode(
     shield_q: &mut Query<(Entity, &Shield, &mut Health)>,
     splash_q: &Query<(), With<CenterOfMassSplashDamage>>,
     net_ids: Option<&Query<&NetworkID>>,
-    predicted: Option<&mut PredictedCommands>,
+    predicted: Option<(&LocalControl, &mut PredictedImpulses)>,
     direct_hit_impulse: Option<(Entity, ColliderHandle, Vec3, Vec3)>,
     contact_damage: f32,
     explosion: ProjectileExplosion,
@@ -542,7 +543,10 @@ fn explode(
         let net_id = net_ids.and_then(|ids| ids.get(entity).ok());
         let point =
             direct_hit_impulse.and_then(|(hit, _, _, point)| (hit == entity).then_some(point));
-        if world.apply_game_impulse_at(entity, impulse, point, net_id, predicted.as_deref_mut())
+        let prediction = predicted
+            .as_mut()
+            .map(|(control, impulses)| (*control, &mut **impulses));
+        if world.apply_game_impulse_at(entity, impulse, point, net_id, prediction)
             && predicted.is_none()
         {
             if let Some((hit, collider, _, _)) = direct_hit_impulse

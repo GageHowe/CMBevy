@@ -186,7 +186,8 @@ fn predict_projectile_shots(
     net_ids: Query<&NetworkID>,
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
-    mut predicted: Option<ResMut<common::PredictedCommands>>,
+    control: Option<Res<common::LocalControl>>,
+    mut impulses: Option<ResMut<common::PredictedImpulses>>,
     mut sound: Option<ResMut<SoundQueue>>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
 ) {
@@ -259,7 +260,7 @@ fn predict_projectile_shots(
                     shot.input.shooter,
                     -shot.dir * config.shooter_impulse * mass,
                     Some(shooter_net_id),
-                    predicted.as_deref_mut(),
+                    control.as_deref().zip(impulses.as_deref_mut()),
                 );
             }
         }

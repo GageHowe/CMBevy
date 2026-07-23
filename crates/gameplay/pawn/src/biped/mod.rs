@@ -85,6 +85,12 @@ impl Plugin for BipedPlugin {
         app.add_systems(FixedPreUpdate, move_bipeds.in_set(MovePawnsSet));
         #[cfg(feature = "client")]
         {
+            app.add_systems(
+                FixedPreUpdate,
+                super::apply_local_control
+                    .after(super::GatherInputSet)
+                    .before(super::MovePawnsSet),
+            );
             controls::configure(app);
             app.add_systems(
                 FixedUpdate,

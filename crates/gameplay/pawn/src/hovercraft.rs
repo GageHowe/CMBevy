@@ -11,7 +11,7 @@ use rapier3d::prelude::*;
 #[cfg(feature = "client")]
 use super::GatherInputSet;
 use super::{
-    MovePawnsSet, Possessed,
+    Controller, MovePawnsSet, Possessed,
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
 };
 use crate::{
@@ -157,7 +157,8 @@ fn gather_hovercraft_input(
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
-    mut pawns: Query<&mut Possessed, With<HovercraftPawnComponent>>,
+    pawns: Query<(), (With<Controller>, With<HovercraftPawnComponent>)>,
+    mut control: ResMut<common::LocalControl>,
 ) {
     if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
         return;
@@ -165,7 +166,7 @@ fn gather_hovercraft_input(
     if cursor_q.grab_mode == CursorGrabMode::None {
         return;
     }
-    let Ok(mut possessed) = pawns.single_mut() else {
+    if pawns.single().is_err() {
         return;
     };
     let gamepad = common::active_gamepad(gamepads.iter());
@@ -218,7 +219,7 @@ fn gather_hovercraft_input(
     ) {
         input.slide = true;
     }
-    possessed.push(input);
+    control.push(input);
 }
 
 pub fn apply_hovercraft_movement(
