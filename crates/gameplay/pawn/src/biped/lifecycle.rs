@@ -115,7 +115,7 @@ pub fn on_biped_death(entity: Entity, world: &mut World) {
     for weapon_entity in held {
         crate::weapon::helpers::restore_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
     }
-    crate::pawn::biped_ability::drop_ability_on_death(entity, world);
+    crate::pawn::biped_ability::drop_owned_ability(entity, Vec3::ZERO, world);
     if let Some(mut held_map) = world.get_resource_mut::<super::HeldWeaponMap>() {
         for weapon_id in &weapon_drops {
             held_map.0.remove(weapon_id);

@@ -170,7 +170,7 @@ fn process_weapon_grants(world: &mut World) {
         #[cfg(feature = "client")]
         if let Some(parent) = local_parent {
             let mut commands = world.commands();
-            gameplay::weapon::helpers::attach_viewmodel(&mut commands, weapon_entity, parent, true);
+            gameplay::weapon::helpers::attach_viewmodel(&mut commands, weapon_entity, parent);
         }
         let owner_net_id = world.get::<common::NetworkID>(grant.owner).cloned();
         if let (Some(owner_net_id), Some(mut quic)) =

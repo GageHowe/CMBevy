@@ -107,10 +107,6 @@ impl bevy::pbr::Material for ShieldMaterial {
     }
 }
 
-pub fn shield_user_data() -> u128 {
-    ColliderFlags::SHIELD.bits()
-}
-
 pub fn attach_shield_collider(
     body_handle: RigidBodyHandle,
     mut collider: Collider,
@@ -121,7 +117,7 @@ pub fn attach_shield_collider(
     collider.set_density(0.0);
     collider.set_collision_groups(no_contacts);
     collider.set_solver_groups(no_contacts);
-    collider.user_data = shield_user_data();
+    collider.user_data = ColliderFlags::SHIELD.bits();
     let handle =
         world
             .collider_set

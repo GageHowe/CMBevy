@@ -21,7 +21,7 @@ pub use melee::{
     MELEE_DAMAGE, apply_melee_hits, melee_impulse, resolve_melee_hit, validate_melee_target,
 };
 pub use movement::{
-    aim_pose, apply_biped_input, apply_biped_movement, biped_move_direction, viewmodel_offset,
+    aim_pose, apply_biped_input, apply_biped_movement, biped_move_direction,
 };
 
 pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.01;

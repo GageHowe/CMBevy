@@ -7,8 +7,6 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 use crate::pawn::CameraEffector;
 #[cfg(feature = "client")]
 use crate::pawn::biped::BipedPawnComponent;
-#[cfg(feature = "client")]
-use crate::pawn::biped::viewmodel_offset;
 use crate::{
     generic::attach_hull_collider,
     interaction::InteractionName,
@@ -324,11 +322,11 @@ pub fn pickup_local_world_weapon(
             camera_fx,
         );
     }
-    let Some((is_primary, _)) = slots.assign_pickup(weapon_id.clone(), weapon_entity) else {
+    let Some(_) = slots.assign_pickup(weapon_id.clone(), weapon_entity) else {
         return false;
     };
     pickup_world_weapon(world, weapon_entity);
-    attach_viewmodel(commands, weapon_entity, pitch_parent, is_primary);
+    attach_viewmodel(commands, weapon_entity, pitch_parent);
     sync_local_active_weapon(commands, slots, camera_fx);
     if let Ok(name) = interaction_names.get(weapon_entity) {
         crate::messages::push(commands, format!("Picked up {}", name.0));
@@ -341,13 +339,12 @@ pub fn attach_viewmodel(
     commands: &mut Commands,
     weapon_entity: Entity,
     parent: Entity,
-    is_primary: bool,
 ) {
     commands
         .entity(weapon_entity)
         .remove::<crate::interaction::Interactable>()
         .set_parent_in_place(parent)
-        .insert(viewmodel_offset(is_primary))
+        .insert(Transform::from_xyz(0.4, -0.3, 0.0))
         .insert(Visibility::Inherited);
 }
 
@@ -418,12 +415,12 @@ pub fn apply_pickup_message(
         } else {
             (None, None)
         };
-        if let Some((is_primary, prev_to_hide)) = slot_result {
+        if let Some((_, prev_to_hide)) = slot_result {
             if let Some(prev) = prev_to_hide {
                 commands.entity(prev).insert(Visibility::Hidden);
             }
             if let Some(parent) = camera.single().ok().or(pivot_e) {
-                attach_viewmodel(commands, weapon_entity, parent, is_primary);
+                attach_viewmodel(commands, weapon_entity, parent);
             }
             if let Ok(name) = interaction_names.get(weapon_entity) {
                 crate::messages::push(commands, format!("Picked up {}", name.0));
@@ -440,7 +437,7 @@ pub fn apply_pickup_message(
     }) else {
         return false;
     };
-    attach_viewmodel(commands, weapon_entity, parent, true);
+    attach_viewmodel(commands, weapon_entity, parent);
     true
 }
 

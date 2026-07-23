@@ -257,7 +257,3 @@ pub fn aim_pose(
             * Vec3::NEG_Z,
     ))
 }
-
-pub fn viewmodel_offset(_is_primary: bool) -> Transform {
-    Transform::from_xyz(0.4, -0.3, 0.0)
-}

@@ -238,7 +238,7 @@ fn pickup_ability(
 pub(crate) const DROP_SPEED: f32 = 8.0;
 
 /// Drops the equipped ability of `owner`. `throw_vel` is added on top of the owner's physics velocity.
-fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
+pub(crate) fn drop_owned_ability(owner: Entity, throw_vel: Vec3, world: &mut World) {
     let (pos, vel) = world
         .resource::<PhysicsWorld>()
         .body_drop_pose(owner, throw_vel, Vec3::Y * 1.2)
@@ -315,10 +315,6 @@ pub fn swap_ability_kind(
     drop_owned_ability(owner, throw_vel, world);
     set_ability(owner, ability, world);
     true
-}
-
-pub fn drop_ability_on_death(owner: Entity, world: &mut World) {
-    drop_owned_ability(owner, Vec3::ZERO, world);
 }
 
 pub fn interact_pickup(
