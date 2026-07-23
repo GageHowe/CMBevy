@@ -1,7 +1,7 @@
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
-use net::{
+use crate::net::{
     message::NetworkID,
     quic::{QuicManager, SendTarget},
 };
@@ -141,14 +141,14 @@ fn vehicle_exit_interact(
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     vehicle: Query<
-        (Entity, Option<&net::message::NetworkID>),
+        (Entity, Option<&crate::net::message::NetworkID>),
         (With<VehicleComponent>, With<Possessed>),
     >,
     mut mounts: Query<&mut mount::CharacterMount>,
     anchor_transforms: Query<&Transform>,
     mut world: ResMut<physics::physics_world::PhysicsWorld>,
     mut commands: Commands,
-    mut quic: ResMut<net::quic::QuicManager>,
+    mut quic: ResMut<crate::net::quic::QuicManager>,
     mut interaction: ResMut<InteractionGate>,
     ticker: Res<common::tick::Ticker>,
     interaction_names: Query<&InteractionName>,
@@ -174,8 +174,8 @@ fn vehicle_exit_interact(
         GameState::Multiplayer => {
             let Some(net_id) = net_id else { return };
             quic.send_to_server(
-                net::quic::Channel::Ordered,
-                &net::message::MsgType::Interact(net_id.clone()),
+                crate::net::quic::Channel::Ordered,
+                &crate::net::message::MsgType::Interact(net_id.clone()),
             );
         }
         GameState::SinglePlayer => {

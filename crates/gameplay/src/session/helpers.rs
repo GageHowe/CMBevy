@@ -1,4 +1,4 @@
-use net::quic::{InboundMessage, QuicManager};
+use crate::net::quic::{InboundMessage, QuicManager};
 
 pub(crate) fn drain_inbound(
     quic: &mut QuicManager,

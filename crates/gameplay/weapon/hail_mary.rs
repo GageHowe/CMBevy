@@ -56,7 +56,7 @@ pub struct HailMaryComponent {
     pub muzzle_flash: Option<Entity>,
 }
 
-pub fn spawn_hail_mary(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_hail_mary(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     #[cfg(feature = "client")]
     let muzzle_flash = Some(weapon_flash::spawn_weapon_flash(
         world,

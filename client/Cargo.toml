@@ -25,9 +25,6 @@ toml = { version = "1.0.6", features = ["preserve_order"] }
 common = { path = "../crates/common" }
 http_common = { path = "../crates/http_common" }
 physics = { path = "../crates/physics" }
-net = { path = "../crates/net", features = ["client"] }
 gameplay = { path = "../crates/gameplay", features = ["client"] }
-scripting = { path = "../crates/scripting", features = ["client"] }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
-session = { path = "../crates/session", features = ["client"] }
 particles_plugin = { path = "../crates/particles_plugin" }

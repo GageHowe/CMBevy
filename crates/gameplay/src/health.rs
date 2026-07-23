@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use bevy::prelude::*;
 use common::config::FIXED_TICK_RATE;
-use net::{message::MsgType, quic::*};
+use crate::net::{message::MsgType, quic::*};
 use physics::physics_world::PhysicsWorld;
 use serde::{Deserialize, Serialize};
 

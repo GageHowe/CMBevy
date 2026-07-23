@@ -16,6 +16,7 @@ pub mod level;
 pub mod lifecycle;
 pub mod messages;
 pub mod mode;
+pub mod net;
 #[path = "../../network_index.rs"]
 mod network_index;
 #[path = "../pawn/src/mod.rs"]
@@ -24,6 +25,8 @@ pub mod projectile;
 pub mod reticle;
 pub mod shield;
 pub mod sound;
+pub mod scripting;
+pub mod session;
 mod spawn;
 #[cfg(feature = "client")]
 pub mod spring_arm;
@@ -49,7 +52,7 @@ impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
             .init_resource::<spawn::SpawnRegistry>()
-            .register_type::<net::message::NetworkID>()
+            .register_type::<crate::net::message::NetworkID>()
             .register_type::<Team>()
             .init_resource::<messages::GameMessages>()
             .add_observer(cm_on_remove_networked_entity)
@@ -89,9 +92,9 @@ impl Plugin for GameplayPlugin {
 /// observer system that automatically detects deleted entities with NetworkID and tells clients to delete them on their end. We should rely on this rather than manually sending despawn messages to the client.
 #[allow(unused_variables)]
 fn cm_on_remove_networked_entity(
-    event: On<Remove, net::message::NetworkID>,
+    event: On<Remove, crate::net::message::NetworkID>,
     map: Res<NetworkEntityMap>,
-    quic: Option<ResMut<net::quic::QuicManager>>,
+    quic: Option<ResMut<crate::net::quic::QuicManager>>,
 ) {
     #[cfg(not(feature = "client"))]
     {
@@ -104,9 +107,9 @@ fn cm_on_remove_networked_entity(
 
         // tell all clients to despawn this entity
         quic.send(
-            net::quic::SendTarget::All,
-            net::quic::Channel::Ordered,
-            &net::message::MsgType::DespawnCommand(net_id),
+            crate::net::quic::SendTarget::All,
+            crate::net::quic::Channel::Ordered,
+            &crate::net::message::MsgType::DespawnCommand(net_id),
         );
     }
 }

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use common::{LeaderboardScope, ScoringOption};
-use net::quic::ConnectionId;
+use crate::net::quic::ConnectionId;
 
 #[derive(Component, Clone, Copy, Reflect)]
 /// Team assignment marker replicated on team-based actors.

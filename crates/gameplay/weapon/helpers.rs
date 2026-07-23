@@ -25,7 +25,7 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
 
 pub fn make_generic_weapon_physics(
     entity: Entity,
-    cmd: &net::message::SpawnCommand,
+    cmd: &crate::net::message::SpawnCommand,
     hull_path: &'static str,
     collider: ColliderBuilder,
     world: &mut World,
@@ -60,7 +60,7 @@ pub fn make_generic_weapon_physics(
 
 pub fn insert_generic_weapon(
     entity: Entity,
-    cmd: &net::message::SpawnCommand,
+    cmd: &crate::net::message::SpawnCommand,
     spawn_name: &'static str,
     world: &mut World,
     display_name: &'static str,
@@ -178,7 +178,7 @@ pub fn interact_pickup(
     player_net_id: NetworkID,
     target_entity: Entity,
     target_net_id: NetworkID,
-    quic: &mut net::quic::QuicManager,
+    quic: &mut crate::net::quic::QuicManager,
     world: &mut PhysicsWorld,
     weapon_runtime: &mut Query<(&mut WeaponState, &crate::weapon::WeaponConfig)>,
     held_weapons: &mut crate::pawn::HeldWeaponMap,
@@ -226,9 +226,9 @@ pub fn interact_pickup(
     held_weapons.0.insert(target_net_id.clone(), player_entity);
     pickup_world_weapon(world, target_entity);
     quic.send(
-        net::quic::SendTarget::All,
-        net::quic::Channel::Ordered,
-        &net::message::MsgType::WeaponPickup(target_net_id, player_net_id),
+        crate::net::quic::SendTarget::All,
+        crate::net::quic::Channel::Ordered,
+        &crate::net::message::MsgType::WeaponPickup(target_net_id, player_net_id),
     );
 }
 
@@ -242,7 +242,7 @@ pub fn drop_from_owner(
     weapon_runtime: &mut Query<(&mut WeaponState, &crate::weapon::WeaponConfig)>,
     held_weapons: &mut crate::pawn::HeldWeaponMap,
     commands: &mut Commands,
-    quic: &mut net::quic::QuicManager,
+    quic: &mut crate::net::quic::QuicManager,
 ) {
     held_weapons.0.remove(&weapon_id);
     let (drop_pos, drop_velocity) = drop_pose(world, owner_entity, drop_dir);
@@ -264,9 +264,9 @@ pub fn drop_from_owner(
         return;
     }
     quic.send(
-        net::quic::SendTarget::All,
-        net::quic::Channel::Ordered,
-        &net::message::MsgType::WeaponDrop(weapon_id, owner_id, drop_pos),
+        crate::net::quic::SendTarget::All,
+        crate::net::quic::Channel::Ordered,
+        &crate::net::message::MsgType::WeaponDrop(weapon_id, owner_id, drop_pos),
     );
 }
 

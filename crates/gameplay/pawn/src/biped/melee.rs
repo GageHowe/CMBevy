@@ -2,9 +2,9 @@ use bevy::prelude::*;
 #[cfg(feature = "client")]
 use common::{LocalControl, PredictedImpulses};
 #[cfg(feature = "client")]
-use net::message::NetworkID;
+use crate::net::message::NetworkID;
 #[cfg(feature = "client")]
-use net::quic::Channel;
+use crate::net::quic::Channel;
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_pos, rb_rot};
 
 use super::*;
@@ -85,7 +85,7 @@ pub fn apply_melee_hits(
 #[cfg(feature = "client")]
 pub fn send_predicted_melee_hit(
     mut world: ResMut<PhysicsWorld>,
-    mut quic: Option<ResMut<net::quic::QuicManager>>,
+    mut quic: Option<ResMut<crate::net::quic::QuicManager>>,
     control: Option<Res<LocalControl>>,
     mut impulses: Option<ResMut<PredictedImpulses>>,
     possessed: Query<(Entity, &BipedPawnComponent, &NetworkID), With<Possessed>>,
@@ -115,7 +115,7 @@ pub fn send_predicted_melee_hit(
     if let Ok(victim_net_id) = net_ids.get(victim) {
         quic.send_to_server(
             Channel::Ordered,
-            &net::message::MsgType::MeleeHitRequest(victim_net_id.clone()),
+            &crate::net::message::MsgType::MeleeHitRequest(victim_net_id.clone()),
         );
     }
 }

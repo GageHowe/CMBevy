@@ -1,8 +1,8 @@
 use std::net::Ipv4Addr;
 
 use bevy::{app::AppExit, prelude::*};
-use net::quic::QuicManager;
-use session::PendingReconciliation;
+use gameplay::net::quic::QuicManager;
+use gameplay::session::PendingReconciliation;
 
 pub fn available_maps() -> Vec<String> {
     scan_dir(common::config::asset_dir().join("maps"), "ron")

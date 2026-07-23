@@ -1,6 +1,6 @@
 use bevy::{ecs::system::SystemState, prelude::*};
 use common::tick::Ticker;
-use gameplay::{
+use crate::{
     NetworkEntityMap,
     level::{LevelBytes, SpawnPoint},
     pawn::{
@@ -9,11 +9,11 @@ use gameplay::{
     },
     weapon::{WeaponConfig, WeaponState},
 };
-use net::{message::*, quic::*};
+use crate::net::{message::*, quic::*};
 use physics::physics_world::*;
-use scripting::ScriptConfig;
+use crate::scripting::ScriptConfig;
 
-use crate::{connections::*, resources::*};
+use crate::session::{connections::*, resources::*};
 
 pub fn on_message(
     mut quic: ResMut<QuicManager>,
@@ -29,10 +29,10 @@ pub fn on_message(
         Res<NetworkEntityMap>,
         Query<&mut WeaponSlots>,
         Query<&VehicleComponent>,
-        Query<&gameplay::interaction::Interactable>,
+        Query<&crate::interaction::Interactable>,
         Query<&NetworkID>,
-        Query<(&NetworkID, &gameplay::pawn::Mounted)>,
-        Query<&mut gameplay::pawn::CharacterMount>,
+        Query<(&NetworkID, &crate::pawn::Mounted)>,
+        Query<&mut crate::pawn::CharacterMount>,
         Query<&Transform>,
         Query<(&mut WeaponState, &WeaponConfig)>,
         Query<&AbilityPickup>,
@@ -54,7 +54,7 @@ pub fn on_message(
         ref ability_pickups,
         ref controllers,
     ) = gameplay_params;
-    crate::helpers::drain_inbound(&mut quic, |msg, quic| {
+    crate::session::helpers::drain_inbound(&mut quic, |msg, quic| {
         if matches!(msg.msg, MsgType::Disconnected) {
             handle_server_disconnect(
                 msg.conn_id,
@@ -125,15 +125,15 @@ pub fn flush_pending_connections(world: &mut World) {
                 Query<'_, '_, &'static Transform>,
                 Query<'_, '_, &'static ChildOf>,
                 Query<'_, '_, &'static RigidBodyHandleComponent>,
-                Option<Res<'_, gameplay::level::PendingMapScene>>,
-                Query<'_, '_, (), With<gameplay::level::LevelSceneRoot>>,
+                Option<Res<'_, crate::level::PendingMapScene>>,
+                Query<'_, '_, (), With<crate::level::LevelSceneRoot>>,
                 Query<
                     '_,
                     '_,
                     (),
                     (
-                        With<gameplay::level::Spawner>,
-                        Without<gameplay::level::SpawnerRuntime>,
+                        With<crate::level::Spawner>,
+                        Without<crate::level::SpawnerRuntime>,
                     ),
                 >,
                 Query<
@@ -148,7 +148,7 @@ pub fn flush_pending_connections(world: &mut World) {
                     (
                         Entity,
                         &'static NetworkID,
-                        &'static gameplay::SpawnReplicated,
+                        &'static crate::SpawnReplicated,
                         Option<&'static RigidBodyHandleComponent>,
                         Option<&'static ChildOf>,
                         Option<&'static Transform>,
@@ -156,7 +156,7 @@ pub fn flush_pending_connections(world: &mut World) {
                 >,
                 Query<'_, '_, &'static mut WeaponSlots>,
                 Query<'_, '_, &'static NetworkID>,
-                Query<'_, '_, (&'static NetworkID, &'static gameplay::pawn::Mounted)>,
+                Query<'_, '_, (&'static NetworkID, &'static crate::pawn::Mounted)>,
             ),
             Res<Ticker>,
         )> = SystemState::new(world);
@@ -237,7 +237,7 @@ pub fn flush_pending_connections(world: &mut World) {
                 net_id,
                 entity.get::<common::WeaponState>().copied(),
                 entity
-                    .get::<gameplay::health::Health>()
+                    .get::<crate::health::Health>()
                     .map(|health| health.pool),
             )
         })
@@ -245,7 +245,7 @@ pub fn flush_pending_connections(world: &mut World) {
     let mut quic = world.resource_mut::<QuicManager>();
     for (conn_id, net_id, weapon_state, health) in snapshots {
         if let Some(weapon_state) = weapon_state {
-            gameplay::weapon::send_weapon_state(
+            crate::weapon::send_weapon_state(
                 &mut quic,
                 SendTarget::One(conn_id),
                 &net_id,
@@ -253,7 +253,7 @@ pub fn flush_pending_connections(world: &mut World) {
             );
         }
         if let Some(health) = health {
-            gameplay::health::send_health(&mut quic, SendTarget::One(conn_id), &net_id, health);
+            crate::health::send_health(&mut quic, SendTarget::One(conn_id), &net_id, health);
         }
     }
 }
@@ -275,9 +275,9 @@ fn process_server_message(
     all_networked: &NetworkEntityMap,
     pawn_slots: &mut Query<&mut WeaponSlots>,
     vehicles: &Query<&VehicleComponent>,
-    interactables: &Query<&gameplay::interaction::Interactable>,
+    interactables: &Query<&crate::interaction::Interactable>,
     net_id_q: &Query<&NetworkID>,
-    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    mounts: &mut Query<&mut crate::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     ability_pickups: &Query<&AbilityPickup>,
@@ -330,7 +330,7 @@ fn process_server_message(
                 controllers,
             );
         }
-        MsgType::DropWeapon(drop_dir) => gameplay::weapon::handle_drop_request(
+        MsgType::DropWeapon(drop_dir) => crate::weapon::handle_drop_request(
             conn_id,
             registry,
             pawn_slots,
@@ -341,11 +341,11 @@ fn process_server_message(
             quic,
             drop_dir,
         ),
-        MsgType::DropAbility(drop_dir) => gameplay::pawn::biped_ability::handle_drop_request(
+        MsgType::DropAbility(drop_dir) => crate::pawn::biped_ability::handle_drop_request(
             conn_id, registry, commands, drop_dir,
         ),
         MsgType::SetActiveWeaponSlot(active_primary) => {
-            gameplay::weapon::handle_set_active_slot_request(
+            crate::weapon::handle_set_active_slot_request(
                 conn_id,
                 active_primary,
                 registry,
@@ -397,8 +397,8 @@ fn handle_server_disconnect(
     world: &mut PhysicsWorld,
     held_weapons: &mut HeldWeaponMap,
     pawn_slots: &Query<&mut WeaponSlots>,
-    mounted_bipeds: &Query<(&NetworkID, &gameplay::pawn::Mounted)>,
-    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    mounted_bipeds: &Query<(&NetworkID, &crate::pawn::Mounted)>,
+    mounts: &mut Query<&mut crate::pawn::CharacterMount>,
     quic: &mut QuicManager,
 ) {
     active_connections.0.remove(&conn_id);
@@ -420,13 +420,13 @@ fn handle_server_disconnect(
 }
 
 fn level_ready_reason(
-    pending_map: Option<&gameplay::level::PendingMapScene>,
-    roots: &Query<(), With<gameplay::level::LevelSceneRoot>>,
+    pending_map: Option<&crate::level::PendingMapScene>,
+    roots: &Query<(), With<crate::level::LevelSceneRoot>>,
     pending_markers: &Query<
         (),
         (
-            With<gameplay::level::Spawner>,
-            Without<gameplay::level::SpawnerRuntime>,
+            With<crate::level::Spawner>,
+            Without<crate::level::SpawnerRuntime>,
         ),
     >,
     scene_bodies: &Query<&SceneRigidBody, (With<RigidBodyHandleComponent>, Without<NetworkID>)>,
@@ -460,8 +460,8 @@ fn handle_interact(
     pawn_slots: &mut Query<&mut WeaponSlots>,
     net_ids: &Query<&NetworkID>,
     vehicles: &Query<&VehicleComponent>,
-    interactables: &Query<&gameplay::interaction::Interactable>,
-    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    interactables: &Query<&crate::interaction::Interactable>,
+    mounts: &mut Query<&mut crate::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&Transform>,
     commands: &mut Commands,
     ability_pickups: &Query<&AbilityPickup>,
@@ -484,7 +484,7 @@ fn handle_interact(
         .0
         .get(&conn_id)
         .and_then(|pending| pending.held.as_ref())
-        .and_then(|input| gameplay::pawn::aim_dir(world, character, Some(input)))
+        .and_then(|input| crate::pawn::aim_dir(world, character, Some(input)))
         .unwrap_or_else(|| {
             world
                 .body(character)
@@ -493,7 +493,7 @@ fn handle_interact(
         });
 
     if vehicles.contains(target) || mounts.contains(target) {
-        gameplay::pawn::mount::handle_server_interact(
+        crate::pawn::mount::handle_server_interact(
             conn_id,
             controlled,
             character,
@@ -511,7 +511,7 @@ fn handle_interact(
         return;
     }
 
-    if gameplay::pawn::biped_ability::interact_pickup(
+    if crate::pawn::biped_ability::interact_pickup(
         character,
         target,
         world,
@@ -522,7 +522,7 @@ fn handle_interact(
         return;
     }
 
-    gameplay::weapon::handle_interact_pickup_request(
+    crate::weapon::handle_interact_pickup_request(
         character,
         character_net_id,
         target,
@@ -543,9 +543,9 @@ pub fn apply_melee_hit_requests(
     registry: Res<PlayerRegistry>,
     networked: Res<NetworkEntityMap>,
     mut world: ResMut<PhysicsWorld>,
-    mut bipeds: Query<&mut gameplay::pawn::BipedPawnComponent>,
-    mut health_q: Query<&mut gameplay::health::Health>,
-    mut last_damage_q: Query<&mut gameplay::health::LastDamageSource>,
+    mut bipeds: Query<&mut crate::pawn::BipedPawnComponent>,
+    mut health_q: Query<&mut crate::health::Health>,
+    mut last_damage_q: Query<&mut crate::health::LastDamageSource>,
 ) {
     let requests = std::mem::take(&mut pending_melee_hits.0);
     for (conn_id, target_net_id) in requests {
@@ -563,19 +563,19 @@ pub fn apply_melee_hit_requests(
         }
         let start = biped.melee_debug_start;
         let end = biped.melee_debug_end;
-        if !gameplay::pawn::biped::validate_melee_target(&mut world, attacker, target, start, end) {
+        if !crate::pawn::biped::validate_melee_target(&mut world, attacker, target, start, end) {
             continue;
         }
-        let impulse = gameplay::pawn::biped::melee_impulse(start, end);
+        let impulse = crate::pawn::biped::melee_impulse(start, end);
         world.apply_game_impulse(attacker, -impulse, None, None);
         if let Ok(mut health) = health_q.get_mut(target) {
-            gameplay::health::attribute_damage(
+            crate::health::attribute_damage(
                 &mut last_damage_q,
                 target,
                 Some(attacker),
-                gameplay::health::DamageCause::Unknown,
+                crate::health::DamageCause::Unknown,
             );
-            health.apply_damage(gameplay::pawn::biped::MELEE_DAMAGE);
+            health.apply_damage(crate::pawn::biped::MELEE_DAMAGE);
         }
         world.apply_game_impulse(target, impulse, None, None);
         biped.melee_debug_ticks = 0;

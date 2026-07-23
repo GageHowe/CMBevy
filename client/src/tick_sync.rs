@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use common::{slow_update::SlowUpdate, tick::NetworkStats};
-use net::{
+use gameplay::net::{
     message::MsgType,
     quic::{Channel, QuicManager},
 };

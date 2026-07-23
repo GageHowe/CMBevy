@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use net::{
+use crate::net::{
     message::{MsgType, NetworkID},
     quic::{Channel, QuicManager, SendTarget},
 };
@@ -9,7 +9,7 @@ use rapier3d::prelude::*;
 use super::*;
 use crate::health::{DamageCause, Health, LastDamageSource};
 
-pub fn spawn_biped(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_biped(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let position = cmd.position_or_zero();
     let rotation = cmd.rotation_or_identity();
     let velocity = cmd.velocity_or_zero();

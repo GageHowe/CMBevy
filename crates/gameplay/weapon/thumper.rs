@@ -76,7 +76,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     }),
 };
 
-pub fn spawn_thumper(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_thumper(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(ThumperComponent::default(), CONFIG);
     helpers::insert_generic_weapon(
         entity,

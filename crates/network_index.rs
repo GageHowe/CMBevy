@@ -8,47 +8,50 @@ use physics::physics_world::{RigidBodyHandle, RigidBodyHandleComponent};
 #[derive(Resource, Default)]
 /// Bidirectional lookup table between replicated ids, ECS entities, and physics bodies.
 pub struct NetworkEntityMap {
-    netid_to_entity: HashMap<net::message::NetworkID, Entity>,
-    entity_to_netid: HashMap<Entity, net::message::NetworkID>,
-    netid_to_rigidbody: HashMap<net::message::NetworkID, RigidBodyHandle>,
+    netid_to_entity: HashMap<crate::net::message::NetworkID, Entity>,
+    entity_to_netid: HashMap<Entity, crate::net::message::NetworkID>,
+    netid_to_rigidbody: HashMap<crate::net::message::NetworkID, RigidBodyHandle>,
 }
 
 impl NetworkEntityMap {
-    pub fn get(&self, net_id: &net::message::NetworkID) -> Option<Entity> {
+    pub fn get(&self, net_id: &crate::net::message::NetworkID) -> Option<Entity> {
         self.get_entity(net_id)
     }
 
-    pub fn get_entity(&self, net_id: &net::message::NetworkID) -> Option<Entity> {
+    pub fn get_entity(&self, net_id: &crate::net::message::NetworkID) -> Option<Entity> {
         self.netid_to_entity.get(net_id).copied()
     }
 
-    pub fn get_net_id_for_entity(&self, entity: Entity) -> Option<&net::message::NetworkID> {
+    pub fn get_net_id_for_entity(&self, entity: Entity) -> Option<&crate::net::message::NetworkID> {
         self.entity_to_netid.get(&entity)
     }
 
-    pub fn get_body(&self, net_id: &net::message::NetworkID) -> Option<RigidBodyHandle> {
+    /// this is stupid, we can just query rigidbody component
+    pub fn get_body(&self, net_id: &crate::net::message::NetworkID) -> Option<RigidBodyHandle> {
         self.netid_to_rigidbody.get(net_id).copied()
     }
 
     pub fn get_entity_and_body(
         &self,
-        net_id: &net::message::NetworkID,
+        net_id: &crate::net::message::NetworkID,
     ) -> Option<(Entity, RigidBodyHandle)> {
         Some((self.get_entity(net_id)?, self.get_body(net_id)?))
     }
 
-    pub fn body_pairs(&self) -> impl Iterator<Item = (&net::message::NetworkID, &RigidBodyHandle)> {
+    pub fn body_pairs(
+        &self,
+    ) -> impl Iterator<Item = (&crate::net::message::NetworkID, &RigidBodyHandle)> {
         self.netid_to_rigidbody.iter()
     }
 
-    pub fn body_pairs_vec(&self) -> Vec<(net::message::NetworkID, RigidBodyHandle)> {
+    pub fn body_pairs_vec(&self) -> Vec<(crate::net::message::NetworkID, RigidBodyHandle)> {
         self.netid_to_rigidbody
             .iter()
             .map(|(net_id, handle)| (net_id.clone(), *handle))
             .collect()
     }
 
-    pub fn insert(&mut self, net_id: net::message::NetworkID, entity: Entity) {
+    pub fn insert(&mut self, net_id: crate::net::message::NetworkID, entity: Entity) {
         if let Some(prev_id) = self.entity_to_netid.insert(entity, net_id.clone()) {
             self.netid_to_entity.remove(&prev_id);
             self.netid_to_rigidbody.remove(&prev_id);
@@ -58,7 +61,7 @@ impl NetworkEntityMap {
         }
     }
 
-    pub fn insert_body(&mut self, net_id: net::message::NetworkID, handle: RigidBodyHandle) {
+    pub fn insert_body(&mut self, net_id: crate::net::message::NetworkID, handle: RigidBodyHandle) {
         self.netid_to_rigidbody.insert(net_id, handle);
     }
 
@@ -83,10 +86,10 @@ pub(crate) fn index_added_network_ids(
     added: Query<
         (
             Entity,
-            &net::message::NetworkID,
+            &crate::net::message::NetworkID,
             Option<&RigidBodyHandleComponent>,
         ),
-        Added<net::message::NetworkID>,
+        Added<crate::net::message::NetworkID>,
     >,
 ) {
     for (entity, net_id, body) in added.iter() {
@@ -117,7 +120,7 @@ pub(crate) fn index_added_or_changed_rigid_bodies(
 
 pub(crate) fn index_removed_network_ids(
     mut map: ResMut<NetworkEntityMap>,
-    mut removed: RemovedComponents<net::message::NetworkID>,
+    mut removed: RemovedComponents<crate::net::message::NetworkID>,
 ) {
     for entity in removed.read() {
         map.remove_entity(entity);

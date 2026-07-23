@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::{Command, *};
-use net::message::SpawnCommand;
+use crate::net::message::SpawnCommand;
 
 use crate::gc::WorldObjectGc;
 
@@ -77,7 +77,7 @@ pub fn insert_spawn_metadata(
 
 pub fn find_entity_by_net_id(
     world: &mut World,
-    net_id: &net::message::NetworkID,
+    net_id: &crate::net::message::NetworkID,
 ) -> Option<Entity> {
     if let Some(networked) = world.get_resource::<crate::NetworkEntityMap>()
         && let Some(entity) = networked.get_entity(net_id)
@@ -85,7 +85,7 @@ pub fn find_entity_by_net_id(
         return Some(entity);
     }
     world
-        .query::<(Entity, &net::message::NetworkID)>()
+        .query::<(Entity, &crate::net::message::NetworkID)>()
         .iter(world)
         .find_map(|(entity, entity_net_id)| (entity_net_id == net_id).then_some(entity))
 }

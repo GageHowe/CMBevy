@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
 };
 use common::{NetworkID, NetworkIDResource};
-use gameplay::{
+use crate::{
     SpawnGameObjectCommand, Team,
     bot::{BotController, HeuristicKillerBot},
     health::Health,
@@ -15,13 +15,13 @@ use gameplay::{
     pawn::{PlayerRegistry, Possessed, WeaponSlots},
 };
 use mlua::prelude::*;
-use net::{
+use crate::net::{
     message::{MsgType, SpawnCommand},
     quic::{Channel, QuicManager, SendTarget},
 };
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
-use crate::{
+use crate::scripting::{
     plugin::{PendingWeaponGrants, WeaponGrant},
     runtime::ScriptRuntime,
     tag_index::ScriptTagIndex,
@@ -207,7 +207,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, text: String| {
             let world = lua_world(lua)?;
             let is_server = world
-                .get_resource::<crate::config::ScriptConfig>()
+                .get_resource::<crate::scripting::config::ScriptConfig>()
                 .is_some_and(|config| config.is_server);
             if is_server {
                 if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
@@ -306,7 +306,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, (team, kind): (i32, Option<String>)| {
             let world = lua_world(lua)?;
             if !world
-                .get_resource::<crate::config::ScriptConfig>()
+                .get_resource::<crate::scripting::config::ScriptConfig>()
                 .is_some_and(|config| config.is_server)
             {
                 return Ok(None);
@@ -353,7 +353,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, (entity_id, brain): (i64, Option<String>)| {
             let world = lua_world(lua)?;
             if !world
-                .get_resource::<crate::config::ScriptConfig>()
+                .get_resource::<crate::scripting::config::ScriptConfig>()
                 .is_some_and(|config| config.is_server)
             {
                 return Ok(false);
@@ -389,7 +389,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
         lua.create_function(|lua, (owner_id, kind): (i64, String)| {
             let world = lua_world(lua)?;
             if !world
-                .get_resource::<crate::config::ScriptConfig>()
+                .get_resource::<crate::scripting::config::ScriptConfig>()
                 .is_some_and(|config| config.is_server)
             {
                 return Ok(false);
@@ -504,7 +504,7 @@ fn pick_script_spawn(world: &mut World, team: u8) -> Option<(Vec3, Quat, Vec3)> 
     )> = SystemState::new(world);
     let (spawn_points, parent_transforms, parent_parents, parent_bodies, physics) =
         state.get(world);
-    gameplay::lifecycle::pick_spawn_point_with_velocity(
+    crate::lifecycle::pick_spawn_point_with_velocity(
         &spawn_points,
         &parent_transforms,
         &parent_parents,

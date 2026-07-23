@@ -1,5 +1,5 @@
 use bevy::{core_pipeline::Skybox, prelude::*, state::state::FreelyMutableState};
-use gameplay::{
+use crate::{
     Team,
     bot::run_singleplayer_bots,
     level::*,
@@ -7,7 +7,7 @@ use gameplay::{
     mode::MatchState,
     pawn::{InteractionGate, Possessed},
 };
-use net::{
+use crate::net::{
     message::{MsgType, NetworkIDResource},
     quic::QuicManager,
 };
@@ -26,7 +26,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
         let main_menu = self.main_menu;
         let single_player = self.single_player;
         let multiplayer = self.multiplayer;
-        crate::runtime::configure_authority_sets(app);
+        crate::session::runtime::configure_authority_sets(app);
         app.insert_resource(GuiState::default())
             .init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
@@ -60,12 +60,12 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .add_systems(
                 FixedUpdate,
                 run_singleplayer_bots
-                    .before(gameplay::weapon::SimulateWeaponSet)
+                    .before(crate::weapon::SimulateWeaponSet)
                     .run_if(in_state(single_player)),
             )
             .add_systems(
                 FixedUpdate,
-                gameplay::pawn::biped::apply_melee_hits.run_if(crate::runtime::has_authority),
+                crate::pawn::biped::apply_melee_hits.run_if(crate::session::runtime::has_authority),
             )
             .add_systems(
                 FixedUpdate,
@@ -89,7 +89,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .add_systems(FixedPostUpdate, messages::on_message::<S>)
             .add_systems(
                 FixedLast,
-                crate::runtime::snapshot_server_state
+                crate::session::runtime::snapshot_server_state
                     .run_if(in_state(multiplayer).and(resource_changed::<PendingReconciliation>)),
             );
     }
@@ -105,7 +105,7 @@ fn show_transport_notices(mut quic: Option<ResMut<QuicManager>>, mut commands: C
         return;
     };
     while let Some(message) = quic.notices.pop_front() {
-        gameplay::messages::push(&mut commands, message);
+        crate::session::messages::push(&mut commands, message);
     }
 }
 
@@ -136,18 +136,18 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
 ) {
     let _ = std::marker::PhantomData::<S>;
     if sp.map.is_empty() || sp.gametype.is_empty() {
-        gameplay::messages::push(&mut commands, "No map or mode selected.");
+        crate::session::messages::push(&mut commands, "No map or mode selected.");
         return;
     }
-    commands.insert_resource(scripting::ScriptConfig {
+    commands.insert_resource(crate::scripting::ScriptConfig {
         path: sp.gametype.clone(),
         is_server: true,
         source: None,
     });
-    gameplay::messages::push(&mut commands, "Loading map...");
+    crate::session::messages::push(&mut commands, "Loading map...");
     match load_level_source(&sp.map, &default_asset_dir()) {
         Ok(level) => commands.insert_resource(PendingMapScene(level.compressed)),
-        Err(err) => gameplay::messages::push(&mut commands, format!("Map load failed: {err}")),
+        Err(err) => crate::session::messages::push(&mut commands, format!("Map load failed: {err}")),
     };
 }
 
@@ -263,7 +263,7 @@ pub fn cleanup_world(
 }
 
 fn connect(mut commands: Commands, mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
-    gameplay::messages::push(&mut commands, "Connecting...");
+    crate::session::messages::push(&mut commands, "Connecting...");
     quic.connect(addr.addr, addr.lobby_id.clone());
 }
 
@@ -276,8 +276,8 @@ fn send_world_ready(
         return;
     }
     quic.send(
-        net::quic::SendTarget::One(net::quic::SERVER_CONN_ID),
-        net::quic::Channel::Ordered,
+        crate::net::quic::SendTarget::One(crate::net::quic::SERVER_CONN_ID),
+        crate::net::quic::Channel::Ordered,
         &MsgType::ClientReady,
     );
     info!("Client: sent ClientReady");
@@ -302,22 +302,22 @@ fn disconnect(
 
 // maybe make this part of one larger system TODO
 fn remove_script(mut commands: Commands) {
-    commands.remove_resource::<scripting::ScriptConfig>();
+    commands.remove_resource::<crate::scripting::ScriptConfig>();
 }
 
 pub(crate) fn handle_map_hash(hash: String, quic: &mut QuicManager, commands: &mut Commands) {
     if let Some(compressed) = read_cached_map(&hash) {
         if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
-            gameplay::messages::push(commands, "Using cached map.");
+            crate::session::messages::push(commands, "Using cached map.");
             commands.insert_resource(PendingMapScene(compressed));
             return;
         }
-        gameplay::messages::push(commands, "Cached map invalid. Redownloading.");
+        crate::session::messages::push(commands, "Cached map invalid. Redownloading.");
     }
-    gameplay::messages::push(commands, "Downloading map...");
+    crate::session::messages::push(commands, "Downloading map...");
     quic.send(
-        net::quic::SendTarget::One(net::quic::SERVER_CONN_ID),
-        net::quic::Channel::Ordered,
+        crate::net::quic::SendTarget::One(crate::net::quic::SERVER_CONN_ID),
+        crate::net::quic::Channel::Ordered,
         &MsgType::RequestMap,
     );
 }
@@ -338,7 +338,7 @@ pub(crate) fn handle_file_data(name: String, compressed: Vec<u8>, commands: &mut
     }
     match zstd::stream::decode_all(compressed.as_slice()) {
         Ok(bytes) => match String::from_utf8(bytes) {
-            Ok(src) => commands.insert_resource(scripting::ScriptConfig {
+            Ok(src) => commands.insert_resource(crate::scripting::ScriptConfig {
                 path: String::new(),
                 is_server: false,
                 source: Some(src),

@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 #[cfg(not(feature = "client"))]
-use gameplay::pawn::PawnInput;
-use net::message::{NetworkID, SimulationState};
+use crate::pawn::PawnInput;
+use crate::net::message::{NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
-use net::quic::ConnectionId;
+use crate::net::quic::ConnectionId;
 
 #[cfg(feature = "client")]
 #[derive(Resource, Clone)]
@@ -43,7 +43,7 @@ pub struct PendingReconciliation(pub Option<SimulationState>);
 pub struct GuiState {
     pub command_input: String,
     pub log: Vec<String>,
-    pub scoreboard: Option<net::message::ScoreboardSnapshot>,
+    pub scoreboard: Option<crate::net::message::ScoreboardSnapshot>,
 }
 
 #[cfg(feature = "client")]

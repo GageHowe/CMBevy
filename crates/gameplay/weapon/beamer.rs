@@ -1,7 +1,7 @@
 #[cfg(feature = "client")]
 use bevy::pbr::MeshMaterial3d;
 use bevy::prelude::*;
-use net::quic::{Channel, QuicManager, SendTarget};
+use crate::net::quic::{Channel, QuicManager, SendTarget};
 use physics::physics_world::*;
 use rapier3d::prelude::ColliderBuilder;
 
@@ -73,7 +73,7 @@ impl Plugin for BeamerPlugin {
 fn drive_authoritative_beams(
     mut beamers: Query<(
         Entity,
-        &net::message::NetworkID,
+        &crate::net::message::NetworkID,
         &WeaponFireInput,
         &mut BeamerComponent,
         &mut WeaponState,
@@ -98,7 +98,7 @@ fn drive_authoritative_beams(
                 quic.send(
                     target,
                     Channel::Ordered,
-                    &net::message::MsgType::EndBeam(net_id.clone()),
+                    &crate::net::message::MsgType::EndBeam(net_id.clone()),
                 );
             }
             if input.reload_pressed {
@@ -113,7 +113,7 @@ fn drive_authoritative_beams(
             quic.send(
                 target.clone(),
                 Channel::Ordered,
-                &net::message::MsgType::StartBeamCharge(net_id.clone()),
+                &crate::net::message::MsgType::StartBeamCharge(net_id.clone()),
             );
         } else if beam.phase == BeamPhase::Charging
             && input.tick.saturating_sub(beam.phase_started_tick) + 1 >= CHARGE_TICKS as u64
@@ -123,7 +123,7 @@ fn drive_authoritative_beams(
             quic.send(
                 target.clone(),
                 Channel::Ordered,
-                &net::message::MsgType::StartBeam {
+                &crate::net::message::MsgType::StartBeam {
                     weapon: net_id.clone(),
                     origin: input.origin,
                     dir: input.aim_dir,
@@ -152,7 +152,7 @@ fn drive_authoritative_beams(
                 quic.send(
                     target.clone(),
                     Channel::Unordered,
-                    &net::message::MsgType::BeamHitReport {
+                    &crate::net::message::MsgType::BeamHitReport {
                         weapon: net_id.clone(),
                         origin: input.origin,
                         dir: beam.beam_dir,
@@ -165,7 +165,7 @@ fn drive_authoritative_beams(
                     quic.send(
                         target,
                         Channel::Ordered,
-                        &net::message::MsgType::EndBeam(net_id.clone()),
+                        &crate::net::message::MsgType::EndBeam(net_id.clone()),
                     );
                 }
             }
@@ -305,7 +305,7 @@ pub fn drive_beamers_client(
     }
 }
 
-pub fn spawn_beamer(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_beamer(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(BeamerComponent::default(), CONFIG);
     helpers::insert_generic_weapon(
         entity,
@@ -375,7 +375,7 @@ fn apply_singleplayer_beam_hit(world: &mut World, shooter: Option<Entity>, hit: 
     }
 }
 
-pub fn apply_remote_start_charge(world: &mut World, weapon_net_id: net::message::NetworkID) {
+pub fn apply_remote_start_charge(world: &mut World, weapon_net_id: crate::net::message::NetworkID) {
     let Some(weapon_entity) = world.resource::<NetworkEntityMap>().get(&weapon_net_id) else {
         return;
     };
@@ -388,7 +388,7 @@ pub fn apply_remote_start_charge(world: &mut World, weapon_net_id: net::message:
 
 pub fn apply_remote_start_beam(
     world: &mut World,
-    weapon_net_id: net::message::NetworkID,
+    weapon_net_id: crate::net::message::NetworkID,
     origin: Vec3,
     dir: Vec3,
 ) {
@@ -406,7 +406,7 @@ pub fn apply_remote_start_beam(
 #[cfg(feature = "client")]
 pub fn apply_remote_beam_report(
     world: &mut World,
-    weapon_net_id: net::message::NetworkID,
+    weapon_net_id: crate::net::message::NetworkID,
     origin: Vec3,
     dir: Vec3,
 ) {
@@ -422,7 +422,7 @@ pub fn apply_remote_beam_report(
 }
 
 #[cfg(feature = "client")]
-pub fn apply_remote_end_beam(world: &mut World, weapon_net_id: net::message::NetworkID) {
+pub fn apply_remote_end_beam(world: &mut World, weapon_net_id: crate::net::message::NetworkID) {
     let Some(weapon_entity) = world.resource::<NetworkEntityMap>().get(&weapon_net_id) else {
         return;
     };

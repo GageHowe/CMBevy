@@ -1,13 +1,13 @@
 use bevy::prelude::*;
-use gameplay::{
+use crate::{
     level::{LevelBytes, SpawnPoint},
     pawn::{HeldWeaponMap, Mounted, PendingRespawns, PlayerRegistry, WeaponSlots},
 };
-use net::{message::*, quic::*};
+use crate::net::{message::*, quic::*};
 use physics::physics_world::*;
-use scripting::ScriptConfig;
+use crate::scripting::ScriptConfig;
 
-use crate::replication::{kill_player, slots_to_held, spawn_player};
+use crate::session::replication::{kill_player, slots_to_held, spawn_player};
 
 fn send_existing_spawnable(
     conn_id: ConnectionId,
@@ -77,7 +77,7 @@ pub(super) fn handle_connected(
     spawnables: &Query<(
         Entity,
         &NetworkID,
-        &gameplay::SpawnReplicated,
+        &crate::SpawnReplicated,
         Option<&RigidBodyHandleComponent>,
         Option<&ChildOf>,
         Option<&Transform>,
@@ -96,7 +96,7 @@ pub(super) fn handle_connected(
         .get(registry.controlled_count() % teams.len().max(1))
         .copied()
         .unwrap_or(0);
-    let Some((sp, sr, sv)) = gameplay::lifecycle::pick_spawn_point_with_velocity(
+    let Some((sp, sr, sv)) = crate::lifecycle::pick_spawn_point_with_velocity(
         spawn_points,
         parent_transforms,
         parent_parents,
@@ -142,7 +142,7 @@ pub(super) fn handle_connected(
         let Ok(parent_net_id) = entity_net_ids.get(mounted.0) else {
             continue;
         };
-        gameplay::pawn::send_mount_state(
+        crate::pawn::send_mount_state(
             quic,
             SendTarget::One(conn_id),
             biped_net_id,
@@ -152,7 +152,7 @@ pub(super) fn handle_connected(
     spawn_player(
         conn_id,
         "biped",
-        gameplay::Team(team),
+        crate::Team(team),
         sp,
         sr,
         sv,
@@ -209,7 +209,7 @@ pub(super) fn handle_disconnected(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
-    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    mounts: &mut Query<&mut crate::pawn::CharacterMount>,
 ) {
     pending_respawns.0.remove(&conn_id);
     if let Some((entity, net_id)) = registry.remove_character_for_conn(conn_id) {
@@ -236,7 +236,7 @@ fn clear_mount_on_disconnect(
     entity: Entity,
     net_id: &NetworkID,
     mounted_bipeds: &Query<(&NetworkID, &Mounted)>,
-    mounts: &mut Query<&mut gameplay::pawn::CharacterMount>,
+    mounts: &mut Query<&mut crate::pawn::CharacterMount>,
     quic: &mut QuicManager,
 ) {
     let Some(parent) = mounted_bipeds
@@ -250,6 +250,6 @@ fn clear_mount_on_disconnect(
     };
     if mount.occupant == Some(entity) {
         mount.occupant = None;
-        gameplay::pawn::send_mount_state(quic, SendTarget::All, net_id, None);
+        crate::pawn::send_mount_state(quic, SendTarget::All, net_id, None);
     }
 }

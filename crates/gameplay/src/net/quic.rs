@@ -11,7 +11,7 @@ use common::config::MAX_UDP_SIZE;
 use tokio::sync::mpsc;
 use zstd::stream::encode_all;
 
-use crate::message::MsgType;
+use crate::net::message::MsgType;
 
 /// TODO: make this a setting for performance/net ratio
 const ZSTD_LEVEL: i32 = 3;

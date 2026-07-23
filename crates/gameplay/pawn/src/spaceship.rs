@@ -71,7 +71,7 @@ impl VehiclePawn for SpaceshipPawnComponent {
     }
 }
 
-pub fn spawn_spaceship(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_spaceship(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let position = cmd.position_or_zero();
     let rotation = cmd.rotation_or_identity();
     let velocity = cmd.velocity_or_zero();

@@ -6,7 +6,7 @@ use bevy::render::render_resource::AsBindGroup;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
 use common::{NetworkID, NetworkIDResource, tick::Ticker};
-use net::message::SpawnCommand;
+use crate::net::message::SpawnCommand;
 use physics::{
     collider_flags::ColliderFlags,
     physics_world::{PhysicsWorld, RigidBodyHandleComponent},
@@ -234,7 +234,7 @@ pub fn spawn_box_shield_visual(
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipShieldComponent;
 
-pub fn spawn_spaceship_shield(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_spaceship_shield(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let Some(parent_net_id) = cmd.parent_net_id.as_ref() else {
         return;
     };
@@ -320,11 +320,11 @@ pub fn spawn_attached_spaceship_shield(
     }
     .apply(world);
     #[cfg(not(feature = "client"))]
-    if let Some(mut quic) = world.get_resource_mut::<net::quic::QuicManager>() {
+    if let Some(mut quic) = world.get_resource_mut::<crate::net::quic::QuicManager>() {
         quic.send(
-            net::quic::SendTarget::All,
-            net::quic::Channel::Ordered,
-            &net::message::MsgType::SpawnCommand(cmd),
+            crate::net::quic::SendTarget::All,
+            crate::net::quic::Channel::Ordered,
+            &crate::net::message::MsgType::SpawnCommand(cmd),
         );
     }
     Some(entity)

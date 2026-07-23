@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use mlua::prelude::*;
 
-use crate::config::ScriptConfig;
+use crate::scripting::config::ScriptConfig;
 
 pub(crate) struct ScriptRuntime {
     pub lua: Lua,

@@ -13,9 +13,9 @@ use gameplay::{
     level::LevelPlugin,
     pawn::HeldWeaponMap,
 };
-use net::quic::NetPlugin;
+use gameplay::net::quic::NetPlugin;
 use physics::physics_world::*;
-use scripting::ScriptingPlugin;
+use gameplay::scripting::ScriptingPlugin;
 
 pub struct MasterPlugin;
 impl Plugin for MasterPlugin {

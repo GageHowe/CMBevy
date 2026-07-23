@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use net::{
+use crate::net::{
     message::{AbilityFx, NetworkID},
     quic::Channel,
 };

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use net::message::NetworkID;
+use crate::net::message::NetworkID;
 
 #[derive(Component)]
 pub struct WeaponSlots {

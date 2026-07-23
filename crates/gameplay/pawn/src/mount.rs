@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use net::{
+use crate::net::{
     message::NetworkID,
     quic::{ConnectionId, QuicManager, SendTarget},
 };
@@ -275,10 +275,10 @@ pub fn handle_server_interact(
 
 #[cfg(feature = "client")]
 pub fn apply_mount_state(
-    biped_net_id: &net::message::NetworkID,
-    parent_net_id: Option<&net::message::NetworkID>,
-    local_net_id: Option<&net::message::NetworkID>,
-    just_spawned: &std::collections::HashMap<net::message::NetworkID, (Entity, u64)>,
+    biped_net_id: &crate::net::message::NetworkID,
+    parent_net_id: Option<&crate::net::message::NetworkID>,
+    local_net_id: Option<&crate::net::message::NetworkID>,
+    just_spawned: &std::collections::HashMap<crate::net::message::NetworkID, (Entity, u64)>,
     networked: &NetworkEntityMap,
     interaction_names: &Query<&crate::interaction::InteractionName>,
     mounted: &Query<&Mounted>,

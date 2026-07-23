@@ -382,12 +382,12 @@ fn assign_scene_network_ids(
             Entity,
             &SceneRigidBody,
             &Transform,
-            Option<&net::message::NetworkID>,
+            Option<&crate::net::message::NetworkID>,
         ),
         Added<RigidBodyHandleComponent>,
     >,
     mut commands: Commands,
-    mut net_ids: ResMut<net::message::NetworkIDResource>,
+    mut net_ids: ResMut<crate::net::message::NetworkIDResource>,
 ) {
     // TODO: Replace this transform-order derived id assignment with explicit authored ids or a
     // deterministic scene hashing scheme. Sorting by translation is a fragile hidden contract.
@@ -403,7 +403,7 @@ fn assign_scene_network_ids(
         let id = (index + 1) as u64;
         net_ids.reserve(id);
         if current_id.is_none() {
-            commands.entity(entity).insert(net::message::NetworkID(id));
+            commands.entity(entity).insert(crate::net::message::NetworkID(id));
         }
     }
 }
@@ -417,8 +417,8 @@ fn tick_spawners(
     parent_bodies: Query<&RigidBodyHandleComponent>,
     physics: Res<PhysicsWorld>,
     mut commands: Commands,
-    mut net_id_res: ResMut<net::message::NetworkIDResource>,
-    mut quic: Option<ResMut<net::quic::QuicManager>>,
+    mut net_id_res: ResMut<crate::net::message::NetworkIDResource>,
+    mut quic: Option<ResMut<crate::net::quic::QuicManager>>,
     time: Res<Time<Fixed>>,
 ) {
     if spawners_exist.is_empty() {
@@ -486,9 +486,9 @@ fn tick_spawners(
         {
             if let Some(quic) = quic.as_mut() {
                 quic.send(
-                    net::quic::SendTarget::All,
-                    net::quic::Channel::Ordered,
-                    &net::message::MsgType::SpawnCommand(spawn_cmd),
+                    crate::net::quic::SendTarget::All,
+                    crate::net::quic::Channel::Ordered,
+                    &crate::net::message::MsgType::SpawnCommand(spawn_cmd),
                 );
             }
         }

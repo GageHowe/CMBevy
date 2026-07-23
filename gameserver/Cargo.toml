@@ -10,12 +10,9 @@ workspace = true
 [dependencies]
 common = { path = "../crates/common" }
 physics = { path = "../crates/physics" }
-net = { path = "../crates/net", features = ["server"] }
 gameplay = { path = "../crates/gameplay" }
-scripting = { path = "../crates/scripting" }
 master_plugin = { path = "../crates/master_plugin", features = ["server"] }
 bevy = { workspace = true, features = ["bevy_log", "multi_threaded", "std"] }
-session = { path = "../crates/session" }
 http_common = { path = "../crates/http_common" }
 
 [dev-dependencies]

@@ -1,15 +1,15 @@
 use bevy::prelude::*;
 use common::tick::Ticker;
-use gameplay::{
+use crate::{
     lifecycle::spawn_game_object,
     mode::ModeConfig,
     pawn::{Controller, HeldWeaponMap, PlayerRegistry, WeaponSlots},
     *,
 };
-use net::{message::*, quic::*};
+use crate::net::{message::*, quic::*};
 use physics::physics_world::*;
 
-use crate::resources::*;
+use crate::session::resources::*;
 
 pub(super) fn spawn_player(
     conn_id: ConnectionId,
@@ -50,7 +50,7 @@ pub(super) fn spawn_player(
         &MsgType::SpawnCommand(spawn_cmd),
     );
     registry.register_character(conn_id, entity, net_id.clone());
-    gameplay::pawn::send_possess(quic, conn_id, &net_id);
+    crate::pawn::send_possess(quic, conn_id, &net_id);
     eprintln!("GameServer: spawned {kind_debug} for conn {conn_id}");
 }
 
@@ -79,7 +79,7 @@ pub(super) fn kill_player(
         .unwrap_or((Vec3::ZERO, Vec3::ZERO));
     for (wid, weapon_entity) in held_weapons {
         held_weapon_map.0.remove(&wid);
-        gameplay::weapon::helpers::place_world_weapon(
+        crate::weapon::helpers::place_world_weapon(
             world,
             weapon_entity,
             drop_pos,
@@ -102,7 +102,7 @@ pub fn broadcast_tick(
     tick: Res<Ticker>,
     world: Res<PhysicsWorld>,
     query: Query<(&NetworkID, &RigidBodyHandleComponent)>,
-    mut biped_looks: Query<(&NetworkID, &mut gameplay::pawn::biped::BipedPawnComponent)>,
+    mut biped_looks: Query<(&NetworkID, &mut crate::pawn::biped::BipedPawnComponent)>,
     registry: Res<PlayerRegistry>,
     last_input_seq: Res<LastProcessedInputSeq>,
     mut history: ResMut<BodyHistory>,
@@ -119,7 +119,7 @@ pub fn broadcast_tick(
             &MsgType::State(state_for_client),
         );
     }
-    gameplay::pawn::broadcast_dirty_look_updates(&mut quic, &mut biped_looks);
+    crate::pawn::broadcast_dirty_look_updates(&mut quic, &mut biped_looks);
 }
 
 /// Broadcasts a compact scoreboard snapshot at a lower frequency than the main physics tick.
@@ -128,8 +128,8 @@ pub fn broadcast_scoreboard(
     tick: Res<Ticker>,
     registry: Res<PlayerRegistry>,
     teams_q: Query<&Team>,
-    player_numbers: Res<gameplay::mode::PlayerNumbers>,
-    team_numbers: Res<gameplay::mode::TeamNumbers>,
+    player_numbers: Res<crate::mode::PlayerNumbers>,
+    team_numbers: Res<crate::mode::TeamNumbers>,
     mode: Option<Res<ModeConfig>>,
 ) {
     if tick.tick % 15 != 0 {

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::{ecs::system::SystemState, prelude::*};
 use common::slow_update::{SEMI_SLOW_UPDATE_FREQUENCY, SemiSlowUpdate, SlowUpdate};
-use net::{
+use crate::net::{
     message::MsgType,
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };

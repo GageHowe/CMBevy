@@ -2,26 +2,26 @@ use bevy::prelude::*;
 use common::game_state::GameState;
 
 #[cfg(feature = "client")]
-use crate::resources::{LastServerState, PendingReconciliation};
+use crate::session::resources::{LastServerState, PendingReconciliation};
 #[cfg(feature = "client")]
-pub use crate::runtime_client::{ClientSessionPlugin, cleanup_world};
+pub use crate::session::runtime_client::{ClientSessionPlugin, cleanup_world};
 #[cfg(feature = "client")]
-pub(crate) use crate::runtime_client::{ClientSessionState, handle_file_data, handle_map_hash};
+pub(crate) use crate::session::runtime_client::{ClientSessionState, handle_file_data, handle_map_hash};
 #[cfg(not(feature = "client"))]
-pub use crate::runtime_server::ServerSessionPlugin;
+pub use crate::session::runtime_server::ServerSessionPlugin;
 
 pub(crate) fn configure_authority_sets(app: &mut App) {
     app.configure_sets(
         FixedUpdate,
-        gameplay::AuthoritySystems.run_if(has_authority),
+        crate::AuthoritySystems.run_if(has_authority),
     )
     .configure_sets(
         common::slow_update::SlowUpdate,
-        gameplay::AuthoritySystems.run_if(has_authority),
+        crate::AuthoritySystems.run_if(has_authority),
     )
     .configure_sets(
         common::slow_update::SemiSlowUpdate,
-        gameplay::AuthoritySystems.run_if(has_authority),
+        crate::AuthoritySystems.run_if(has_authority),
     );
 }
 

@@ -1,12 +1,12 @@
 use bevy::{prelude::*, state::state::FreelyMutableState};
 use common::tick::{NetworkStats, Ticker};
-use gameplay::{
+use crate::{
     NetworkEntityMap,
     pawn::{Possessed, WeaponSlots, biped::BipedPawnComponent},
     projectile::{self, ProjectileTempId},
     weapon::helpers as weapon_helpers,
 };
-use net::{
+use crate::net::{
     message::{MsgType, NetworkID},
     quic::QuicManager,
 };
@@ -40,9 +40,9 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
         Query<Entity, With<Camera3d>>,
         Query<(Entity, &'static ProjectileTempId)>,
         ResMut<projectile::PredictedProjectileMap>,
-        Query<&'static gameplay::interaction::InteractionName>,
-        Query<&'static gameplay::pawn::Mounted>,
-        Query<&'static gameplay::pawn::CharacterMount>,
+        Query<&'static crate::interaction::InteractionName>,
+        Query<&'static crate::pawn::Mounted>,
+        Query<&'static crate::pawn::CharacterMount>,
         Query<&'static Transform>,
         ResMut<PendingWeaponPickups>,
     ),
@@ -76,7 +76,7 @@ pub(crate) fn on_message<S: States + FreelyMutableState + Copy>(
     ) = world_params;
     let mut just_spawned: JustSpawned = Default::default();
     let mut local_net_id: Option<NetworkID> = possessed_q.single().ok().map(|(_, nid)| nid.clone());
-    crate::helpers::drain_inbound(&mut quic, |msg, quic| {
+    crate::session::helpers::drain_inbound(&mut quic, |msg, quic| {
         net_stats.last_packet_bytes = msg.packet_size;
         process_client_message(
             msg.msg,
@@ -126,9 +126,9 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
     camera: &Query<Entity, With<Camera3d>>,
     projectile_q: &Query<(Entity, &'static ProjectileTempId)>,
     predicted_projectiles: &mut projectile::PredictedProjectileMap,
-    interaction_names: &Query<&'static gameplay::interaction::InteractionName>,
-    mounted: &Query<&'static gameplay::pawn::Mounted>,
-    mounts: &Query<&'static gameplay::pawn::CharacterMount>,
+    interaction_names: &Query<&'static crate::interaction::InteractionName>,
+    mounted: &Query<&'static crate::pawn::Mounted>,
+    mounts: &Query<&'static crate::pawn::CharacterMount>,
     mount_anchor_transforms: &Query<&'static Transform>,
     pending_weapon_pickups: &mut PendingWeaponPickups,
     ticker: &mut Ticker,
@@ -147,7 +147,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
     match msg {
         MsgType::Connected => {}
         MsgType::MapHash(hash) => handle_map_hash(hash, quic, commands),
-        MsgType::SpawnCommand(cmd) => gameplay::lifecycle::apply_spawn_command(
+        MsgType::SpawnCommand(cmd) => crate::lifecycle::apply_spawn_command(
             commands,
             networked,
             just_spawned,
@@ -163,7 +163,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             {
                 local_character.0 = Some(net_id.clone());
             }
-            gameplay::lifecycle::apply_possess(
+            crate::lifecycle::apply_possess(
                 net_id,
                 local_net_id,
                 just_spawned,
@@ -174,7 +174,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             );
         }
         MsgType::MountState(biped_net_id, parent_net_id) => {
-            gameplay::pawn::mount::apply_mount_state(
+            crate::pawn::mount::apply_mount_state(
                 &biped_net_id,
                 parent_net_id.as_ref(),
                 local_net_id.as_ref(),
@@ -188,7 +188,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 world,
             )
         }
-        MsgType::DespawnCommand(net_id) => gameplay::lifecycle::apply_despawn(
+        MsgType::DespawnCommand(net_id) => crate::lifecycle::apply_despawn(
             &net_id,
             local_net_id,
             networked,
@@ -197,7 +197,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             commands,
         ),
         MsgType::Disconnected => {
-            gameplay::messages::push(commands, "Disconnected.");
+            crate::session::messages::push(commands, "Disconnected.");
             next_state.set(config.main_menu);
         }
         MsgType::WeaponPickup(weapon_id, carrier_net_id) => {
@@ -215,7 +215,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 pending_weapon_pickups.0.push((weapon_id, carrier_net_id));
             }
         }
-        MsgType::PawnLook(net_id, yaw, pitch) => gameplay::pawn::apply_remote_pawn_look(
+        MsgType::PawnLook(net_id, yaw, pitch) => crate::pawn::apply_remote_pawn_look(
             &net_id,
             yaw,
             pitch,
@@ -224,7 +224,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             &mut biped_q.p2(),
         ),
         MsgType::AbilityState(owner_net_id, ability) => {
-            gameplay::pawn::biped_ability::apply_state_message(
+            crate::pawn::biped_ability::apply_state_message(
                 &owner_net_id,
                 ability,
                 local_net_id.as_ref(),
@@ -244,14 +244,14 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             world,
         ),
         MsgType::StartBeamCharge(weapon_net_id) => commands.queue(move |world: &mut World| {
-            gameplay::weapon::beamer::apply_remote_start_charge(world, weapon_net_id);
+            crate::weapon::beamer::apply_remote_start_charge(world, weapon_net_id);
         }),
         MsgType::StartBeam {
             weapon: weapon_net_id,
             origin,
             dir,
         } => commands.queue(move |world: &mut World| {
-            gameplay::weapon::beamer::apply_remote_start_beam(world, weapon_net_id, origin, dir);
+            crate::weapon::beamer::apply_remote_start_beam(world, weapon_net_id, origin, dir);
         }),
         MsgType::BeamHitReport {
             weapon: weapon_net_id,
@@ -259,10 +259,10 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             dir,
             ..
         } => commands.queue(move |world: &mut World| {
-            gameplay::weapon::beamer::apply_remote_beam_report(world, weapon_net_id, origin, dir);
+            crate::weapon::beamer::apply_remote_beam_report(world, weapon_net_id, origin, dir);
         }),
         MsgType::EndBeam(weapon_net_id) => commands.queue(move |world: &mut World| {
-            gameplay::weapon::beamer::apply_remote_end_beam(world, weapon_net_id);
+            crate::weapon::beamer::apply_remote_end_beam(world, weapon_net_id);
         }),
         MsgType::HitResult(_, _, _) => {}
         MsgType::ProjectileConfirm { temp_id, net_id } => projectile::confirm_projectile(
@@ -279,7 +279,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             starting_velocity,
             shooter_velocity,
         } => commands.queue(move |world: &mut World| {
-            gameplay::weapon::spawn_remote_projectile(
+            crate::weapon::spawn_remote_projectile(
                 &weapon,
                 net_id,
                 position,
@@ -305,7 +305,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 return;
             };
             commands.queue(move |world: &mut World| {
-                gameplay::weapon::apply_weapon_state_world(entity, weapon_state, world);
+                crate::weapon::apply_weapon_state_world(entity, weapon_state, world);
             });
         }
         MsgType::Health(
@@ -326,7 +326,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
                 return;
             };
             commands.queue(move |world: &mut World| {
-                gameplay::health::apply_health(
+                crate::health::apply_health(
                     entity,
                     current,
                     max,
@@ -344,7 +344,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             gui.push_log(format!("pong: {text}"));
         }
         MsgType::ChatMessage(sender, text) => gui.push_log(format!("[{sender}] {text}")),
-        MsgType::OnscreenMessage(text) => gameplay::messages::push(commands, text),
+        MsgType::OnscreenMessage(text) => crate::session::messages::push(commands, text),
         MsgType::TimePong(bits) => net_stats.record_pong(bits, time.elapsed_secs_f64()),
         MsgType::State(st) => {
             if last_server_state
@@ -358,7 +358,7 @@ fn process_client_message<S: States + FreelyMutableState + Copy>(
             }
         }
         MsgType::FileData(name, compressed) => handle_file_data(name, compressed, commands),
-        MsgType::AbilityFx(net_id, fx) => gameplay::pawn::biped_ability::queue_remote_fx(
+        MsgType::AbilityFx(net_id, fx) => crate::pawn::biped_ability::queue_remote_fx(
             &net_id,
             fx,
             local_net_id.as_ref(),
@@ -380,7 +380,7 @@ pub(crate) fn retry_weapon_pickups(
         Query<&BipedPawnComponent>,
         Query<&mut BipedPawnComponent>,
     )>,
-    interaction_names: Query<&gameplay::interaction::InteractionName>,
+    interaction_names: Query<&crate::interaction::InteractionName>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
 ) {

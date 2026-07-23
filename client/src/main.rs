@@ -42,7 +42,7 @@ use master_plugin::{MasterPlugin, register_asset_pak};
 use menu::MenuPlugin;
 use outline::OutlinePlugin;
 use physics::physics_world::{step_physics, sync_physics_visual};
-use session::*;
+use gameplay::session::*;
 use settings::{Settings, SettingsPlugin};
 use steam::SteamworksPlugin;
 // use gameplay::pawn::biped::draw_biped_debug; // don't do debug for bipeds for now

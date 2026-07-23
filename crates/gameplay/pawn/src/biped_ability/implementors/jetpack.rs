@@ -15,7 +15,7 @@ pub const JETPACK: AbilitySpec = AbilitySpec {
     apply: apply_jetpack_input,
 };
 
-pub fn spawn_jetpack(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_jetpack(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     spawn_jetpack_pickup(
         entity,
         cmd.position_or_zero(),

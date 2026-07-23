@@ -8,6 +8,7 @@ path = "src/lib.rs"
 
 [features]
 client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:particles_plugin", "dep:noise-functions"]
+server = []
 
 [lints]
 workspace = true
@@ -15,9 +16,10 @@ workspace = true
 [dependencies]
 audio = { path = "../audio" }
 common = { path = "../common" }
+http_common = { path = "../http_common" }
 physics = { path = "../physics" }
-net = { path = "../net" }
 bevy = { workspace = true, features = ["https", "scene", "serialize", "std", "multi_threaded"] }
+bytes = { workspace = true }
 rapier3d = { workspace = true }
 bitflags = { workspace = true }
 bevy_egui = { workspace = true, optional = true }
@@ -26,6 +28,11 @@ postcard = { workspace = true }
 mlua = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
+quinn = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+ureq = { workspace = true }
 ron = { workspace = true }
 zstd = { workspace = true }
 fastrand = { workspace = true }

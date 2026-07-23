@@ -54,7 +54,7 @@ pub fn debug_panel(
             }
             ui.label(format!(
                 "packet: {}",
-                net::format_packet_size(net_stats.last_packet_bytes)
+                gameplay::net::format_packet_size(net_stats.last_packet_bytes)
             ));
             if let Ok((auto_exposure, hdr)) = camera_q.single() {
                 let mode = if auto_exposure { "auto" } else { "manual" };

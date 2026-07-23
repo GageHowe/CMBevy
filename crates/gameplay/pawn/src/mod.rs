@@ -20,7 +20,7 @@ use common::LocalControl;
 pub use common::{BipedInput, PawnInput};
 pub use hovercraft::HovercraftPawnComponent;
 pub use mount::{CharacterMount, Mounted};
-use net::{
+use crate::net::{
     message::{MsgType, NetworkID},
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
@@ -95,7 +95,7 @@ pub fn send_possess(quic: &mut QuicManager, conn_id: ConnectionId, net_id: &Netw
     quic.send(
         SendTarget::One(conn_id),
         Channel::Ordered,
-        &net::message::MsgType::Possess(net_id.clone()),
+        &crate::net::message::MsgType::Possess(net_id.clone()),
     );
 }
 
@@ -108,7 +108,7 @@ pub fn send_mount_state(
     quic.send(
         target,
         Channel::Ordered,
-        &net::message::MsgType::MountState(biped_net_id.clone(), parent_net_id.cloned()),
+        &crate::net::message::MsgType::MountState(biped_net_id.clone(), parent_net_id.cloned()),
     );
 }
 
@@ -392,7 +392,7 @@ fn apply_local_control(mut control: ResMut<LocalControl>, mut pawns: Query<&mut 
 /// Register in client/main.rs after GatherInputSet, before MovePawnsSet, gated on multiplayer.
 #[cfg(feature = "client")]
 pub fn send_pawn_input(
-    quic: Option<ResMut<net::quic::QuicManager>>,
+    quic: Option<ResMut<crate::net::quic::QuicManager>>,
     mut control: ResMut<LocalControl>,
 ) {
     let Some(mut quic) = quic else { return };
@@ -400,7 +400,7 @@ pub fn send_pawn_input(
         return;
     };
     quic.send_to_server(
-        net::quic::Channel::Unreliable,
+        crate::net::quic::Channel::Unreliable,
         &MsgType::Input(seq, input.clone()),
     );
     if input.item.primary_pressed
@@ -410,7 +410,7 @@ pub fn send_pawn_input(
         || input.melee_pressed
     {
         quic.send_to_server(
-            net::quic::Channel::Unordered, // shouldnt this be unreliable? it'll be way too late if resent
+            crate::net::quic::Channel::Unordered, // shouldnt this be unreliable? it'll be way too late if resent
             &MsgType::Input(seq, input.clone()),
         );
     }

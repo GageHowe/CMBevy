@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use common::{LocalControl, PredictedImpulses};
 #[cfg(feature = "client")]
 use common::game_state::GameState;
-use net::message::*;
+use crate::net::message::*;
 use physics::{
     collider_flags::{ColliderFlags, collider_flags},
     physics_world::*,

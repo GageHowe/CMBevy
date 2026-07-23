@@ -5,7 +5,7 @@ use bevy::{app::AppExit, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use common::{config::CRITICAL_MASS_VERSION, InputAction};
 use http_common::{LobbyInfo, RegisterRequest};
-use session::{ServerAddr, SinglePlayerConfig};
+use gameplay::session::{ServerAddr, SinglePlayerConfig};
 
 use crate::{
     hosting::{

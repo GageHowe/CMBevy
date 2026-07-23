@@ -18,7 +18,7 @@ use physics::physics_world::{
     restore_snapshot, snapshot_body_handles,
 };
 use rapier3d::prelude::{RigidBodyHandle, Vector};
-use session::PendingReconciliation;
+use gameplay::session::PendingReconciliation;
 
 #[derive(Clone, Copy)]
 struct BipedReplayState {

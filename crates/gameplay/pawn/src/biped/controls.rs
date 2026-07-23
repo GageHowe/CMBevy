@@ -239,7 +239,7 @@ fn switch_weapon_slot(
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
     state: Res<State<common::game_state::GameState>>,
-    mut quic: ResMut<net::quic::QuicManager>,
+    mut quic: ResMut<crate::net::quic::QuicManager>,
 ) {
     if scroll.delta.y == 0.0 || egui_wants_input.map_or(false, |e| e.wants_any_input()) {
         return;
@@ -265,8 +265,8 @@ fn switch_weapon_slot(
         && old_active_primary != slots.active_primary()
     {
         quic.send_to_server(
-            net::quic::Channel::Ordered,
-            &net::message::MsgType::SetActiveWeaponSlot(slots.active_primary()),
+            crate::net::quic::Channel::Ordered,
+            &crate::net::message::MsgType::SetActiveWeaponSlot(slots.active_primary()),
         );
     }
 }
@@ -504,7 +504,7 @@ enum InteractTarget {
     Mount(Entity),
     Entity {
         hit_entity: Entity,
-        net_id: Option<net::message::NetworkID>,
+        net_id: Option<crate::net::message::NetworkID>,
     },
 }
 
@@ -514,7 +514,7 @@ struct InteractWorldParams<'w, 's> {
         'w,
         's,
         (
-            Option<&'static net::message::NetworkID>,
+            Option<&'static crate::net::message::NetworkID>,
             &'static crate::interaction::Interactable,
         ),
         With<crate::interaction::Interactable>,
@@ -522,7 +522,7 @@ struct InteractWorldParams<'w, 's> {
     possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Possessed>>,
     weapon_states: Query<'w, 's, &'static mut crate::weapon::WeaponState>,
     camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
-    mount_net_ids: Query<'w, 's, &'static net::message::NetworkID, With<CharacterMount>>,
+    mount_net_ids: Query<'w, 's, &'static crate::net::message::NetworkID, With<CharacterMount>>,
     interaction_names: Query<'w, 's, &'static InteractionName>,
     ability_pickups: Query<'w, 's, &'static crate::pawn::biped_ability::AbilityPickup>,
     mounts: ParamSet<
@@ -549,7 +549,7 @@ fn current_interact_target(
     world: &PhysicsWorld,
     interactables: &Query<
         (
-            Option<&net::message::NetworkID>,
+            Option<&crate::net::message::NetworkID>,
             &crate::interaction::Interactable,
         ),
         With<crate::interaction::Interactable>,
@@ -619,7 +619,7 @@ fn update_interaction_hint(
     prompt_device: Option<Res<common::PromptDevicePreference>>,
     interactables: Query<
         (
-            Option<&net::message::NetworkID>,
+            Option<&crate::net::message::NetworkID>,
             &crate::interaction::Interactable,
         ),
         With<crate::interaction::Interactable>,
@@ -702,7 +702,7 @@ fn interact(
     >,
     mut world: ResMut<PhysicsWorld>,
     mut sp: InteractWorldParams,
-    mut quic: ResMut<net::quic::QuicManager>,
+    mut quic: ResMut<crate::net::quic::QuicManager>,
 ) {
     use common::game_state::GameState;
     let blocked = egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
@@ -774,8 +774,8 @@ fn interact(
                     return;
                 };
                 quic.send_to_server(
-                    net::quic::Channel::Ordered,
-                    &net::message::MsgType::Interact(parent_net_id.clone()),
+                    crate::net::quic::Channel::Ordered,
+                    &crate::net::message::MsgType::Interact(parent_net_id.clone()),
                 );
             }
             _ => {}
@@ -802,8 +802,8 @@ fn interact(
                     GameState::Multiplayer => {
                         if let Some(interact_net_id) = interact_net_id {
                             quic.send_to_server(
-                                net::quic::Channel::Ordered,
-                                &net::message::MsgType::Interact(interact_net_id),
+                                crate::net::quic::Channel::Ordered,
+                                &crate::net::message::MsgType::Interact(interact_net_id),
                             );
                         }
                     }
@@ -841,8 +841,8 @@ fn interact(
                 GameState::Multiplayer => {
                     if let Some(interact_net_id) = interact_net_id {
                         quic.send_to_server(
-                            net::quic::Channel::Ordered,
-                            &net::message::MsgType::Interact(interact_net_id),
+                            crate::net::quic::Channel::Ordered,
+                            &crate::net::message::MsgType::Interact(interact_net_id),
                         );
                     }
                 }
@@ -866,7 +866,7 @@ fn drop_active_weapon(
     mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
-    mut quic: ResMut<net::quic::QuicManager>,
+    mut quic: ResMut<crate::net::quic::QuicManager>,
     mut drop_pressed: Local<bool>,
 ) {
     use common::game_state::GameState;
@@ -896,8 +896,8 @@ fn drop_active_weapon(
             };
             let (_, rot, _) = pivot_gt.to_scale_rotation_translation();
             quic.send_to_server(
-                net::quic::Channel::Ordered,
-                &net::message::MsgType::DropWeapon(rot * Vec3::NEG_Z),
+                crate::net::quic::Channel::Ordered,
+                &crate::net::message::MsgType::DropWeapon(rot * Vec3::NEG_Z),
             );
         }
         GameState::SinglePlayer => {

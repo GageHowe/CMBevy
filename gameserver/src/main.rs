@@ -11,7 +11,7 @@ use bevy::{
 use http_common::RegisterRequest;
 use master_plugin::{MasterPlugin, register_asset_pak};
 use physics::physics_world::*;
-use session::ServerSessionPlugin;
+use gameplay::session::ServerSessionPlugin;
 
 fn parse_args() -> io::Result<(SocketAddr, String, String, Option<RegisterRequest>)> {
     let mut addr = common::config::SERVER_BIND_ADDRESS.to_string();
@@ -149,7 +149,7 @@ fn main() {
         });
 
     app.add_plugins(MasterPlugin);
-    app.add_systems(FixedPreUpdate, session::on_message);
+    app.add_systems(FixedPreUpdate, gameplay::session::on_message);
     app.add_systems(
         FixedUpdate,
         (step_physics, sync_physics_to_transforms).chain(),

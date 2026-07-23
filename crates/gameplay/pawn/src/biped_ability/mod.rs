@@ -2,11 +2,11 @@
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
 #[cfg(feature = "client")]
-use net::message::NetworkID;
+use crate::net::message::NetworkID;
 #[cfg(feature = "client")]
-use net::quic::{Channel, QuicManager};
+use crate::net::quic::{Channel, QuicManager};
 #[cfg(not(feature = "client"))]
-use net::{
+use crate::net::{
     message::NetworkID,
     quic::{Channel, QuicManager, SendTarget},
 };
@@ -25,7 +25,7 @@ pub use fx::fx_channel;
 use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
 #[cfg(feature = "client")]
 pub use fx::{queue_fx, queue_remote_fx};
-pub use net::message::AbilityFx;
+pub use crate::net::message::AbilityFx;
 
 pub struct BipedAbilityPlugin;
 impl Plugin for BipedAbilityPlugin {
@@ -94,7 +94,7 @@ impl EquippedAbility {
                 .map(|mut r| NetworkID(r.next()))
             {
                 let entity = world.spawn_empty().id();
-                let cmd = net::message::SpawnCommand::new(
+                let cmd = crate::net::message::SpawnCommand::new(
                     net_id,
                     self.spec.spawn_name,
                     world.resource::<common::tick::Ticker>().tick,
@@ -111,7 +111,7 @@ impl EquippedAbility {
                     quic.send(
                         SendTarget::All,
                         Channel::Ordered,
-                        &net::message::MsgType::SpawnCommand(cmd),
+                        &crate::net::message::MsgType::SpawnCommand(cmd),
                     );
                 }
                 return;
@@ -163,11 +163,11 @@ fn simulate_abilities(
             let target = registry
                 .as_deref()
                 .and_then(|registry| registry.conn_id_for_character(entity))
-                .map_or(net::quic::SendTarget::All, net::quic::SendTarget::AllExcept);
+                .map_or(crate::net::quic::SendTarget::All, crate::net::quic::SendTarget::AllExcept);
             quic.send(
                 target,
                 fx_channel(fx),
-                &net::message::MsgType::AbilityFx(net_id.clone(), fx),
+                &crate::net::message::MsgType::AbilityFx(net_id.clone(), fx),
             );
         }
         #[cfg(feature = "client")]
@@ -285,7 +285,7 @@ fn sync_ability_state(owner: Entity, world: &mut World) {
             quic.send(
                 SendTarget::One(conn_id),
                 Channel::Ordered,
-                &net::message::MsgType::AbilityState(net_id, ability),
+                &crate::net::message::MsgType::AbilityState(net_id, ability),
             );
         }
     }
@@ -339,7 +339,7 @@ pub fn interact_pickup(
 }
 
 pub fn handle_drop_request(
-    conn_id: net::quic::ConnectionId,
+    conn_id: crate::net::quic::ConnectionId,
     registry: &crate::pawn::PlayerRegistry,
     commands: &mut Commands,
     drop_dir: Vec3,
@@ -471,7 +471,7 @@ fn drop_active_ability_input(
         {
             quic.send_to_server(
                 Channel::Ordered,
-                &net::message::MsgType::DropAbility(aim_dir),
+                &crate::net::message::MsgType::DropAbility(aim_dir),
             );
         } else {
             commands.queue(DropActiveAbility {

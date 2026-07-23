@@ -3,8 +3,8 @@
 use bevy::prelude::*;
 pub use common::WeaponState;
 #[cfg(feature = "client")]
-use net::message::WeaponState as NetWeaponState;
-use net::{
+use crate::net::message::WeaponState as NetWeaponState;
+use crate::net::{
     message::NetworkID,
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
@@ -85,7 +85,7 @@ fn drive_authoritative_projectiles(
     mut weapon_runtime: Query<(&mut WeaponState, &WeaponConfig)>,
     mut commands: Commands,
     mut world: ResMut<PhysicsWorld>,
-    mut net_ids: ResMut<net::message::NetworkIDResource>,
+    mut net_ids: ResMut<crate::net::message::NetworkIDResource>,
     mut quic: ResMut<QuicManager>,
 ) {
     for (weapon_entity, shot, weapon_net_id) in &inputs {
@@ -277,7 +277,7 @@ pub fn send_weapon_state(
     quic.send(
         target,
         Channel::Ordered,
-        &net::message::MsgType::WeaponState(weapon_net_id.clone(), weapon_state),
+        &crate::net::message::MsgType::WeaponState(weapon_net_id.clone(), weapon_state),
     );
 }
 
@@ -412,7 +412,7 @@ pub fn fire_held_weapon(
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
-    net_ids: &mut net::message::NetworkIDResource,
+    net_ids: &mut crate::net::message::NetworkIDResource,
     consume_ammo: bool,
 ) -> Option<FiredHeldWeapon> {
     let Ok(slots) = pawn_slots.get_mut(shooter_entity) else {
@@ -472,7 +472,7 @@ pub fn fire_authoritative_with_replication(
     weapon_runtime: &mut Query<(&mut WeaponState, &WeaponConfig)>,
     commands: &mut Commands,
     world: &mut PhysicsWorld,
-    net_ids: &mut net::message::NetworkIDResource,
+    net_ids: &mut crate::net::message::NetworkIDResource,
     quic: Option<&mut QuicManager>,
     owner_conn: Option<ConnectionId>,
     consume_ammo: bool,
@@ -502,7 +502,7 @@ pub fn fire_authoritative_with_replication(
             quic.send(
                 SendTarget::AllExcept(conn_id),
                 Channel::Unordered,
-                &net::message::MsgType::ProjectileSpawn {
+                &crate::net::message::MsgType::ProjectileSpawn {
                     weapon: weapon_net_id.clone(),
                     net_id: fired.fired.net_id.clone(),
                     position: fired.fired.position,
@@ -514,7 +514,7 @@ pub fn fire_authoritative_with_replication(
                 quic.send(
                     SendTarget::One(conn_id),
                     Channel::Ordered,
-                    &net::message::MsgType::ProjectileConfirm {
+                    &crate::net::message::MsgType::ProjectileConfirm {
                         temp_id,
                         net_id: fired.fired.net_id,
                     },
@@ -524,7 +524,7 @@ pub fn fire_authoritative_with_replication(
         None => quic.send(
             SendTarget::All,
             Channel::Unordered,
-            &net::message::MsgType::ProjectileSpawn {
+            &crate::net::message::MsgType::ProjectileSpawn {
                 weapon: weapon_net_id.clone(),
                 net_id: fired.fired.net_id,
                 position: fired.fired.position,

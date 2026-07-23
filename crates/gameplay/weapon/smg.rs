@@ -55,7 +55,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     }),
 };
 
-pub fn spawn_smg(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_smg(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     let weapon = weapon_bundle(SmgComponent, CONFIG);
     helpers::insert_generic_weapon(
         entity,

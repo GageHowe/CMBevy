@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use common::{LeaderboardScope, ScoringOption};
-use net::message::ScoreboardEntry;
-use session::{GuiState, LocalCharacterNetId};
+use gameplay::net::message::ScoreboardEntry;
+use gameplay::session::{GuiState, LocalCharacterNetId};
 
 pub fn gui_scoreboard(
     mut contexts: EguiContexts,

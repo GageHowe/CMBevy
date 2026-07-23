@@ -15,7 +15,7 @@ pub const DASH: AbilitySpec = AbilitySpec {
     apply: apply_dash_input,
 };
 
-pub fn spawn_dash(entity: Entity, cmd: &net::message::SpawnCommand, world: &mut World) {
+pub fn spawn_dash(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
     spawn_dash_pickup(
         entity,
         cmd.position_or_zero(),

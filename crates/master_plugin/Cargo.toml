@@ -7,14 +7,12 @@ edition = "2024"
 workspace = true
 
 [features]
-client = ["net/client", "scripting/client"]
-server = ["net/server"]
+client = ["gameplay/client"]
+server = ["gameplay/server"]
 
 [dependencies]
 asset_pak = { path = "../asset_pak", features = ["bevy_reader"] }
 gameplay = { path = "../gameplay" }
-scripting = { path = "../scripting" }
 common = { path = "../common" }
 physics = { path = "../physics" }
-net = { path = "../net" }
 bevy = { workspace = true, features = ["std", "multi_threaded"] }

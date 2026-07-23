@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use common::{ActiveBindings, InputAction, active_gamepad};
-use net::{
+use gameplay::net::{
     message::MsgType,
     quic::{Channel, QuicManager},
 };
-use session::GuiState;
+use gameplay::session::GuiState;
 
 use crate::steam::SteamClient;
 

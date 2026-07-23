@@ -3,7 +3,7 @@ use bevy::{
     prelude::*,
 };
 use common::{LeaderboardScope, ScoringOption};
-use gameplay::{
+use crate::{
     SpawnGameObjectCommand,
     health::Health,
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
@@ -11,11 +11,11 @@ use gameplay::{
     pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry, Possessed},
 };
 use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
-use net::{message::*, quic::*};
+use crate::net::{message::*, quic::*};
 use physics::physics_world::*;
-use scripting::{ScriptConfig, get_script_global};
+use crate::scripting::{ScriptConfig, get_script_global};
 
-use crate::{
+use crate::session::{
     messages_server::apply_melee_hit_requests,
     replication::{broadcast_scoreboard, broadcast_tick, spawn_player},
     resources::*,
@@ -52,7 +52,7 @@ impl Plugin for ServerSessionPlugin {
         let bind_addr = self.bind_addr;
         let map_path = self.map_path.clone();
         let gametype_path = self.gametype_path.clone();
-        crate::runtime::configure_authority_sets(app);
+        crate::session::runtime::configure_authority_sets(app);
         app.insert_resource(ScriptConfig {
             path: gametype_path.clone(),
             is_server: true,
@@ -84,8 +84,8 @@ impl Plugin for ServerSessionPlugin {
         .add_systems(
             FixedPreUpdate,
             (
-                apply_inputs.before(gameplay::pawn::MovePawnsSet),
-                gameplay::bot::run_bots.before(gameplay::pawn::MovePawnsSet),
+                apply_inputs.before(crate::pawn::MovePawnsSet),
+                crate::bot::run_bots.before(crate::pawn::MovePawnsSet),
             ),
         )
         .add_systems(
@@ -96,20 +96,21 @@ impl Plugin for ServerSessionPlugin {
         .add_systems(
             FixedUpdate,
             (
-                gameplay::health::broadcast_dirty_health,
-                gameplay::weapon::broadcast_dirty_weapon_states,
+                crate::health::broadcast_dirty_health,
+                crate::weapon::broadcast_dirty_weapon_states,
             )
-                .after(gameplay::health::handle_deaths)
+                .after(crate::health::handle_deaths)
                 .before(broadcast_tick),
         )
         .add_systems(FixedUpdate, broadcast_scoreboard.before(broadcast_tick))
         .add_systems(
             FixedUpdate,
-            broadcast_tick.after(gameplay::health::handle_deaths),
+            broadcast_tick.after(crate::health::handle_deaths),
         )
         .add_systems(
             FixedPreUpdate,
-            crate::messages_server::flush_pending_connections.after(crate::on_message),
+            crate::session::messages_server::flush_pending_connections
+                .after(crate::session::on_message),
         );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobby {
@@ -220,7 +221,7 @@ fn load_server_level(level_path: &str, commands: &mut Commands) {
             commands.insert_resource(level);
         }
         Err(err) => {
-            gameplay::messages::push(commands, err);
+            crate::messages::push(commands, err);
         }
     }
 }
@@ -300,7 +301,7 @@ fn tick_respawns(
         .collect();
     for (conn_id, kind, team) in ready {
         pending.0.remove(&conn_id);
-        let Some((sp, sr, sv)) = gameplay::lifecycle::pick_spawn_point_with_velocity(
+        let Some((sp, sr, sv)) = crate::lifecycle::pick_spawn_point_with_velocity(
             &spawn_points,
             &parent_transforms,
             &parent_parents,
@@ -381,7 +382,7 @@ fn process_console_commands(
             }
             "bot" => {
                 let team = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
-                if let Some((pos, rot, vel)) = gameplay::lifecycle::pick_spawn_point_with_velocity(
+                if let Some((pos, rot, vel)) = crate::lifecycle::pick_spawn_point_with_velocity(
                     &spawn_points,
                     &parent_transforms,
                     &parent_parents,
@@ -390,7 +391,7 @@ fn process_console_commands(
                     team,
                     tick.tick as usize,
                 ) {
-                    let (entity, _, spawn_cmd) = gameplay::lifecycle::spawn_game_object(
+                    let (entity, _, spawn_cmd) = crate::lifecycle::spawn_game_object(
                         "biped",
                         Some(pos),
                         Some(rot),
@@ -403,9 +404,9 @@ fn process_console_commands(
                     commands.entity(entity).insert((
                         Team(team),
                         Possessed::new(128),
-                        gameplay::bot::BotController::new(
+                        crate::bot::BotController::new(
                             Team(team),
-                            gameplay::bot::HeuristicKillerBot,
+                            crate::bot::HeuristicKillerBot,
                         ),
                     ));
                     quic.send(
@@ -508,7 +509,7 @@ fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Team, Vec3, Q
         .enumerate()
         .filter_map(|(index, conn_id)| {
             let team = (index % num_teams) as u8;
-            gameplay::lifecycle::pick_spawn_point_with_velocity(
+            crate::lifecycle::pick_spawn_point_with_velocity(
                 &spawn_points,
                 &parent_transforms,
                 &parent_parents,
@@ -535,8 +536,8 @@ fn reset_existing_player(
     spawn_vel: Vec3,
 ) {
     if let Some(mounted) = world.get::<Mounted>(character_entity).copied() {
-        let _ = gameplay::pawn::mount::handle_mount_parent_death(mounted.0, world);
-        gameplay::pawn::send_mount_state(
+        let _ = crate::pawn::mount::handle_mount_parent_death(mounted.0, world);
+        crate::pawn::send_mount_state(
             &mut world.resource_mut::<QuicManager>(),
             SendTarget::All,
             &character_net_id,
@@ -563,7 +564,7 @@ fn reset_existing_player(
         );
     }
     if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-        gameplay::pawn::possess_pawn(conn_id, &character_net_id, &mut quic);
+        crate::pawn::possess_pawn(conn_id, &character_net_id, &mut quic);
     }
 }
 
@@ -619,7 +620,7 @@ fn spawn_restarted_player(
             return;
         };
         registry.register_character(conn_id, entity, net_id.clone());
-        gameplay::pawn::send_possess(&mut quic, conn_id, &net_id);
+        crate::pawn::send_possess(&mut quic, conn_id, &net_id);
     });
 }
 
@@ -627,9 +628,9 @@ fn apply_inputs(
     mut pending_inputs: ResMut<PendingInputs>,
     mut last_input_seq: ResMut<LastProcessedInputSeq>,
     ticker: Res<common::tick::Ticker>,
-    weapon_slots: Query<&gameplay::pawn::WeaponSlots>,
+    weapon_slots: Query<&crate::pawn::WeaponSlots>,
     body_handles: Query<&RigidBodyHandleComponent>,
-    networked: Res<gameplay::NetworkEntityMap>,
+    networked: Res<crate::NetworkEntityMap>,
     physics: Res<PhysicsWorld>,
     mut commands: Commands,
     mut controllers: Query<(Entity, &mut Controller)>,
@@ -652,7 +653,7 @@ fn apply_inputs(
                 .is_some_and(|id| id.0 == command_weapon)
             && let Some(weapon) = networked.get(&NetworkID(command_weapon))
             && let Ok(body_handle) = body_handles.get(entity)
-            && let Some((origin, fallback_aim_dir)) = gameplay::pawn::biped::aim_pose(
+            && let Some((origin, fallback_aim_dir)) = crate::pawn::biped::aim_pose(
                 &physics,
                 body_handle,
                 kind.look_yaw,
@@ -667,7 +668,7 @@ fn apply_inputs(
             };
             commands
                 .entity(weapon)
-                .insert(gameplay::weapon::WeaponFireInput {
+                .insert(crate::weapon::WeaponFireInput {
                     want_fire: kind.item.primary,
                     fire_pressed: kind.item.primary_pressed,
                     want_alt_fire: kind.item.secondary,
