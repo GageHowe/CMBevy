@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
-#[cfg(feature = "client")]
-use bevy::light::AmbientLight;
+use bevy::asset::AssetApp;
+#[allow(unused_imports)]
+use bevy::light::{AmbientLight, CascadeShadowConfig, DirectionalLight};
 use bevy::{
+    camera::visibility::Visibility,
+    pbr::{MeshMaterial3d, StandardMaterial},
     prelude::*,
     world_serialization::{
         DynamicWorld, DynamicWorldRoot, WorldAssetRoot, serde::WorldDeserializer,
@@ -30,8 +33,6 @@ use crate::{
     lifecycle::spawn_game_object,
 };
 
-mod preprocess;
-
 // ── plugin ────────────────────────────────────────────────────────────────────
 
 pub struct LevelPlugin;
@@ -48,6 +49,15 @@ impl Plugin for LevelPlugin {
         app.register_type::<ScriptZone>();
         app.register_type::<Spawner>();
         app.register_type::<MapMeta>();
+        app.register_type::<Visibility>();
+        app.register_type::<DirectionalLight>();
+        app.register_type::<CascadeShadowConfig>();
+        app.register_type::<Mesh3d>();
+        app.register_type::<MeshMaterial3d<StandardMaterial>>();
+        app.init_asset::<Mesh>();
+        app.init_asset::<StandardMaterial>();
+        app.register_asset_reflect::<Mesh>();
+        app.register_asset_reflect::<StandardMaterial>();
 
         // maybe we could make these systems observer/trigger-driven or manual
         // rather than on Update? seems wasteful to have them run so often.
@@ -248,8 +258,7 @@ pub fn read_and_compress_level(path: impl AsRef<std::path::Path>) -> Result<Leve
     let path = path.as_ref();
     let raw = std::fs::read(path)
         .map_err(|e| format!("Failed to read level \"{}\": {e}", path.display()))?;
-    let preprocessed = preprocess::preprocess_level_bytes(&raw)?;
-    Ok(compress_level_bytes(&preprocessed))
+    Ok(compress_level_bytes(&raw))
 }
 
 /// Compressed .scn.ron bytes received from the server, pending scene spawn.
@@ -267,14 +276,6 @@ pub fn apply_pending_map_scene(world: &mut World) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("map decompress: {e}");
-            crate::messages::push_world(world, format!("Map load failed: {e}"));
-            return;
-        }
-    };
-    let bytes = match preprocess::preprocess_level_bytes(&bytes) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("map preprocess: {e}");
             crate::messages::push_world(world, format!("Map load failed: {e}"));
             return;
         }

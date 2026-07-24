@@ -9,9 +9,8 @@ use common::config;
 #[cfg(feature = "client")]
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_vel};
 
-/* sound names: hardcoded names for sounds used in multiple places */
-pub const UI_CLICK_EVENT: &str = "event:/UI/Click";
-pub const UI_BACK_EVENT: &str = "event:/UI/Back";
+pub const UI_CLICK_EVENT: &str = "event:/UI/Event";
+pub const UI_BACK_EVENT: &str = "event:/UI/Click";
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]

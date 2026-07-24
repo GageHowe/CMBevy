@@ -12,7 +12,7 @@ common = { path = "../crates/common" }
 physics = { path = "../crates/physics" }
 gameplay = { path = "../crates/gameplay" }
 master_plugin = { path = "../crates/master_plugin", features = ["server"] }
-bevy = { workspace = true, features = ["bevy_log", "multi_threaded", "std"] }
+bevy = { workspace = true, features = ["3d", "bevy_log", "multi_threaded", "std"] }
 http_common = { path = "../crates/http_common" }
 
 [dev-dependencies]

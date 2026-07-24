@@ -17,6 +17,7 @@ fn main() {
     for (src, dst) in runtime_libs(&root, &os) {
         stage_file(&src, &target_dir.join(dst));
     }
+    stage_steam_appid(&target_dir);
     copy_steam_runtime(&target_dir, &os);
 }
 
@@ -98,6 +99,10 @@ fn stage_file(src: &Path, dst: &Path) {
         let _ = std::fs::remove_file(dst);
         let _ = std::fs::copy(src, dst);
     }
+}
+
+fn stage_steam_appid(target_dir: &Path) {
+    let _ = std::fs::write(target_dir.join("steam_appid.txt"), "3526510\n");
 }
 
 fn copy_steam_runtime(target_dir: &Path, os: &str) {

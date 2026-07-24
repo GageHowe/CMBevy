@@ -151,7 +151,7 @@ impl Default for Settings {
             outline_blue: 0.5,
             outline_opacity: 0.03,
             fov: 90.0,
-            physics_interp: PhysicsInterp::Balanced,
+            physics_interp: PhysicsInterp::Interpolate,
             cinematic_mode: false,
             debug_panel: false,
             debug_render: false,
