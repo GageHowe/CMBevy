@@ -32,7 +32,7 @@ pub(super) fn configure(app: &mut App) {
                 interact
                     .run_if(
                         in_state(common::game_state::GameState::SinglePlayer)
-                            .or(in_state(common::game_state::GameState::Multiplayer)),
+                            .or_else(in_state(common::game_state::GameState::Multiplayer)),
                     )
                     .run_if(resource_exists::<ButtonInput<KeyCode>>),
             )

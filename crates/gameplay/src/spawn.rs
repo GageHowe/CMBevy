@@ -107,6 +107,8 @@ pub struct SpawnGameObjectCommand {
     pub cmd: SpawnCommand,
 }
 impl Command for SpawnGameObjectCommand {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         world
             .entity_mut(self.entity)

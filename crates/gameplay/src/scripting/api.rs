@@ -48,7 +48,7 @@ where
 }
 
 pub(crate) fn register_script_functions(world: &mut World) {
-    let Some(runtime) = world.remove_non_send_resource::<ScriptRuntime>() else {
+    let Some(runtime) = world.remove_non_send::<ScriptRuntime>() else {
         return;
     };
 
@@ -452,14 +452,16 @@ pub(crate) fn register_script_functions(world: &mut World) {
             let world = lua_world(lua)?;
             let entity = Entity::from_bits(entity_id as u64);
             let mut state: SystemState<Commands> = SystemState::new(world);
-            let mut commands = state.get_mut(world);
+            let Ok(mut commands) = state.get_mut(world) else {
+                return Ok(());
+            };
             commands.entity(entity).despawn();
             state.apply(world);
             Ok(())
         })
     });
 
-    world.insert_non_send_resource(runtime);
+    world.insert_non_send(runtime);
 }
 
 fn entities_in_zone(world: &mut World, zone_entity: Entity) -> Vec<Entity> {
@@ -470,7 +472,10 @@ fn entities_in_zone(world: &mut World, zone_entity: Entity) -> Vec<Entity> {
         Query<&RigidBodyHandleComponent>,
         Res<PhysicsWorld>,
     )> = SystemState::new(world);
-    let (zones, parent_transforms, parent_parents, parent_bodies, physics) = state.get(world);
+    let Ok((zones, parent_transforms, parent_parents, parent_bodies, physics)) = state.get(world)
+    else {
+        return Vec::new();
+    };
     let Ok((zone, transform, child_of)) = zones.get(zone_entity) else {
         return Vec::new();
     };
@@ -502,8 +507,11 @@ fn pick_script_spawn(world: &mut World, team: u8) -> Option<(Vec3, Quat, Vec3)> 
         Query<&RigidBodyHandleComponent>,
         Res<PhysicsWorld>,
     )> = SystemState::new(world);
-    let (spawn_points, parent_transforms, parent_parents, parent_bodies, physics) =
-        state.get(world);
+    let Ok((spawn_points, parent_transforms, parent_parents, parent_bodies, physics)) =
+        state.get(world)
+    else {
+        return None;
+    };
     crate::lifecycle::pick_spawn_point_with_velocity(
         &spawn_points,
         &parent_transforms,

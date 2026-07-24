@@ -142,7 +142,7 @@ fn main() {
             meta_check: AssetMetaCheck::Never,
             ..default()
         })
-        .add_plugins(bevy::scene::ScenePlugin) // needed to register DynamicScene asset + RON loader
+        .add_plugins(bevy::world_serialization::WorldSerializationPlugin) // needed to register DynamicWorld asset + RON loader
         .add_plugins(LogPlugin {
             level: Level::ERROR,
             ..default()

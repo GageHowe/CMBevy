@@ -61,7 +61,7 @@ pub fn spawn_weapon_flash(
                 intensity: 0.0,
                 color: color.into(),
                 range: scale * 8.0,
-                shadows_enabled,
+                shadow_maps_enabled: shadows_enabled,
                 ..default()
             },
             Transform::from_translation(local_offset).with_scale(Vec3::splat(scale)),

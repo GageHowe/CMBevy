@@ -1,30 +1,31 @@
 use bevy::{
     core_pipeline::{
-        core_3d::graph::{Core3d, Node3d},
+        FullscreenShader,
         prepass::ViewPrepassTextures,
+        schedule::{Core3d, Core3dSystems},
+        tonemapping::tonemapping,
     },
-    ecs::query::QueryItem,
     prelude::*,
     render::{
-        RenderApp,
+        Render, RenderApp, RenderStartup, RenderSystems,
+        camera::ExtractedCamera,
         extract_component::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
         },
-        render_graph::{
-            NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-        },
         render_resource::{
             BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            CachedRenderPipelineId, PipelineCache, Sampler, ShaderStages, ShaderType,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, Operations,
+            PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
             TextureSampleType, binding_types::*,
         },
-        renderer::RenderContext,
-        view::ViewTarget,
+        renderer::{RenderContext, RenderDevice, ViewQuery},
+        view::{ExtractedView, ViewTarget},
     },
+    shader::Shader,
 };
-
-use crate::fullscreen_post_process::{draw_fullscreen_post_process, init_fullscreen_post_process};
 
 /// Add to a camera entity to enable screen-space edge outlines.
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
@@ -52,128 +53,167 @@ impl Plugin for OutlinePlugin {
             ExtractComponentPlugin::<OutlineSettings>::default(),
             UniformComponentPlugin::<OutlineSettings>::default(),
         ));
+
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app
-            .add_render_graph_node::<ViewNodeRunner<OutlineNode>>(Core3d, OutlineLabel)
-            .add_render_graph_edges(
+            .init_resource::<SpecializedRenderPipelines<OutlinePipeline>>()
+            .add_systems(RenderStartup, init_outline_pipeline)
+            .add_systems(
+                Render,
+                prepare_outline_pipelines.in_set(RenderSystems::Prepare),
+            )
+            .add_systems(
                 Core3d,
-                (
-                    Node3d::Smaa,
-                    OutlineLabel,
-                    Node3d::EndMainPassPostProcessing,
-                ),
+                outline
+                    .after(bevy::anti_alias::smaa::smaa)
+                    .after(tonemapping)
+                    .in_set(Core3dSystems::PostProcess),
             );
-    }
-
-    fn finish(&self, app: &mut App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-        render_app.init_resource::<OutlinePipeline>();
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub(crate) struct OutlineLabel;
+#[derive(Component)]
+struct OutlinePipelineId(CachedRenderPipelineId);
 
 #[derive(Resource)]
 struct OutlinePipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
-    pipeline_id: CachedRenderPipelineId,
-    pipeline_id_hdr: CachedRenderPipelineId,
+    shader: Handle<Shader>,
+    fullscreen: FullscreenShader,
 }
 
-impl FromWorld for OutlinePipeline {
-    fn from_world(world: &mut World) -> Self {
-        let entries = BindGroupLayoutEntries::sequential(
-            ShaderStages::FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }), // screen color
-                sampler(bevy::render::render_resource::SamplerBindingType::Filtering),
-                texture_depth_2d(),                                        // depth
-                texture_2d(TextureSampleType::Float { filterable: true }), // normals (Rgb10a2Unorm is filterable)
-                uniform_buffer::<OutlineSettings>(true),
-            ),
-        );
-        let layout = BindGroupLayoutDescriptor::new("outline_layout", &entries);
-        let (sampler, pipeline_id, pipeline_id_hdr) = init_fullscreen_post_process(
-            world,
-            &layout,
-            "shaders/outline.wgsl",
-            "outline_pipeline",
-        );
-        Self {
-            layout,
-            sampler,
-            pipeline_id,
-            pipeline_id_hdr,
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct OutlinePipelineKey {
+    target_format: TextureFormat,
+}
+
+impl SpecializedRenderPipeline for OutlinePipeline {
+    type Key = OutlinePipelineKey;
+
+    fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
+        RenderPipelineDescriptor {
+            label: Some("outline_pipeline".into()),
+            layout: vec![self.layout.clone()],
+            vertex: self.fullscreen.to_vertex_state(),
+            fragment: Some(FragmentState {
+                shader: self.shader.clone(),
+                targets: vec![Some(ColorTargetState {
+                    format: key.target_format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            zero_initialize_workgroup_memory: false,
+            ..default()
         }
     }
 }
 
-#[derive(Default)]
-struct OutlineNode;
+fn init_outline_pipeline(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    render_device: Res<RenderDevice>,
+    fullscreen: Res<FullscreenShader>,
+) {
+    commands.insert_resource(OutlinePipeline {
+        layout: BindGroupLayoutDescriptor::new(
+            "outline_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: true }), // screen color
+                    sampler(SamplerBindingType::Filtering),
+                    texture_depth_2d(), // depth
+                    texture_2d(TextureSampleType::Float { filterable: true }), // normals (Rgb10a2Unorm is filterable)
+                    uniform_buffer::<OutlineSettings>(true),
+                ),
+            ),
+        ),
+        sampler: render_device.create_sampler(&SamplerDescriptor::default()),
+        shader: asset_server.load("shaders/outline.wgsl"),
+        fullscreen: fullscreen.clone(),
+    });
+}
 
-impl ViewNode for OutlineNode {
-    type ViewQuery = (
-        &'static ViewTarget,
-        &'static DynamicUniformIndex<OutlineSettings>,
-        &'static ViewPrepassTextures,
+fn prepare_outline_pipelines(
+    mut commands: Commands,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<OutlinePipeline>,
+    mut specialized: ResMut<SpecializedRenderPipelines<OutlinePipeline>>,
+    views: Query<(Entity, &ExtractedView), (With<ExtractedCamera>, With<OutlineSettings>)>,
+) {
+    for (entity, view) in &views {
+        let pipeline_id = specialized.specialize(
+            &pipeline_cache,
+            &pipeline,
+            OutlinePipelineKey {
+                target_format: view.target_format,
+            },
+        );
+        commands
+            .entity(entity)
+            .insert(OutlinePipelineId(pipeline_id));
+    }
+}
+
+fn outline(
+    view: ViewQuery<(
+        &ViewTarget,
+        &DynamicUniformIndex<OutlineSettings>,
+        &ViewPrepassTextures,
+        &OutlinePipelineId,
+    )>,
+    pipeline: Res<OutlinePipeline>,
+    pipeline_cache: Res<PipelineCache>,
+    settings_uniforms: Res<ComponentUniforms<OutlineSettings>>,
+    mut render_context: RenderContext,
+) {
+    let (view_target, settings_index, prepass_textures, pipeline_id) = view.into_inner();
+
+    let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline_id.0) else {
+        return;
+    };
+    let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
+        return;
+    };
+    let Some(depth) = prepass_textures.depth.as_ref() else {
+        return;
+    };
+    let Some(normals) = prepass_textures.normal.as_ref() else {
+        return;
+    };
+
+    let post_process = view_target.post_process_write();
+    let bind_group = render_context.render_device().create_bind_group(
+        "outline_bind_group",
+        &pipeline_cache.get_bind_group_layout(&pipeline.layout),
+        &BindGroupEntries::sequential((
+            post_process.source,
+            &pipeline.sampler,
+            &depth.texture.default_view,
+            &normals.texture.default_view,
+            settings_binding.clone(),
+        )),
     );
 
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext,
-        (view_target, settings_index, prepass_textures): QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        let pipeline = world.resource::<OutlinePipeline>();
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let settings_uniforms = world.resource::<ComponentUniforms<OutlineSettings>>();
-
-        let pipeline_id = if view_target.is_hdr() {
-            pipeline.pipeline_id_hdr
-        } else {
-            pipeline.pipeline_id
-        };
-        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline_id) else {
-            return Ok(());
-        };
-        let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
-            return Ok(());
-        };
-        let Some(depth) = prepass_textures.depth.as_ref() else {
-            return Ok(());
-        };
-        let Some(normals) = prepass_textures.normal.as_ref() else {
-            return Ok(());
-        };
-
-        let post_process = view_target.post_process_write();
-        let bind_group = render_context.render_device().create_bind_group(
-            Some("outline_bind_group"),
-            &pipeline_cache.get_bind_group_layout(&pipeline.layout),
-            &BindGroupEntries::sequential((
-                post_process.source,
-                &pipeline.sampler,
-                &depth.texture.default_view,
-                &normals.texture.default_view,
-                settings_binding.clone(),
-            )),
-        );
-
-        draw_fullscreen_post_process(
-            render_context,
-            render_pipeline,
-            &bind_group,
-            &[settings_index.index()],
-            post_process.destination,
-            "outline_pass",
-        );
-        Ok(())
-    }
+    let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("outline_pass"),
+        color_attachments: &[Some(RenderPassColorAttachment {
+            view: post_process.destination,
+            depth_slice: None,
+            resolve_target: None,
+            ops: Operations::default(),
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    pass.set_render_pipeline(render_pipeline);
+    pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
+    pass.draw(0..3, 0..1);
 }

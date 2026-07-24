@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 audio = { path = "../crates/audio", features = ["client"] }
-bevy = { workspace = true, features = ["3d", "hdr", "jpeg", "ktx2", "tga"] }
+bevy = { workspace = true, features = ["3d", "hdr", "jpeg", "ktx2", "tga", "ui"] }
 bevy_egui = { workspace = true }
 zstd = { workspace = true }
 rapier3d = { workspace = true }

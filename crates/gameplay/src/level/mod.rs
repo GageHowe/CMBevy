@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use bevy::light::AmbientLight;
 use bevy::{
     prelude::*,
-    scene::{DynamicSceneRoot, serde::SceneDeserializer},
+    world_serialization::{
+        DynamicWorld, DynamicWorldRoot, WorldAssetRoot, serde::WorldDeserializer,
+    },
 };
 use physics::{
     collider_shape::AuthoredColliderShape as Shape,
@@ -145,7 +147,7 @@ pub struct MapMeta {
 
 // ── scene-root marker ─────────────────────────────────────────────────────────
 
-/// Marks the entity that owns the loaded DynamicScene.
+/// Marks the entity that owns the loaded DynamicWorld.
 /// The visual GLB scene is spawned as a child, so despawning this entity cleans everything up.
 #[derive(Component)]
 pub struct LevelSceneRoot;
@@ -277,10 +279,12 @@ pub fn apply_pending_map_scene(world: &mut World) {
             return;
         }
     };
+    let mut asset_server = world.resource::<AssetServer>().clone();
     let registry = world.resource::<AppTypeRegistry>().clone();
     let registry_guard = registry.read();
-    let scene_de = SceneDeserializer {
+    let scene_de = WorldDeserializer {
         type_registry: &registry_guard,
+        load_from_path: &mut asset_server,
     };
     let mut ron_de = match ron::Deserializer::from_bytes(&bytes) {
         Ok(d) => d,
@@ -299,8 +303,8 @@ pub fn apply_pending_map_scene(world: &mut World) {
         }
     };
     drop(registry_guard);
-    let handle = world.resource_mut::<Assets<DynamicScene>>().add(scene);
-    world.spawn((DynamicSceneRoot(handle), LevelSceneRoot));
+    let handle = world.resource_mut::<Assets<DynamicWorld>>().add(scene);
+    world.spawn((DynamicWorldRoot(handle), LevelSceneRoot));
     crate::messages::push_world(world, "Map loaded");
 }
 
@@ -581,7 +585,7 @@ pub fn spawn_scene_models(
 ) {
     for (entity, model) in &models {
         commands.entity(entity).insert((
-            SceneRoot(asset_server.load(model.path.clone())),
+            WorldAssetRoot(asset_server.load(model.path.clone())),
             Visibility::default(),
         ));
     }
@@ -725,7 +729,10 @@ pub fn load_level_scene(
     }
     for (scene_path, transform) in &meta.visuals {
         let entity = commands
-            .spawn((SceneRoot(asset_server.load(scene_path.clone())), *transform))
+            .spawn((
+                WorldAssetRoot(asset_server.load(scene_path.clone())),
+                *transform,
+            ))
             .id();
         // parent to the scene root so it despawns with it
         commands.entity(root).add_child(entity);
@@ -733,7 +740,7 @@ pub fn load_level_scene(
 }
 
 /// Despawns the level scene and removes level resources.
-/// Bevy's DynamicSceneRoot component hook handles scene-entity cleanup on entity despawn.
+/// Bevy's DynamicWorldRoot component hook handles scene-entity cleanup on entity despawn.
 pub fn cleanup_level(mut commands: Commands, scene_roots: Query<Entity, With<LevelSceneRoot>>) {
     for entity in scene_roots.iter() {
         commands.entity(entity).despawn();

@@ -177,7 +177,7 @@ fn tick_shield_materials(
     };
     let camera_pos = camera.translation();
     for handle in &visuals {
-        let Some(material) = materials.get_mut(&handle.0) else {
+        let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
         };
         material.params.camera_pos = camera_pos;

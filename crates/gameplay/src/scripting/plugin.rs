@@ -27,7 +27,7 @@ pub struct ScriptingPlugin;
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_non_send_resource(ScriptRuntime {
+        app.insert_non_send(ScriptRuntime {
             lua: Lua::new(),
             loaded: false,
         })

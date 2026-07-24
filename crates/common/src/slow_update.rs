@@ -1,7 +1,8 @@
 use bevy::{
-    ecs::schedule::{ExecutorKind, ScheduleLabel},
+    ecs::schedule::{ScheduleLabel, SingleThreadedExecutor},
     prelude::*,
 };
+
 use crate::config::{SEMI_SLOW_UPDATE_FREQUENCY, SLOW_UPDATE_FREQUENCY};
 
 /// runs every sec
@@ -75,10 +76,10 @@ pub struct SlowSchedulePlugin;
 impl Plugin for SlowSchedulePlugin {
     fn build(&self, app: &mut App) {
         let mut schedule = Schedule::new(SlowUpdate);
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
         app.add_schedule(schedule);
         let mut semi_schedule = Schedule::new(SemiSlowUpdate);
-        semi_schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        semi_schedule.set_executor(SingleThreadedExecutor::new());
         app.add_schedule(semi_schedule);
 
         app.init_resource::<SlowScheduleState>();

@@ -1,8 +1,8 @@
 use bevy::{
+    camera::Hdr,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     post_process::auto_exposure::AutoExposure,
     prelude::*,
-    render::view::Hdr,
 };
 use bevy_egui::{EguiContexts, egui};
 use common::tick::NetworkStats;

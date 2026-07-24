@@ -84,21 +84,6 @@ pub struct PendingInputState {
 
 #[cfg(not(feature = "client"))]
 impl PendingInputState {
-    pub fn push(&mut self, seq: u64, input: PawnInput) {
-        if seq <= self.applied_seq {
-            merge_edges(&mut self.held, input);
-            return;
-        }
-        if let Some(existing) = self.queue.get_mut(&seq) {
-            merge_biped_edges(existing, input);
-            return;
-        }
-        self.queue.insert(seq, input);
-        while self.queue.len() > 128 {
-            self.queue.pop_first();
-        }
-    }
-
     pub fn next(&mut self) -> Option<(u64, PawnInput, bool)> {
         if let Some((seq, input)) = self.queue.pop_first() {
             self.applied_seq = seq;
@@ -114,32 +99,6 @@ impl PendingInputState {
         if let Some(input) = &mut self.held {
             clear_biped_edges(input);
         }
-    }
-}
-
-#[cfg(not(feature = "client"))]
-fn merge_edges(held: &mut Option<PawnInput>, input: PawnInput) {
-    match held {
-        Some(held) => merge_biped_edges(held, input),
-        None => *held = Some(input),
-    }
-}
-
-#[cfg(not(feature = "client"))]
-fn merge_biped_edges(current: &mut PawnInput, incoming: PawnInput) {
-    current.item.primary_pressed |= incoming.item.primary_pressed;
-    current.item.secondary_pressed |= incoming.item.secondary_pressed;
-    current.item.reload_pressed |= incoming.item.reload_pressed;
-    current.ability1_pressed |= incoming.ability1_pressed;
-    current.melee_pressed |= incoming.melee_pressed;
-    if incoming.item.primary_pressed
-        || incoming.item.secondary_pressed
-        || incoming.item.reload_pressed
-    {
-        current.item.weapon = incoming.item.weapon;
-        current.item.tick = incoming.item.tick;
-        current.item.origin = incoming.item.origin;
-        current.item.aim_dir = incoming.item.aim_dir;
     }
 }
 

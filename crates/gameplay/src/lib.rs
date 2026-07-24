@@ -14,7 +14,7 @@ pub mod health;
 pub mod interaction;
 pub mod level;
 pub mod lifecycle;
-// pub mod messages;
+pub mod messages;
 pub mod mode;
 pub mod net;
 #[path = "../../network_index.rs"]
@@ -33,7 +33,6 @@ pub mod spring_arm;
 #[path = "../weapon/mod.rs"]
 pub mod weapon;
 pub mod zone_effects;
-mod messages;
 
 pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};

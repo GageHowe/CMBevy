@@ -174,7 +174,7 @@ pub fn update_flash_material(
     initial_brightness: f32,
     camera_pos: Vec3,
 ) {
-    if let Some(material) = materials.get_mut(&handle.0) {
+    if let Some(mut material) = materials.get_mut(&handle.0) {
         material.params.color = (color * brightness).to_vec4();
         material.params.alpha = if initial_brightness > 0.0 {
             (brightness / initial_brightness).clamp(0.0, 1.0)
@@ -234,7 +234,7 @@ fn spawn_flash_client(
             intensity: initial_light_intensity,
             color: color.into(),
             range: scale * 8.0,
-            shadows_enabled,
+            shadow_maps_enabled: shadows_enabled,
             ..default()
         },
         Transform::from_translation(position).with_scale(Vec3::splat(scale)),

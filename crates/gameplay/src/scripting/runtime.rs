@@ -44,20 +44,20 @@ pub(crate) fn compile_script(config: &ScriptConfig, runtime: &mut ScriptRuntime)
 }
 
 pub fn get_script_global<T: FromLua>(world: &mut World, name: &str) -> Option<T> {
-    let runtime = world.remove_non_send_resource::<ScriptRuntime>()?;
+    let runtime = world.remove_non_send::<ScriptRuntime>()?;
     if !runtime.loaded {
-        world.insert_non_send_resource(runtime);
+        world.insert_non_send(runtime);
         return None;
     }
     let result = runtime.lua.globals().get::<T>(name).ok();
-    world.insert_non_send_resource(runtime);
+    world.insert_non_send(runtime);
     result
 }
 
 pub fn call_script_fn<T: FromLuaMulti>(world: &mut World, fn_name: &str) -> Option<T> {
-    let runtime = world.remove_non_send_resource::<ScriptRuntime>()?;
+    let runtime = world.remove_non_send::<ScriptRuntime>()?;
     if !runtime.loaded {
-        world.insert_non_send_resource(runtime);
+        world.insert_non_send(runtime);
         return None;
     }
     runtime.lua.set_app_data(world as *mut World);
@@ -68,7 +68,7 @@ pub fn call_script_fn<T: FromLuaMulti>(world: &mut World, fn_name: &str) -> Opti
         .and_then(|f| f.call::<T>(()))
         .ok();
     runtime.lua.remove_app_data::<*mut World>();
-    world.insert_non_send_resource(runtime);
+    world.insert_non_send(runtime);
     result
 }
 
@@ -76,11 +76,11 @@ pub(crate) fn call_script_args<A: IntoLuaMulti>(world: &mut World, fn_name: &str
     let Some(is_server) = world.get_resource::<ScriptConfig>().map(|c| c.is_server) else {
         return;
     };
-    let Some(runtime) = world.remove_non_send_resource::<ScriptRuntime>() else {
+    let Some(runtime) = world.remove_non_send::<ScriptRuntime>() else {
         return;
     };
     if !runtime.loaded {
-        world.insert_non_send_resource(runtime);
+        world.insert_non_send(runtime);
         return;
     }
     let _ = runtime.lua.globals().set("IS_SERVER", is_server);
@@ -91,7 +91,7 @@ pub(crate) fn call_script_args<A: IntoLuaMulti>(world: &mut World, fn_name: &str
         eprintln!("Lua {fn_name} error: {err}");
     }
     runtime.lua.remove_app_data::<*mut World>();
-    world.insert_non_send_resource(runtime);
+    world.insert_non_send(runtime);
 }
 
 pub(crate) fn call_script(world: &mut World, fn_name: &str) {

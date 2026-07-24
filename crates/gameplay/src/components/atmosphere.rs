@@ -248,7 +248,7 @@ fn sync_planet_atmosphere_shells(
             safe_axis_scale(outer_radius, parent_scale.z),
         );
 
-        let Some(material) = materials.get_mut(&material_handle.0) else {
+        let Some(mut material) = materials.get_mut(&material_handle.0) else {
             continue;
         };
         apply_planet_atmosphere_component(&mut material.params, atmosphere);

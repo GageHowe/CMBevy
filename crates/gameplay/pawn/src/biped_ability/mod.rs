@@ -389,6 +389,8 @@ pub struct DropActiveAbility {
 }
 
 impl bevy::ecs::system::Command for DropActiveAbility {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         drop_owned_ability(
             self.owner,

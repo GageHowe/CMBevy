@@ -54,7 +54,7 @@ pub fn gui_chat(
                 &keys,
                 &mouse,
                 active_gamepad(gamepads.iter()),
-            ) && !ctx.wants_keyboard_input()
+            ) && !ctx.egui_wants_keyboard_input()
             {
                 resp.request_focus();
             }

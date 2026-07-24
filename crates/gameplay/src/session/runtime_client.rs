@@ -203,7 +203,7 @@ fn load_skybox(
     let image: Handle<Image> = asset_server.load(path.clone());
     commands.entity(cam).insert((
         Skybox {
-            image: image.clone(),
+            image: Some(image.clone()),
             brightness: meta.skybox_brightness,
             ..default()
         },

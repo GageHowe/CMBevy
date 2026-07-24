@@ -7,7 +7,7 @@ use bevy::{
     render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
-use bevy_egui::{EguiContextSettings, PrimaryEguiContext};
+use bevy_egui::{EguiContext, PrimaryEguiContext};
 use common::{ActiveBindings, PromptDevicePreference};
 use gameplay::pawn::{CameraEffector, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
@@ -24,7 +24,7 @@ pub fn apply_settings(
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
     mut directional_lights: Query<&mut DirectionalLight>,
     mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
-    mut egui_context_settings: Query<&mut EguiContextSettings, With<PrimaryEguiContext>>,
+    mut egui_context: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
     commands.insert_resource(PromptDevicePreference(settings.prompt_device_mode));
     sensitivity.base = settings.mouse_sensitivity;
@@ -66,13 +66,14 @@ pub fn apply_settings(
         PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
         PhysicsInterp::Balanced => PhysicsInterpMode::Balanced,
     };
-    if let Ok(mut egui_settings) = egui_context_settings.single_mut() {
-        egui_settings.scale_factor = settings.ui_scale;
+    if let Ok(mut egui_context) = egui_context.single_mut() {
+        egui_context.get_mut().set_zoom_factor(settings.ui_scale);
     }
 
     directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
     for mut directional_light in &mut directional_lights {
-        directional_light.shadows_enabled = !matches!(settings.shadow_quality, ShadowQuality::Off);
+        directional_light.shadow_maps_enabled =
+            !matches!(settings.shadow_quality, ShadowQuality::Off);
     }
 }
 

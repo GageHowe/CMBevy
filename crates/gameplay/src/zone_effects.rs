@@ -1,19 +1,21 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::{ecs::system::SystemState, prelude::*};
-use common::config::SEMI_SLOW_UPDATE_FREQUENCY;
-use common::slow_update::{SemiSlowUpdate, SlowUpdate};
+use common::{
+    config::SEMI_SLOW_UPDATE_FREQUENCY,
+    slow_update::{SemiSlowUpdate, SlowUpdate},
+};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
+    AuthoritySystems,
     health::Health,
-    level::{parented_world_pose, ScriptZone},
+    level::{ScriptZone, parented_world_pose},
     net::{
         message::{MsgType, OnscreenMessage},
         quic::{Channel, ConnectionId, QuicManager, SendTarget},
     },
     pawn::PlayerRegistry,
-    AuthoritySystems,
 };
 #[cfg(feature = "client")]
 use crate::{messages, pawn::Possessed};
@@ -124,8 +126,11 @@ fn tick_zone_effects(world: &mut World) {
             Res<PhysicsWorld>,
             Query<&mut Health>,
         )> = SystemState::new(world);
-        let (zones, parent_transforms, parent_parents, parent_bodies, physics, mut health_q) =
-            state.get_mut(world);
+        let Ok((zones, parent_transforms, parent_parents, parent_bodies, physics, mut health_q)) =
+            state.get_mut(world)
+        else {
+            return;
+        };
 
         for (zone_entity, zone, effect, transform, child_of) in &zones {
             let (position, rotation) = parented_world_pose(

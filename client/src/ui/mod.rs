@@ -66,7 +66,7 @@ fn set_style(mut contexts: EguiContexts) {
     }
     ctx.set_fonts(fonts);
 
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
     style.spacing.item_spacing = egui::vec2(6.0, 4.0);
     style.spacing.button_padding = egui::vec2(5.0, 2.0);
     style.spacing.window_margin = egui::Margin::same(8);
@@ -85,5 +85,5 @@ fn set_style(mut contexts: EguiContexts) {
         width: 0.0,
         color: egui::Color32::TRANSPARENT,
     };
-    ctx.set_style(style);
+    ctx.set_style_of(egui::Theme::Dark, style);
 }

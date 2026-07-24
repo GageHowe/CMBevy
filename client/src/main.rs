@@ -30,7 +30,6 @@ use ui::{UIPlugin, window::WindowSettingsPlugin};
 
 mod auto_exposure_debug;
 mod camera;
-mod fullscreen_post_process;
 mod hosting;
 mod menu;
 mod outline;
@@ -135,13 +134,15 @@ fn main() {
         .init_resource::<SinglePlayerConfig>()
         .add_systems(
             FixedUpdate,
-            step_physics
-                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+            step_physics.run_if(
+                in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
+            ),
         )
         .add_systems(
             Update,
-            sync_physics_visual
-                .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+            sync_physics_visual.run_if(
+                in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
+            ),
         )
         .add_systems(Startup, spawn_camera)
         .add_systems(Last, cleanup_before_app_exit);
@@ -169,7 +170,7 @@ fn main() {
         (draw_projectile_debug, draw_projectile_raycast_debug)
             .after(step_physics)
             .run_if(debug_render_on)
-            .run_if(in_state(GameState::SinglePlayer).or(in_state(GameState::Multiplayer))),
+            .run_if(in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer))),
     );
 
     info!("starting client...");

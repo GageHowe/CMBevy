@@ -137,7 +137,7 @@ pub fn spawn_spaceship(entity: Entity, cmd: &crate::net::message::SpawnCommand, 
         let scene = world.resource::<AssetServer>().load(MODEL_PATH);
         world
             .entity_mut(entity)
-            .insert((SceneRoot(scene), Visibility::default()));
+            .insert((WorldAssetRoot(scene), Visibility::default()));
     }
     crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
 }

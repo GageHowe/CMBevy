@@ -482,14 +482,17 @@ fn collect_restart_spawns(world: &mut World) -> Vec<(ConnectionId, Team, Vec3, Q
         Query<&RigidBodyHandleComponent>,
         Res<PhysicsWorld>,
     )> = SystemState::new(world);
-    let (
+    let Ok((
         active_connections,
         spawn_points,
         parent_transforms,
         parent_parents,
         parent_bodies,
         physics,
-    ) = state.get(world);
+    )) = state.get(world)
+    else {
+        return Vec::new();
+    };
 
     let num_teams = spawn_points
         .iter()

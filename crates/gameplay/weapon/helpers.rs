@@ -89,7 +89,7 @@ pub fn insert_generic_weapon(
         let scene = world.resource::<AssetServer>().load(_model_path);
         world
             .entity_mut(entity)
-            .insert((SceneRoot(scene), Visibility::default()));
+            .insert((WorldAssetRoot(scene), Visibility::default()));
     }
 }
 

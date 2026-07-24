@@ -60,7 +60,7 @@ pub fn spawn_jetpack_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut Wo
             .load("models/placeholder_jetpack.glb#Scene0");
         world
             .entity_mut(entity)
-            .insert((SceneRoot(scene), Visibility::default()));
+            .insert((WorldAssetRoot(scene), Visibility::default()));
     }
 }
 
