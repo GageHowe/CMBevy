@@ -23,7 +23,6 @@ const KEY_EXPANSIONS: &[(&str, &str)] = &[
     ("CascadeShadowConfig", "bevy_light::cascade::CascadeShadowConfig"),
     ("DirectionalLight", "bevy_light::directional_light::DirectionalLight"),
     ("AreaReverbComponent", "gameplay::components::atmosphere::AreaReverbComponent"),
-    ("PlanetAtmosphere", "gameplay::components::atmosphere::PlanetAtmosphere"),
     ("GravitySource", "gameplay::components::gravity::GravitySource"),
     ("SnapSource", "gameplay::components::snap::SnapSource"),
 ];
@@ -37,6 +36,7 @@ pub fn preprocess_level_text(text: &str) -> Result<String, String> {
         let to = format!("\"{value}\"");
         out = out.replace(&from, &to);
     }
+    out = out.replace("shadows_enabled:", "shadow_maps_enabled:");
     out = expand_from_euler(&out)?;
     #[cfg(not(feature = "client"))]
     {
@@ -191,5 +191,13 @@ mod tests {
     fn rejects_wrong_from_euler_arity() {
         let err = preprocess_level_text("rotation: from_euler((0.0, 1.0))").unwrap_err();
         assert!(err.contains("expected from_euler((x, y, z))"));
+    }
+
+    #[test]
+    fn migrates_bevy_019_directional_light_shadow_field() {
+        let out = preprocess_level_text("\"DirectionalLight\": (shadows_enabled: true)").unwrap();
+        assert!(out.contains("\"bevy_light::directional_light::DirectionalLight\""));
+        assert!(out.contains("shadow_maps_enabled: true"));
+        assert!(!out.contains("shadows_enabled"));
     }
 }

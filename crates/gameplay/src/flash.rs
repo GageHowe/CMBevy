@@ -235,6 +235,7 @@ fn spawn_flash_client(
             color: color.into(),
             range: scale * 8.0,
             shadow_maps_enabled: shadows_enabled,
+            contact_shadows_enabled: shadows_enabled,
             ..default()
         },
         Transform::from_translation(position).with_scale(Vec3::splat(scale)),

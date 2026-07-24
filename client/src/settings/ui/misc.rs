@@ -8,7 +8,7 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
         .show(ui, |ui| {
             ui.checkbox(&mut settings.debug_panel, "Debug panel")
                 .on_hover_text(
-                    "Shows the top-left engineering overlay with rigidbody count, FPS, RTT, and quit button.",
+                    "Shows Bevy's diagnostics overlay with FPS, frame time, mesh, and material allocator stats.",
                 );
             ui.checkbox(&mut settings.cinematic_mode, "Cinematic mode")
                 .on_hover_text(

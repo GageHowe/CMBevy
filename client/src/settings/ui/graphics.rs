@@ -109,6 +109,22 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) {
             });
         }
 
+        ui.checkbox(&mut settings.vignette, "Vignette").on_hover_text("Darkens screen edges to focus the image.");
+        if settings.vignette {
+            ui.horizontal(|ui| {
+                ui.label("Vignette intensity").on_hover_text("Strength of edge darkening.");
+                ui.add(egui::Slider::new(&mut settings.vignette_intensity, 0.0..=1.0).fixed_decimals(2));
+            });
+        }
+
+        ui.checkbox(&mut settings.lens_distortion, "Lens distortion").on_hover_text("Adds subtle barrel or pincushion screen warping.");
+        if settings.lens_distortion {
+            ui.horizontal(|ui| {
+                ui.label("Distortion intensity").on_hover_text("Positive values bulge outward; negative values pinch inward.");
+                ui.add(egui::Slider::new(&mut settings.lens_distortion_intensity, -0.25..=0.25).fixed_decimals(2));
+            });
+        }
+
         ui.horizontal(|ui| {
             ui.label("SSAO").on_hover_text("GTAO-like screen-space ambient occlusion. Adds depth and contact shadowing.");
             egui::ComboBox::from_id_salt("ssao_quality_combo")

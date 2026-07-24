@@ -5,7 +5,7 @@ use bevy::{
     },
     color::Color,
     core_pipeline::{
-        prepass::{DeferredPrepass, DepthPrepass, NormalPrepass},
+        prepass::{DepthPrepass, NormalPrepass},
         tonemapping::Tonemapping,
     },
     math::Vec3,
@@ -53,7 +53,6 @@ pub fn spawn_camera(mut commands: Commands) {
         Tonemapping::AcesFitted, // punchy and dark/contrasty, maybe too much so
         // Tonemapping::Reinhard, // also washed out
         // Tonemapping::AgX, // good middle ground
-        DeferredPrepass,
         DepthPrepass,
         NormalPrepass,
         // MotionVectorPrepass, // required by MotionBlur and TAA

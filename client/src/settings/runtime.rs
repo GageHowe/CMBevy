@@ -2,7 +2,10 @@ use std::time::{Duration, Instant};
 
 use bevy::{
     core_pipeline::prepass::MotionVectorPrepass,
-    post_process::motion_blur::MotionBlur,
+    post_process::{
+        effect_stack::{LensDistortion, Vignette},
+        motion_blur::MotionBlur,
+    },
     prelude::*,
     render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
@@ -72,8 +75,7 @@ pub fn apply_settings(
 
     directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
     for mut directional_light in &mut directional_lights {
-        directional_light.shadow_maps_enabled =
-            !matches!(settings.shadow_quality, ShadowQuality::Off);
+        apply_directional_light_shadows(&mut directional_light, &settings.shadow_quality);
     }
 }
 
@@ -81,7 +83,7 @@ pub fn sync_dynamic_graphics_settings(
     mut commands: Commands,
     settings: Option<Res<Settings>>,
     added_cameras: Query<Entity, Added<Camera3d>>,
-    // mut added_directional_lights: Query<&mut DirectionalLight, Added<DirectionalLight>>,
+    mut added_directional_lights: Query<&mut DirectionalLight, Added<DirectionalLight>>,
     _directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
 ) {
     let Some(settings) = settings else {
@@ -91,6 +93,9 @@ pub fn sync_dynamic_graphics_settings(
     for camera_entity in &added_cameras {
         let mut camera = commands.entity(camera_entity);
         apply_camera_graphics(&mut camera, &settings);
+    }
+    for mut light in &mut added_directional_lights {
+        apply_directional_light_shadows(&mut light, &settings.shadow_quality);
     }
 }
 
@@ -139,6 +144,28 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
         camera.remove::<MotionVectorPrepass>();
     }
 
+    if settings.vignette {
+        camera.insert(Vignette {
+            intensity: settings.vignette_intensity.clamp(0.0, 1.0),
+            radius: 0.85,
+            smoothness: 1.2,
+            ..default()
+        });
+    } else {
+        camera.remove::<Vignette>();
+    }
+
+    if settings.lens_distortion {
+        let intensity = settings.lens_distortion_intensity.clamp(-0.25, 0.25);
+        camera.insert(LensDistortion {
+            intensity,
+            scale: 1.0 + intensity.abs() * 1.5,
+            ..default()
+        });
+    } else {
+        camera.remove::<LensDistortion>();
+    }
+
     match settings.ssao_quality {
         SsaoQuality::Off => {
             camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
@@ -161,6 +188,12 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
                 ..default()
             });
         }
+    }
+
+    if matches!(settings.shadow_quality, ShadowQuality::Off) {
+        camera.remove::<bevy::pbr::ContactShadows>();
+    } else {
+        camera.insert(bevy::pbr::ContactShadows::default());
     }
 
     if settings.cinematic_mode {
@@ -188,6 +221,12 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
             ..default()
         },
     ));
+}
+
+fn apply_directional_light_shadows(light: &mut DirectionalLight, shadow_quality: &ShadowQuality) {
+    let enabled = !matches!(shadow_quality, ShadowQuality::Off);
+    light.shadow_maps_enabled = enabled;
+    light.contact_shadows_enabled = enabled;
 }
 
 fn shadow_map_size(shadow_quality: &ShadowQuality) -> usize {

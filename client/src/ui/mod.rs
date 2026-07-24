@@ -4,7 +4,13 @@ mod hud;
 mod reticle;
 pub mod window;
 
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, prelude::*};
+use bevy::{
+    diagnostic::FrameTimeDiagnosticsPlugin,
+    pbr::{StandardMaterial, diagnostic::MaterialAllocatorDiagnosticPlugin},
+    prelude::*,
+    render::diagnostic::MeshAllocatorDiagnosticPlugin,
+};
+use bevy_dev_tools::diagnostics_overlay::DiagnosticsOverlayPlugin;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use crate::{GameState, settings::Settings};
@@ -14,16 +20,19 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin::default())
-            // plugins + resources
-            .add_plugins(FrameTimeDiagnosticsPlugin::default())
-            .init_resource::<debug::SmoothedFps>()
+            .add_plugins((
+                FrameTimeDiagnosticsPlugin::default(),
+                DiagnosticsOverlayPlugin,
+                MeshAllocatorDiagnosticPlugin,
+                MaterialAllocatorDiagnosticPlugin::<StandardMaterial>::default(),
+            ))
             // Startup
             .add_systems(
                 Startup,
                 (reticle::spawn_crosshair, reticle::spawn_prediction_reticle),
             )
             // Update
-            .add_systems(Update, debug::update_smoothed_fps)
+            .add_systems(Update, debug::sync_diagnostics_overlay)
             .add_systems(
                 Update,
                 (reticle::update_reticle, reticle::update_prediction_reticle),
@@ -34,7 +43,6 @@ impl Plugin for UIPlugin {
             )
             // EguiPrimaryContextPass
             .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
-            .add_systems(EguiPrimaryContextPass, debug::debug_panel)
             .add_systems(EguiPrimaryContextPass, hud::gui_notifications)
             .add_systems(EguiPrimaryContextPass, hud::gui_interaction_hint)
             .add_systems(

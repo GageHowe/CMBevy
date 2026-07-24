@@ -5,11 +5,9 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use audio::SoundPlugin;
-use auto_exposure_debug::AutoExposureDebugPlugin;
 use bevy::{
     asset::AssetMetaCheck,
     log::{Level, LogPlugin},
-    pbr::DefaultOpaqueRendererMethod,
     post_process::auto_exposure::AutoExposurePlugin,
     prelude::*,
     window::PresentMode,
@@ -28,7 +26,6 @@ use reconciliation::*;
 use tick_sync::TickSyncPlugin;
 use ui::{UIPlugin, window::WindowSettingsPlugin};
 
-mod auto_exposure_debug;
 mod camera;
 mod hosting;
 mod menu;
@@ -80,7 +77,6 @@ fn parse_server_addr() -> SocketAddr {
 fn main() {
     let server_addr = parse_server_addr();
     let mut app = App::new();
-    app.insert_resource(DefaultOpaqueRendererMethod::deferred());
     register_asset_pak(&mut app);
 
     app.add_plugins(
@@ -106,7 +102,7 @@ fn main() {
             }),
     );
 
-    app.add_plugins((AutoExposurePlugin, AutoExposureDebugPlugin, OutlinePlugin))
+    app.add_plugins((AutoExposurePlugin, OutlinePlugin))
         .init_state::<GameState>()
         .init_state::<UiState>()
         .add_plugins(MasterPlugin)
