@@ -165,12 +165,6 @@ fn main() {
     app.add_systems(Update, draw_mount_debug.run_if(debug_render_on));
     app.add_systems(Update, draw_melee_debug.run_if(debug_render_on));
     app.add_systems(
-        Update,
-        draw_server_state
-            .run_if(debug_render_on)
-            .run_if(in_state(GameState::Multiplayer)),
-    );
-    app.add_systems(
         FixedUpdate,
         (draw_projectile_debug, draw_projectile_raycast_debug)
             .after(step_physics)

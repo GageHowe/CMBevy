@@ -2,8 +2,6 @@ use bevy::prelude::*;
 use common::game_state::GameState;
 
 #[cfg(feature = "client")]
-use crate::session::resources::{LastServerState, PendingReconciliation};
-#[cfg(feature = "client")]
 pub use crate::session::runtime_client::{ClientSessionPlugin, cleanup_world};
 #[cfg(not(feature = "client"))]
 pub use crate::session::runtime_server::ServerSessionPlugin;
@@ -29,15 +27,5 @@ pub fn has_authority(state: Option<Res<State<GameState>>>) -> bool {
     {
         let _ = state;
         true
-    }
-}
-
-#[cfg(feature = "client")]
-pub fn snapshot_server_state(
-    pending: Res<PendingReconciliation>,
-    mut last: ResMut<LastServerState>,
-) {
-    if let Some(st) = &pending.0 {
-        last.0 = Some(st.clone());
     }
 }

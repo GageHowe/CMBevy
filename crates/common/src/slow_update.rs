@@ -2,13 +2,13 @@ use bevy::{
     ecs::schedule::{ExecutorKind, ScheduleLabel},
     prelude::*,
 };
+use crate::config::{SEMI_SLOW_UPDATE_FREQUENCY, SLOW_UPDATE_FREQUENCY};
 
-pub const SLOW_UPDATE_FREQUENCY: f64 = 1.0;
-pub const SEMI_SLOW_UPDATE_FREQUENCY: f64 = 4.0;
-
+/// runs every sec
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SlowUpdate;
 
+/// runs every 0.25 secs
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SemiSlowUpdate;
 

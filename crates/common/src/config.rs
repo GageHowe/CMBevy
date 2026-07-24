@@ -12,6 +12,9 @@ pub const MAX_GC_OBJECTS: usize = 500;
 pub const DEFAULT_GC_SOFT_CAP: usize = 48;
 pub const GC_OVERFLOW_STEP: usize = 12;
 
+pub const SLOW_UPDATE_FREQUENCY: f64 = 1.0;
+pub const SEMI_SLOW_UPDATE_FREQUENCY: f64 = 4.0;
+
 // avoids packet fragmentation. We should ensure packets are compressed to below this byte count in most cases
 // currently unused
 pub const MAX_UDP_SIZE: usize = 1200;

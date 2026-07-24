@@ -1,18 +1,19 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::{ecs::system::SystemState, prelude::*};
-use common::slow_update::{SEMI_SLOW_UPDATE_FREQUENCY, SemiSlowUpdate, SlowUpdate};
+use common::config::SEMI_SLOW_UPDATE_FREQUENCY;
+use common::slow_update::{SemiSlowUpdate, SlowUpdate};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
-    AuthoritySystems,
     health::Health,
-    level::{ScriptZone, parented_world_pose},
+    level::{parented_world_pose, ScriptZone},
     net::{
         message::{MsgType, OnscreenMessage},
         quic::{Channel, ConnectionId, QuicManager, SendTarget},
     },
     pawn::PlayerRegistry,
+    AuthoritySystems,
 };
 #[cfg(feature = "client")]
 use crate::{messages, pawn::Possessed};

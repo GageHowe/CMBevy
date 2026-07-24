@@ -14,7 +14,8 @@ use crate::{
         quic::QuicManager,
     },
     pawn::{InteractionGate, Possessed},
-    session::{messages, resources::*},
+    session,
+    session::resources::*,
 };
 
 pub struct ClientSessionPlugin<S: States + FreelyMutableState + Copy> {
@@ -29,7 +30,6 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
         let multiplayer = self.multiplayer;
         crate::session::runtime::configure_authority_sets(app);
         app.insert_resource(GuiState::default())
-            .init_resource::<LastServerState>()
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<LocalCharacterNetId>()
             .init_resource::<PendingReconciliation>()
@@ -81,20 +81,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             .add_systems(Update, show_transport_notices.run_if(in_state(multiplayer)))
             .add_systems(Update, send_world_ready.run_if(in_state(multiplayer)))
             .add_systems(Update, load_skybox.run_if(resource_added::<MapMeta>))
-            .add_systems(FixedPostUpdate, messages::on_message)
-            .add_systems(
-                FixedLast,
-                crate::session::runtime::snapshot_server_state
-                    .run_if(in_state(multiplayer).and(resource_changed::<PendingReconciliation>)),
-            );
-    }
-}
-
-pub fn draw_server_state(last: Res<LastServerState>, mut gizmos: Gizmos) {
-    let Some(state) = &last.0 else { return };
-    for body in state.bodies.values() {
-        let pos: Vec3 = body.position.into();
-        gizmos.sphere(pos, 0.15, Color::srgb(1.0, 0.2, 0.2));
+            .add_systems(FixedPostUpdate, session::on_message);
     }
 }
 
@@ -285,11 +272,9 @@ fn disconnect(
     mut quic: ResMut<QuicManager>,
     mut pending: ResMut<PendingReconciliation>,
     mut last_acked: ResMut<LastAckedInputSeq>,
-    mut last_server: ResMut<LastServerState>,
     mut local_character: ResMut<LocalCharacterNetId>,
 ) {
     last_acked.0 = 0;
-    last_server.0 = None;
     local_character.0 = None;
     quic.disconnect();
     quic.inbound.clear();

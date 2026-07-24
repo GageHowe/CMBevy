@@ -20,11 +20,6 @@ pub struct ServerAddr {
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
-/// Last authoritative physics snapshot received from the server.
-pub struct LastServerState(pub Option<SimulationState>);
-
-#[cfg(feature = "client")]
-#[derive(Resource, Default)]
 /// Highest input sequence acknowledged by the authoritative server.
 pub struct LastAckedInputSeq(pub u64);
 
