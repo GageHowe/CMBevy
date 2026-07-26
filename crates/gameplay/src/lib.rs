@@ -32,7 +32,6 @@ mod spawn;
 pub mod spring_arm;
 #[path = "../weapon/mod.rs"]
 pub mod weapon;
-pub mod zone_effects;
 
 pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
@@ -84,7 +83,6 @@ impl Plugin for GameplayPlugin {
         app.add_plugins(projectile::ProjectilePlugin);
         app.add_plugins(shield::ShieldPlugin);
         app.add_plugins(weapon::WeaponPlugin);
-        // app.add_plugins(zone_effects::ZoneEffectsPlugin);
     }
 }
 

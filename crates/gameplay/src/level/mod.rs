@@ -25,8 +25,6 @@ use sha2::{Digest, Sha256};
 
 #[cfg(feature = "client")]
 use crate::debug_draw::draw_authored_shape;
-#[cfg(feature = "client")]
-use crate::zone_effects::{ZoneEffect, ZoneEffectKind};
 use crate::{
     AuthoritySystems,
     gc::{SpawnerGc, WorldObjectGc},
@@ -596,19 +594,14 @@ pub fn spawn_scene_models(
 /// Draws a lightweight debug marker for script zones so proof-of-concept objectives such as
 /// Script zones are visible without dedicated art.
 pub fn draw_script_zone_debug(
-    zones: Query<(
-        &ScriptZone,
-        Option<&ZoneEffect>,
-        &Transform,
-        Option<&ChildOf>,
-    )>,
+    zones: Query<(&ScriptZone, &Transform, Option<&ChildOf>)>,
     parent_transforms: Query<&Transform>,
     parent_parents: Query<&ChildOf>,
     parent_bodies: Query<&RigidBodyHandleComponent>,
     physics: Res<PhysicsWorld>,
     mut gizmos: Gizmos,
 ) {
-    for (zone, effect, transform, child_of) in &zones {
+    for (zone, transform, child_of) in &zones {
         let (center, _rotation) = parented_world_pose(
             transform,
             child_of,
@@ -617,12 +610,13 @@ pub fn draw_script_zone_debug(
             &parent_bodies,
             &physics,
         );
-        let color = match effect.map(|effect| &effect.kind) {
-            Some(ZoneEffectKind::Safe) => Color::srgba(0.2, 1.0, 0.35, 0.95),
-            Some(ZoneEffectKind::OutOfBounds) => Color::srgba(1.0, 0.25, 0.2, 0.95),
-            None => Color::srgba(0.15, 0.85, 0.95, 0.95),
-        };
-        draw_authored_shape(&mut gizmos, &zone.shape, center, _rotation, color);
+        draw_authored_shape(
+            &mut gizmos,
+            &zone.shape,
+            center,
+            _rotation,
+            Color::srgba(0.15, 0.85, 0.95, 0.95),
+        );
     }
 }
 
