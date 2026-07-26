@@ -179,7 +179,7 @@ fn spawn_gameserver_terminal(
         args.push("--advertise-max-players".to_string());
         args.push(req.max_players.to_string());
     }
-    spawn_detached_terminal(&exe, &args)
+    spawn_terminal(&exe, &args)
 }
 
 fn kill_local_port_owners(port: u16) {
@@ -228,8 +228,38 @@ fn kill_pid(pid: u32) {
         .status();
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
+#[cfg(target_os = "linux")]
+fn spawn_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
+    let terminals: &[(&str, &[&str])] = &[
+        ("xdg-terminal-exec", &[]),
+        ("x-terminal-emulator", &["-e"]),
+        ("konsole", &["--noclose", "-e"]),
+        ("gnome-terminal", &["--"]),
+        ("kitty", &[]),
+        ("alacritty", &["-e"]),
+        ("xterm", &["-e"]),
+    ];
+    for (terminal, terminal_args) in terminals {
+        match std::process::Command::new(terminal)
+            .args(*terminal_args)
+            .arg(exe)
+            .args(args)
+            .current_dir(workspace_root())
+            .spawn()
+        {
+            Ok(_) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "no supported terminal emulator found",
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;
     let mut command = std::process::Command::new(exe);
     command
@@ -248,7 +278,7 @@ fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::R
 }
 
 #[cfg(target_os = "windows")]
-fn spawn_detached_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
+fn spawn_terminal(exe: &std::path::Path, args: &[String]) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NEW_CONSOLE: u32 = 0x00000010;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
