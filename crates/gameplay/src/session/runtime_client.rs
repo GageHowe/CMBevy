@@ -28,7 +28,7 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
     fn build(&self, app: &mut App) {
         let single_player = self.single_player;
         let multiplayer = self.multiplayer;
-        crate::session::runtime::configure_authority_sets(app);
+        crate::session::runtime::configure_gameplay_sets(app);
         app.insert_resource(GuiState::default())
             .init_resource::<LastAckedInputSeq>()
             .init_resource::<LocalCharacterNetId>()
@@ -54,21 +54,28 @@ impl<S: States + FreelyMutableState + Copy> Plugin for ClientSessionPlugin<S> {
             )
             .add_systems(
                 FixedUpdate,
-                respawn_singleplayer.run_if(in_state(single_player)),
+                respawn_singleplayer
+                    .in_set(common::game_state::SimulationSystems)
+                    .run_if(in_state(single_player)),
             )
             .add_systems(
                 FixedUpdate,
                 run_singleplayer_bots
+                    .in_set(common::game_state::SimulationSystems)
                     .before(crate::weapon::SimulateWeaponSet)
                     .run_if(in_state(single_player)),
             )
             .add_systems(
                 FixedUpdate,
-                crate::pawn::biped::apply_melee_hits.run_if(crate::session::runtime::has_authority),
+                crate::pawn::biped::apply_melee_hits
+                    .in_set(common::game_state::SimulationSystems)
+                    .run_if(crate::session::runtime::has_authority),
             )
             .add_systems(
                 FixedUpdate,
-                advance_match_state_time.run_if(in_state(single_player)),
+                advance_match_state_time
+                    .in_set(common::game_state::SimulationSystems)
+                    .run_if(in_state(single_player)),
             )
             .add_systems(
                 OnEnter(multiplayer),

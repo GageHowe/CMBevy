@@ -9,6 +9,8 @@ mod runtime_server;
 mod replication;
 
 use bevy::prelude::World;
+#[cfg(not(feature = "client"))]
+pub use resources::ActiveConnections;
 #[cfg(feature = "client")]
 pub use resources::{
     GuiState, LastAckedInputSeq, LocalCharacterNetId, PendingReconciliation, ServerAddr,

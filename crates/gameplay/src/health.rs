@@ -36,7 +36,10 @@ impl Plugin for HealthPlugin {
                 .after(crate::projectile::ProjectileDamageSet)
                 .in_set(AuthoritySystems),
         );
-        app.add_systems(FixedLast, flush_pending_death_despawns);
+        app.add_systems(
+            FixedLast,
+            flush_pending_death_despawns.in_set(common::game_state::SimulationSystems),
+        );
     }
 }
 

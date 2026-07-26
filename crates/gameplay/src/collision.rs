@@ -45,6 +45,10 @@ impl Plugin for CollisionPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<CollisionFxMaterial>()
             .init_resource::<CollisionImpacts>()
+            .configure_sets(
+                FixedUpdate,
+                CollisionImpactSet.in_set(common::game_state::SimulationSystems),
+            )
             .add_systems(
                 FixedUpdate,
                 collect_collision_impacts

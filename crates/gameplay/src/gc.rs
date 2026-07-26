@@ -45,7 +45,10 @@ pub struct WorldGcPlugin;
 impl Plugin for WorldGcPlugin {
     fn build(&self, app: &mut App) {
         let _ = AuthoritySystems;
-        app.add_systems(SlowUpdate, cleanup_world_gc_entities);
+        app.add_systems(
+            SlowUpdate,
+            cleanup_world_gc_entities.in_set(common::game_state::SimulationSystems),
+        );
     }
 }
 

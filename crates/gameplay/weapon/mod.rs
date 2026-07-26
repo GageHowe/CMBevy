@@ -40,9 +40,14 @@ impl Plugin for WeaponPlugin {
         app.add_plugins((beamer::BeamerPlugin, weapon_flash::WeaponFlashPlugin))
             .configure_sets(
                 FixedUpdate,
-                SimulateWeaponSet.before(physics::physics_world::ForceApplication),
+                SimulateWeaponSet
+                    .in_set(common::game_state::SimulationSystems)
+                    .before(physics::physics_world::ForceApplication),
             )
-            .add_systems(FixedUpdate, tick_weapon_state);
+            .add_systems(
+                FixedUpdate,
+                tick_weapon_state.in_set(common::game_state::SimulationSystems),
+            );
         app.add_systems(
             FixedUpdate,
             prepare_projectile_shots

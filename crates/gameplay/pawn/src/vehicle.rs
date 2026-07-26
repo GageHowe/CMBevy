@@ -47,8 +47,14 @@ impl Plugin for VehiclePlugin {
         let _ = app;
         #[cfg(feature = "client")]
         {
-            app.add_systems(FixedPreUpdate, attach_camera_on_possess_vehicle);
-            app.add_systems(FixedPreUpdate, vehicle_exit_interact);
+            app.add_systems(
+                FixedPreUpdate,
+                attach_camera_on_possess_vehicle.in_set(common::game_state::SimulationSystems),
+            );
+            app.add_systems(
+                FixedPreUpdate,
+                vehicle_exit_interact.in_set(common::game_state::SimulationSystems),
+            );
         }
     }
 }

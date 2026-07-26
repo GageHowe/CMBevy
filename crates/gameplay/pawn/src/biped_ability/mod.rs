@@ -32,7 +32,9 @@ impl Plugin for BipedAbilityPlugin {
         crate::register_spawnable(app, "dash", implementors::spawn_dash);
         app.add_systems(
             FixedPreUpdate,
-            tick_biped_ability_state.before(super::MovePawnsSet),
+            tick_biped_ability_state
+                .in_set(common::game_state::SimulationSystems)
+                .before(super::MovePawnsSet),
         )
         .add_systems(
             FixedUpdate,
@@ -45,7 +47,10 @@ impl Plugin for BipedAbilityPlugin {
                 .run_if(resource_exists::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>)
                 .in_set(super::GatherInputSet),
         )
-        .add_systems(bevy::app::FixedPostUpdate, sync_jetpack_fx_velocity)
+        .add_systems(
+            bevy::app::FixedPostUpdate,
+            sync_jetpack_fx_velocity.in_set(common::game_state::SimulationSystems),
+        )
         .add_systems(Update, cleanup_orphaned_jetpack_fx);
     }
 }

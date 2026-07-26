@@ -17,7 +17,7 @@ const PROJECTILE: projectile::Projectile = projectile::Projectile {
     lifetime: 60,
     radius: None,
     contact_damage: 60.0,
-    knockback: 0.1,
+    knockback: 0.2,
     damage_cause: DamageCause::Projectile,
     despawn_on_contact: true,
     explosion: None,
@@ -37,15 +37,15 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     reload_ticks: RELOAD_TICKS,
     fire_cooldown_ticks: COOLDOWN_TICKS as u16,
     projectile: Some(PROJECTILE),
-    projectile_gravity_scale: 0.0,
-    shooter_impulse: 0.1,
+    projectile_gravity_scale: 1.0,
+    shooter_impulse: PROJECTILE.knockback,
     mass_scaled_shooter_impulse: false,
     decorate_projectile: Some(decorate_projectile),
     projectile_behavior: Some(ProjectileBehavior {
         semi_auto: true,
         spread: 0.0,
         sound: "event:/Weapons/RifleShotLocal",
-        recoil_scale: 0.6,
+        recoil_scale: 2.0,
         kick_vertical: (1.2, 0.3),
         kick_horizontal: (-0.6, 0.6),
         kick_recovery: 22.0,
@@ -82,7 +82,8 @@ fn decorate_projectile(_entity: Entity, _world: &mut World) {
     {
         let mesh = _world
             .resource_mut::<Assets<Mesh>>()
-            .add(bevy::math::primitives::Sphere::new(0.04));
+            // .add(bevy::math::primitives::Sphere::new(0.04));
+            .add(bevy::math::primitives::Capsule3d::new(1.0, 10.0));
         let material = _world
             .resource_mut::<Assets<StandardMaterial>>()
             .add(StandardMaterial {

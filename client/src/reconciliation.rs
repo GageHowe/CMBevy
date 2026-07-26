@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::{ecs::system::SystemParam, prelude::*};
 use common::{
     LocalControl, NetworkID, PredictedImpulse, PredictedImpulses,
+    game_state::SimulationSystems,
     tick::{NetworkStats, Ticker},
 };
 use gameplay::{
@@ -44,10 +45,16 @@ impl<S: States + Copy> Plugin for ReconciliationPlugin<S> {
                 FixedPreUpdate,
                 (apply_physics_corrections, maybe_reconcile)
                     .chain()
+                    .in_set(SimulationSystems)
                     .before(GatherInputSet)
                     .run_if(in_state(state)),
             )
-            .add_systems(FixedPostUpdate, record_biped_state.run_if(in_state(state)));
+            .add_systems(
+                FixedPostUpdate,
+                record_biped_state
+                    .in_set(SimulationSystems)
+                    .run_if(in_state(state)),
+            );
     }
 }
 

@@ -5,7 +5,7 @@ use bevy::{
 use bevy_egui::input::EguiWantsInput;
 use common::{ActiveBindings, InputAction, active_gamepad};
 
-use crate::{GameState, UiState, settings::ControlsCapture};
+use crate::{GameState, SimState, UiState, settings::ControlsCapture};
 
 pub struct WindowSettingsPlugin;
 
@@ -34,6 +34,7 @@ fn toggle_ui_state(
     game_state: Res<State<GameState>>,
     ui_state: Res<State<UiState>>,
     mut next_ui: ResMut<NextState<UiState>>,
+    mut next_sim: ResMut<NextState<SimState>>,
 ) {
     let in_game = matches!(
         game_state.get(),
@@ -59,8 +60,14 @@ fn toggle_ui_state(
     ) && !egui_wants_keyboard
     {
         match ui_state.get() {
-            UiState::Playing => next_ui.set(UiState::Paused),
-            _ => next_ui.set(UiState::Playing),
+            UiState::Playing => {
+                next_ui.set(UiState::PauseMenu);
+                next_sim.set(SimState::Paused);
+            }
+            _ => {
+                next_ui.set(UiState::Playing);
+                next_sim.set(SimState::Playing);
+            }
         }
     }
 
@@ -73,6 +80,7 @@ fn toggle_ui_state(
     ) && !egui_wants_pointer
     {
         next_ui.set(UiState::Playing);
+        next_sim.set(SimState::Playing);
     }
 }
 

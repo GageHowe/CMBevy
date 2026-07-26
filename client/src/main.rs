@@ -13,7 +13,7 @@ use bevy::{
     window::PresentMode,
 };
 use camera::spawn_camera;
-pub use common::game_state::GameState;
+pub use common::game_state::{GameState, SimState};
 use gameplay::{
     components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
     level::{cleanup_level, draw_script_zone_debug},
@@ -49,7 +49,7 @@ mod steam;
 pub(crate) enum UiState {
     #[default]
     Playing,
-    Paused,
+    PauseMenu,
     Settings,
 }
 
@@ -130,9 +130,11 @@ fn main() {
         .init_resource::<SinglePlayerConfig>()
         .add_systems(
             FixedUpdate,
-            step_physics.run_if(
-                in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
-            ),
+            step_physics
+                .in_set(common::game_state::SimulationSystems)
+                .run_if(
+                    in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
+                ),
         )
         .add_systems(
             Update,
@@ -153,6 +155,7 @@ fn main() {
         pawn::send_pawn_input
             .after(GatherInputSet)
             .before(MovePawnsSet)
+            .in_set(common::game_state::SimulationSystems)
             .run_if(in_state(GameState::Multiplayer)),
     );
 
@@ -165,6 +168,7 @@ fn main() {
         FixedUpdate,
         (draw_projectile_debug, draw_projectile_raycast_debug)
             .after(step_physics)
+            .in_set(common::game_state::SimulationSystems)
             .run_if(debug_render_on)
             .run_if(in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer))),
     );

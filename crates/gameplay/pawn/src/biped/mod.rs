@@ -81,20 +81,26 @@ pub struct BipedPlugin;
 impl Plugin for BipedPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MouseSensitivity>();
-        app.add_systems(FixedUpdate, look::update_slide_camera);
+        app.add_systems(
+            FixedUpdate,
+            look::update_slide_camera.in_set(common::game_state::SimulationSystems),
+        );
         app.add_systems(FixedPreUpdate, move_bipeds.in_set(MovePawnsSet));
         #[cfg(feature = "client")]
         {
             app.add_systems(
                 FixedPreUpdate,
                 super::apply_local_control
+                    .in_set(common::game_state::SimulationSystems)
                     .after(super::GatherInputSet)
                     .before(super::MovePawnsSet),
             );
             controls::configure(app);
             app.add_systems(
                 FixedUpdate,
-                melee::send_predicted_melee_hit.in_set(physics::physics_world::ForceApplication),
+                melee::send_predicted_melee_hit
+                    .in_set(physics::physics_world::ForceApplication)
+                    .in_set(common::game_state::SimulationSystems),
             );
         }
         app.add_systems(

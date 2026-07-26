@@ -4,7 +4,10 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use common::{BodyState, LocalControl, NetworkID, PredictedImpulses, SimulationState};
+use common::{
+    BodyState, LocalControl, NetworkID, PredictedImpulses, SimulationState,
+    game_state::SimulationSystems,
+};
 pub use rapier3d::prelude::{RigidBodyHandle, Vector3};
 use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -628,7 +631,12 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::new(Vector3::ZERO))
-            .configure_sets(FixedUpdate, ForceApplication.before(step_physics))
+            .configure_sets(
+                FixedUpdate,
+                ForceApplication
+                    .in_set(SimulationSystems)
+                    .before(step_physics),
+            )
             .register_type::<InitialVelocity>()
             .register_type::<InitialAngularVelocity>()
             .register_type::<SceneRigidBody>()

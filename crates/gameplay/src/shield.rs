@@ -47,10 +47,19 @@ impl Plugin for ShieldPlugin {
         crate::register_spawnable(app, "spaceship_shield", spawn_spaceship_shield);
         #[cfg(feature = "client")]
         app.add_plugins(bevy::pbr::MaterialPlugin::<ShieldMaterial>::default())
-            .add_systems(Update, tick_shield_materials);
-        app.add_systems(FixedUpdate, sync_shield_colliders);
+            .add_systems(
+                Update,
+                tick_shield_materials.in_set(common::game_state::SimulationSystems),
+            );
+        app.add_systems(
+            FixedUpdate,
+            sync_shield_colliders.in_set(common::game_state::SimulationSystems),
+        );
         #[cfg(feature = "client")]
-        app.add_systems(FixedUpdate, sync_shield_visuals);
+        app.add_systems(
+            FixedUpdate,
+            sync_shield_visuals.in_set(common::game_state::SimulationSystems),
+        );
     }
 }
 

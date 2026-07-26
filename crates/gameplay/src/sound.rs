@@ -48,7 +48,12 @@ pub fn play_collision_sounds(
 
 #[cfg(feature = "client")]
 pub fn configure_collision_sound_system(app: &mut App) {
-    app.add_systems(FixedUpdate, play_collision_sounds.after(CollisionImpactSet));
+    app.add_systems(
+        FixedUpdate,
+        play_collision_sounds
+            .in_set(common::game_state::SimulationSystems)
+            .after(CollisionImpactSet),
+    );
 }
 
 #[cfg(feature = "client")]

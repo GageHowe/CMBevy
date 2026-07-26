@@ -204,7 +204,9 @@ impl Plugin for PawnPlugin {
             .init_resource::<InteractionHint>()
             .add_systems(
                 PostUpdate,
-                apply_camera_effects.before(bevy::transform::TransformSystems::Propagate),
+                apply_camera_effects
+                    .in_set(common::game_state::SimulationSystems)
+                    .before(bevy::transform::TransformSystems::Propagate),
             );
         app.add_plugins(biped_ability::BipedAbilityPlugin);
         app.add_plugins(biped::BipedPlugin);

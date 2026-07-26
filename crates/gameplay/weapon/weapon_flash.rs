@@ -13,7 +13,10 @@ pub struct WeaponFlashPlugin;
 impl Plugin for WeaponFlashPlugin {
     fn build(&self, _app: &mut App) {
         #[cfg(feature = "client")]
-        _app.add_systems(Update, tick_weapon_flashes);
+        _app.add_systems(
+            Update,
+            tick_weapon_flashes.in_set(common::game_state::SimulationSystems),
+        );
     }
 }
 

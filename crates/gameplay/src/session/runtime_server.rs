@@ -51,7 +51,7 @@ impl Plugin for ServerSessionPlugin {
         let bind_addr = self.bind_addr;
         let map_path = self.map_path.clone();
         let gametype_path = self.gametype_path.clone();
-        crate::session::runtime::configure_authority_sets(app);
+        crate::session::runtime::configure_gameplay_sets(app);
         app.insert_resource(ScriptConfig {
             path: gametype_path.clone(),
             is_server: true,
@@ -68,8 +68,15 @@ impl Plugin for ServerSessionPlugin {
         .init_resource::<crate::pawn::biped::PendingMeleeHits>()
         .init_resource::<LastProcessedInputSeq>()
         .init_resource::<BodyHistory>()
-        .add_systems(Update, (tick_respawns, process_console_commands))
-        .add_systems(Update, restart_round)
+        .add_systems(
+            Update,
+            tick_respawns.in_set(common::game_state::SimulationSystems),
+        )
+        .add_systems(Update, process_console_commands)
+        .add_systems(
+            Update,
+            restart_round.in_set(common::game_state::SimulationSystems),
+        )
         .add_systems(
             Startup,
             (
@@ -84,25 +91,34 @@ impl Plugin for ServerSessionPlugin {
             (
                 apply_inputs.before(crate::pawn::MovePawnsSet),
                 crate::bot::run_bots.before(crate::pawn::MovePawnsSet),
-            ),
+            )
+                .in_set(common::game_state::SimulationSystems),
         )
         .add_systems(
             FixedUpdate,
-            crate::pawn::biped::apply_melee_hit_requests.in_set(ForceApplication),
+            crate::pawn::biped::apply_melee_hit_requests
+                .in_set(ForceApplication)
+                .in_set(common::game_state::SimulationSystems),
         )
-        .add_systems(FixedUpdate, advance_match_state_time)
+        .add_systems(
+            FixedUpdate,
+            advance_match_state_time.in_set(common::game_state::SimulationSystems),
+        )
         .add_systems(
             FixedUpdate,
             (
                 crate::health::broadcast_dirty_health,
                 crate::weapon::broadcast_dirty_weapon_states,
             )
+                .in_set(common::game_state::SimulationSystems)
                 .after(crate::health::handle_deaths)
                 .before(broadcast_tick),
         )
         .add_systems(
             FixedUpdate,
-            broadcast_tick.after(crate::health::handle_deaths),
+            broadcast_tick
+                .in_set(common::game_state::SimulationSystems)
+                .after(crate::health::handle_deaths),
         );
         if let Some(advertise) = &self.advertise {
             app.insert_resource(HostedLobby {

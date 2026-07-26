@@ -19,7 +19,10 @@ impl Plugin for FlashPlugin {
     fn build(&self, _app: &mut App) {
         #[cfg(feature = "client")]
         _app.add_plugins(bevy::pbr::MaterialPlugin::<FlashMaterial>::default())
-            .add_systems(Update, tick_flashes);
+            .add_systems(
+                Update,
+                tick_flashes.in_set(common::game_state::SimulationSystems),
+            );
     }
 }
 

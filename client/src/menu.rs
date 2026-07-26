@@ -8,7 +8,7 @@ use gameplay::session::{ServerAddr, SinglePlayerConfig};
 use http_common::{LobbyInfo, RegisterRequest};
 
 use crate::{
-    GameState, UiState,
+    GameState, SimState, UiState,
     hosting::{
         available_gametypes, available_maps, fetch_lan_lobbies, fetch_remote_lobbies,
         gametype_path, start_hosted_server,
@@ -27,7 +27,7 @@ impl Plugin for MenuPlugin {
         );
         app.add_systems(
             EguiPrimaryContextPass,
-            pause_menu.run_if(in_state(UiState::Paused)),
+            pause_menu.run_if(in_state(UiState::PauseMenu)),
         );
         app.add_systems(
             EguiPrimaryContextPass,
@@ -842,6 +842,7 @@ fn pause_menu(
     mouse: Res<ButtonInput<MouseButton>>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_ui: ResMut<NextState<UiState>>,
+    mut next_sim: ResMut<NextState<SimState>>,
     active_bindings: Res<common::ActiveBindings>,
     gamepads: Query<&Gamepad>,
     mut capture: ResMut<ControlsCapture>,
@@ -858,6 +859,7 @@ fn pause_menu(
     ) {
         queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
         next_ui.set(UiState::Playing);
+        next_sim.set(SimState::Playing);
     }
     show_fullscreen_menu(ctx, "pause_menu", |ui| {
         ui.set_min_width(200.0);
@@ -865,6 +867,7 @@ fn pause_menu(
         if ui.button("Resume").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_ui.set(UiState::Playing);
+            next_sim.set(SimState::Playing);
         }
         if ui.button("Settings").clicked() {
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
@@ -874,6 +877,7 @@ fn pause_menu(
             queue_ui_sound(&mut sound_queue, UI_CLICK_EVENT);
             next_game.set(GameState::NotPlaying);
             next_ui.set(UiState::Playing);
+            next_sim.set(SimState::Playing);
         }
     });
 }
@@ -901,7 +905,7 @@ fn settings_menu(
         common::active_gamepad(gamepads.iter()),
     ) {
         queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
-        next_ui.set(UiState::Paused);
+        next_ui.set(UiState::PauseMenu);
     }
     show_fullscreen_menu(ctx, "settings_menu", |ui| {
         ui.set_min_width(250.0);
@@ -918,7 +922,7 @@ fn settings_menu(
         );
         if ui.button("Back").clicked() {
             queue_ui_sound(&mut sound_queue, UI_BACK_EVENT);
-            next_ui.set(UiState::Paused);
+            next_ui.set(UiState::PauseMenu);
         }
     });
 }

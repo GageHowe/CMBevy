@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use bevy::asset::AssetApp;
 #[allow(unused_imports)]
 use bevy::light::{AmbientLight, CascadeShadowConfig, DirectionalLight};
 use bevy::{
+    asset::AssetApp,
     camera::visibility::Visibility,
     pbr::{MeshMaterial3d, StandardMaterial},
     prelude::*,

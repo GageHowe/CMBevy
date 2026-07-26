@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use common::game_state::GameState;
-use common::{LocalControl, PredictedImpulses};
+use common::{LocalControl, PredictedImpulses, game_state::SimulationSystems};
 use physics::{
     collider_flags::{ColliderFlags, collider_flags},
     physics_world::*,
@@ -93,6 +93,12 @@ struct ProjectileHit {
 pub struct ProjectilePlugin;
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
+        app.configure_sets(FixedUpdate, ProjectileDamageSet.in_set(SimulationSystems));
+        #[cfg(feature = "client")]
+        app.configure_sets(
+            FixedPostUpdate,
+            TrackPredictedProjectilesSet.in_set(SimulationSystems),
+        );
         #[cfg(feature = "client")]
         app.init_resource::<PredictedProjectileMap>().add_systems(
             FixedPostUpdate,
@@ -114,6 +120,7 @@ impl Plugin for ProjectilePlugin {
             FixedUpdate,
             tick_predicted_projectiles
                 .after(step_physics)
+                .in_set(SimulationSystems)
                 .run_if(in_state(GameState::Multiplayer)),
         );
     }

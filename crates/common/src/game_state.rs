@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, bevy::prelude::States, Default)]
+use bevy::prelude::*;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub enum GameState {
     #[default]
     NotPlaying,
@@ -6,3 +8,13 @@ pub enum GameState {
     Multiplayer,
     Editor,
 }
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
+pub enum SimState {
+    #[default]
+    Playing,
+    Paused,
+}
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SimulationSystems;

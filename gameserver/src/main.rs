@@ -8,7 +8,8 @@ use bevy::{
     log::{Level, LogPlugin},
     prelude::*,
 };
-use gameplay::session::ServerSessionPlugin;
+use common::{game_state::SimState, slow_update::SlowUpdate};
+use gameplay::session::{ActiveConnections, ServerSessionPlugin};
 use http_common::RegisterRequest;
 use master_plugin::{MasterPlugin, register_asset_pak};
 use physics::physics_world::*;
@@ -150,9 +151,12 @@ fn main() {
 
     app.add_plugins(MasterPlugin);
     app.add_systems(FixedPreUpdate, gameplay::session::on_message);
+    app.add_systems(SlowUpdate, pause_empty_server);
     app.add_systems(
         FixedUpdate,
-        (step_physics, sync_physics_to_transforms).chain(),
+        (step_physics, sync_physics_to_transforms)
+            .chain()
+            .in_set(common::game_state::SimulationSystems),
     );
     app.add_plugins(ServerSessionPlugin {
         bind_addr,
@@ -162,6 +166,21 @@ fn main() {
     });
     println!("starting server...\n");
     app.run();
+}
+
+fn pause_empty_server(
+    connections: Res<ActiveConnections>,
+    state: Res<bevy::prelude::State<SimState>>,
+    mut next_state: ResMut<NextState<SimState>>,
+) {
+    let next = if connections.0.is_empty() {
+        SimState::Paused
+    } else {
+        SimState::Playing
+    };
+    if *state.get() != next {
+        next_state.set(next);
+    }
 }
 
 #[cfg(test)]

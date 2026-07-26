@@ -4,7 +4,7 @@
 
 pub use asset_pak::{register_asset_pak, register_asset_pak_with};
 use bevy::prelude::*;
-use common::{NetworkIDResource, slow_update::SlowSchedulePlugin, tick::*};
+use common::{NetworkIDResource, game_state::*, slow_update::SlowSchedulePlugin, tick::*};
 use gameplay::{
     GameplayPlugin,
     collision::CollisionPlugin,
@@ -22,6 +22,7 @@ impl Plugin for MasterPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(common::config::FIXED_TICK_RATE));
         app.insert_resource(Ticker { tick: 0 });
+        app.init_state::<SimState>();
 
         // core rapier plugin
         app.add_plugins(PhysicsPlugin);
@@ -49,11 +50,43 @@ impl Plugin for MasterPlugin {
         app.init_resource::<HeldWeaponMap>();
 
         // tick increments AFTER FixedUpdate
-        app.add_systems(FixedLast, increment_tick);
+        app.add_systems(FixedLast, increment_tick.in_set(SimulationSystems));
 
         app.add_plugins(NetPlugin);
         app.init_resource::<NetworkIDResource>();
 
         app.add_plugins(SlowSchedulePlugin);
+        app.configure_sets(
+            FixedPreUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            FixedUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            FixedPostUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            Update,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            PostUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            FixedLast,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            common::slow_update::SlowUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        )
+        .configure_sets(
+            common::slow_update::SemiSlowUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        );
     }
 }

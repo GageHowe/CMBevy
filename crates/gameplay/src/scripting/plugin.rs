@@ -37,12 +37,23 @@ impl Plugin for ScriptingPlugin {
         .init_resource::<PendingPlayerRemovals>()
         .add_systems(Startup, (load, register_script_functions).chain())
         .add_systems(PreUpdate, sync_script_tags)
-        .add_systems(Update, eval_script_update)
-        .add_systems(FixedUpdate, (reload_script, eval_script_fixed_update))
-        .add_systems(FixedLast, process_weapon_grants)
+        .add_systems(
+            Update,
+            eval_script_update.in_set(common::game_state::SimulationSystems),
+        )
         .add_systems(
             FixedUpdate,
-            dispatch_player_kill_callbacks.after(handle_deaths),
+            (reload_script, eval_script_fixed_update).in_set(common::game_state::SimulationSystems),
+        )
+        .add_systems(
+            FixedLast,
+            process_weapon_grants.in_set(common::game_state::SimulationSystems),
+        )
+        .add_systems(
+            FixedUpdate,
+            dispatch_player_kill_callbacks
+                .in_set(common::game_state::SimulationSystems)
+                .after(handle_deaths),
         );
     }
 }

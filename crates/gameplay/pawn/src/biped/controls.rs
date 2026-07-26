@@ -17,7 +17,10 @@ use crate::{interaction::InteractionName, weapon::WeaponFireInput};
 
 pub(super) fn configure(app: &mut App) {
     app.init_resource::<FixedPressQueue>()
-        .add_systems(Update, queue_fixed_inputs)
+        .add_systems(
+            Update,
+            queue_fixed_inputs.in_set(common::game_state::SimulationSystems),
+        )
         .add_systems(
             FixedPreUpdate,
             (
@@ -36,11 +39,13 @@ pub(super) fn configure(app: &mut App) {
                     )
                     .run_if(resource_exists::<ButtonInput<KeyCode>>),
             )
-                .chain(),
+                .chain()
+                .in_set(common::game_state::SimulationSystems),
         )
         .add_systems(
             PostUpdate,
             mouse_look
+                .in_set(common::game_state::SimulationSystems)
                 .run_if(resource_exists::<AccumulatedMouseMotion>)
                 .before(bevy::transform::TransformSystems::Propagate),
         )
@@ -52,7 +57,8 @@ pub(super) fn configure(app: &mut App) {
                 clear_zoom_without_active_weapon,
                 hide_weapons_while_seated,
                 switch_weapon_slot.run_if(resource_exists::<AccumulatedMouseScroll>),
-            ),
+            )
+                .in_set(common::game_state::SimulationSystems),
         );
 }
 
