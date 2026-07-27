@@ -18,7 +18,7 @@ audio = { path = "../audio" }
 common = { path = "../common" }
 http_common = { path = "../http_common" }
 physics = { path = "../physics" }
-bevy = { workspace = true, features = ["scene", "serialize", "std", "multi_threaded"] }
+bevy = { workspace = true, features = ["bevy_color", "scene", "serialize", "std", "multi_threaded"] }
 bytes = { workspace = true }
 rapier3d = { workspace = true }
 bitflags = { workspace = true }

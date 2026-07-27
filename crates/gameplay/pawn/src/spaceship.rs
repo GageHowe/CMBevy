@@ -150,9 +150,10 @@ pub fn spawn_spaceship(entity: Entity, cmd: &crate::net::message::SpawnCommand, 
         PhysicsColliderHandle(collider),
         Health::new(SPACESHIP_WEAK_POINT_HEALTH, 0, 0).with_death(on_spaceship_weak_point_death),
         Transform::from_translation(SPACESHIP_WEAK_POINT_POS),
-        Visibility::default(),
         crate::DespawnOnDeath,
     ));
+    #[cfg(feature = "client")]
+    world.entity_mut(weak_point).insert(Visibility::default());
     world.entity_mut(entity).add_child(weak_point);
     #[cfg(feature = "client")]
     {

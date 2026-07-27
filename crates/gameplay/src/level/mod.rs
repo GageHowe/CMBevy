@@ -1,11 +1,16 @@
 use std::path::PathBuf;
 
+#[cfg(feature = "client")]
 #[allow(unused_imports)]
 use bevy::light::{AmbientLight, CascadeShadowConfig, DirectionalLight};
+use bevy::color::Color;
+#[cfg(feature = "client")]
 use bevy::{
     asset::AssetApp,
     camera::visibility::Visibility,
     pbr::{MeshMaterial3d, StandardMaterial},
+};
+use bevy::{
     prelude::*,
     world_serialization::{
         DynamicWorld, DynamicWorldRoot, WorldAssetRoot, serde::WorldDeserializer,
@@ -47,15 +52,10 @@ impl Plugin for LevelPlugin {
         app.register_type::<ScriptZone>();
         app.register_type::<Spawner>();
         app.register_type::<MapMeta>();
-        app.register_type::<Visibility>();
-        app.register_type::<DirectionalLight>();
-        app.register_type::<CascadeShadowConfig>();
-        app.register_type::<Mesh3d>();
-        app.register_type::<MeshMaterial3d<StandardMaterial>>();
-        app.init_asset::<Mesh>();
-        app.init_asset::<StandardMaterial>();
-        app.register_asset_reflect::<Mesh>();
-        app.register_asset_reflect::<StandardMaterial>();
+        #[cfg(feature = "client")]
+        register_client_map_types(app);
+        #[cfg(not(feature = "client"))]
+        register_server_map_stubs(app);
 
         // maybe we could make these systems observer/trigger-driven or manual
         // rather than on Update? seems wasteful to have them run so often.
@@ -83,6 +83,26 @@ impl Plugin for LevelPlugin {
         app.add_systems(Update, init_spawners);
         app.add_systems(FixedUpdate, tick_spawners.in_set(AuthoritySystems));
     }
+}
+
+#[cfg(feature = "client")]
+fn register_client_map_types(app: &mut App) {
+    app.register_type::<Visibility>();
+    app.register_type::<DirectionalLight>();
+    app.register_type::<CascadeShadowConfig>();
+    app.register_type::<Mesh3d>();
+    app.register_type::<MeshMaterial3d<StandardMaterial>>();
+    app.init_asset::<Mesh>();
+    app.init_asset::<StandardMaterial>();
+    app.register_asset_reflect::<Mesh>();
+    app.register_asset_reflect::<StandardMaterial>();
+}
+
+#[cfg(not(feature = "client"))]
+fn register_server_map_stubs(app: &mut App) {
+    app.register_type::<ServerVisibility>();
+    app.register_type::<ServerDirectionalLight>();
+    app.register_type::<ServerCascadeShadowConfig>();
 }
 
 // ── component / resource types ────────────────────────────────────────────────
@@ -134,6 +154,55 @@ pub struct ScriptTags {
 #[reflect(Component, Default)]
 pub struct ScriptZone {
     pub shape: Shape,
+}
+
+#[cfg(not(feature = "client"))]
+#[derive(Component, Clone, Copy, Reflect, Default)]
+#[reflect(Component, Default)]
+#[type_path = "bevy_camera::visibility"]
+enum ServerVisibility {
+    #[default]
+    Inherited,
+    Hidden,
+    Visible,
+}
+
+#[cfg(not(feature = "client"))]
+#[derive(Component, Clone, Reflect, Default)]
+#[reflect(Component, Default)]
+#[type_path = "bevy_light::cascade"]
+struct ServerCascadeShadowConfig {
+    bounds: Vec<f32>,
+    overlap_proportion: f32,
+    minimum_distance: f32,
+}
+
+#[cfg(not(feature = "client"))]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component, Default)]
+#[type_path = "bevy_light::directional_light"]
+struct ServerDirectionalLight {
+    color: Color,
+    illuminance: f32,
+    shadow_maps_enabled: bool,
+    contact_shadows_enabled: bool,
+    affects_lightmapped_mesh_diffuse: bool,
+    shadow_depth_bias: f32,
+    shadow_normal_bias: f32,
+}
+#[cfg(not(feature = "client"))]
+impl Default for ServerDirectionalLight {
+    fn default() -> Self {
+        Self {
+            color: Color::WHITE,
+            illuminance: 10000.0,
+            shadow_maps_enabled: false,
+            contact_shadows_enabled: false,
+            affects_lightmapped_mesh_diffuse: true,
+            shadow_depth_bias: 0.02,
+            shadow_normal_bias: 1.8,
+        }
+    }
 }
 
 /// Level-wide metadata inserted as a Resource by the .scn.ron file.

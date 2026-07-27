@@ -46,11 +46,10 @@ impl Plugin for MountPlugin {
 
 pub fn spawn_mount_anchor(parent: Entity, local_offset: Vec3, world: &mut World) -> Entity {
     let anchor = world
-        .spawn((
-            Transform::from_translation(local_offset),
-            Visibility::default(),
-        ))
+        .spawn(Transform::from_translation(local_offset))
         .id();
+    #[cfg(feature = "client")]
+    world.entity_mut(anchor).insert(Visibility::default());
     world.entity_mut(parent).add_child(anchor);
     anchor
 }

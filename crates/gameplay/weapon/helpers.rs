@@ -134,10 +134,11 @@ pub fn restore_world_weapon(
         let mut entity = world.entity_mut(weapon_entity);
         entity.remove_parent_in_place();
     }
-    world.entity_mut(weapon_entity).insert((
-        crate::interaction::Interactable { range: 2.0 },
-        Visibility::Inherited,
-    ));
+    world
+        .entity_mut(weapon_entity)
+        .insert(crate::interaction::Interactable { range: 2.0 });
+    #[cfg(feature = "client")]
+    world.entity_mut(weapon_entity).insert(Visibility::Inherited);
     let mut physics = world.resource_mut::<PhysicsWorld>();
     place_world_weapon(&mut physics, weapon_entity, drop_pos, drop_velocity);
 }
