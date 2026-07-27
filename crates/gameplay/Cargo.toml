@@ -7,7 +7,7 @@ edition = "2024"
 path = "src/lib.rs"
 
 [features]
-client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:particles_plugin", "dep:noise-functions"]
+client = ["bevy/3d", "bevy/jpeg", "dep:bevy_egui", "dep:particles_plugin", "dep:noise-functions", "physics/client"]
 server = []
 
 [lints]

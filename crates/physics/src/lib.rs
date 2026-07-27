@@ -1,6 +1,7 @@
 pub mod collider_flags;
 pub mod collider_shape;
 pub mod convex_hull_asset;
+#[cfg(feature = "client")]
 pub mod debug;
 pub mod physics_world;
 // pub mod snapshot;

@@ -13,6 +13,8 @@ use crate::{
     sound::SoundQueue,
 };
 
+const EMPTY_WEAPON_CLICK: &str = "event:/UI/Click";
+
 pub mod beamer;
 pub mod coil_launcher;
 pub mod hail_mary;
@@ -124,6 +126,7 @@ fn prepare_projectile_shots(
         &WeaponConfig,
     )>,
     mut commands: Commands,
+    mut sound: Option<ResMut<SoundQueue>>,
 ) {
     for (entity, net_id, input, mut state, config) in &mut weapons {
         let Some(behavior) = config.projectile_behavior else {
@@ -131,6 +134,14 @@ fn prepare_projectile_shots(
         };
         if input.reload_pressed {
             start_reload(&mut state, config);
+        }
+        if input.fire_pressed
+            && state.reload_ticks == 0
+            && state.cooldown_ticks == 0
+            && state.ammo_in_mag == 0
+            && let Some(sound) = sound.as_deref_mut()
+        {
+            sound.play_2d(EMPTY_WEAPON_CLICK);
         }
         let requested = input.want_fire && (!behavior.semi_auto || input.fire_pressed);
         if requested && consume_round(&mut state, config) {
@@ -721,24 +732,12 @@ pub fn can_fire(state: &WeaponState) -> bool {
     state.reload_ticks == 0 && state.cooldown_ticks == 0 && state.ammo_in_mag > 0
 }
 
-pub fn is_depleted(state: &WeaponState) -> bool {
-    state.ammo_in_mag == 0 && state.reserve_ammo == 0
-}
-
 pub fn consume_round(state: &mut WeaponState, config: &WeaponConfig) -> bool {
     if !can_fire(state) {
-        if state.reload_ticks == 0 && state.cooldown_ticks == 0 && state.ammo_in_mag == 0 {
-            start_reload(state, config);
-        }
         return false;
     }
     state.ammo_in_mag -= 1;
     state.cooldown_ticks = config.fire_cooldown_ticks;
-    // Empty mags should immediately enter reload so client prediction and server authority
-    // stay on the same state path after the last shot.
-    if state.ammo_in_mag == 0 {
-        start_reload(state, config);
-    }
     true
 }
 

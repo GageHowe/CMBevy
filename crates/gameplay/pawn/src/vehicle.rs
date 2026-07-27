@@ -34,7 +34,7 @@ impl VehicleComponent {
 pub trait VehiclePawn: Component {
     const CAMERA_OFFSET: Vec3;
     const DRIVER_MOUNT_OFFSET: Vec3;
-    const DRIVER_INTERACT_RADIUS: f32 = 1.0;
+    const DRIVER_INTERACT_RADIUS: f32 = 1.0; // what is this? todo remove
     const EXIT_OFFSET: Vec3 = Vec3::ZERO;
     fn apply_input(world: &mut PhysicsWorld, entity: Entity, input: common::PawnInput);
 }

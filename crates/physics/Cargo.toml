@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-client = []
+client = ["bevy/bevy_gizmos"]
 
 [lints]
 workspace = true
 
 [dependencies]
 common = { path = "../common" }
-bevy = { workspace = true, features = ["bevy_gizmos", "serialize", "std", "multi_threaded"] }
+bevy = { workspace = true, features = ["serialize", "std", "multi_threaded"] }
 rapier3d = { workspace = true }
 serde = { workspace = true }
 bitflags = { workspace = true }

@@ -226,7 +226,6 @@ fn drive_authoritative_beams(
                 );
                 if state.ammo_in_mag == 0 {
                     beam.phase = BeamPhase::Idle;
-                    super::start_reload(&mut state, config);
                     quic.send(
                         target,
                         Channel::Ordered,
@@ -269,6 +268,7 @@ fn update_beamer_client(
     state: &mut WeaponState,
     config: &WeaponConfig,
     multiplayer: bool,
+    sound: Option<&mut SoundQueue>,
 ) {
     if input.reload_pressed {
         end_local_beam(weapon, state, true);
@@ -283,6 +283,14 @@ fn update_beamer_client(
 
     if weapon.phase == BeamPhase::Idle {
         if !super::can_fire(state) {
+            if input.fire_pressed
+                && state.reload_ticks == 0
+                && state.cooldown_ticks == 0
+                && state.ammo_in_mag == 0
+                && let Some(sound) = sound
+            {
+                sound.play_2d(EMPTY_WEAPON_CLICK);
+            }
             return;
         }
         weapon.phase = BeamPhase::Charging;
@@ -322,13 +330,9 @@ fn update_beamer_client(
 
     if state.ammo_in_mag == 0 {
         end_local_beam(weapon, state, true);
-        super::start_reload(state, config);
         return;
     }
     state.ammo_in_mag -= 1;
-    if state.ammo_in_mag == 0 {
-        super::start_reload(state, config);
-    }
 
     #[cfg(feature = "client")]
     let hit = beam_hit(world, input.origin, weapon.beam_dir, Some(input.shooter));
@@ -357,6 +361,7 @@ pub fn drive_beamers_client(
     mut world: ResMut<PhysicsWorld>,
     mut commands: Commands,
     quic: Option<Res<QuicManager>>,
+    mut sound: Option<ResMut<SoundQueue>>,
 ) {
     for (entity, mut beam, mut state, config, input) in &mut weapons {
         update_beamer_client(
@@ -367,6 +372,7 @@ pub fn drive_beamers_client(
             &mut state,
             config,
             quic.is_some(),
+            sound.as_deref_mut(),
         );
         commands.entity(entity).remove::<WeaponFireInput>();
     }

@@ -12,7 +12,7 @@ use crate::{
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
     net::{message::*, quic::*},
-    pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry, Controller},
+    pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry},
     scripting::{ScriptConfig, get_script_global},
     session::{
         replication::{broadcast_tick, spawn_player},

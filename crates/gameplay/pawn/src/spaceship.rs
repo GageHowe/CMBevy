@@ -64,7 +64,6 @@ impl Plugin for SpaceshipPlugin {
 
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipPawnComponent;
-
 impl VehiclePawn for SpaceshipPawnComponent {
     const CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 15.0, 30.0);
     const DRIVER_MOUNT_OFFSET: Vec3 = Vec3::new(0.0, 0.6, -2.0);

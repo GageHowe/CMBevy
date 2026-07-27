@@ -142,25 +142,22 @@ pub fn restore_world_weapon(
     place_world_weapon(&mut physics, weapon_entity, drop_pos, drop_velocity);
 }
 
-pub fn drop_or_despawn_weapon(
+pub fn drop_weapon(
     commands: &mut Commands,
     world: &mut PhysicsWorld,
     weapon_entity: Entity,
     weapon_state: Option<Mut<WeaponState>>,
     drop_pos: Vec3,
     drop_velocity: Vec3,
-) -> bool {
+) {
+    #[cfg(not(feature = "client"))]
+    let _ = commands;
     if let Some(mut weapon_state) = weapon_state {
         crate::weapon::cancel_reload(&mut weapon_state);
-        if crate::weapon::is_depleted(&weapon_state) {
-            commands.entity(weapon_entity).despawn();
-            return true;
-        }
     }
     #[cfg(feature = "client")]
     detach_viewmodel(commands, weapon_entity);
     place_world_weapon(world, weapon_entity, drop_pos, drop_velocity);
-    false
 }
 
 pub fn clear_inactive_slot_reload(weapon_state: Option<Mut<WeaponState>>) {
@@ -249,12 +246,12 @@ pub fn drop_from_owner(
 ) {
     held_weapons.0.remove(&weapon_id);
     let (drop_pos, drop_velocity) = drop_pose(world, owner_entity, drop_dir);
-    let despawned = {
+    {
         let weapon_state = weapon_runtime
             .get_mut(weapon_entity)
             .ok()
             .map(|(state, _)| state);
-        drop_or_despawn_weapon(
+        drop_weapon(
             commands,
             world,
             weapon_entity,
@@ -263,9 +260,6 @@ pub fn drop_from_owner(
             drop_velocity,
         )
     };
-    if despawned {
-        return;
-    }
     quic.send(
         crate::net::quic::SendTarget::All,
         crate::net::quic::Channel::Ordered,
@@ -290,7 +284,7 @@ pub fn drop_local_active_weapon(
     let Some((_weapon_id, weapon_entity)) = slots.remove_active() else {
         return false;
     };
-    drop_or_despawn_weapon(
+    drop_weapon(
         commands,
         world,
         weapon_entity,
