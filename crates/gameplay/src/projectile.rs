@@ -54,7 +54,7 @@ pub struct FiredProjectile {
 pub struct Projectile {
     pub shooter: Option<Entity>,
     pub last_position: Vec3,
-    pub inherited_launch_velocity: Vec3,
+    pub inherited_launch_velocity: Vec3, // wtf is this?
     pub lifetime: u32,
     pub radius: Option<f32>,
     pub contact_damage: f32,
@@ -540,6 +540,19 @@ fn explode(
         }
     }
     let mut predicted = predicted;
+    if let Some((hit, collider, _, _)) = direct_hit_impulse
+        && world.cm_collider_to_entity(collider) != Some(hit)
+    {
+        apply_entity_damage(
+            hit,
+            shooter,
+            contact_damage,
+            explosion.percent_max_health_damage,
+            DamageCause::Explosion,
+            health_q,
+            last_damage_q,
+        );
+    }
     for (entity, falloff) in affected {
         if direct_hit != Some(entity) && !splash_q.contains(entity) {
             continue;

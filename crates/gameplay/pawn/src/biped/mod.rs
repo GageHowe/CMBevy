@@ -33,18 +33,18 @@ pub(super) const SLIDE_HALF_HEIGHT: f32 = 0.1;
 pub(super) const CAPSULE_BOTTOM: f32 = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 // Crouched capsule is top-aligned with standing: bottom = (CAPSULE_HALF_HEIGHT - SLIDE_HALF_HEIGHT) - SLIDE_HALF_HEIGHT - CAPSULE_RADIUS = 0.0
 pub(super) const SLIDE_CAPSULE_BOTTOM: f32 = 0.0;
-pub(super) const GROUND_ACCEL: f32 = 2.0;
+pub(super) const GROUND_ACCEL: f32 = 1.0;
 /// m/s; impulse tapers to zero as speed approaches this
-pub(super) const MAX_GROUND_SPEED: f32 = 15.0;
+pub(super) const MAX_GROUND_SPEED: f32 = 10.0;
 pub(super) const JUMP_IMPULSE: f32 = 8.0;
 pub(super) const JUMP_IMPULSE_CROUCHED: f32 = 12.0;
 pub(super) const CROUCH_DOWN_IMPULSE: f32 = 5.0;
 pub(super) const AIR_CONTROL: f32 = 0.1;
 pub(super) const GROUND_DIST: f32 = 0.05;
-pub(super) const JUMP_COOLDOWN: u8 = 20;
+pub(super) const JUMP_COOLDOWN: u8 = 10;
 pub(super) const MAIN_RESTITUTION: f32 = 0.0;
 pub(super) const MAIN_FRICTION: f32 = 2.0;
-pub(super) const SLIDE_FRICTION: f32 = 0.1;
+pub(super) const SLIDE_FRICTION: f32 = 0.2;
 pub(super) const BIPED_HEALTH_REGEN_PER_SECOND: i32 = 5;
 pub(super) const BIPED_HEALTH_REGEN_DELAY_TICKS: u16 = common::config::FIXED_TICK_RATE as u16 * 5;
 

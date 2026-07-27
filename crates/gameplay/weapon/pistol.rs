@@ -13,7 +13,7 @@ pub const RELOAD_TICKS: u16 = 50;
 const PROJECTILE: projectile::Projectile = projectile::Projectile {
     shooter: None,
     last_position: Vec3::ZERO,
-    inherited_launch_velocity: Vec3::ZERO,
+    inherited_launch_velocity: Vec3::ZERO, // wtf is this
     lifetime: 60,
     radius: None,
     contact_damage: 60.0,
@@ -44,7 +44,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     projectile_behavior: Some(ProjectileBehavior {
         semi_auto: true,
         spread: 0.0,
-        sound: "event:/Weapons/RifleShotLocal",
+        sound: "event:/Weapons/AssaultRifle/RifleShotLocal",
         recoil_scale: 2.0,
         kick_vertical: (1.2, 0.3),
         kick_horizontal: (-0.6, 0.6),

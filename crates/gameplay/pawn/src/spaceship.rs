@@ -21,10 +21,13 @@ use crate::flash::spawn_flash;
 use crate::{
     collision::CollisionFxMaterial,
     generic::attach_hull_collider,
-    health::{CollisionDamageConfig, Health, LastDamageSource},
+    health::{
+        CollisionDamageConfig, Health, LastDamageSource, copy_last_damage_source, queue_damage,
+    },
     interaction::InteractionName,
     reticle::AimReticle,
     shield::spawn_attached_spaceship_shield,
+    weak_point::WeakPointOf,
 };
 
 const HULL_PATH: &str = "collision/placeholder_carrier.obj";
@@ -35,6 +38,10 @@ const ROLL_SPEED: f32 = 500.0;
 const BASE_SENSITIVITY: f32 = 100000.0;
 const MAX_TORQUE: f32 = 40000.0;
 const SPACESHIP_MAX_HEALTH: i32 = 1500;
+const SPACESHIP_WEAK_POINT_HEALTH: i32 = 200;
+const SPACESHIP_WEAK_POINT_DAMAGE: f32 = 5000.0;
+const SPACESHIP_WEAK_POINT_POS: Vec3 = Vec3::new(0.0, 0.0, -10.0);
+const SPACESHIP_WEAK_POINT_RADIUS: f32 = 0.5;
 
 pub struct SpaceshipPlugin;
 impl Plugin for SpaceshipPlugin {
@@ -128,6 +135,44 @@ pub fn spawn_spaceship(entity: Entity, cmd: &crate::net::message::SpawnCommand, 
         ColliderBuilder::cuboid(1.5, 1.0, 3.0),
         world,
     );
+    let weak_point = world.spawn_empty().id();
+    let collider = ColliderBuilder::ball(SPACESHIP_WEAK_POINT_RADIUS)
+        .translation(Vector3::new(
+            SPACESHIP_WEAK_POINT_POS.x,
+            SPACESHIP_WEAK_POINT_POS.y,
+            SPACESHIP_WEAK_POINT_POS.z,
+        ))
+        .build();
+    let collider = world
+        .resource_mut::<PhysicsWorld>()
+        .insert_collider_with_parent(weak_point, collider, rb_handle);
+    world.entity_mut(weak_point).insert((
+        WeakPointOf(entity),
+        PhysicsColliderHandle(collider),
+        Health::new(SPACESHIP_WEAK_POINT_HEALTH, 0, 0).with_death(on_spaceship_weak_point_death),
+        Transform::from_translation(SPACESHIP_WEAK_POINT_POS),
+        Visibility::default(),
+        crate::DespawnOnDeath,
+    ));
+    world.entity_mut(entity).add_child(weak_point);
+    #[cfg(feature = "client")]
+    {
+        let mesh = world
+            .resource_mut::<Assets<Mesh>>()
+            .add(Sphere::new(SPACESHIP_WEAK_POINT_RADIUS));
+        let material = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(Color::srgb(1.0, 0.05, 0.05));
+        let visual = world
+            .spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                Transform::default(),
+                Visibility::default(),
+            ))
+            .id();
+        world.entity_mut(weak_point).add_child(visual);
+    }
     world
         .entity_mut(entity)
         .insert(RigidBodyHandleComponent(rb_handle));
@@ -140,6 +185,17 @@ pub fn spawn_spaceship(entity: Entity, cmd: &crate::net::message::SpawnCommand, 
             .insert((WorldAssetRoot(scene), Visibility::default()));
     }
     crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
+}
+
+fn on_spaceship_weak_point_death(entity: Entity, world: &mut World) {
+    let Some(target) = world
+        .get::<WeakPointOf>(entity)
+        .map(|weak_point| weak_point.0)
+    else {
+        return;
+    };
+    copy_last_damage_source(world, entity, target);
+    queue_damage(world, target, SPACESHIP_WEAK_POINT_DAMAGE);
 }
 
 pub fn on_spaceship_death(entity: Entity, world: &mut World) {

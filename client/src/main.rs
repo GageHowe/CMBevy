@@ -138,9 +138,11 @@ fn main() {
         )
         .add_systems(
             Update,
-            sync_physics_visual.run_if(
-                in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
-            ),
+            sync_physics_visual
+                .in_set(common::game_state::SimulationSystems)
+                .run_if(
+                    in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
+                ),
         )
         .add_systems(Startup, spawn_camera)
         .add_systems(Last, cleanup_before_app_exit);

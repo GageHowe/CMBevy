@@ -81,6 +81,9 @@ pub enum SceneRigidBody {
 #[derive(Component)]
 pub struct RigidBodyHandleComponent(pub RigidBodyHandle);
 
+#[derive(Component)]
+pub struct PhysicsColliderHandle(pub ColliderHandle);
+
 /// struct that contains native Rapier world, maps, and bookkeeping
 #[derive(Resource)]
 pub struct PhysicsWorld {
@@ -100,6 +103,7 @@ pub struct PhysicsWorld {
 
     pub handle_to_entity: HashMap<RigidBodyHandle, Entity>,
     pub entity_to_handle: HashMap<Entity, RigidBodyHandle>,
+    pub collider_to_entity: HashMap<ColliderHandle, Entity>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,6 +152,7 @@ impl PhysicsWorld {
             event_handler: (),
             handle_to_entity: HashMap::new(),
             entity_to_handle: HashMap::new(),
+            collider_to_entity: HashMap::new(),
         }
     }
 
@@ -176,6 +181,40 @@ impl PhysicsWorld {
         self.entity_to_handle.insert(entity, handle);
 
         handle
+    }
+
+    pub fn insert_collider_with_parent(
+        &mut self,
+        entity: Entity,
+        collider: Collider,
+        parent: RigidBodyHandle,
+    ) -> ColliderHandle {
+        let handle =
+            self.collider_set
+                .insert_with_parent(collider, parent, &mut self.rigid_body_set);
+        self.collider_to_entity.insert(handle, entity);
+        handle
+    }
+
+    pub fn remove_collider(&mut self, handle: ColliderHandle) {
+        self.collider_to_entity.remove(&handle);
+        self.collider_set.remove(
+            handle,
+            &mut self.island_manager,
+            &mut self.rigid_body_set,
+            true,
+        );
+    }
+
+    pub fn remove_entity_colliders(&mut self, entity: Entity) {
+        let colliders: Vec<_> = self
+            .collider_to_entity
+            .iter()
+            .filter_map(|(&handle, &owner)| (owner == entity).then_some(handle))
+            .collect();
+        for collider in colliders {
+            self.remove_collider(collider);
+        }
     }
 
     /// clean up the rigidbody associated with this entity.
@@ -406,6 +445,13 @@ impl PhysicsWorld {
 }
 
 impl PhysicsWorld {
+    pub fn collider_owner_entity(&self, collider: ColliderHandle) -> Option<Entity> {
+        self.collider_to_entity
+            .get(&collider)
+            .copied()
+            .or_else(|| self.cm_collider_to_entity(collider))
+    }
+
     /// small helper to make this boilerplate easier
     pub fn cm_collider_to_entity(&self, collider: ColliderHandle) -> Option<Entity> {
         let collider = self.collider_set.get(collider)?;
@@ -427,16 +473,20 @@ impl PhysicsWorld {
         let dir = direction / max_toi;
         let ray = Ray::new(origin, dir);
         let ignored = ignored_bitflags.unwrap_or_else(ColliderFlags::empty);
-        let excluded: Vec<_> = exclude
+        let excluded_bodies: Vec<_> = exclude
             .iter()
             .filter_map(|entity| self.entity_to_handle.get(entity).copied())
             .collect();
-        let predicate = |_: ColliderHandle, collider: &Collider| {
-            !collider.is_sensor()
-                && !collider_flags(collider.user_data).intersects(ignored)
-                && !collider
-                    .parent()
-                    .is_some_and(|body| excluded.contains(&body))
+        let predicate = |handle: ColliderHandle, collider: &Collider| {
+            if collider.is_sensor() || collider_flags(collider.user_data).intersects(ignored) {
+                return false;
+            }
+            if let Some(owner) = self.collider_to_entity.get(&handle) {
+                return !exclude.contains(owner);
+            }
+            !collider
+                .parent()
+                .is_some_and(|body| excluded_bodies.contains(&body))
         };
         let query_pipeline = self.broad_phase.as_query_pipeline(
             self.narrow_phase.query_dispatcher(),
@@ -445,7 +495,7 @@ impl PhysicsWorld {
             QueryFilter::new().predicate(&predicate),
         );
         let make_ray_hit = |collider, hit: RayIntersection| {
-            self.cm_collider_to_entity(collider).map(|entity| RayHit {
+            self.collider_owner_entity(collider).map(|entity| RayHit {
                 entity,
                 collider,
                 toi: hit.time_of_impact,
@@ -471,7 +521,7 @@ impl PhysicsWorld {
         query_pipeline
             .cast_shape(&shape_pos, dir, &shape, options)
             .and_then(|(collider, hit)| {
-                self.cm_collider_to_entity(collider).map(|entity| RayHit {
+                self.collider_owner_entity(collider).map(|entity| RayHit {
                     entity,
                     collider,
                     toi: hit.time_of_impact,
@@ -641,6 +691,7 @@ impl Plugin for PhysicsPlugin {
             .register_type::<InitialAngularVelocity>()
             .register_type::<SceneRigidBody>()
             .init_resource::<PhysicsInterpMode>()
+            .add_observer(on_remove_physics_collider_handle)
             .add_observer(on_remove_rigidbody_handle);
     }
 }
@@ -654,6 +705,13 @@ fn on_remove_rigidbody_handle(
     mut world: ResMut<PhysicsWorld>,
 ) {
     world.remove_rigidbody(event.entity);
+}
+
+fn on_remove_physics_collider_handle(
+    event: On<Remove, PhysicsColliderHandle>,
+    mut world: ResMut<PhysicsWorld>,
+) {
+    world.remove_entity_colliders(event.entity);
 }
 
 pub fn step_physics(mut world: ResMut<PhysicsWorld>) {

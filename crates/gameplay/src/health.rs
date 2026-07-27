@@ -19,6 +19,7 @@ pub struct HealthPlugin;
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingDeathDespawns>();
+        app.init_resource::<PendingDamage>();
         app.add_systems(
             FixedUpdate,
             (
@@ -32,7 +33,8 @@ impl Plugin for HealthPlugin {
         );
         app.add_systems(
             FixedUpdate,
-            handle_deaths
+            (apply_pending_damage, handle_deaths)
+                .chain()
                 .after(crate::projectile::ProjectileDamageSet)
                 .in_set(AuthoritySystems),
         );
@@ -192,6 +194,9 @@ pub struct PendingPlayerRemovals(pub Vec<Entity>);
 #[derive(Resource, Default)]
 /// Deferred despawn queue used to avoid despawning mid-death-processing.
 pub struct PendingDeathDespawns(pub Vec<Entity>);
+
+#[derive(Resource, Default)]
+pub struct PendingDamage(pub Vec<(Entity, f32)>);
 
 #[derive(Component)]
 struct DeathHandled;
@@ -417,6 +422,23 @@ fn regenerate_health(
         health.regenerate();
         if death_handled && was_dead && !health.is_dead() {
             commands.entity(entity).remove::<DeathHandled>();
+        }
+    }
+}
+
+pub fn queue_damage(world: &mut World, entity: Entity, damage: f32) {
+    if damage > 0.0 {
+        world
+            .resource_mut::<PendingDamage>()
+            .0
+            .push((entity, damage));
+    }
+}
+
+fn apply_pending_damage(mut pending: ResMut<PendingDamage>, mut health_q: Query<&mut Health>) {
+    for (entity, damage) in std::mem::take(&mut pending.0) {
+        if let Ok(mut health) = health_q.get_mut(entity) {
+            health.apply_damage(damage);
         }
     }
 }

@@ -45,7 +45,7 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     projectile_behavior: Some(ProjectileBehavior {
         semi_auto: false,
         spread: SPREAD_RADIANS,
-        sound: "event:/Weapons/RifleShotLocal",
+        sound: "event:/Weapons/AR/RifleShotLocal",
         recoil_scale: 0.45,
         kick_vertical: (1.1, 0.35),
         kick_horizontal: (-0.6, 0.6),

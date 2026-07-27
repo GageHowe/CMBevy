@@ -12,6 +12,7 @@ pub type SpawnFn = fn(Entity, &SpawnCommand, &mut World);
 #[derive(Resource, Default)]
 pub struct SpawnRegistry(pub HashMap<&'static str, SpawnFn>);
 
+/// what is this?
 #[derive(Component, Clone, Copy)]
 pub struct SpawnReplicated(pub &'static str);
 

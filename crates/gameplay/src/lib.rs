@@ -30,6 +30,7 @@ pub mod sound;
 mod spawn;
 #[cfg(feature = "client")]
 pub mod spring_arm;
+pub mod weak_point;
 #[path = "../weapon/mod.rs"]
 pub mod weapon;
 

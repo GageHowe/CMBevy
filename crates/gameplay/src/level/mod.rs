@@ -61,9 +61,12 @@ impl Plugin for LevelPlugin {
         // rather than on Update? seems wasteful to have them run so often.
         // we'll only load a new level infrequently TODO
 
-        app.add_systems(Update, apply_pending_map_scene);
+        app.add_systems(FixedUpdate, apply_pending_map_scene);
         // react to scene-spawned components — works on both client and server
-        app.add_systems(Update, (spawn_static_colliders, assign_scene_network_ids));
+        app.add_systems(
+            FixedUpdate,
+            (spawn_static_colliders, assign_scene_network_ids),
+        );
         #[cfg(feature = "client")]
         {
             app.add_systems(
