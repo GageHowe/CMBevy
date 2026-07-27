@@ -33,6 +33,7 @@ pub mod spring_arm;
 pub mod weak_point;
 #[path = "weapon/mod.rs"]
 pub mod weapon;
+pub mod archetype;
 
 pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
