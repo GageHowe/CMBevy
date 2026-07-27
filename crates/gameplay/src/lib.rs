@@ -19,7 +19,7 @@ pub mod mode;
 pub mod net;
 #[path = "../../network_index.rs"]
 mod network_index;
-#[path = "../pawn/src/mod.rs"]
+#[path = "pawn/src/mod.rs"]
 pub mod pawn;
 pub mod projectile;
 pub mod reticle;
@@ -31,7 +31,7 @@ mod spawn;
 #[cfg(feature = "client")]
 pub mod spring_arm;
 pub mod weak_point;
-#[path = "../weapon/mod.rs"]
+#[path = "weapon/mod.rs"]
 pub mod weapon;
 
 pub use components::{atmosphere, gravity, snap};
