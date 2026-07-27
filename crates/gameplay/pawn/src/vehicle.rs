@@ -104,7 +104,7 @@ pub fn handle_vehicle_death(vehicle_entity: Entity, world: &mut World) {
 
 #[cfg(feature = "client")]
 pub fn attach_camera_on_possess_vehicle(
-    vehicles: Query<(&VehicleComponent, Entity), Added<Possessed>>,
+    vehicles: Query<(&VehicleComponent, Entity), Added<Controller>>,
     camera: Query<(Entity, &Projection), With<Camera3d>>,
     mut commands: Commands,
 ) {
@@ -150,7 +150,7 @@ fn vehicle_exit_interact(
     bindings: Res<common::ActiveBindings>,
     vehicle: Query<
         (Entity, Option<&crate::net::message::NetworkID>),
-        (With<VehicleComponent>, With<Possessed>),
+        (With<VehicleComponent>, With<Controller>),
     >,
     mut mounts: Query<&mut mount::CharacterMount>,
     anchor_transforms: Query<&Transform>,
@@ -200,11 +200,11 @@ fn vehicle_exit_interact(
             ) else {
                 return;
             };
-            commands.entity(vehicle_entity).remove::<Possessed>();
+            commands.entity(vehicle_entity).remove::<Controller>();
             commands
                 .entity(biped_entity)
                 .remove::<mount::Mounted>()
-                .insert(Possessed::new(128));
+                .insert(Controller::new(128));
             if let Ok(name) = interaction_names.get(vehicle_entity) {
                 crate::messages::push(&mut commands, format!("Exited {}", name.0));
             }

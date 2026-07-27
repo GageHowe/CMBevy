@@ -63,7 +63,7 @@ pub(super) fn configure(app: &mut App) {
 }
 
 fn clear_zoom_without_active_weapon(
-    pawn: Query<&WeaponSlots, With<Possessed>>,
+    pawn: Query<&WeaponSlots, With<Controller>>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
 ) {
     let Ok(slots) = pawn.single() else {
@@ -180,7 +180,7 @@ fn mouse_look(
     sensitivity: Res<MouseSensitivity>,
     gamepads: Query<&Gamepad>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
-    possessed: Query<&BipedPawnComponent, With<Possessed>>,
+    possessed: Query<&BipedPawnComponent, With<Controller>>,
     camera_fx: Query<&CameraEffector, With<Camera3d>>,
     mut pivots: ParamSet<(
         Query<(&mut Transform, &mut YawPivot)>,
@@ -239,7 +239,7 @@ fn mouse_look(
 fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
     egui_wants_input: Option<Res<EguiWantsInput>>,
-    mut pawn: Query<&mut WeaponSlots, With<Possessed>>,
+    mut pawn: Query<&mut WeaponSlots, With<Controller>>,
     mut weapon_states: Query<&mut crate::weapon::WeaponState>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,
@@ -279,7 +279,7 @@ fn switch_weapon_slot(
 }
 
 fn attach_camera_on_possess(
-    bipeds: Query<(&BipedPawnComponent, &WeaponSlots), Added<Possessed>>,
+    bipeds: Query<(&BipedPawnComponent, &WeaponSlots), Added<Controller>>,
     camera: Query<(Entity, &Projection), With<Camera3d>>,
     mut commands: Commands,
 ) {
@@ -311,7 +311,7 @@ fn attach_camera_on_possess(
 }
 
 fn reset_look_on_possess(
-    mut bipeds: Query<&mut BipedPawnComponent, Added<Possessed>>,
+    mut bipeds: Query<&mut BipedPawnComponent, Added<Controller>>,
     mut pivots: ParamSet<(
         Query<(&mut Transform, &mut YawPivot)>,
         Query<(&mut Transform, &mut PitchPivot)>,
@@ -430,7 +430,7 @@ fn biped_fire(
             &BipedPawnComponent,
             &physics::physics_world::RigidBodyHandleComponent,
         ),
-        With<Possessed>,
+        With<Controller>,
     >,
     world: Res<PhysicsWorld>,
     camera_gt: Query<&GlobalTransform, With<Camera3d>>,
@@ -526,7 +526,7 @@ struct InteractWorldParams<'w, 's> {
         ),
         With<crate::interaction::Interactable>,
     >,
-    possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Possessed>>,
+    possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Controller>>,
     weapon_states: Query<'w, 's, &'static mut crate::weapon::WeaponState>,
     camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
     mount_net_ids: Query<'w, 's, &'static crate::net::message::NetworkID, With<CharacterMount>>,
@@ -620,7 +620,7 @@ fn update_interaction_hint(
             &BipedPawnComponent,
             &physics::physics_world::RigidBodyHandleComponent,
         ),
-        With<Possessed>,
+        With<Controller>,
     >,
     bindings: Res<common::ActiveBindings>,
     prompt_device: Option<Res<common::PromptDevicePreference>>,
@@ -705,7 +705,7 @@ fn interact(
             &BipedPawnComponent,
             &physics::physics_world::RigidBodyHandleComponent,
         ),
-        With<Possessed>,
+        With<Controller>,
     >,
     mut world: ResMut<PhysicsWorld>,
     mut sp: InteractWorldParams,
@@ -767,10 +767,10 @@ fn interact(
                     sp.commands
                         .entity(pawn_entity)
                         .insert(Mounted(parent_entity));
-                    sp.commands.entity(pawn_entity).remove::<Possessed>();
+                    sp.commands.entity(pawn_entity).remove::<Controller>();
                     sp.commands
                         .entity(parent_entity)
-                        .insert(Possessed::new(128));
+                        .insert(Controller::new(128));
                     if let Ok(name) = sp.interaction_names.get(parent_entity) {
                         crate::messages::push(&mut sp.commands, format!("Entered {}", name.0));
                     }
@@ -872,9 +872,9 @@ fn drop_active_weapon(
     egui_wants: Res<EguiWantsInput>,
     bindings: Res<common::ActiveBindings>,
     state: Res<State<common::game_state::GameState>>,
-    player: Query<(Entity, &BipedPawnComponent), With<Possessed>>,
+    player: Query<(Entity, &BipedPawnComponent), With<Controller>>,
     pitch_pivots: Query<&GlobalTransform, With<PitchPivot>>,
-    mut slots_q: Query<&mut WeaponSlots, With<Possessed>>,
+    mut slots_q: Query<&mut WeaponSlots, With<Controller>>,
     mut weapon_states: Query<&mut crate::weapon::WeaponState>,
     mut camera_fx: Query<&mut CameraEffector, With<Camera3d>>,
     mut commands: Commands,

@@ -3,11 +3,11 @@ use bevy_egui::{EguiContexts, egui};
 use gameplay::{
     health::Health,
     messages::{GameMessages, MESSAGE_TTL_SECS},
-    pawn::{InteractionHint, Possessed, WeaponSlots, biped::BipedPawnComponent},
+    pawn::{InteractionHint, Controller, WeaponSlots, biped::BipedPawnComponent},
     weapon::{WeaponConfig, WeaponState},
 };
 
-pub fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Possessed>>) {
+pub fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Controller>>) {
     let Ok(health) = health_q.single() else {
         return;
     };
@@ -41,7 +41,7 @@ pub fn gui_health(mut contexts: EguiContexts, health_q: Query<&Health, With<Poss
 
 pub fn gui_ability_status(
     mut contexts: EguiContexts,
-    biped_q: Query<&BipedPawnComponent, With<Possessed>>,
+    biped_q: Query<&BipedPawnComponent, With<Controller>>,
 ) {
     let Ok(biped) = biped_q.single() else {
         return;
@@ -72,7 +72,7 @@ pub fn gui_ability_status(
 
 pub fn gui_ammo(
     mut contexts: EguiContexts,
-    slots_q: Query<&WeaponSlots, With<Possessed>>,
+    slots_q: Query<&WeaponSlots, With<Controller>>,
     weapon_q: Query<(&WeaponState, &WeaponConfig)>,
 ) {
     let Some(weapon_entity) = slots_q.single().ok().and_then(|slots| slots.active().1) else {

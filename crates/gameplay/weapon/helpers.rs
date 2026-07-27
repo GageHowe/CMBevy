@@ -414,7 +414,7 @@ fn apply_pickup_packet(msg: &crate::net::message::WeaponPickup, world: &mut Worl
     if local_net_id(world).as_ref() == Some(&msg.carrier_net_id) {
         let mut q = world.query_filtered::<
             (&mut WeaponSlots, &BipedPawnComponent),
-            With<crate::pawn::Possessed>,
+            With<crate::pawn::Controller>,
         >();
         let (pickup, pivot) = if let Ok((mut slots, biped)) = q.single_mut(world) {
             (
@@ -485,7 +485,7 @@ fn apply_drop_packet(msg: &crate::net::message::WeaponDrop, world: &mut World) {
         let updates = {
             let mut q = world.query_filtered::<
                 (&mut WeaponSlots, &BipedPawnComponent),
-                With<crate::pawn::Possessed>,
+                With<crate::pawn::Controller>,
             >();
             if let Ok((mut slots, _)) = q.single_mut(world) {
                 slots.remove_by_net_id(&msg.weapon_id);

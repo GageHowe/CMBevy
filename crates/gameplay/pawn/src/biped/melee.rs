@@ -7,7 +7,7 @@ use super::*;
 #[cfg(feature = "client")]
 use crate::net::quic::Channel;
 #[cfg(feature = "client")]
-use crate::pawn::Possessed;
+use crate::pawn::Controller;
 use crate::{
     health::{DamageCause, Health, LastDamageSource, attribute_damage},
     net::message::NetworkID,
@@ -140,7 +140,7 @@ pub fn send_predicted_melee_hit(
     mut quic: Option<ResMut<crate::net::quic::QuicManager>>,
     control: Option<Res<LocalControl>>,
     mut impulses: Option<ResMut<PredictedImpulses>>,
-    possessed: Query<(Entity, &BipedPawnComponent, &NetworkID), With<Possessed>>,
+    possessed: Query<(Entity, &BipedPawnComponent, &NetworkID), With<Controller>>,
     net_ids: Query<&NetworkID>,
 ) {
     let Some(quic) = quic.as_deref_mut().filter(|quic| quic.client_connected) else {

@@ -13,7 +13,7 @@ use crate::{
         },
         quic::QuicManager,
     },
-    pawn::{InteractionGate, Possessed},
+    pawn::{InteractionGate, Controller},
     session,
     session::resources::*,
 };
@@ -145,7 +145,7 @@ fn load_sp_level<S: States + FreelyMutableState + Copy>(
 
 fn respawn_singleplayer(
     time: Res<Time>,
-    possessed: Query<(), With<Possessed>>,
+    possessed: Query<(), With<Controller>>,
     pending_map: Option<Res<PendingMapScene>>,
     mut commands: Commands,
     mut net_ids: ResMut<NetworkIDResource>,
@@ -194,7 +194,7 @@ fn respawn_singleplayer(
     );
     commands
         .entity(entity)
-        .insert((Possessed::new(128), Team(0)));
+        .insert((Controller::new(128), Team(0)));
     sp.spawned_once = true;
 }
 

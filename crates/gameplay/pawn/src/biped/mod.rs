@@ -125,7 +125,7 @@ fn move_bipeds(
     mut commands: Commands,
     mut pawns: Query<(
         Entity,
-        &mut Possessed,
+        &mut Controller,
         &physics::physics_world::RigidBodyHandleComponent,
         &mut BipedPawnComponent,
     )>,

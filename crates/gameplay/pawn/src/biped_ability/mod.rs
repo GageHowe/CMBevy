@@ -448,7 +448,7 @@ fn drop_active_ability_input(
     egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     state: Res<State<common::game_state::GameState>>,
-    possessed: Query<Entity, With<super::Possessed>>,
+    possessed: Query<Entity, With<super::Controller>>,
     pitch_pivots: Query<&GlobalTransform, With<super::PitchPivot>>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
     mut commands: Commands,

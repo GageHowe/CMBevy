@@ -5,7 +5,7 @@ use physics::physics_world::PhysicsWorld;
 use crate::{Team, bot::*, health::Health, pawn::*, reticle::AimReticle, weapon::WeaponFireInput};
 
 pub fn run_bots(
-    mut bots: Query<(Entity, &mut BotController, &mut Possessed)>,
+    mut bots: Query<(Entity, &mut BotController, &mut Controller)>,
     actors: Query<(Entity, &Team, &Health)>,
     pawn_slots: Query<&WeaponSlots>,
     reticles: Query<&AimReticle>,

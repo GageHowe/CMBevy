@@ -76,7 +76,7 @@ pub fn spawn_biped(entity: Entity, cmd: &crate::net::message::SpawnCommand, worl
 
 pub fn on_biped_death(entity: Entity, world: &mut World) {
     #[cfg(feature = "client")]
-    if world.get::<Possessed>(entity).is_some() {
+    if world.get::<Controller>(entity).is_some() {
         super::detach_camera(world);
     }
     let (drop_pos, drop_velocity) = {

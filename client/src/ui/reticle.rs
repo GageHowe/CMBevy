@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use gameplay::{
     health::Health,
-    pawn::{Possessed, WeaponSlots},
+    pawn::{Controller, WeaponSlots},
     reticle::{AimOrigin, AimReticle, default_crosshair_path},
 };
 use physics::physics_world::{PhysicsWorld, rb_vel};
@@ -49,11 +49,11 @@ pub fn update_prediction_reticle(
             Option<&AimOrigin>,
             Option<&WeaponSlots>,
         ),
-        With<Possessed>,
+        With<Controller>,
     >,
     transforms: Query<&GlobalTransform>,
     weapons: Query<&AimReticle>,
-    targets: Query<(Entity, &GlobalTransform, &Health), Without<Possessed>>,
+    targets: Query<(Entity, &GlobalTransform, &Health), Without<Controller>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     world: Res<PhysicsWorld>,
     settings: Option<Res<Settings>>,
@@ -169,7 +169,7 @@ fn solve_intercept_time(
 }
 
 pub fn update_reticle(
-    possessed: Query<(Option<&AimReticle>, Option<&WeaponSlots>), With<Possessed>>,
+    possessed: Query<(Option<&AimReticle>, Option<&WeaponSlots>), With<Controller>>,
     reticles: Query<&AimReticle>,
     mut crosshair: Query<&mut ImageNode, With<Crosshair>>,
     asset_server: Res<AssetServer>,

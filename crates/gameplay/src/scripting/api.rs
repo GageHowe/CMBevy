@@ -19,7 +19,7 @@ use crate::{
         message::{MsgType, OnscreenMessage, SpawnCommand},
         quic::{Channel, QuicManager, SendTarget},
     },
-    pawn::{PlayerRegistry, Possessed, WeaponSlots},
+    pawn::{PlayerRegistry, Controller, WeaponSlots},
     scripting::{
         plugin::{PendingWeaponGrants, WeaponGrant},
         runtime::ScriptRuntime,
@@ -366,7 +366,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
             world.entity_mut(entity).insert((
                 BotController::new(team, HeuristicKillerBot),
                 Name::new(format!("Bot (team {})", team.0)),
-                Possessed::new(128),
+                Controller::new(128),
             ));
             Ok(true)
         })

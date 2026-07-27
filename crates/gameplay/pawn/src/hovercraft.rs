@@ -11,7 +11,7 @@ use rapier3d::prelude::*;
 #[cfg(feature = "client")]
 use super::GatherInputSet;
 use super::{
-    Controller, MovePawnsSet, Possessed,
+    *,
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
 };
 use crate::{
@@ -328,7 +328,7 @@ pub fn apply_hovercraft_movement(
 
 fn move_hovercrafts(
     mut world: ResMut<PhysicsWorld>,
-    mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent), With<HovercraftPawnComponent>>,
+    mut pawns: Query<(&mut Controller, &RigidBodyHandleComponent), With<HovercraftPawnComponent>>,
 ) {
     for (mut possessed, handle) in &mut pawns {
         let Some(input) = possessed.consume() else {

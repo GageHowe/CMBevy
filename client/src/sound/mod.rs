@@ -1,7 +1,7 @@
 use audio::{AudioListener, AudioSettings, FmodStudio, set_global_parameter};
 pub use audio::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
 use bevy::prelude::*;
-use gameplay::{components::atmosphere::AreaReverbComponent, pawn::Possessed};
+use gameplay::{components::atmosphere::AreaReverbComponent, pawn::Controller};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::settings::Settings;
@@ -35,7 +35,7 @@ fn sync_audio_settings(settings: Res<Settings>, mut audio: ResMut<AudioSettings>
 
 fn sync_listener(
     camera: Query<&GlobalTransform, With<Camera3d>>,
-    possessed: Query<&RigidBodyHandleComponent, With<Possessed>>,
+    possessed: Query<&RigidBodyHandleComponent, With<Controller>>,
     world: Res<PhysicsWorld>,
     mut listener: ResMut<AudioListener>,
 ) {

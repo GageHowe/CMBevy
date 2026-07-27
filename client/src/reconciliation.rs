@@ -12,7 +12,7 @@ use gameplay::{
         gravity::{GravitySource, apply_gravity_impulses},
         snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
-    pawn::{GatherInputSet, Mounted, Possessed, biped::BipedPawnComponent},
+    pawn::{GatherInputSet, Mounted, Controller, biped::BipedPawnComponent},
     session::PendingReconciliation,
 };
 use physics::physics_world::{
@@ -93,7 +93,7 @@ struct ReplayPhysicsEnv<'w, 's> {
 }
 
 fn record_biped_state(
-    bipeds: Query<&BipedPawnComponent, With<Possessed>>,
+    bipeds: Query<&BipedPawnComponent, With<Controller>>,
     control: Res<LocalControl>,
     mut history: ResMut<ReplayStateHistory>,
 ) {
@@ -176,16 +176,16 @@ fn maybe_reconcile(
     tick: Res<Ticker>,
     _net_stats: Res<NetworkStats>,
     networked: Res<NetworkEntityMap>,
-    possessed: Query<&NetworkID, With<Possessed>>,
+    possessed: Query<&NetworkID, With<Controller>>,
     bipeds: Query<&RigidBodyHandleComponent, (With<BipedPawnComponent>, Without<Mounted>)>,
-    vehicles: Query<&gameplay::pawn::vehicle::VehicleComponent, With<Possessed>>,
+    vehicles: Query<&gameplay::pawn::vehicle::VehicleComponent, With<Controller>>,
     seated: Query<&Mounted>,
     env: ReplayPhysicsEnv,
     control: Res<LocalControl>,
     impulses: Res<PredictedImpulses>,
     history: Res<ReplayStateHistory>,
     mut errors: ResMut<PhysicsErrors>,
-    mut possessed_bipeds: Query<&mut BipedPawnComponent, With<Possessed>>,
+    mut possessed_bipeds: Query<&mut BipedPawnComponent, With<Controller>>,
 ) {
     let Some(snapshot) = pending.0.take() else {
         return;

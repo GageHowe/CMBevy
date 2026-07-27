@@ -10,7 +10,7 @@ use crate::net::{
     quic::{ConnectionId, QuicManager, SendTarget},
 };
 #[cfg(feature = "client")]
-use crate::pawn::Possessed;
+use crate::pawn::Controller;
 
 /// Occupancy data for a parent object that can attach a character at a fixed anchor.
 #[derive(Component, Reflect)]
@@ -456,9 +456,9 @@ pub fn handle_mount_parent_death(parent_entity: Entity, world: &mut World) -> Op
 
 #[cfg(feature = "client")]
 pub fn clear_mount_possession(parent_entity: Entity, rider_entity: Entity, world: &mut World) {
-    if world.get::<Possessed>(parent_entity).is_some() {
+    if world.get::<Controller>(parent_entity).is_some() {
         crate::pawn::detach_camera(world);
-        world.entity_mut(parent_entity).remove::<Possessed>();
-        world.entity_mut(rider_entity).insert(Possessed::new(128));
+        world.entity_mut(parent_entity).remove::<Controller>();
+        world.entity_mut(rider_entity).insert(Controller::new(128));
     }
 }

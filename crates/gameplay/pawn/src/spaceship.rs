@@ -11,7 +11,7 @@ use physics::physics_world::*;
 use rapier3d::prelude::*;
 
 use super::{
-    Controller, MovePawnsSet, Possessed,
+    Controller, MovePawnsSet,
     vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
 };
 #[cfg(feature = "client")]
@@ -390,7 +390,7 @@ pub fn apply_spaceship_movement(
 
 fn move_spaceships(
     mut world: ResMut<PhysicsWorld>,
-    mut pawns: Query<(&mut Possessed, &RigidBodyHandleComponent), With<SpaceshipPawnComponent>>,
+    mut pawns: Query<(&mut Controller, &RigidBodyHandleComponent), With<SpaceshipPawnComponent>>,
 ) {
     for (mut possessed, handle) in &mut pawns {
         let Some(input) = possessed.consume() else {

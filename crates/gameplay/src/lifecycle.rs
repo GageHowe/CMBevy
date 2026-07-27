@@ -84,7 +84,7 @@ pub fn apply_possess(
     local_net_id: &mut Option<NetworkID>,
     just_spawned: &std::collections::HashMap<NetworkID, (Entity, u64)>,
     networked: &NetworkEntityMap,
-    possessed_q: &Query<(Entity, &NetworkID), With<crate::pawn::Possessed>>,
+    possessed_q: &Query<(Entity, &NetworkID), With<crate::pawn::Controller>>,
     commands: &mut Commands,
     ticker: &mut common::tick::Ticker,
 ) {
@@ -98,13 +98,13 @@ pub fn apply_possess(
     };
     for (old, _) in possessed_q.iter() {
         if old != entity {
-            commands.entity(old).remove::<crate::pawn::Possessed>();
+            commands.entity(old).remove::<crate::pawn::Controller>();
         }
     }
     ticker.tick = server_tick;
     commands
         .entity(entity)
-        .insert(crate::pawn::Possessed::new(128));
+        .insert(crate::pawn::Controller::new(128));
 }
 
 #[cfg(feature = "client")]
@@ -135,7 +135,7 @@ pub fn apply_despawn(
                 &mut crate::pawn::WeaponSlots,
                 &crate::pawn::biped::BipedPawnComponent,
             ),
-            With<crate::pawn::Possessed>,
+            With<crate::pawn::Controller>,
         >,
         Query<&crate::pawn::biped::BipedPawnComponent>,
         Query<&mut crate::pawn::biped::BipedPawnComponent>,

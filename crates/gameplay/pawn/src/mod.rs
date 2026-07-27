@@ -371,9 +371,6 @@ impl Controller {
         self.input.as_mut()
     }
 }
-
-pub type Possessed = Controller;
-
 // SYSTEMS
 
 /// System set covering all gather-input systems. Reconciliation runs before this.

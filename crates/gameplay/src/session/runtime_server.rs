@@ -12,7 +12,7 @@ use crate::{
     level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
     net::{message::*, quic::*},
-    pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry, Possessed},
+    pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry, Controller},
     scripting::{ScriptConfig, get_script_global},
     session::{
         replication::{broadcast_tick, spawn_player},
@@ -418,7 +418,7 @@ fn process_console_commands(
                     );
                     commands.entity(entity).insert((
                         Team(team),
-                        Possessed::new(128),
+                        Controller::new(128),
                         crate::bot::BotController::new(Team(team), crate::bot::HeuristicKillerBot),
                     ));
                     quic.send(

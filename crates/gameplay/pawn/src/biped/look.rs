@@ -5,7 +5,7 @@ use super::*;
 
 #[cfg(feature = "client")]
 pub(super) fn sync_remote_look_pivots(
-    bipeds: Query<&BipedPawnComponent, Without<Possessed>>,
+    bipeds: Query<&BipedPawnComponent, Without<Controller>>,
     mut pivots: ParamSet<(
         Query<(&mut Transform, &mut YawPivot)>,
         Query<(&mut Transform, &mut PitchPivot)>,
