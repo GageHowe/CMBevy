@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     health::{DamageCause, Health, LastDamageSource},
     net::{
-        message::{MsgType, NetworkID, OnscreenMessage, WeaponDrop},
+        message::{ChatMessage, MsgType, NetworkID, WeaponDrop},
         quic::{Channel, QuicManager, SendTarget},
     },
 };
@@ -241,7 +241,7 @@ fn push_death_message(
         quic.send(
             SendTarget::All,
             Channel::Ordered,
-            &MsgType::OnscreenMessage(OnscreenMessage(text)),
+            &MsgType::ChatMessage(ChatMessage(Color::srgb(1.0, 0.35, 0.25), text)),
         );
         return;
     }

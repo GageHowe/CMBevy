@@ -16,7 +16,7 @@ use crate::{
     messages::push_world,
     mode::{MatchPhase, MatchState, PlayerNumbers, TeamNumbers},
     net::{
-        message::{MsgType, OnscreenMessage, SpawnCommand},
+        message::{ChatMessage, MsgType, SpawnCommand},
         quic::{Channel, QuicManager, SendTarget},
     },
     pawn::{PlayerRegistry, Controller, WeaponSlots},
@@ -214,7 +214,7 @@ pub(crate) fn register_script_functions(world: &mut World) {
                     quic.send(
                         SendTarget::All,
                         Channel::Ordered,
-                        &MsgType::OnscreenMessage(OnscreenMessage(text)),
+                        &MsgType::ChatMessage(ChatMessage(Color::srgb(0.5, 0.85, 1.0), text)),
                     );
                 }
             } else {

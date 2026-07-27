@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::net::message::{NetworkID, SimulationState};
+use crate::net::message::{ChatMessage, NetworkID, SimulationState};
 #[cfg(not(feature = "client"))]
 use crate::net::quic::ConnectionId;
 #[cfg(not(feature = "client"))]
@@ -38,17 +38,7 @@ pub struct PendingReconciliation(pub Option<SimulationState>);
 /// Small bag of UI/runtime state owned by the client session layer.
 pub struct GuiState {
     pub command_input: String,
-    pub log: Vec<String>,
-}
-
-#[cfg(feature = "client")]
-impl GuiState {
-    pub fn push_log(&mut self, msg: impl Into<String>) {
-        self.log.push(msg.into());
-        if self.log.len() > 200 {
-            self.log.remove(0);
-        }
-    }
+    pub chat: Vec<ChatMessage>,
 }
 
 #[cfg(feature = "client")]

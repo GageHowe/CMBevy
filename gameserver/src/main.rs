@@ -136,6 +136,7 @@ fn main() {
     let mut app = App::new();
     register_asset_pak(&mut app);
     app.add_plugins(MinimalPlugins)
+        .add_plugins(bevy::state::app::StatesPlugin)
         .add_plugins(bevy::asset::AssetPlugin {
             file_path: gameplay::level::default_asset_dir()
                 .to_string_lossy()

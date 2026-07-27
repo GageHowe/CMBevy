@@ -136,10 +136,7 @@ pub struct RequestMap;
 pub struct Disconnected;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct ChatMessage {
-    pub sender: String,
-    pub text: String,
-}
+pub struct ChatMessage(pub Color, pub String);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Ping(pub String);
@@ -226,9 +223,6 @@ pub struct TimePing(pub u64);
 pub struct TimePong(pub u64);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct OnscreenMessage(pub String);
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct AbilityFxMessage {
     pub net_id: NetworkID,
     pub fx: AbilityFx,
@@ -307,7 +301,6 @@ pub enum MsgType {
     HitResult(HitResult),
     TimePing(TimePing),
     TimePong(TimePong),
-    OnscreenMessage(OnscreenMessage),
     AbilityFx(AbilityFxMessage),
     AbilityState(AbilityState),
     WeaponState(WeaponStateMessage),
@@ -346,7 +339,6 @@ impl_noop_message!(
     ClientReady,
     RequestMap,
     Disconnected,
-    ChatMessage,
     Ping,
     Pong,
     Input,
@@ -364,12 +356,31 @@ impl_noop_message!(
     HitResult,
     TimePing,
     TimePong,
-    OnscreenMessage,
     AbilityFxMessage,
     AbilityState,
     WeaponStateMessage,
     Health,
 );
+
+impl Message for ChatMessage {
+    fn handle(self, world: &mut World) {
+        #[cfg(feature = "client")]
+        if let Some(mut state) = world.get_resource_mut::<crate::session::GuiState>() {
+            state.chat.push(self);
+            let excess = state.chat.len().saturating_sub(200);
+            let _ = state.chat.drain(..excess);
+        }
+
+        #[cfg(not(feature = "client"))]
+        if let Some(mut quic) = world.get_resource_mut::<crate::net::quic::QuicManager>() {
+            quic.send(
+                crate::net::quic::SendTarget::All,
+                crate::net::quic::Channel::Ordered,
+                &MsgType::ChatMessage(self),
+            );
+        }
+    }
+}
 
 #[cfg(not(feature = "client"))]
 impl_noop_message!(MapHash, FileData);

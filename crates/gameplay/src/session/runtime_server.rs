@@ -382,10 +382,10 @@ fn process_console_commands(
                 quic.send(
                     SendTarget::All,
                     Channel::Ordered,
-                    &MsgType::ChatMessage(ChatMessage {
-                        sender: "[Server]".into(),
-                        text: text.clone(),
-                    }),
+                    &MsgType::ChatMessage(ChatMessage(
+                        Color::srgb(1.0, 0.85, 0.2),
+                        format!("[Server] {text}"),
+                    )),
                 );
                 println!("[Server] {text}");
             }

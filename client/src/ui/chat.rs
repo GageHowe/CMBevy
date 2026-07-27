@@ -37,8 +37,9 @@ pub fn gui_chat(
                 .auto_shrink([false, true])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
-                    for line in &state.log {
-                        ui.label(line);
+                    for line in &state.chat {
+                        let [r, g, b, a] = line.0.to_srgba().to_u8_array();
+                        ui.colored_label(egui::Color32::from_rgba_premultiplied(r, g, b, a), &line.1);
                     }
                 });
 
@@ -68,10 +69,7 @@ pub fn gui_chat(
                         .unwrap_or_else(|| "Player".to_string());
                     quic.send_to_server(
                         Channel::Ordered,
-                        &MsgType::ChatMessage(ChatMessage {
-                            sender: name,
-                            text: txt,
-                        }),
+                        &MsgType::ChatMessage(ChatMessage(Color::WHITE, format!("{name}: {txt}"))),
                     );
                 }
                 state.command_input.clear();
