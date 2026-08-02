@@ -2,7 +2,10 @@ use bevy::{
     ecs::system::{Command, SystemState},
     prelude::*,
 };
-use common::{LeaderboardScope, ScoringOption};
+use common::{
+    LeaderboardScope, ScoringOption,
+    slow_update::{SemiSlowUpdate, SlowUpdate},
+};
 use http_common::{LobbyHeartbeat, RegisterRequest, RegisterResponse};
 use physics::physics_world::*;
 
@@ -69,12 +72,12 @@ impl Plugin for ServerSessionPlugin {
         .init_resource::<LastProcessedInputSeq>()
         .init_resource::<BodyHistory>()
         .add_systems(
-            Update,
+            FixedUpdate,
             tick_respawns.in_set(common::game_state::SimulationSystems),
         )
-        .add_systems(Update, process_console_commands)
+        .add_systems(SlowUpdate, process_console_commands)
         .add_systems(
-            Update,
+            FixedUpdate,
             restart_round.in_set(common::game_state::SimulationSystems),
         )
         .add_systems(
@@ -129,7 +132,7 @@ impl Plugin for ServerSessionPlugin {
                 max_players: advertise.max_players,
             })
             .add_systems(Startup, register_hosted_lobby)
-            .add_systems(Update, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
+            .add_systems(SemiSlowUpdate, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
         }
     }
 }

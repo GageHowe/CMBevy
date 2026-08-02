@@ -38,10 +38,6 @@ impl Plugin for ScriptingPlugin {
         .add_systems(Startup, (load, register_script_functions).chain())
         .add_systems(PreUpdate, sync_script_tags)
         .add_systems(
-            Update,
-            eval_script_update.in_set(common::game_state::SimulationSystems),
-        )
-        .add_systems(
             FixedUpdate,
             (reload_script, eval_script_fixed_update).in_set(common::game_state::SimulationSystems),
         )
@@ -54,6 +50,11 @@ impl Plugin for ScriptingPlugin {
             dispatch_player_kill_callbacks
                 .in_set(common::game_state::SimulationSystems)
                 .after(handle_deaths),
+        );
+        #[cfg(feature = "client")]
+        app.add_systems(
+            Update,
+            eval_script_update.in_set(common::game_state::SimulationSystems),
         );
     }
 }
@@ -73,6 +74,7 @@ fn reload_script(config: Option<Res<ScriptConfig>>, mut runtime: NonSendMut<Scri
     compile_script(&config, &mut runtime);
 }
 
+#[cfg(feature = "client")]
 fn eval_script_update(world: &mut World) {
     call_script(world, "on_tick");
 }

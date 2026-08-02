@@ -69,10 +69,6 @@ impl Plugin for MasterPlugin {
             SimulationSystems.run_if(in_state(SimState::Playing)),
         )
         .configure_sets(
-            Update,
-            SimulationSystems.run_if(in_state(SimState::Playing)),
-        )
-        .configure_sets(
             PostUpdate,
             SimulationSystems.run_if(in_state(SimState::Playing)),
         )
@@ -86,6 +82,11 @@ impl Plugin for MasterPlugin {
         )
         .configure_sets(
             common::slow_update::SemiSlowUpdate,
+            SimulationSystems.run_if(in_state(SimState::Playing)),
+        );
+        #[cfg(feature = "client")]
+        app.configure_sets(
+            Update,
             SimulationSystems.run_if(in_state(SimState::Playing)),
         );
     }
