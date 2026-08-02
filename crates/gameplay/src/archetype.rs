@@ -66,6 +66,7 @@ pub trait SpawnArchetypeTrait {
     fn spawn(self, entity: Entity, bundle: SpawnBundle, world: &mut World);
 }
 
+///
 macro_rules! archetype_markers {
     ($($name:ident),* $(,)?) => {
         $(
@@ -74,7 +75,6 @@ macro_rules! archetype_markers {
         )*
     }
 }
-
 archetype_markers!(
     NoArchetype,
     Biped,

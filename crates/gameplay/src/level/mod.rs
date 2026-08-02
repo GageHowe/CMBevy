@@ -161,6 +161,7 @@ pub struct ScriptZone {
 #[derive(Component, Clone, Copy, Reflect, Default)]
 #[reflect(Component, Default)]
 #[type_path = "bevy_camera::visibility"]
+#[type_name = "Visibility"]
 enum ServerVisibility {
     #[default]
     Inherited,
@@ -172,6 +173,7 @@ enum ServerVisibility {
 #[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component, Default)]
 #[type_path = "bevy_light::cascade"]
+#[type_name = "CascadeShadowConfig"]
 struct ServerCascadeShadowConfig {
     bounds: Vec<f32>,
     overlap_proportion: f32,
@@ -182,6 +184,7 @@ struct ServerCascadeShadowConfig {
 #[derive(Component, Clone, Copy, Reflect)]
 #[reflect(Component, Default)]
 #[type_path = "bevy_light::directional_light"]
+#[type_name = "DirectionalLight"]
 struct ServerDirectionalLight {
     color: Color,
     illuminance: f32,

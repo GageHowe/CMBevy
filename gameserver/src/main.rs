@@ -169,6 +169,7 @@ fn main() {
     app.run();
 }
 
+// pauses and unpauses the server if there are no players
 fn pause_empty_server(
     connections: Res<ActiveConnections>,
     state: Res<bevy::prelude::State<SimState>>,

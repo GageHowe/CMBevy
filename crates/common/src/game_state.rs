@@ -9,6 +9,8 @@ pub enum GameState {
     Editor,
 }
 
+/// on server, this is Paused if there are no players. It gates SimulationSystems.
+/// on client in Singleplayer, does the same thing if paused.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States, Default)]
 pub enum SimState {
     #[default]
