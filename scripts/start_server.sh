@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-docker build -f gameserver/Dockerfile -t cmbevy-gameserver:testing .
+DOCKER_BUILDKIT=1 docker build -f gameserver/Dockerfile -t cmbevy-gameserver:testing .
 docker rm -f cmbevy-gameserver >/dev/null 2>&1 || true
 docker run -d \
   --name cmbevy-gameserver \

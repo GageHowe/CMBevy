@@ -23,7 +23,7 @@ beacon-release:
 	mv -f build/beacon.new build/beacon
 
 gameserver-image:
-	docker build -f gameserver/Dockerfile -t cmbevy-gameserver:testing .
+	DOCKER_BUILDKIT=1 docker build -f gameserver/Dockerfile -t cmbevy-gameserver:testing .
 
 runb: beacon-release
 	cargo run -p beacon --release
