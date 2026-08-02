@@ -13,7 +13,7 @@ use crate::{
 
 pub(super) fn spawn_player(
     conn_id: ConnectionId,
-    spawn_name: &str,
+    archetype: crate::archetype::Archetype,
     team: Team,
     spawn_pos: Vec3,
     spawn_rot: Quat,
@@ -24,9 +24,9 @@ pub(super) fn spawn_player(
     commands: &mut Commands,
     tick: u64,
 ) {
-    let kind_debug = spawn_name.to_string();
+    let kind_debug = archetype.name().to_string();
     let (entity, net_id, spawn_cmd) = spawn_game_object(
-        spawn_name,
+        archetype,
         Some(spawn_pos),
         Some(spawn_rot),
         Some(spawn_vel),

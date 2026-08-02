@@ -30,15 +30,6 @@ pub mod weapon_flash;
 pub struct WeaponPlugin;
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        // register weapon "types"s' functions so they can be spawned by anything that passes a string
-        crate::register_spawnable(app, "pistol", pistol::spawn_pistol);
-        crate::register_spawnable(app, "beamer", beamer::spawn_beamer);
-        crate::register_spawnable(app, "rifle", rifle::spawn_rifle);
-        crate::register_spawnable(app, "smg", smg::spawn_smg);
-        crate::register_spawnable(app, "hail_mary", hail_mary::spawn_hail_mary);
-        crate::register_spawnable(app, "thumper", thumper::spawn_thumper);
-        crate::register_spawnable(app, "lobber", lobber::spawn_lobber);
-        crate::register_spawnable(app, "coil_launcher", coil_launcher::spawn_coil_launcher);
         app.add_plugins((beamer::BeamerPlugin, weapon_flash::WeaponFlashPlugin))
             .configure_sets(
                 FixedUpdate,

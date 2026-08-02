@@ -186,7 +186,9 @@ pub fn detach_camera(world: &mut World) {
 /// Pending respawns: conn_id -> (seconds_remaining, kind).
 #[derive(Resource, Default)]
 /// Respawn timers keyed by connection id.
-pub struct PendingRespawns(pub HashMap<ConnectionId, (f32, String, crate::Team)>);
+pub struct PendingRespawns(
+    pub HashMap<ConnectionId, (f32, crate::archetype::Archetype, crate::Team)>,
+);
 
 #[derive(Resource, Default)]
 /// Reverse lookup from held weapon ids to the entity currently carrying them.
@@ -196,9 +198,6 @@ pub struct HeldWeaponMap(pub HashMap<NetworkID, Entity>);
 pub struct PawnPlugin;
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        crate::register_spawnable(app, "biped", biped::spawn_biped);
-        crate::register_spawnable(app, "spaceship", spaceship::spawn_spaceship);
-        crate::register_spawnable(app, "hovercraft", hovercraft::spawn_hovercraft);
         #[cfg(feature = "client")]
         app.init_resource::<InteractionGate>()
             .init_resource::<InteractionHint>()

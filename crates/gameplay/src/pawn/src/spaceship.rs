@@ -77,114 +77,119 @@ impl VehiclePawn for SpaceshipPawnComponent {
     }
 }
 
-pub fn spawn_spaceship(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
-    let position = cmd.position_or_zero();
-    let rotation = cmd.rotation_or_identity();
-    let velocity = cmd.velocity_or_zero();
-    let angular_velocity = cmd.angular_velocity_or_zero();
-    let transform = Transform {
-        translation: position,
-        rotation,
-        ..default()
-    };
-    spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
-    let rb_handle = {
-        let mut physics = world.resource_mut::<PhysicsWorld>();
-        let rb = RigidBodyBuilder::dynamic()
-            .translation(transform.translation)
-            .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
-            .angular_damping(0.5)
-            .build();
-        let rb_handle = physics.insert_body(entity, rb);
-        if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
-            rb.set_rotation(transform.rotation, true);
-            rb.set_angvel(
-                Vector3::new(angular_velocity.x, angular_velocity.y, angular_velocity.z),
-                true,
-            );
-        }
-        rb_handle
-    };
-    world.entity_mut(entity).insert((
-        crate::SpawnReplicated("spaceship"),
-        SpaceshipPawnComponent,
-        Health::new(
-            SPACESHIP_MAX_HEALTH,
-            20,
-            common::config::FIXED_TICK_RATE as u16 * 5,
-        )
-        .with_death(on_spaceship_death),
-        CollisionDamageConfig {
-            threshold_per_mass: 120.0,
-            min_threshold: 400.0,
-            damage_scale: 0.5,
-        },
-        LastDamageSource::default(),
-        VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
-        InteractionName("Spaceship"),
-        CollisionFxMaterial::Sparks,
-        AimReticle("textures/crosshairs/crosshair001.png", None),
-        Transform::from(transform),
-    ));
-    attach_hull_collider(
-        entity,
-        rb_handle,
-        HULL_PATH,
-        1.0,
-        ColliderBuilder::cuboid(1.5, 1.0, 3.0),
-        world,
-    );
-    let weak_point = world.spawn_empty().id();
-    let collider = ColliderBuilder::ball(SPACESHIP_WEAK_POINT_RADIUS)
-        .translation(Vector3::new(
-            SPACESHIP_WEAK_POINT_POS.x,
-            SPACESHIP_WEAK_POINT_POS.y,
-            SPACESHIP_WEAK_POINT_POS.z,
-        ))
-        .build();
-    let collider = world
-        .resource_mut::<PhysicsWorld>()
-        .insert_collider_with_parent(weak_point, collider, rb_handle);
-    world.entity_mut(weak_point).insert((
-        WeakPointOf(entity),
-        PhysicsColliderHandle(collider),
-        Health::new(SPACESHIP_WEAK_POINT_HEALTH, 0, 0).with_death(on_spaceship_weak_point_death),
-        Transform::from_translation(SPACESHIP_WEAK_POINT_POS),
-        crate::DespawnOnDeath,
-    ));
-    #[cfg(feature = "client")]
-    world.entity_mut(weak_point).insert(Visibility::default());
-    world.entity_mut(entity).add_child(weak_point);
-    #[cfg(feature = "client")]
-    {
-        let mesh = world
-            .resource_mut::<Assets<Mesh>>()
-            .add(Sphere::new(SPACESHIP_WEAK_POINT_RADIUS));
-        let material = world
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(Color::srgb(1.0, 0.05, 0.05));
-        let visual = world
-            .spawn((
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-                Transform::default(),
-                Visibility::default(),
+impl crate::archetype::SpawnArchetypeTrait for crate::archetype::Spaceship {
+    fn spawn(self, entity: Entity, bundle: crate::archetype::SpawnBundle, world: &mut World) {
+        let position = bundle.position;
+        let rotation = bundle.rotation;
+        let velocity = bundle.velocity;
+        let angular_velocity = bundle.angular_velocity;
+        let transform = Transform {
+            translation: position,
+            rotation,
+            ..default()
+        };
+        spawn_driver_mount::<SpaceshipPawnComponent>(entity, world);
+        let rb_handle = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            let rb = RigidBodyBuilder::dynamic()
+                .translation(transform.translation)
+                .linvel(Vector3::new(velocity.x, velocity.y, velocity.z))
+                .angular_damping(0.5)
+                .build();
+            let rb_handle = physics.insert_body(entity, rb);
+            if let Some(rb) = physics.rigid_body_set.get_mut(rb_handle) {
+                rb.set_rotation(transform.rotation, true);
+                rb.set_angvel(
+                    Vector3::new(angular_velocity.x, angular_velocity.y, angular_velocity.z),
+                    true,
+                );
+            }
+            rb_handle
+        };
+        world.entity_mut(entity).insert((
+            crate::SpawnReplicated("spaceship"),
+            SpaceshipPawnComponent,
+            Health::new(
+                SPACESHIP_MAX_HEALTH,
+                20,
+                common::config::FIXED_TICK_RATE as u16 * 5,
+            )
+            .with_death(on_spaceship_death),
+            CollisionDamageConfig {
+                threshold_per_mass: 120.0,
+                min_threshold: 400.0,
+                damage_scale: 0.5,
+            },
+            LastDamageSource::default(),
+            VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
+            InteractionName("Spaceship"),
+            CollisionFxMaterial::Sparks,
+            AimReticle("textures/crosshairs/crosshair001.png", None),
+            Transform::from(transform),
+        ));
+        attach_hull_collider(
+            entity,
+            rb_handle,
+            HULL_PATH,
+            1.0,
+            ColliderBuilder::cuboid(1.5, 1.0, 3.0),
+            world,
+        );
+        let weak_point = world.spawn_empty().id();
+        let collider = ColliderBuilder::ball(SPACESHIP_WEAK_POINT_RADIUS)
+            .translation(Vector3::new(
+                SPACESHIP_WEAK_POINT_POS.x,
+                SPACESHIP_WEAK_POINT_POS.y,
+                SPACESHIP_WEAK_POINT_POS.z,
             ))
-            .id();
-        world.entity_mut(weak_point).add_child(visual);
-    }
-    world
-        .entity_mut(entity)
-        .insert(RigidBodyHandleComponent(rb_handle));
-    let _ = spawn_attached_spaceship_shield(&cmd.net_id, world);
-    #[cfg(feature = "client")]
-    {
-        let scene = world.resource::<AssetServer>().load(MODEL_PATH);
+            .build();
+        let collider = world
+            .resource_mut::<PhysicsWorld>()
+            .insert_collider_with_parent(weak_point, collider, rb_handle);
+        world.entity_mut(weak_point).insert((
+            WeakPointOf(entity),
+            PhysicsColliderHandle(collider),
+            Health::new(SPACESHIP_WEAK_POINT_HEALTH, 0, 0)
+                .with_death(on_spaceship_weak_point_death),
+            Transform::from_translation(SPACESHIP_WEAK_POINT_POS),
+            crate::DespawnOnDeath,
+        ));
+        #[cfg(feature = "client")]
+        world.entity_mut(weak_point).insert(Visibility::default());
+        world.entity_mut(entity).add_child(weak_point);
+        #[cfg(feature = "client")]
+        {
+            let mesh = world
+                .resource_mut::<Assets<Mesh>>()
+                .add(Sphere::new(SPACESHIP_WEAK_POINT_RADIUS));
+            let material = world
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(Color::srgb(1.0, 0.05, 0.05));
+            let visual = world
+                .spawn((
+                    Mesh3d(mesh),
+                    MeshMaterial3d(material),
+                    Transform::default(),
+                    Visibility::default(),
+                ))
+                .id();
+            world.entity_mut(weak_point).add_child(visual);
+        }
         world
             .entity_mut(entity)
-            .insert((WorldAssetRoot(scene), Visibility::default()));
+            .insert(RigidBodyHandleComponent(rb_handle));
+        if let Some(net_id) = &bundle.net_id {
+            let _ = spawn_attached_spaceship_shield(net_id, world);
+        }
+        #[cfg(feature = "client")]
+        {
+            let scene = world.resource::<AssetServer>().load(MODEL_PATH);
+            world
+                .entity_mut(entity)
+                .insert((WorldAssetRoot(scene), Visibility::default()));
+        }
+        crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
     }
-    crate::insert_spawn_metadata(entity, world, Some(300.0), true, None, false);
 }
 
 fn on_spaceship_weak_point_death(entity: Entity, world: &mut World) {

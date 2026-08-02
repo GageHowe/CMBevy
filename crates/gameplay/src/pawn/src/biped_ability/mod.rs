@@ -28,8 +28,6 @@ pub use crate::net::message::AbilityFx;
 pub struct BipedAbilityPlugin;
 impl Plugin for BipedAbilityPlugin {
     fn build(&self, app: &mut App) {
-        crate::register_spawnable(app, "jetpack", implementors::spawn_jetpack);
-        crate::register_spawnable(app, "dash", implementors::spawn_dash);
         app.add_systems(
             FixedPreUpdate,
             tick_biped_ability_state
@@ -97,9 +95,14 @@ impl EquippedAbility {
                 .map(|mut r| NetworkID(r.next()))
             {
                 let entity = world.spawn_empty().id();
+                let Some(archetype) =
+                    crate::archetype::Archetype::from_reflect_name(self.spec.spawn_name)
+                else {
+                    return;
+                };
                 let cmd = crate::net::message::SpawnCommand::new(
                     net_id,
-                    self.spec.spawn_name,
+                    archetype,
                     world.resource::<common::tick::Ticker>().tick,
                 )
                 .position(pos)

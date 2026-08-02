@@ -4,10 +4,9 @@ use bevy::{
         mouse::MouseButton,
     },
     prelude::*,
+    reflect::enums::Enum,
 };
 use serde::{Deserialize, Serialize};
-
-pub const INPUT_ACTION_COUNT: usize = 20;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug)]
@@ -34,6 +33,43 @@ pub enum InputAction {
     CaptureCursor,
 }
 
+impl InputAction {
+    pub const ALL: [Self; 20] = [
+        Self::MoveForward,
+        Self::MoveBackward,
+        Self::MoveRight,
+        Self::MoveLeft,
+        Self::Jump,
+        Self::Crouch,
+        Self::Ability1,
+        Self::Melee,
+        Self::Interact,
+        Self::Ability2,
+        Self::Reload,
+        Self::Fire,
+        Self::AltFire,
+        Self::DropWeapon,
+        Self::DropAbility,
+        Self::RollLeft,
+        Self::RollRight,
+        Self::Pause,
+        Self::Chat,
+        Self::CaptureCursor,
+    ];
+
+    pub fn field_name(self) -> String {
+        let variant = self.variant_name();
+        let mut field = String::with_capacity(variant.len() + 4);
+        for (i, ch) in variant.chars().enumerate() {
+            if i > 0 && ch.is_ascii_uppercase() {
+                field.push('_');
+            }
+            field.push(ch.to_ascii_lowercase());
+        }
+        field
+    }
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug, Default)]
 pub enum PromptDeviceMode {
     KeyboardMouse,
@@ -50,29 +86,6 @@ impl Default for PromptDevicePreference {
         Self(PromptDeviceMode::Both)
     }
 }
-
-pub const INPUT_ACTIONS: [InputAction; INPUT_ACTION_COUNT] = [
-    InputAction::MoveForward,
-    InputAction::MoveBackward,
-    InputAction::MoveRight,
-    InputAction::MoveLeft,
-    InputAction::Jump,
-    InputAction::Crouch,
-    InputAction::Ability1,
-    InputAction::Melee,
-    InputAction::Interact,
-    InputAction::Ability2,
-    InputAction::Reload,
-    InputAction::Fire,
-    InputAction::AltFire,
-    InputAction::DropWeapon,
-    InputAction::DropAbility,
-    InputAction::RollLeft,
-    InputAction::RollRight,
-    InputAction::Pause,
-    InputAction::Chat,
-    InputAction::CaptureCursor,
-];
 
 #[derive(Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq, Debug)]
 pub enum BindingButton {
@@ -339,8 +352,8 @@ pub enum BindingSlot {
 
 #[derive(Resource, Clone)]
 pub struct ActiveBindings {
-    keybindings: [ActionBinding; INPUT_ACTION_COUNT],
-    gamepad_bindings: [GamepadActionBinding; INPUT_ACTION_COUNT],
+    keybindings: [ActionBinding; InputAction::ALL.len()],
+    gamepad_bindings: [GamepadActionBinding; InputAction::ALL.len()],
 }
 
 impl Default for ActiveBindings {
@@ -351,9 +364,9 @@ impl Default for ActiveBindings {
 
 impl ActiveBindings {
     pub fn from_settings(keybindings: &KeyBindings, gamepad_bindings: &GamepadBindings) -> Self {
-        let mut keys = [ActionBinding::default(); INPUT_ACTION_COUNT];
-        let mut gamepads = [GamepadActionBinding::default(); INPUT_ACTION_COUNT];
-        for action in INPUT_ACTIONS {
+        let mut keys = [ActionBinding::default(); InputAction::ALL.len()];
+        let mut gamepads = [GamepadActionBinding::default(); InputAction::ALL.len()];
+        for action in InputAction::ALL {
             keys[action as usize] = keybindings.binding(action);
             gamepads[action as usize] = gamepad_bindings.binding(action);
         }
@@ -364,7 +377,7 @@ impl ActiveBindings {
     }
 
     pub fn sync_from(&mut self, keybindings: &KeyBindings, gamepad_bindings: &GamepadBindings) {
-        for action in INPUT_ACTIONS {
+        for action in InputAction::ALL {
             self.keybindings[action as usize] = keybindings.binding(action);
             self.gamepad_bindings[action as usize] = gamepad_bindings.binding(action);
         }
@@ -548,105 +561,31 @@ impl Default for GamepadBindings {
 
 impl KeyBindings {
     pub fn binding(&self, action: InputAction) -> ActionBinding {
-        match action {
-            InputAction::MoveForward => self.move_forward,
-            InputAction::MoveBackward => self.move_backward,
-            InputAction::MoveRight => self.move_right,
-            InputAction::MoveLeft => self.move_left,
-            InputAction::Jump => self.jump,
-            InputAction::Crouch => self.crouch,
-            InputAction::Ability1 => self.ability1,
-            InputAction::Melee => self.melee,
-            InputAction::Interact => self.interact,
-            InputAction::Ability2 => self.ability2,
-            InputAction::Reload => self.reload,
-            InputAction::Fire => self.fire,
-            InputAction::AltFire => self.alt_fire,
-            InputAction::DropWeapon => self.drop_weapon,
-            InputAction::DropAbility => self.drop_ability,
-            InputAction::RollLeft => self.roll_left,
-            InputAction::RollRight => self.roll_right,
-            InputAction::Pause => self.pause,
-            InputAction::Chat => self.chat,
-            InputAction::CaptureCursor => self.capture_cursor,
-        }
+        *self
+            .field(&action.field_name())
+            .and_then(|field| field.try_downcast_ref::<ActionBinding>())
+            .unwrap_or_else(|| panic!("missing key binding field for {action:?}"))
     }
 
     pub fn binding_mut(&mut self, action: InputAction) -> &mut ActionBinding {
-        match action {
-            InputAction::MoveForward => &mut self.move_forward,
-            InputAction::MoveBackward => &mut self.move_backward,
-            InputAction::MoveRight => &mut self.move_right,
-            InputAction::MoveLeft => &mut self.move_left,
-            InputAction::Jump => &mut self.jump,
-            InputAction::Crouch => &mut self.crouch,
-            InputAction::Ability1 => &mut self.ability1,
-            InputAction::Melee => &mut self.melee,
-            InputAction::Interact => &mut self.interact,
-            InputAction::Ability2 => &mut self.ability2,
-            InputAction::Reload => &mut self.reload,
-            InputAction::Fire => &mut self.fire,
-            InputAction::AltFire => &mut self.alt_fire,
-            InputAction::DropWeapon => &mut self.drop_weapon,
-            InputAction::DropAbility => &mut self.drop_ability,
-            InputAction::RollLeft => &mut self.roll_left,
-            InputAction::RollRight => &mut self.roll_right,
-            InputAction::Pause => &mut self.pause,
-            InputAction::Chat => &mut self.chat,
-            InputAction::CaptureCursor => &mut self.capture_cursor,
-        }
+        self.field_mut(&action.field_name())
+            .and_then(|field| field.try_downcast_mut::<ActionBinding>())
+            .unwrap_or_else(|| panic!("missing key binding field for {action:?}"))
     }
 }
 
 impl GamepadBindings {
     pub fn binding(&self, action: InputAction) -> GamepadActionBinding {
-        match action {
-            InputAction::MoveForward => self.move_forward,
-            InputAction::MoveBackward => self.move_backward,
-            InputAction::MoveRight => self.move_right,
-            InputAction::MoveLeft => self.move_left,
-            InputAction::Jump => self.jump,
-            InputAction::Crouch => self.crouch,
-            InputAction::Ability1 => self.ability1,
-            InputAction::Melee => self.melee,
-            InputAction::Interact => self.interact,
-            InputAction::Ability2 => self.ability2,
-            InputAction::Reload => self.reload,
-            InputAction::Fire => self.fire,
-            InputAction::AltFire => self.alt_fire,
-            InputAction::DropWeapon => self.drop_weapon,
-            InputAction::DropAbility => self.drop_ability,
-            InputAction::RollLeft => self.roll_left,
-            InputAction::RollRight => self.roll_right,
-            InputAction::Pause => self.pause,
-            InputAction::Chat => self.chat,
-            InputAction::CaptureCursor => self.capture_cursor,
-        }
+        *self
+            .field(&action.field_name())
+            .and_then(|field| field.try_downcast_ref::<GamepadActionBinding>())
+            .unwrap_or_else(|| panic!("missing gamepad binding field for {action:?}"))
     }
 
     pub fn binding_mut(&mut self, action: InputAction) -> &mut GamepadActionBinding {
-        match action {
-            InputAction::MoveForward => &mut self.move_forward,
-            InputAction::MoveBackward => &mut self.move_backward,
-            InputAction::MoveRight => &mut self.move_right,
-            InputAction::MoveLeft => &mut self.move_left,
-            InputAction::Jump => &mut self.jump,
-            InputAction::Crouch => &mut self.crouch,
-            InputAction::Ability1 => &mut self.ability1,
-            InputAction::Melee => &mut self.melee,
-            InputAction::Interact => &mut self.interact,
-            InputAction::Ability2 => &mut self.ability2,
-            InputAction::Reload => &mut self.reload,
-            InputAction::Fire => &mut self.fire,
-            InputAction::AltFire => &mut self.alt_fire,
-            InputAction::DropWeapon => &mut self.drop_weapon,
-            InputAction::DropAbility => &mut self.drop_ability,
-            InputAction::RollLeft => &mut self.roll_left,
-            InputAction::RollRight => &mut self.roll_right,
-            InputAction::Pause => &mut self.pause,
-            InputAction::Chat => &mut self.chat,
-            InputAction::CaptureCursor => &mut self.capture_cursor,
-        }
+        self.field_mut(&action.field_name())
+            .and_then(|field| field.try_downcast_mut::<GamepadActionBinding>())
+            .unwrap_or_else(|| panic!("missing gamepad binding field for {action:?}"))
     }
 }
 

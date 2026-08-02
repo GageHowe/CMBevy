@@ -12,7 +12,7 @@ mod movement;
 
 #[cfg(feature = "client")]
 pub(crate) use controls::consume_fixed_press;
-pub use lifecycle::{on_biped_death, spawn_biped};
+pub use lifecycle::on_biped_death;
 #[cfg(feature = "client")]
 pub use look::draw_biped_debug;
 #[cfg(feature = "client")]

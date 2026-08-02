@@ -10,6 +10,7 @@ use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
 
 use crate::{
     SpawnGameObjectCommand, Team,
+    archetype::Archetype,
     bot::{BotController, HeuristicKillerBot},
     health::Health,
     level::{ScriptZone, SpawnPoint, parented_world_pose},
@@ -19,7 +20,7 @@ use crate::{
         message::{ChatMessage, MsgType, SpawnCommand},
         quic::{Channel, QuicManager, SendTarget},
     },
-    pawn::{PlayerRegistry, Controller, WeaponSlots},
+    pawn::{Controller, PlayerRegistry, WeaponSlots},
     scripting::{
         plugin::{PendingWeaponGrants, WeaponGrant},
         runtime::ScriptRuntime,
@@ -47,315 +48,305 @@ where
     }
 }
 
+fn lua_is_server(world: &World) -> bool {
+    world
+        .get_resource::<crate::scripting::config::ScriptConfig>()
+        .is_some_and(|config| config.is_server)
+}
+
 pub(crate) fn register_script_functions(world: &mut World) {
     let Some(runtime) = world.remove_non_send::<ScriptRuntime>() else {
         return;
     };
 
-    register_lua_function(&runtime.lua, "get_tagged", |lua| {
-        lua.create_function(|lua, tag: String| {
-            let world = lua_world(lua)?;
-            let values = world
-                .get_resource::<ScriptTagIndex>()
-                .map(|index| {
-                    index
-                        .get(&tag)
-                        .iter()
-                        .map(|entity| entity.to_bits() as i64)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            lua.create_sequence_from(values)
-        })
+    macro_rules! lua_fn {
+        ($name:literal, |$lua:ident, ()| $body:block) => {
+            register_lua_function(&runtime.lua, $name, |$lua| {
+                $lua.create_function(|$lua, ()| $body)
+            });
+        };
+        ($name:literal, |$lua:ident, $arg:ident : $ty:ty| $body:block) => {
+            register_lua_function(&runtime.lua, $name, |$lua| {
+                $lua.create_function(|$lua, $arg: $ty| $body)
+            });
+        };
+        ($name:literal, |$lua:ident, ($($args:tt)+) : $ty:ty| $body:block) => {
+            register_lua_function(&runtime.lua, $name, |$lua| {
+                $lua.create_function(|$lua, ($($args)+): $ty| $body)
+            });
+        };
+    }
+
+    lua_fn!("get_tagged", |lua, tag: String| {
+        let world = lua_world(lua)?;
+        let values = world
+            .get_resource::<ScriptTagIndex>()
+            .map(|index| {
+                index
+                    .get(&tag)
+                    .iter()
+                    .map(|entity| entity.to_bits() as i64)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        lua.create_sequence_from(values)
     });
 
-    register_lua_function(&runtime.lua, "get_first_tagged", |lua| {
-        lua.create_function(|lua, tag: String| {
-            let world = lua_world(lua)?;
-            Ok(world
-                .get_resource::<ScriptTagIndex>()
-                .and_then(|index| index.get(&tag).first().copied())
-                .map(|entity| entity.to_bits() as i64))
-        })
+    lua_fn!("get_first_tagged", |lua, tag: String| {
+        let world = lua_world(lua)?;
+        Ok(world
+            .get_resource::<ScriptTagIndex>()
+            .and_then(|index| index.get(&tag).first().copied())
+            .map(|entity| entity.to_bits() as i64))
     });
 
-    register_lua_function(&runtime.lua, "entity_has_tag", |lua| {
-        lua.create_function(|lua, (entity_id, tag): (i64, String)| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            Ok(world
-                .get_resource::<ScriptTagIndex>()
-                .is_some_and(|index| index.has(entity, &tag)))
-        })
+    lua_fn!("entity_has_tag", |lua, (entity_id, tag): (i64, String)| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        Ok(world
+            .get_resource::<ScriptTagIndex>()
+            .is_some_and(|index| index.has(entity, &tag)))
     });
 
-    register_lua_function(&runtime.lua, "entity_exists", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            Ok(world
-                .get_entity(Entity::from_bits(entity_id as u64))
-                .is_ok())
-        })
+    lua_fn!("entity_exists", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        Ok(world
+            .get_entity(Entity::from_bits(entity_id as u64))
+            .is_ok())
     });
 
-    register_lua_function(&runtime.lua, "get_entities_in_zone", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            let values = entities_in_zone(world, Entity::from_bits(entity_id as u64))
-                .into_iter()
-                .map(|entity| entity.to_bits() as i64)
-                .collect::<Vec<_>>();
-            lua.create_sequence_from(values)
-        })
+    lua_fn!("get_entities_in_zone", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        let values = entities_in_zone(world, Entity::from_bits(entity_id as u64))
+            .into_iter()
+            .map(|entity| entity.to_bits() as i64)
+            .collect::<Vec<_>>();
+        lua.create_sequence_from(values)
     });
 
-    register_lua_function(&runtime.lua, "is_player", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            Ok(world
-                .get_resource::<PlayerRegistry>()
-                .is_some_and(|registry| registry.conn_id_for_character(entity).is_some()))
-        })
+    lua_fn!("is_player", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        Ok(world
+            .get_resource::<PlayerRegistry>()
+            .is_some_and(|registry| registry.conn_id_for_character(entity).is_some()))
     });
 
-    register_lua_function(&runtime.lua, "is_bot", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            Ok(world
-                .get::<BotController>(Entity::from_bits(entity_id as u64))
-                .is_some())
-        })
+    lua_fn!("is_bot", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        Ok(world
+            .get::<BotController>(Entity::from_bits(entity_id as u64))
+            .is_some())
     });
 
-    register_lua_function(&runtime.lua, "get_players", |lua| {
-        lua.create_function(|lua, ()| {
-            let world = lua_world(lua)?;
-            let values = world
-                .get_resource::<PlayerRegistry>()
-                .map(|registry| {
-                    registry
-                        .character_entities()
-                        .map(|entity| entity.to_bits() as i64)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            lua.create_sequence_from(values)
-        })
+    lua_fn!("get_players", |lua, ()| {
+        let world = lua_world(lua)?;
+        let values = world
+            .get_resource::<PlayerRegistry>()
+            .map(|registry| {
+                registry
+                    .character_entities()
+                    .map(|entity| entity.to_bits() as i64)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        lua.create_sequence_from(values)
     });
 
-    register_lua_function(&runtime.lua, "get_match_phase", |lua| {
-        lua.create_function(|lua, ()| {
-            let world = lua_world(lua)?;
-            Ok(
-                match world.get_resource::<MatchState>().map(|state| state.phase) {
-                    Some(MatchPhase::PostGame) => "post_game",
-                    _ => "playing",
-                },
-            )
-        })
+    lua_fn!("get_match_phase", |lua, ()| {
+        let world = lua_world(lua)?;
+        Ok(
+            match world.get_resource::<MatchState>().map(|state| state.phase) {
+                Some(MatchPhase::PostGame) => "post_game",
+                _ => "playing",
+            },
+        )
     });
 
-    register_lua_function(&runtime.lua, "get_match_phase_time", |lua| {
-        lua.create_function(|lua, ()| {
-            let world = lua_world(lua)?;
-            Ok(world
-                .get_resource::<MatchState>()
-                .map_or(0.0, |state| state.phase_elapsed_secs as f64))
-        })
+    lua_fn!("get_match_phase_time", |lua, ()| {
+        let world = lua_world(lua)?;
+        Ok(world
+            .get_resource::<MatchState>()
+            .map_or(0.0, |state| state.phase_elapsed_secs as f64))
     });
 
-    register_lua_function(&runtime.lua, "end_game", |lua| {
-        lua.create_function(|lua, ()| {
-            let world = lua_world(lua)?;
-            end_game(world, None, None);
-            Ok(())
-        })
+    lua_fn!("end_game", |lua, ()| {
+        let world = lua_world(lua)?;
+        end_game(world, None, None);
+        Ok(())
     });
 
-    register_lua_function(&runtime.lua, "end_game_with_player_winner", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            let winner = world
-                .get_resource::<PlayerRegistry>()
-                .and_then(|registry| registry.conn_id_for_character(entity));
-            end_game(world, winner, None);
-            Ok(())
-        })
+    lua_fn!("end_game_with_player_winner", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        let winner = world
+            .get_resource::<PlayerRegistry>()
+            .and_then(|registry| registry.conn_id_for_character(entity));
+        end_game(world, winner, None);
+        Ok(())
     });
 
-    register_lua_function(&runtime.lua, "end_game_with_team_winner", |lua| {
-        lua.create_function(|lua, team: i32| {
-            let world = lua_world(lua)?;
-            end_game(world, None, Some(team.clamp(0, u8::MAX as i32) as u8));
-            Ok(())
-        })
+    lua_fn!("end_game_with_team_winner", |lua, team: i32| {
+        let world = lua_world(lua)?;
+        end_game(world, None, Some(team.clamp(0, u8::MAX as i32) as u8));
+        Ok(())
     });
 
-    register_lua_function(&runtime.lua, "restart_round", |lua| {
-        lua.create_function(|lua, ()| {
-            let world = lua_world(lua)?;
-            if let Some(mut state) = world.get_resource_mut::<MatchState>() {
-                state.restart_requested = true;
-            }
-            Ok(())
-        })
+    lua_fn!("restart_round", |lua, ()| {
+        let world = lua_world(lua)?;
+        if let Some(mut state) = world.get_resource_mut::<MatchState>() {
+            state.restart_requested = true;
+        }
+        Ok(())
     });
 
-    register_lua_function(&runtime.lua, "show_message", |lua| {
-        lua.create_function(|lua, text: String| {
-            let world = lua_world(lua)?;
-            let is_server = world
-                .get_resource::<crate::scripting::config::ScriptConfig>()
-                .is_some_and(|config| config.is_server);
-            if is_server {
-                if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
-                    quic.send(
-                        SendTarget::All,
-                        Channel::Ordered,
-                        &MsgType::ChatMessage(ChatMessage(Color::srgb(0.5, 0.85, 1.0), text)),
-                    );
-                }
-            } else {
-                push_world(world, text);
-            }
-            Ok(())
-        })
-    });
-
-    register_lua_function(&runtime.lua, "get_player_number", |lua| {
-        lua.create_function(|lua, (entity_id, index): (i64, i32)| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            Ok(player_number(world, entity, normalize_index(index)).unwrap_or_default())
-        })
-    });
-
-    register_lua_function(&runtime.lua, "add_player_number", |lua| {
-        lua.create_function(|lua, (entity_id, index, amount): (i64, i32, i32)| {
-            let world = lua_world(lua)?;
-            add_player_number(
-                world,
-                Entity::from_bits(entity_id as u64),
-                normalize_index(index),
-                amount,
-            );
-            Ok(())
-        })
-    });
-
-    register_lua_function(&runtime.lua, "get_team_number", |lua| {
-        lua.create_function(|lua, (team, index): (i32, i32)| {
-            let world = lua_world(lua)?;
-            Ok(team_number(
-                world,
-                team.clamp(0, u8::MAX as i32) as u8,
-                normalize_index(index),
-            )
-            .unwrap_or_default())
-        })
-    });
-
-    register_lua_function(&runtime.lua, "add_team_number", |lua| {
-        lua.create_function(|lua, (team, index, amount): (i32, i32, i32)| {
-            let world = lua_world(lua)?;
-            add_team_number(
-                world,
-                team.clamp(0, u8::MAX as i32) as u8,
-                normalize_index(index),
-                amount,
-            );
-            Ok(())
-        })
-    });
-
-    register_lua_function(&runtime.lua, "get_health", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            Ok(world
-                .get::<Health>(entity)
-                .map(|h| h.current as i32)
-                .unwrap_or(0))
-        })
-    });
-
-    register_lua_function(&runtime.lua, "entity_alive", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            Ok(world
-                .get::<Health>(entity)
-                .is_some_and(|health| !health.is_dead()))
-        })
-    });
-
-    register_lua_function(&runtime.lua, "set_health", |lua| {
-        lua.create_function(|lua, (entity_id, amount): (i64, i32)| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            if let Some(mut health) = world.get_mut::<Health>(entity) {
-                health.current = amount;
-            }
-            Ok(())
-        })
-    });
-
-    register_lua_function(&runtime.lua, "spawn_pawn", |lua| {
-        lua.create_function(|lua, (team, kind): (i32, Option<String>)| {
-            let world = lua_world(lua)?;
-            if !world
-                .get_resource::<crate::scripting::config::ScriptConfig>()
-                .is_some_and(|config| config.is_server)
-            {
-                return Ok(None);
-            }
-            let kind_debug = kind.clone();
-            let spawn_name = kind.unwrap_or_else(|| "biped".into());
-            if !SCRIPT_PAWN_SPAWNS.contains(&spawn_name.as_str()) {
-                println!("script spawn_pawn failed: invalid kind {kind_debug:?}");
-                return Ok(None);
-            }
-            let team = Team(lua_team(team));
-            let Some((pos, rot, vel)) = pick_script_spawn(world, team.0) else {
-                println!(
-                    "script spawn_pawn failed: no spawn point for team {}",
-                    team.0
-                );
-                return Ok(None);
-            };
-            let tick = world.resource::<common::tick::Ticker>().tick;
-            let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
-            let cmd = SpawnCommand::new(net_id, spawn_name, tick)
-                .position(pos)
-                .rotation(rot)
-                .velocity(vel);
-            let entity = world.spawn_empty().id();
-            SpawnGameObjectCommand {
-                entity,
-                cmd: cmd.clone(),
-            }
-            .apply(world);
-            world.entity_mut(entity).insert(team);
+    lua_fn!("show_message", |lua, text: String| {
+        let world = lua_world(lua)?;
+        if lua_is_server(world) {
             if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
                 quic.send(
                     SendTarget::All,
                     Channel::Ordered,
-                    &MsgType::SpawnCommand(cmd),
+                    &MsgType::ChatMessage(ChatMessage(Color::srgb(0.5, 0.85, 1.0), text)),
                 );
             }
-            Ok(Some(entity.to_bits() as i64))
-        })
+        } else {
+            push_world(world, text);
+        }
+        Ok(())
     });
 
-    register_lua_function(&runtime.lua, "add_bot", |lua| {
-        lua.create_function(|lua, (entity_id, brain): (i64, Option<String>)| {
+    lua_fn!(
+        "get_player_number",
+        |lua, (entity_id, index): (i64, i32)| {
             let world = lua_world(lua)?;
-            if !world
-                .get_resource::<crate::scripting::config::ScriptConfig>()
-                .is_some_and(|config| config.is_server)
-            {
+            let entity = Entity::from_bits(entity_id as u64);
+            Ok(player_number(world, entity, normalize_index(index)).unwrap_or_default())
+        }
+    );
+
+    lua_fn!("add_player_number", |lua,
+                                  (entity_id, index, amount): (
+        i64,
+        i32,
+        i32
+    )| {
+        let world = lua_world(lua)?;
+        add_player_number(
+            world,
+            Entity::from_bits(entity_id as u64),
+            normalize_index(index),
+            amount,
+        );
+        Ok(())
+    });
+
+    lua_fn!("get_team_number", |lua, (team, index): (i32, i32)| {
+        let world = lua_world(lua)?;
+        Ok(team_number(
+            world,
+            team.clamp(0, u8::MAX as i32) as u8,
+            normalize_index(index),
+        )
+        .unwrap_or_default())
+    });
+
+    lua_fn!("add_team_number", |lua,
+                                (team, index, amount): (
+        i32,
+        i32,
+        i32
+    )| {
+        let world = lua_world(lua)?;
+        add_team_number(
+            world,
+            team.clamp(0, u8::MAX as i32) as u8,
+            normalize_index(index),
+            amount,
+        );
+        Ok(())
+    });
+
+    lua_fn!("get_health", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        Ok(world
+            .get::<Health>(entity)
+            .map(|h| h.current as i32)
+            .unwrap_or(0))
+    });
+
+    lua_fn!("entity_alive", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        Ok(world
+            .get::<Health>(entity)
+            .is_some_and(|health| !health.is_dead()))
+    });
+
+    lua_fn!("set_health", |lua, (entity_id, amount): (i64, i32)| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        if let Some(mut health) = world.get_mut::<Health>(entity) {
+            health.current = amount;
+        }
+        Ok(())
+    });
+
+    lua_fn!("spawn_pawn", |lua, (team, kind): (i32, Option<String>)| {
+        let world = lua_world(lua)?;
+        if !lua_is_server(world) {
+            return Ok(None);
+        }
+        let kind_debug = kind.clone();
+        let spawn_name = kind.unwrap_or_else(|| "Biped".into());
+        let Some(archetype) = Archetype::from_reflect_name(&spawn_name) else {
+            println!("script spawn_pawn failed: invalid kind {kind_debug:?}");
+            return Ok(None);
+        };
+        if !matches!(
+            archetype,
+            Archetype::Biped(_) | Archetype::Spaceship(_) | Archetype::Hovercraft(_)
+        ) {
+            println!("script spawn_pawn failed: invalid kind {kind_debug:?}");
+            return Ok(None);
+        }
+        let team = Team(lua_team(team));
+        let Some((pos, rot, vel)) = pick_script_spawn(world, team.0) else {
+            println!(
+                "script spawn_pawn failed: no spawn point for team {}",
+                team.0
+            );
+            return Ok(None);
+        };
+        let tick = world.resource::<common::tick::Ticker>().tick;
+        let net_id = NetworkID(world.resource_mut::<NetworkIDResource>().next());
+        let cmd = SpawnCommand::new(net_id, archetype, tick)
+            .position(pos)
+            .rotation(rot)
+            .velocity(vel);
+        let entity = world.spawn_empty().id();
+        SpawnGameObjectCommand {
+            entity,
+            cmd: cmd.clone(),
+        }
+        .apply(world);
+        world.entity_mut(entity).insert(team);
+        if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+            quic.send(
+                SendTarget::All,
+                Channel::Ordered,
+                &MsgType::SpawnCommand(cmd),
+            );
+        }
+        Ok(Some(entity.to_bits() as i64))
+    });
+
+    lua_fn!(
+        "add_bot",
+        |lua, (entity_id, brain): (i64, Option<String>)| {
+            let world = lua_world(lua)?;
+            if !lua_is_server(world) {
                 return Ok(false);
             }
             if brain.as_deref().is_some_and(|brain| brain != "killer") {
@@ -369,49 +360,55 @@ pub(crate) fn register_script_functions(world: &mut World) {
                 Controller::new(128),
             ));
             Ok(true)
-        })
+        }
+    );
+
+    lua_fn!("spawn_bot", |lua, (team, brain): (i32, Option<String>)| {
+        let globals = lua.globals();
+        let spawn_pawn: LuaFunction = globals.get("spawn_pawn")?;
+        let add_bot: LuaFunction = globals.get("add_bot")?;
+        let entity: Option<i64> = spawn_pawn.call((team, "Biped"))?;
+        if let Some(entity) = entity {
+            let _: bool = add_bot.call((entity, brain))?;
+        }
+        Ok(entity)
     });
 
-    register_lua_function(&runtime.lua, "spawn_bot", |lua| {
-        lua.create_function(|lua, (team, brain): (i32, Option<String>)| {
-            let globals = lua.globals();
-            let spawn_pawn: LuaFunction = globals.get("spawn_pawn")?;
-            let add_bot: LuaFunction = globals.get("add_bot")?;
-            let entity: Option<i64> = spawn_pawn.call((team, "biped"))?;
-            if let Some(entity) = entity {
-                let _: bool = add_bot.call((entity, brain))?;
-            }
-            Ok(entity)
-        })
-    });
-
-    register_lua_function(&runtime.lua, "give_weapon", |lua| {
-        lua.create_function(|lua, (owner_id, kind): (i64, String)| {
-            let world = lua_world(lua)?;
-            if !world
-                .get_resource::<crate::scripting::config::ScriptConfig>()
-                .is_some_and(|config| config.is_server)
-            {
-                return Ok(false);
-            }
-            if !SCRIPT_WEAPON_SPAWNS.contains(&kind.as_str()) {
-                return Ok(false);
-            }
-            let owner = Entity::from_bits(owner_id as u64);
-            if world.get::<WeaponSlots>(owner).is_none() {
-                println!("script give_weapon failed: owner {owner:?} has no WeaponSlots");
-                return Ok(false);
-            }
-            world
-                .resource_mut::<PendingWeaponGrants>()
-                .0
-                .push(WeaponGrant {
-                    owner,
-                    spawn_name: kind,
-                    weapon: None,
-                });
-            Ok(true)
-        })
+    lua_fn!("give_weapon", |lua, (owner_id, kind): (i64, String)| {
+        let world = lua_world(lua)?;
+        if !lua_is_server(world) {
+            return Ok(false);
+        }
+        let Some(archetype) = Archetype::from_reflect_name(&kind) else {
+            return Ok(false);
+        };
+        if !matches!(
+            archetype,
+            Archetype::Pistol(_)
+                | Archetype::Beamer(_)
+                | Archetype::AssaultRifle(_)
+                | Archetype::SMG(_)
+                | Archetype::HailMary(_)
+                | Archetype::Thumper(_)
+                | Archetype::Lobber(_)
+                | Archetype::CoilLauncher(_)
+        ) {
+            return Ok(false);
+        }
+        let owner = Entity::from_bits(owner_id as u64);
+        if world.get::<WeaponSlots>(owner).is_none() {
+            println!("script give_weapon failed: owner {owner:?} has no WeaponSlots");
+            return Ok(false);
+        }
+        world
+            .resource_mut::<PendingWeaponGrants>()
+            .0
+            .push(WeaponGrant {
+                owner,
+                archetype,
+                weapon: None,
+            });
+        Ok(true)
     });
 
     // register_lua_function(&runtime.lua, "spawn_box", |lua| {
@@ -447,18 +444,16 @@ pub(crate) fn register_script_functions(world: &mut World) {
     //     )
     // });
 
-    register_lua_function(&runtime.lua, "despawn", |lua| {
-        lua.create_function(|lua, entity_id: i64| {
-            let world = lua_world(lua)?;
-            let entity = Entity::from_bits(entity_id as u64);
-            let mut state: SystemState<Commands> = SystemState::new(world);
-            let Ok(mut commands) = state.get_mut(world) else {
-                return Ok(());
-            };
-            commands.entity(entity).despawn();
-            state.apply(world);
-            Ok(())
-        })
+    lua_fn!("despawn", |lua, entity_id: i64| {
+        let world = lua_world(lua)?;
+        let entity = Entity::from_bits(entity_id as u64);
+        let mut state: SystemState<Commands> = SystemState::new(world);
+        let Ok(mut commands) = state.get_mut(world) else {
+            return Ok(());
+        };
+        commands.entity(entity).despawn();
+        state.apply(world);
+        Ok(())
     });
 
     world.insert_non_send(runtime);
@@ -589,14 +584,3 @@ fn end_game(world: &mut World, winner_player: Option<u64>, winner_team: Option<u
     state.winner_player = winner_player;
     state.winner_team = winner_team;
 }
-const SCRIPT_PAWN_SPAWNS: &[&str] = &["biped", "spaceship", "hovercraft"];
-const SCRIPT_WEAPON_SPAWNS: &[&str] = &[
-    "pistol",
-    "beamer",
-    "rifle",
-    "smg",
-    "hail_mary",
-    "thumper",
-    "lobber",
-    "coil_launcher",
-];

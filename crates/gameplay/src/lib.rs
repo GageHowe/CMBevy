@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 
+pub mod archetype;
 pub mod bot;
 pub mod collision;
 pub mod components;
@@ -33,7 +34,6 @@ pub mod spring_arm;
 pub mod weak_point;
 #[path = "weapon/mod.rs"]
 pub mod weapon;
-pub mod archetype;
 
 pub use components::{atmosphere, gravity, snap};
 pub use generic::{GenericShape, spawn_generic};
@@ -41,7 +41,7 @@ pub use mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumb
 pub use network_index::NetworkEntityMap;
 pub use spawn::{
     CenterOfMassSplashDamage, CollisionSound, DespawnOnDeath, SpawnGameObjectCommand,
-    SpawnReplicated, find_entity_by_net_id, insert_spawn_metadata, register_spawnable,
+    SpawnReplicated, find_entity_by_net_id, insert_spawn_metadata,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -52,7 +52,6 @@ pub struct GameplayPlugin;
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkEntityMap>()
-            .init_resource::<spawn::SpawnRegistry>()
             .register_type::<crate::net::message::NetworkID>()
             .register_type::<Team>()
             .init_resource::<messages::GameMessages>()

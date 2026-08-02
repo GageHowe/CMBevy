@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use common::{GamepadBindings, KeyBindings, PromptDeviceMode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
 /// Visual smoothing mode applied between fixed physics ticks.
 pub enum PhysicsInterp {
     Off,
@@ -12,7 +12,7 @@ pub enum PhysicsInterp {
     Balanced,
 }
 
-#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
 /// Frontend-facing present mode choice mapped to Bevy window settings.
 pub enum VsyncMode {
     AutoVsync,
@@ -24,7 +24,7 @@ pub enum VsyncMode {
     Mailbox,
 }
 
-#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
 /// Window/display mode exposed in the settings UI.
 pub enum DisplayMode {
     Windowed,
@@ -32,7 +32,7 @@ pub enum DisplayMode {
     BorderlessFullscreen,
 }
 
-#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
 /// SSAO quality preset exposed by the graphics menu.
 pub enum SsaoQuality {
     Off,
@@ -42,7 +42,7 @@ pub enum SsaoQuality {
     Ultra,
 }
 
-#[derive(Serialize, Deserialize, Clone, Reflect, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Reflect, PartialEq, Default)]
 /// Shadow quality preset exposed by the graphics menu.
 pub enum ShadowQuality {
     Off,

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 #[cfg(feature = "client")]
 #[allow(unused_imports)]
 use bevy::light::{AmbientLight, CascadeShadowConfig, DirectionalLight};
-use bevy::color::Color;
 #[cfg(feature = "client")]
 use bevy::{
     asset::AssetApp,
@@ -11,6 +10,7 @@ use bevy::{
     pbr::{MeshMaterial3d, StandardMaterial},
 };
 use bevy::{
+    color::Color,
     prelude::*,
     world_serialization::{
         DynamicWorld, DynamicWorldRoot, WorldAssetRoot, serde::WorldDeserializer,
@@ -32,6 +32,7 @@ use sha2::{Digest, Sha256};
 use crate::debug_draw::draw_authored_shape;
 use crate::{
     AuthoritySystems,
+    archetype::Archetype,
     gc::{SpawnerGc, WorldObjectGc},
     lifecycle::spawn_game_object,
 };
@@ -242,7 +243,7 @@ pub struct Spawner {
 impl Default for Spawner {
     fn default() -> Self {
         Self {
-            spawn_name: "biped".into(),
+            spawn_name: "Biped".into(),
             respawn_delay_secs: 10.0,
         }
     }
@@ -538,8 +539,12 @@ fn tick_spawners(
                 linear + angular.cross(offset)
             })
             .unwrap_or(Vec3::ZERO);
+        let Some(archetype) = Archetype::from_reflect_name(&spawner.spawn_name) else {
+            eprintln!("unknown spawn archetype '{}'", spawner.spawn_name);
+            continue;
+        };
         let (spawn_entity, _, spawn_cmd) = spawn_game_object(
-            spawner.spawn_name.as_str(),
+            archetype,
             Some(position),
             Some(rotation),
             Some(spawner.velocity + inherited_velocity),

@@ -25,15 +25,15 @@ pub fn shooter_mass(world: &PhysicsWorld, shooter: Option<Entity>) -> f32 {
 
 pub fn make_generic_weapon_physics(
     entity: Entity,
-    cmd: &crate::net::message::SpawnCommand,
+    bundle: &crate::archetype::SpawnBundle,
     hull_path: &'static str,
     collider: ColliderBuilder,
     world: &mut World,
 ) -> RigidBodyHandle {
-    let position = cmd.position_or_zero();
-    let rotation = cmd.rotation_or_identity();
-    let velocity = cmd.velocity_or_zero();
-    let angular_velocity = cmd.angular_velocity_or_zero();
+    let position = bundle.position;
+    let rotation = bundle.rotation;
+    let velocity = bundle.velocity;
+    let angular_velocity = bundle.angular_velocity;
     let rb_handle = {
         let mut physics = world.resource_mut::<PhysicsWorld>();
         let rb = RigidBodyBuilder::dynamic()
@@ -60,7 +60,7 @@ pub fn make_generic_weapon_physics(
 
 pub fn insert_generic_weapon(
     entity: Entity,
-    cmd: &crate::net::message::SpawnCommand,
+    bundle: &crate::archetype::SpawnBundle,
     spawn_name: &'static str,
     world: &mut World,
     display_name: &'static str,
@@ -69,8 +69,8 @@ pub fn insert_generic_weapon(
     prediction_projectile_speed: Option<f32>,
     weapon: impl Bundle,
 ) {
-    let position = cmd.position_or_zero();
-    let rotation = cmd.rotation_or_identity();
+    let position = bundle.position;
+    let rotation = bundle.rotation;
     world.entity_mut(entity).insert((
         crate::SpawnReplicated(spawn_name),
         WeaponComponent,
@@ -138,7 +138,9 @@ pub fn restore_world_weapon(
         .entity_mut(weapon_entity)
         .insert(crate::interaction::Interactable { range: 2.0 });
     #[cfg(feature = "client")]
-    world.entity_mut(weapon_entity).insert(Visibility::Inherited);
+    world
+        .entity_mut(weapon_entity)
+        .insert(Visibility::Inherited);
     let mut physics = world.resource_mut::<PhysicsWorld>();
     place_world_weapon(&mut physics, weapon_entity, drop_pos, drop_velocity);
 }

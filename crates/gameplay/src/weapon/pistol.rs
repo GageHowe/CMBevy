@@ -54,27 +54,29 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     }),
 };
 
-pub fn spawn_pistol(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
-    let weapon = weapon_bundle(PistolComponent::default(), CONFIG);
-    helpers::insert_generic_weapon(
-        entity,
-        cmd,
-        "pistol",
-        world,
-        CONFIG.display_name,
-        CONFIG.model_path,
-        CONFIG.crosshair_path,
-        CONFIG.prediction_projectile_speed,
-        weapon,
-    );
-    helpers::make_generic_weapon_physics(
-        entity,
-        cmd,
-        CONFIG.collider_path,
-        ColliderBuilder::cuboid(0.12, 0.04, 0.22),
-        world,
-    );
-    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+impl crate::archetype::SpawnArchetypeTrait for crate::archetype::Pistol {
+    fn spawn(self, entity: Entity, bundle: crate::archetype::SpawnBundle, world: &mut World) {
+        let weapon = weapon_bundle(PistolComponent::default(), CONFIG);
+        helpers::insert_generic_weapon(
+            entity,
+            &bundle,
+            "pistol",
+            world,
+            CONFIG.display_name,
+            CONFIG.model_path,
+            CONFIG.crosshair_path,
+            CONFIG.prediction_projectile_speed,
+            weapon,
+        );
+        helpers::make_generic_weapon_physics(
+            entity,
+            &bundle,
+            CONFIG.collider_path,
+            ColliderBuilder::cuboid(0.12, 0.04, 0.22),
+            world,
+        );
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+    }
 }
 
 fn decorate_projectile(_entity: Entity, _world: &mut World) {

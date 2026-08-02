@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use bevy::{
     core_pipeline::prepass::MotionVectorPrepass,
+    pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel},
     post_process::{
         effect_stack::{LensDistortion, Vignette},
         motion_blur::MotionBlur,
@@ -17,6 +18,66 @@ use physics::physics_world::PhysicsInterpMode;
 
 use super::data::{DisplayMode, PhysicsInterp, Settings, ShadowQuality, SsaoQuality, VsyncMode};
 use crate::outline::OutlineSettings;
+
+macro_rules! impl_same_name_from {
+    ($src:ident => $dst:ty { $($variant:ident),* $(,)? }) => {
+        impl From<$src> for $dst {
+            fn from(value: $src) -> Self {
+                match value {
+                    $($src::$variant => Self::$variant,)*
+                }
+            }
+        }
+    };
+}
+
+impl_same_name_from!(VsyncMode => PresentMode {
+    AutoVsync,
+    AutoNoVsync,
+    Fifo,
+    FifoRelaxed,
+    Immediate,
+    Mailbox,
+});
+
+impl From<DisplayMode> for WindowMode {
+    fn from(value: DisplayMode) -> Self {
+        match value {
+            DisplayMode::Windowed => Self::Windowed,
+            DisplayMode::BorderlessFullscreen => {
+                Self::BorderlessFullscreen(MonitorSelection::Current)
+            }
+        }
+    }
+}
+
+impl_same_name_from!(PhysicsInterp => PhysicsInterpMode {
+    Off,
+    Interpolate,
+    Extrapolate,
+    Balanced,
+});
+
+impl From<SsaoQuality> for Option<ScreenSpaceAmbientOcclusionQualityLevel> {
+    fn from(value: SsaoQuality) -> Self {
+        match value {
+            SsaoQuality::Off => None,
+            SsaoQuality::Medium => Some(ScreenSpaceAmbientOcclusionQualityLevel::Medium),
+            SsaoQuality::High => Some(ScreenSpaceAmbientOcclusionQualityLevel::High),
+            SsaoQuality::Ultra => Some(ScreenSpaceAmbientOcclusionQualityLevel::Ultra),
+        }
+    }
+}
+
+impl From<ShadowQuality> for usize {
+    fn from(value: ShadowQuality) -> Self {
+        match value {
+            ShadowQuality::Off | ShadowQuality::Low => 1024,
+            ShadowQuality::Medium => 2048,
+            ShadowQuality::High => 4096,
+        }
+    }
+}
 
 pub fn apply_settings(
     mut commands: Commands,
@@ -39,20 +100,8 @@ pub fn apply_settings(
     sensitivity.gamepad_invert_y = settings.gamepad_invert_y;
 
     if let Ok(mut window) = window_q.single_mut() {
-        window.present_mode = match settings.vsync {
-            VsyncMode::AutoVsync => PresentMode::AutoVsync,
-            VsyncMode::AutoNoVsync => PresentMode::AutoNoVsync,
-            VsyncMode::Fifo => PresentMode::Fifo,
-            VsyncMode::FifoRelaxed => PresentMode::FifoRelaxed,
-            VsyncMode::Immediate => PresentMode::Immediate,
-            VsyncMode::Mailbox => PresentMode::Mailbox,
-        };
-        window.mode = match settings.display_mode {
-            DisplayMode::Windowed => WindowMode::Windowed,
-            DisplayMode::BorderlessFullscreen => {
-                WindowMode::BorderlessFullscreen(MonitorSelection::Current)
-            }
-        };
+        window.present_mode = settings.vsync.into();
+        window.mode = settings.display_mode.into();
     }
 
     if let Ok((camera_entity, mut fx)) = cam_effects.single_mut() {
@@ -63,17 +112,12 @@ pub fn apply_settings(
         apply_camera_graphics(&mut camera, &settings);
     }
 
-    *interp_mode = match settings.physics_interp {
-        PhysicsInterp::Off => PhysicsInterpMode::Off,
-        PhysicsInterp::Interpolate => PhysicsInterpMode::Interpolate,
-        PhysicsInterp::Extrapolate => PhysicsInterpMode::Extrapolate,
-        PhysicsInterp::Balanced => PhysicsInterpMode::Balanced,
-    };
+    *interp_mode = settings.physics_interp.into();
     if let Ok(mut egui_context) = egui_context.single_mut() {
         egui_context.get_mut().set_zoom_factor(settings.ui_scale);
     }
 
-    directional_light_shadow_map.size = shadow_map_size(&settings.shadow_quality);
+    directional_light_shadow_map.size = settings.shadow_quality.into();
     for mut directional_light in &mut directional_lights {
         apply_directional_light_shadows(&mut directional_light, &settings.shadow_quality);
     }
@@ -166,28 +210,13 @@ fn apply_camera_graphics(camera: &mut EntityCommands, settings: &Settings) {
         camera.remove::<LensDistortion>();
     }
 
-    match settings.ssao_quality {
-        SsaoQuality::Off => {
-            camera.remove::<bevy::pbr::ScreenSpaceAmbientOcclusion>();
-        }
-        SsaoQuality::Medium => {
-            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Medium,
-                ..default()
-            });
-        }
-        SsaoQuality::High => {
-            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::High,
-                ..default()
-            });
-        }
-        SsaoQuality::Ultra => {
-            camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
-                quality_level: bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
-                ..default()
-            });
-        }
+    if let Some(quality_level) = settings.ssao_quality.into() {
+        camera.insert(ScreenSpaceAmbientOcclusion {
+            quality_level,
+            ..default()
+        });
+    } else {
+        camera.remove::<ScreenSpaceAmbientOcclusion>();
     }
 
     if matches!(settings.shadow_quality, ShadowQuality::Off) {
@@ -227,15 +256,6 @@ fn apply_directional_light_shadows(light: &mut DirectionalLight, shadow_quality:
     let enabled = !matches!(shadow_quality, ShadowQuality::Off);
     light.shadow_maps_enabled = enabled;
     light.contact_shadows_enabled = enabled;
-}
-
-fn shadow_map_size(shadow_quality: &ShadowQuality) -> usize {
-    match shadow_quality {
-        ShadowQuality::Off => 1024,
-        ShadowQuality::Low => 1024,
-        ShadowQuality::Medium => 2048,
-        ShadowQuality::High => 4096,
-    }
 }
 
 pub fn apply_fps_cap(settings: Option<Res<Settings>>, mut last_frame_end: Local<Option<Instant>>) {

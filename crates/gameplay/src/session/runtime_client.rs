@@ -13,7 +13,7 @@ use crate::{
         },
         quic::QuicManager,
     },
-    pawn::{InteractionGate, Controller},
+    pawn::{Controller, InteractionGate},
     session,
     session::resources::*,
 };
@@ -183,7 +183,7 @@ fn respawn_singleplayer(
         return;
     };
     let (entity, _, _) = spawn_game_object(
-        "biped",
+        crate::archetype::Archetype::Biped(crate::archetype::Biped),
         Some(position),
         Some(rotation),
         Some(velocity),

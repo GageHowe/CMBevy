@@ -19,7 +19,7 @@ pub(crate) struct PendingWeaponGrants(pub Vec<WeaponGrant>);
 
 pub(crate) struct WeaponGrant {
     pub owner: Entity,
-    pub spawn_name: String,
+    pub archetype: crate::archetype::Archetype,
     pub weapon: Option<(Entity, common::NetworkID, crate::net::message::SpawnCommand)>,
 }
 
@@ -117,7 +117,7 @@ fn process_weapon_grants(world: &mut World) {
                 common::NetworkID(world.resource_mut::<common::NetworkIDResource>().next());
             let spawn_cmd = crate::net::message::SpawnCommand::new(
                 weapon_id.clone(),
-                grant.spawn_name.clone(),
+                grant.archetype.clone(),
                 tick,
             )
             .position(pos)

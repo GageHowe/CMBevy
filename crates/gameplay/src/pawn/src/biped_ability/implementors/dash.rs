@@ -8,24 +8,21 @@ const DASH_IMPULSE: f32 = 14.0;
 const DASH_COST: f32 = 50.0;
 
 pub const DASH: AbilitySpec = AbilitySpec {
-    spawn_name: "dash",
+    spawn_name: "DashAbility",
     meter_max: 100.0,
     meter_regen: 1.0,
     spawn_pickup: spawn_dash_pickup,
     apply: apply_dash_input,
 };
 
-pub fn spawn_dash(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
-    spawn_dash_pickup(
-        entity,
-        cmd.position_or_zero(),
-        cmd.velocity_or_zero(),
-        world,
-    );
-    world
-        .entity_mut(entity)
-        .insert(crate::SpawnReplicated("dash"));
-    crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
+impl crate::archetype::SpawnArchetypeTrait for crate::archetype::DashAbility {
+    fn spawn(self, entity: Entity, bundle: crate::archetype::SpawnBundle, world: &mut World) {
+        spawn_dash_pickup(entity, bundle.position, bundle.velocity, world);
+        world
+            .entity_mut(entity)
+            .insert(crate::SpawnReplicated("dash"));
+        crate::insert_spawn_metadata(entity, world, Some(20.0), true, None, true);
+    }
 }
 
 pub fn spawn_dash_pickup(entity: Entity, pos: Vec3, vel: Vec3, world: &mut World) {

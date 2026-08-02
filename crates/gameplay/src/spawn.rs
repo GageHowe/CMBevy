@@ -1,16 +1,12 @@
 //! Central spawn dispatch for replicated game object kinds.
 
-use std::collections::HashMap;
-
 use bevy::prelude::{Command, *};
 
-use crate::{gc::WorldObjectGc, net::message::SpawnCommand};
-
-/// function type that determines how an entity "kind" is spawned
-pub type SpawnFn = fn(Entity, &SpawnCommand, &mut World);
-
-#[derive(Resource, Default)]
-pub struct SpawnRegistry(pub HashMap<&'static str, SpawnFn>);
+use crate::{
+    archetype::{SpawnArchetypeTrait, SpawnBundle},
+    gc::WorldObjectGc,
+    net::message::SpawnCommand,
+};
 
 /// what is this?
 #[derive(Component, Clone, Copy)]
@@ -26,13 +22,6 @@ pub struct DespawnOnDeath;
 /// tells the sound engine to play a fmod sound reference when this object collides with something else
 #[derive(Component, Clone, Copy)]
 pub struct CollisionSound(pub &'static str);
-
-pub fn register_spawnable(app: &mut App, spawn_name: &'static str, spawn: SpawnFn) {
-    let mut registry = app
-        .world_mut()
-        .get_resource_or_insert_with(SpawnRegistry::default);
-    registry.0.insert(spawn_name, spawn);
-}
 
 pub fn insert_spawn_metadata(
     entity: Entity,
@@ -90,17 +79,6 @@ pub fn find_entity_by_net_id(
         .find_map(|(entity, entity_net_id)| (entity_net_id == net_id).then_some(entity))
 }
 
-fn spawn_game_object(spawn_name: &str, entity: Entity, cmd: &SpawnCommand, world: &mut World) {
-    let Some(spawn) = world
-        .get_resource::<SpawnRegistry>()
-        .and_then(|registry| registry.0.get(spawn_name))
-        .copied()
-    else {
-        panic!("unknown spawn '{spawn_name}'");
-    };
-    spawn(entity, cmd, world);
-}
-
 /// Spawns any game object described by a SpawnCommand onto a pre-allocated entity.
 /// Queue via `commands.queue(SpawnGameObjectCommand { entity, cmd })`.
 pub struct SpawnGameObjectCommand {
@@ -113,8 +91,19 @@ impl Command for SpawnGameObjectCommand {
     fn apply(self, world: &mut World) {
         world
             .entity_mut(self.entity)
-            .insert(self.cmd.net_id.clone());
-        spawn_game_object(self.cmd.spawn_name.as_str(), self.entity, &self.cmd, world);
+            .insert((self.cmd.net_id.clone(), self.cmd.archetype.clone()));
+        self.cmd.archetype.clone().spawn(
+            self.entity,
+            SpawnBundle {
+                position: self.cmd.position_or_zero(),
+                velocity: self.cmd.velocity_or_zero(),
+                rotation: self.cmd.rotation_or_identity(),
+                angular_velocity: self.cmd.angular_velocity_or_zero(),
+                net_id: Some(self.cmd.net_id.clone()),
+                parent_net_id: self.cmd.parent_net_id.clone(),
+            },
+            world,
+        );
         let body = world
             .get::<physics::physics_world::RigidBodyHandleComponent>(self.entity)
             .map(|body| body.0);

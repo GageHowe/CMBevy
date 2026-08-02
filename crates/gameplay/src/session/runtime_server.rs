@@ -299,7 +299,7 @@ fn tick_respawns(
     physics: Res<PhysicsWorld>,
 ) {
     let dt = time.delta_secs();
-    let ready: Vec<(ConnectionId, String, Team)> = pending
+    let ready: Vec<(ConnectionId, crate::archetype::Archetype, Team)> = pending
         .0
         .iter_mut()
         .filter_map(|(&id, (t, k, team))| {
@@ -322,7 +322,7 @@ fn tick_respawns(
         };
         spawn_player(
             conn_id,
-            kind.as_str(),
+            kind,
             team,
             sp,
             sr,
@@ -407,7 +407,7 @@ fn process_console_commands(
                     tick.tick as usize,
                 ) {
                     let (entity, _, spawn_cmd) = crate::lifecycle::spawn_game_object(
-                        "biped",
+                        crate::archetype::Archetype::Biped(crate::archetype::Biped),
                         Some(pos),
                         Some(rot),
                         Some(vel),
@@ -598,10 +598,14 @@ fn spawn_restarted_player(
         };
         NetworkID(net_ids.next())
     };
-    let spawn_cmd = SpawnCommand::new(net_id.clone(), "biped", tick)
-        .position(spawn_pos)
-        .rotation(spawn_rot)
-        .velocity(spawn_vel);
+    let spawn_cmd = SpawnCommand::new(
+        net_id.clone(),
+        crate::archetype::Archetype::Biped(crate::archetype::Biped),
+        tick,
+    )
+    .position(spawn_pos)
+    .rotation(spawn_rot)
+    .velocity(spawn_vel);
     let entity = world.spawn_empty().id();
     SpawnGameObjectCommand {
         entity,

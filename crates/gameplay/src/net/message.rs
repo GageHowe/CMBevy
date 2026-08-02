@@ -8,6 +8,7 @@ pub use common::*;
 use enum_dispatch::enum_dispatch;
 use serde::*;
 
+use crate::archetype::Archetype;
 pub use crate::{projectile::ProjectileConfirmation, weapon::beamer::*};
 
 const MAX_DECOMPRESSED_PACKET_MESSAGES_SIZE: usize = 64 * 1024 * 1024;
@@ -49,12 +50,12 @@ pub struct SpawnCommand {
     pub angular_velocity: Option<Vec3>,
     /// Authoritative server tick the spawn occurred on.
     pub server_tick: u64,
-    /// Concrete game object name to instantiate.
-    pub spawn_name: String,
+    /// Concrete game object to instantiate.
+    pub archetype: Archetype,
 }
 
 impl SpawnCommand {
-    pub fn new(net_id: NetworkID, spawn_name: impl Into<String>, server_tick: u64) -> Self {
+    pub fn new(net_id: NetworkID, archetype: Archetype, server_tick: u64) -> Self {
         Self {
             net_id,
             parent_net_id: None,
@@ -63,7 +64,7 @@ impl SpawnCommand {
             velocity: None,
             angular_velocity: None,
             server_tick,
-            spawn_name: spawn_name.into(),
+            archetype,
         }
     }
 

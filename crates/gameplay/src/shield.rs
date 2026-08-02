@@ -15,7 +15,9 @@ use rapier3d::prelude::{
     RigidBodyHandle,
 };
 
-use crate::{find_entity_by_net_id, health::Health, net::message::SpawnCommand};
+use crate::{
+    archetype::Archetype, find_entity_by_net_id, health::Health, net::message::SpawnCommand,
+};
 
 const SPACESHIP_SHIELD_MAX_HEALTH: i32 = 300;
 const SPACESHIP_SHIELD_REGEN_PER_SECOND: i32 = 60;
@@ -44,7 +46,6 @@ impl Shield {
 pub struct ShieldPlugin;
 impl Plugin for ShieldPlugin {
     fn build(&self, app: &mut App) {
-        crate::register_spawnable(app, "spaceship_shield", spawn_spaceship_shield);
         #[cfg(feature = "client")]
         app.add_plugins(bevy::pbr::MaterialPlugin::<ShieldMaterial>::default())
             .add_systems(
@@ -242,59 +243,57 @@ pub fn spawn_box_shield_visual(
 #[derive(Component, Default, Reflect)]
 pub struct SpaceshipShieldComponent;
 
-pub fn spawn_spaceship_shield(
-    entity: Entity,
-    cmd: &crate::net::message::SpawnCommand,
-    world: &mut World,
-) {
-    let Some(parent_net_id) = cmd.parent_net_id.as_ref() else {
-        return;
-    };
-    let Some(parent) = find_entity_by_net_id(world, parent_net_id) else {
-        return;
-    };
-    let Some(body_handle) = world
-        .get::<RigidBodyHandleComponent>(parent)
-        .map(|handle| handle.0)
-    else {
-        return;
-    };
-    #[allow(unused_mut)]
-    let mut shield = {
-        let mut physics = world.resource_mut::<PhysicsWorld>();
-        attach_shield_collider(
-            body_handle,
-            ColliderBuilder::cuboid(
-                SPACESHIP_SHIELD_HALF_EXTENTS.x,
-                SPACESHIP_SHIELD_HALF_EXTENTS.y,
-                SPACESHIP_SHIELD_HALF_EXTENTS.z,
+impl crate::archetype::SpawnArchetypeTrait for crate::archetype::SpaceshipShield {
+    fn spawn(self, entity: Entity, bundle: crate::archetype::SpawnBundle, world: &mut World) {
+        let Some(parent_net_id) = bundle.parent_net_id.as_ref() else {
+            return;
+        };
+        let Some(parent) = find_entity_by_net_id(world, parent_net_id) else {
+            return;
+        };
+        let Some(body_handle) = world
+            .get::<RigidBodyHandleComponent>(parent)
+            .map(|handle| handle.0)
+        else {
+            return;
+        };
+        #[allow(unused_mut)]
+        let mut shield = {
+            let mut physics = world.resource_mut::<PhysicsWorld>();
+            attach_shield_collider(
+                body_handle,
+                ColliderBuilder::cuboid(
+                    SPACESHIP_SHIELD_HALF_EXTENTS.x,
+                    SPACESHIP_SHIELD_HALF_EXTENTS.y,
+                    SPACESHIP_SHIELD_HALF_EXTENTS.z,
+                )
+                .build(),
+                false,
+                &mut physics,
             )
-            .build(),
-            false,
-            &mut physics,
-        )
-    };
-    #[cfg(feature = "client")]
-    {
-        shield.visual = Some(spawn_box_shield_visual(
-            world,
-            entity,
-            SPACESHIP_SHIELD_HALF_EXTENTS,
-            shield.double_sided,
+        };
+        #[cfg(feature = "client")]
+        {
+            shield.visual = Some(spawn_box_shield_visual(
+                world,
+                entity,
+                SPACESHIP_SHIELD_HALF_EXTENTS,
+                shield.double_sided,
+            ));
+        }
+        world.entity_mut(entity).insert((
+            crate::SpawnReplicated("spaceship_shield"),
+            SpaceshipShieldComponent,
+            Health::new(
+                SPACESHIP_SHIELD_MAX_HEALTH,
+                SPACESHIP_SHIELD_REGEN_PER_SECOND,
+                SPACESHIP_SHIELD_REGEN_DELAY_TICKS,
+            ),
+            shield,
+            Transform::default(),
         ));
+        crate::insert_spawn_metadata(entity, world, Some(300.0), false, None, false);
     }
-    world.entity_mut(entity).insert((
-        crate::SpawnReplicated("spaceship_shield"),
-        SpaceshipShieldComponent,
-        Health::new(
-            SPACESHIP_SHIELD_MAX_HEALTH,
-            SPACESHIP_SHIELD_REGEN_PER_SECOND,
-            SPACESHIP_SHIELD_REGEN_DELAY_TICKS,
-        ),
-        shield,
-        Transform::default(),
-    ));
-    crate::insert_spawn_metadata(entity, world, Some(300.0), false, None, false);
 }
 
 fn should_spawn_local_shield(_world: &World) -> bool {
@@ -322,10 +321,14 @@ pub fn spawn_attached_spaceship_shield(
         .map_or(0, |ticker| ticker.tick);
     let net_id = NetworkID(world.get_resource_mut::<NetworkIDResource>()?.next());
     let entity = world.spawn_empty().id();
-    let cmd = SpawnCommand::new(net_id.clone(), "spaceship_shield", tick)
-        .parent(parent_net_id.clone())
-        .position(Vec3::ZERO)
-        .rotation(Quat::IDENTITY);
+    let cmd = SpawnCommand::new(
+        net_id.clone(),
+        Archetype::SpaceshipShield(crate::archetype::SpaceshipShield),
+        tick,
+    )
+    .parent(parent_net_id.clone())
+    .position(Vec3::ZERO)
+    .rotation(Quat::IDENTITY);
     crate::SpawnGameObjectCommand {
         entity,
         cmd: cmd.clone(),

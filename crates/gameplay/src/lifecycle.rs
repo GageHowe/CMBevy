@@ -5,12 +5,13 @@ use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent, rb_angvel, 
 use crate::NetworkEntityMap;
 use crate::{
     SpawnGameObjectCommand,
+    archetype::Archetype,
     level::{SpawnPoint, parent_body_handle, parented_world_pose},
     net::message::{NetworkID, NetworkIDResource, SpawnCommand},
 };
 
 pub fn spawn_game_object(
-    spawn_name: impl Into<String>,
+    archetype: Archetype,
     position: Option<Vec3>,
     rotation: Option<Quat>,
     velocity: Option<Vec3>,
@@ -20,7 +21,7 @@ pub fn spawn_game_object(
     net_ids: &mut NetworkIDResource,
 ) -> (Entity, NetworkID, SpawnCommand) {
     let net_id = NetworkID(net_ids.next());
-    let mut cmd = SpawnCommand::new(net_id.clone(), spawn_name, server_tick);
+    let mut cmd = SpawnCommand::new(net_id.clone(), archetype, server_tick);
     if let Some(position) = position {
         cmd = cmd.position(position);
     }

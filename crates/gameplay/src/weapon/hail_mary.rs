@@ -56,48 +56,50 @@ pub struct HailMaryComponent {
     pub muzzle_flash: Option<Entity>,
 }
 
-pub fn spawn_hail_mary(entity: Entity, cmd: &crate::net::message::SpawnCommand, world: &mut World) {
-    #[cfg(feature = "client")]
-    let muzzle_flash = Some(weapon_flash::spawn_weapon_flash(
-        world,
-        entity,
-        Vec3::new(0.0, 0.0, -2.0),
-        0.18,
-        Color::srgb(1.0, 0.6, 0.2),
-        8.0,
-        28.0,
-        20_000.0,
-        20.0,
-        false,
-    ));
-    #[cfg(not(feature = "client"))]
-    let muzzle_flash = None;
-    let weapon = weapon_bundle(
-        HailMaryComponent {
-            muzzle_flash,
-            ..default()
-        },
-        CONFIG,
-    );
-    helpers::insert_generic_weapon(
-        entity,
-        cmd,
-        "hail_mary",
-        world,
-        CONFIG.display_name,
-        CONFIG.model_path,
-        CONFIG.crosshair_path,
-        CONFIG.prediction_projectile_speed,
-        weapon,
-    );
-    helpers::make_generic_weapon_physics(
-        entity,
-        cmd,
-        CONFIG.collider_path,
-        ColliderBuilder::cuboid(0.2, 0.05, 0.4),
-        world,
-    );
-    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+impl crate::archetype::SpawnArchetypeTrait for crate::archetype::HailMary {
+    fn spawn(self, entity: Entity, bundle: crate::archetype::SpawnBundle, world: &mut World) {
+        #[cfg(feature = "client")]
+        let muzzle_flash = Some(weapon_flash::spawn_weapon_flash(
+            world,
+            entity,
+            Vec3::new(0.0, 0.0, -2.0),
+            0.18,
+            Color::srgb(1.0, 0.6, 0.2),
+            8.0,
+            28.0,
+            20_000.0,
+            20.0,
+            false,
+        ));
+        #[cfg(not(feature = "client"))]
+        let muzzle_flash = None;
+        let weapon = weapon_bundle(
+            HailMaryComponent {
+                muzzle_flash,
+                ..default()
+            },
+            CONFIG,
+        );
+        helpers::insert_generic_weapon(
+            entity,
+            &bundle,
+            "hail_mary",
+            world,
+            CONFIG.display_name,
+            CONFIG.model_path,
+            CONFIG.crosshair_path,
+            CONFIG.prediction_projectile_speed,
+            weapon,
+        );
+        helpers::make_generic_weapon_physics(
+            entity,
+            &bundle,
+            CONFIG.collider_path,
+            ColliderBuilder::cuboid(0.2, 0.05, 0.4),
+            world,
+        );
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+    }
 }
 
 fn decorate_projectile(_entity: Entity, _world: &mut World) {

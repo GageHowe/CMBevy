@@ -75,31 +75,29 @@ pub const CONFIG: WeaponConfig = WeaponConfig {
     }),
 };
 
-pub fn spawn_coil_launcher(
-    entity: Entity,
-    cmd: &crate::net::message::SpawnCommand,
-    world: &mut World,
-) {
-    let weapon = weapon_bundle(CoilLauncherComponent, CONFIG);
-    helpers::insert_generic_weapon(
-        entity,
-        cmd,
-        "coil_launcher",
-        world,
-        CONFIG.display_name,
-        CONFIG.model_path,
-        CONFIG.crosshair_path,
-        CONFIG.prediction_projectile_speed,
-        weapon,
-    );
-    helpers::make_generic_weapon_physics(
-        entity,
-        cmd,
-        CONFIG.collider_path,
-        ColliderBuilder::cuboid(0.2, 0.05, 0.4),
-        world,
-    );
-    crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+impl crate::archetype::SpawnArchetypeTrait for crate::archetype::CoilLauncher {
+    fn spawn(self, entity: Entity, bundle: crate::archetype::SpawnBundle, world: &mut World) {
+        let weapon = weapon_bundle(CoilLauncherComponent, CONFIG);
+        helpers::insert_generic_weapon(
+            entity,
+            &bundle,
+            "coil_launcher",
+            world,
+            CONFIG.display_name,
+            CONFIG.model_path,
+            CONFIG.crosshair_path,
+            CONFIG.prediction_projectile_speed,
+            weapon,
+        );
+        helpers::make_generic_weapon_physics(
+            entity,
+            &bundle,
+            CONFIG.collider_path,
+            ColliderBuilder::cuboid(0.2, 0.05, 0.4),
+            world,
+        );
+        crate::insert_spawn_metadata(entity, world, Some(10.0), true, None, true);
+    }
 }
 
 fn decorate_projectile(_entity: Entity, _world: &mut World) {
