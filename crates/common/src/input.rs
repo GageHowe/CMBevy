@@ -1,4 +1,10 @@
-use bevy::prelude::Vec3;
+use bevy::prelude::*;
+
+#[derive(Resource, Default)]
+pub struct UiWantsInput {
+    pub keyboard: bool,
+    pub pointer: bool,
+}
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]

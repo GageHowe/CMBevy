@@ -6,6 +6,10 @@ edition = "2024"
 [lints]
 workspace = true
 
+[features]
+default = []
+particles = ["dep:hanabi"]
+
 [dependencies]
 bevy = { workspace = true, features = ["std", "multi_threaded"] }
-hanabi = { package = "bevy_hanabi", version = "0.19.0", default-features = false, features = ["3d"] }
+hanabi = { package = "bevy_hanabi", git = "https://github.com/djeedai/bevy_hanabi", default-features = false, features = ["3d"], optional = true }

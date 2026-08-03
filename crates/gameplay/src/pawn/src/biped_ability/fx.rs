@@ -1,26 +1,27 @@
+#[cfg(all(feature = "client", feature = "particles"))]
 use bevy::prelude::*;
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use particles_plugin::prelude::{EffectSpawner, spawn_dash_effect, spawn_jetpack_effect};
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use physics::physics_world::PhysicsWorld;
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use physics::physics_world::{rb_pos, rb_rot};
 
 use crate::net::{
     message::{AbilityFx, NetworkID},
     quic::Channel,
 };
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use crate::{NetworkEntityMap, pawn::biped::BipedPawnComponent};
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 const JETPACK_OFFSET: Vec3 = Vec3::new(0.0, -0.7, 0.0);
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 #[derive(Component)]
 pub(crate) struct JetpackFxTag;
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 #[derive(Component, Clone, Copy)]
 pub(crate) struct JetpackFxOwner(Entity);
 
@@ -31,7 +32,7 @@ pub fn fx_channel(fx: AbilityFx) -> Channel {
     }
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub fn queue_fx(owner: Entity, fx: AbilityFx, world: &PhysicsWorld, commands: &mut Commands) {
     match fx {
         AbilityFx::Jetpack(active) => queue_jetpack_fx(owner, active, commands),
@@ -39,7 +40,7 @@ pub fn queue_fx(owner: Entity, fx: AbilityFx, world: &PhysicsWorld, commands: &m
     }
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub fn queue_remote_fx(
     net_id: &NetworkID,
     fx: AbilityFx,
@@ -57,7 +58,7 @@ pub fn queue_remote_fx(
     queue_fx(entity, fx, world, commands);
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub fn queue_jetpack_fx(owner: Entity, active: bool, commands: &mut Commands) {
     commands.queue(move |world: &mut World| {
         let current = world
@@ -87,7 +88,7 @@ pub fn queue_jetpack_fx(owner: Entity, active: bool, commands: &mut Commands) {
     });
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub fn queue_dash_fx(owner: Entity, dir: Vec3, world: &PhysicsWorld, commands: &mut Commands) {
     let Some(&handle) = world.entity_to_handle.get(&owner) else {
         return;
@@ -106,7 +107,7 @@ pub fn queue_dash_fx(owner: Entity, dir: Vec3, world: &PhysicsWorld, commands: &
     });
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub(crate) fn sync_jetpack_fx_velocity(
     world: Res<PhysicsWorld>,
     bipeds: Query<(Entity, &BipedPawnComponent)>,
@@ -131,7 +132,7 @@ pub(crate) fn sync_jetpack_fx_velocity(
     }
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub(crate) fn cleanup_orphaned_jetpack_fx(
     mut commands: Commands,
     bipeds: Query<&BipedPawnComponent>,

@@ -136,22 +136,24 @@ fn main() {
 
     let mut app = App::new();
     register_asset_pak(&mut app);
-    app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(
-        Duration::from_secs_f64(1.0 / common::config::FIXED_TICK_RATE),
-    )))
-        .add_plugins(bevy::state::app::StatesPlugin)
-        .add_plugins(bevy::asset::AssetPlugin {
-            file_path: gameplay::level::default_asset_dir()
-                .to_string_lossy()
-                .into_owned(),
-            meta_check: AssetMetaCheck::Never,
-            ..default()
-        })
-        .add_plugins(bevy::world_serialization::WorldSerializationPlugin) // needed to register DynamicWorld asset + RON loader
-        .add_plugins(LogPlugin {
-            level: Level::ERROR,
-            ..default()
-        });
+    app.add_plugins(
+        MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
+            1.0 / common::config::FIXED_TICK_RATE,
+        ))),
+    )
+    .add_plugins(bevy::state::app::StatesPlugin)
+    .add_plugins(bevy::asset::AssetPlugin {
+        file_path: gameplay::level::default_asset_dir()
+            .to_string_lossy()
+            .into_owned(),
+        meta_check: AssetMetaCheck::Never,
+        ..default()
+    })
+    .add_plugins(bevy::world_serialization::WorldSerializationPlugin) // needed to register DynamicWorld asset + RON loader
+    .add_plugins(LogPlugin {
+        level: Level::ERROR,
+        ..default()
+    });
 
     app.add_plugins(MasterPlugin);
     app.add_systems(FixedPreUpdate, gameplay::session::on_message);

@@ -78,7 +78,7 @@ pub struct ProjectileExplosion {
     pub shake_radius: f32,
     #[cfg(feature = "client")]
     pub shake_scale: f32,
-    #[cfg(feature = "client")]
+    #[cfg(all(feature = "client", feature = "particles"))]
     pub effect: fn(&mut World, Vec3, Vec3),
 }
 
@@ -491,7 +491,7 @@ fn explode(
     contact_damage: f32,
     explosion: ProjectileExplosion,
 ) {
-    #[cfg(feature = "client")]
+    #[cfg(all(feature = "client", feature = "particles"))]
     queue_explosion_fx(
         commands,
         center,
@@ -499,6 +499,13 @@ fn explode(
         explosion.shake_radius,
         explosion.shake_scale,
         explosion.effect,
+    );
+    #[cfg(all(feature = "client", not(feature = "particles")))]
+    queue_explosion_fx(
+        commands,
+        center,
+        explosion.shake_radius,
+        explosion.shake_scale,
     );
     let mut affected = std::collections::HashMap::<Entity, f32>::new();
     let excluded: Vec<RigidBodyHandle> = world
@@ -732,7 +739,7 @@ fn shooter_mass(world: &PhysicsWorld, shooter: Entity) -> f32 {
         .unwrap_or(0.0)
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 fn queue_explosion_fx(
     commands: &mut Commands,
     center: Vec3,
@@ -744,6 +751,13 @@ fn queue_explosion_fx(
     commands.queue(move |world: &mut World| {
         add_explosion_camera_shake(world, center, shake_radius, shake_scale);
         effect(world, center, inherit_velocity);
+    });
+}
+
+#[cfg(all(feature = "client", not(feature = "particles")))]
+fn queue_explosion_fx(commands: &mut Commands, center: Vec3, shake_radius: f32, shake_scale: f32) {
+    commands.queue(move |world: &mut World| {
+        add_explosion_camera_shake(world, center, shake_radius, shake_scale);
     });
 }
 
@@ -770,7 +784,7 @@ fn add_explosion_camera_shake(world: &mut World, center: Vec3, radius: f32, scal
     );
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 fn explosion_inherit_velocity(
     world: &PhysicsWorld,
     direct_hit: Option<Entity>,

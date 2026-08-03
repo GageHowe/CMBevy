@@ -1,18 +1,16 @@
-mod controls;
+pub(crate) mod controls;
 mod data;
-mod persistence;
+pub(crate) mod persistence;
 mod runtime;
-mod ui;
 
 use bevy::prelude::*;
 use common::{
     ActiveBindings, GamepadBindings, KeyBindings, PromptDeviceMode, PromptDevicePreference,
 };
-pub use controls::ControlsCapture;
+pub use controls::{CaptureDevice, ControlsCapture};
 pub use data::{
     DisplayMode, PhysicsInterp, Settings, SettingsSection, ShadowQuality, SsaoQuality, VsyncMode,
 };
-pub use ui::show_settings_ui;
 
 pub struct SettingsPlugin;
 

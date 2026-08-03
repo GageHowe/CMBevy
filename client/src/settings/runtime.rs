@@ -11,7 +11,6 @@ use bevy::{
     render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode},
 };
-use bevy_egui::{EguiContext, PrimaryEguiContext};
 use common::{ActiveBindings, PromptDevicePreference};
 use gameplay::pawn::{CameraEffector, MouseSensitivity};
 use physics::physics_world::PhysicsInterpMode;
@@ -88,7 +87,7 @@ pub fn apply_settings(
     mut window_q: Query<&mut Window, With<PrimaryWindow>>,
     mut directional_lights: Query<&mut DirectionalLight>,
     mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
-    mut egui_context: Query<&mut EguiContext, With<PrimaryEguiContext>>,
+    mut ui_scale: ResMut<UiScale>,
 ) {
     commands.insert_resource(PromptDevicePreference(settings.prompt_device_mode));
     sensitivity.base = settings.mouse_sensitivity;
@@ -113,9 +112,7 @@ pub fn apply_settings(
     }
 
     *interp_mode = settings.physics_interp.into();
-    if let Ok(mut egui_context) = egui_context.single_mut() {
-        egui_context.get_mut().set_zoom_factor(settings.ui_scale);
-    }
+    ui_scale.0 = settings.ui_scale;
 
     directional_light_shadow_map.size = settings.shadow_quality.into();
     for mut directional_light in &mut directional_lights {

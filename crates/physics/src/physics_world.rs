@@ -133,13 +133,13 @@ impl PhysicsWorld {
                 num_internal_pgs_iterations: 1,
                 num_internal_stabilization_iterations: 1,
                 num_solver_iterations: 3, // prefer speed over accuracy, subject to tuning
-                min_island_size: 128,
                 normalized_allowed_linear_error: 0.001,
                 normalized_max_corrective_velocity: 10.0, // maybe make this higher...
                 normalized_prediction_distance: 0.002,
                 max_ccd_substeps: 1,
                 length_unit: 1.0,
                 friction_model: FrictionModel::default(),
+                ..default()
             },
             physics_pipeline: PhysicsPipeline::new(),
             island_manager: IslandManager::new(),

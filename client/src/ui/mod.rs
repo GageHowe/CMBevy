@@ -6,33 +6,52 @@ pub mod window;
 
 use bevy::{
     diagnostic::FrameTimeDiagnosticsPlugin,
+    input_focus::{InputFocus, tab_navigation::TabNavigationPlugin},
     pbr::{StandardMaterial, diagnostic::MaterialAllocatorDiagnosticPlugin},
     prelude::*,
     render::diagnostic::MeshAllocatorDiagnosticPlugin,
 };
 use bevy_dev_tools::diagnostics_overlay::DiagnosticsOverlayPlugin;
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
-use crate::{GameState, settings::Settings};
+use crate::{GameState, UiState, settings::Settings};
+
+pub const UI_FONT: &str = "fonts/JetBrainsMono-Light.ttf";
 
 pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(EguiPlugin::default())
+        app.init_resource::<common::UiWantsInput>()
             .add_plugins((
+                TabNavigationPlugin,
                 FrameTimeDiagnosticsPlugin::default(),
                 DiagnosticsOverlayPlugin,
                 MeshAllocatorDiagnosticPlugin,
                 MaterialAllocatorDiagnosticPlugin::<StandardMaterial>::default(),
             ))
-            // Startup
             .add_systems(
                 Startup,
-                (reticle::spawn_crosshair, reticle::spawn_prediction_reticle),
+                (
+                    reticle::spawn_crosshair,
+                    reticle::spawn_prediction_reticle,
+                    hud::spawn_hud,
+                    chat::spawn_chat,
+                ),
             )
-            // Update
-            .add_systems(Update, debug::sync_diagnostics_overlay)
+            .add_systems(
+                Update,
+                (
+                    debug::sync_diagnostics_overlay,
+                    sync_ui_wants_input,
+                    hud::sync_health,
+                    hud::sync_ability,
+                    hud::sync_ammo,
+                    hud::sync_notifications,
+                    hud::sync_interaction_hint,
+                    chat::sync_chat,
+                    chat::submit_chat.run_if(in_state(GameState::Multiplayer)),
+                ),
+            )
             .add_systems(
                 Update,
                 (reticle::update_reticle, reticle::update_prediction_reticle),
@@ -40,58 +59,19 @@ impl Plugin for UIPlugin {
             .add_systems(
                 Update,
                 reticle::apply_reticle_scale.run_if(resource_changed::<Settings>),
-            )
-            // EguiPrimaryContextPass
-            .add_systems(EguiPrimaryContextPass, set_style.run_if(run_once))
-            .add_systems(EguiPrimaryContextPass, hud::gui_notifications)
-            .add_systems(EguiPrimaryContextPass, hud::gui_interaction_hint)
-            .add_systems(
-                EguiPrimaryContextPass,
-                chat::gui_chat.run_if(in_state(GameState::Multiplayer)),
-            )
-            .add_systems(EguiPrimaryContextPass, hud::gui_health)
-            .add_systems(EguiPrimaryContextPass, hud::gui_ability_status)
-            .add_systems(EguiPrimaryContextPass, hud::gui_ammo);
+            );
     }
 }
 
-fn set_style(mut contexts: EguiContexts) {
-    let Ok(ctx) = contexts.ctx_mut() else { return };
-
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "JetBrainsMono-Light".to_owned(),
-        egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/JetBrainsMono-Light.ttf"
-        ))
-        .into(),
-    );
-    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-        family.insert(0, "JetBrainsMono-Light".to_owned());
-    }
-    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-        family.insert(0, "JetBrainsMono-Light".to_owned());
-    }
-    ctx.set_fonts(fonts);
-
-    let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
-    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-    style.spacing.button_padding = egui::vec2(5.0, 2.0);
-    style.spacing.window_margin = egui::Margin::same(8);
-    style.spacing.menu_margin = egui::Margin::same(6);
-    style.spacing.indent = 12.0;
-    style.visuals.window_shadow = egui::epaint::Shadow::NONE;
-    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(10, 0, 10, 100);
-    style.visuals.window_corner_radius = egui::CornerRadius::ZERO;
-    style.visuals.override_text_color = Some(egui::Color32::WHITE);
-    style.visuals.menu_corner_radius = egui::CornerRadius::ZERO;
-    style.visuals.widgets.noninteractive.bg_fill =
-        egui::Color32::from_rgba_premultiplied(20, 0, 20, 160);
-    style.visuals.widgets.noninteractive.fg_stroke =
-        egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
-    style.visuals.window_stroke = egui::Stroke {
-        width: 0.0,
-        color: egui::Color32::TRANSPARENT,
-    };
-    ctx.set_style_of(egui::Theme::Dark, style);
+fn sync_ui_wants_input(
+    input_focus: Res<InputFocus>,
+    game_state: Res<State<GameState>>,
+    ui_state: Res<State<UiState>>,
+    mut ui_wants: ResMut<common::UiWantsInput>,
+) {
+    let menu_open =
+        *game_state.get() == GameState::NotPlaying || *ui_state.get() != UiState::Playing;
+    let focused = input_focus.get().is_some();
+    ui_wants.keyboard = menu_open || focused;
+    ui_wants.pointer = menu_open || focused;
 }

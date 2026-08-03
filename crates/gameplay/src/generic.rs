@@ -1,7 +1,10 @@
 // generic.rs — spawns arbitrary physics objects with an optional mesh and network ID.
 use bevy::prelude::*;
 use common::NetworkID;
-use physics::{convex_hull_asset::load_convex_hull_blocking, physics_world::*};
+use physics::{
+    convex_hull_asset::load_convex_hull_blocking,
+    physics_world::{PhysicsWorld, *},
+};
 use rapier3d::prelude::*;
 
 #[cfg(feature = "client")]

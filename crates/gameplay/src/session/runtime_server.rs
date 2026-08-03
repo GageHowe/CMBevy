@@ -132,7 +132,10 @@ impl Plugin for ServerSessionPlugin {
                 max_players: advertise.max_players,
             })
             .add_systems(Startup, register_hosted_lobby)
-            .add_systems(SemiSlowUpdate, (heartbeat_hosted_lobby, poll_hosted_lobby_peers));
+            .add_systems(
+                SemiSlowUpdate,
+                (heartbeat_hosted_lobby, poll_hosted_lobby_peers),
+            );
         }
     }
 }

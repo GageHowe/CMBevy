@@ -22,7 +22,7 @@ const EXPLOSION: projectile::ProjectileExplosion = projectile::ProjectileExplosi
     shake_radius: 10.0,
     #[cfg(feature = "client")]
     shake_scale: 0.5,
-    #[cfg(feature = "client")]
+    #[cfg(all(feature = "client", feature = "particles"))]
     effect: particles_plugin::prelude::spawn_lobber_explosion_effect,
 };
 const PROJECTILE: projectile::Projectile = projectile::Projectile {

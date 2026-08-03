@@ -2,7 +2,6 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, /* WindowMode*/ WindowResolution},
 };
-use bevy_egui::input::EguiWantsInput;
 use common::{ActiveBindings, InputAction, active_gamepad};
 
 use crate::{GameState, SimState, UiState, settings::ControlsCapture};
@@ -27,7 +26,7 @@ fn init_window(mut window_query: Query<&mut Window, With<PrimaryWindow>>) {
 fn toggle_ui_state(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    egui_wants_input: Option<Res<EguiWantsInput>>,
+    ui_wants_input: Option<Res<common::UiWantsInput>>,
     active_bindings: Res<ActiveBindings>,
     gamepads: Query<&Gamepad>,
     capture: Option<Res<ControlsCapture>>,
@@ -47,9 +46,7 @@ fn toggle_ui_state(
         return;
     }
 
-    let egui_wants_keyboard = egui_wants_input
-        .as_ref()
-        .map_or(false, |e| e.wants_keyboard_input());
+    let ui_wants_keyboard = ui_wants_input.as_ref().is_some_and(|ui| ui.keyboard);
 
     // Don't open the pause menu if the chat input has keyboard focus.
     if active_bindings.just_pressed(
@@ -57,7 +54,7 @@ fn toggle_ui_state(
         &keys,
         &mouse,
         active_gamepad(gamepads.iter()),
-    ) && !egui_wants_keyboard
+    ) && !ui_wants_keyboard
     {
         match ui_state.get() {
             UiState::Playing => {
@@ -71,13 +68,13 @@ fn toggle_ui_state(
         }
     }
 
-    let egui_wants_pointer = egui_wants_input.map_or(false, |e| e.wants_any_input());
+    let ui_wants_pointer = ui_wants_input.is_some_and(|ui| ui.keyboard || ui.pointer);
     if active_bindings.just_pressed(
         InputAction::CaptureCursor,
         &keys,
         &mouse,
         active_gamepad(gamepads.iter()),
-    ) && !egui_wants_pointer
+    ) && !ui_wants_pointer
     {
         next_ui.set(UiState::Playing);
         next_sim.set(SimState::Playing);
@@ -88,15 +85,15 @@ fn toggle_ui_state(
 fn sync_cursor_lock(
     game_state: Res<State<GameState>>,
     ui_state: Res<State<UiState>>,
-    egui_wants_input: Option<Res<EguiWantsInput>>,
+    ui_wants_input: Option<Res<common::UiWantsInput>>,
     mut cursor_options: Single<&mut CursorOptions>,
 ) {
-    let egui_wants_keyboard = egui_wants_input.map_or(false, |e| e.wants_keyboard_input());
+    let ui_wants_keyboard = ui_wants_input.is_some_and(|ui| ui.keyboard);
     let should_lock = matches!(
         game_state.get(),
         GameState::SinglePlayer | GameState::Multiplayer
     ) && *ui_state.get() == UiState::Playing
-        && !egui_wants_keyboard;
+        && !ui_wants_keyboard;
     cursor_options.visible = !should_lock;
     cursor_options.grab_mode = if should_lock {
         CursorGrabMode::Locked

@@ -146,7 +146,7 @@ fn vehicle_exit_interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
-    egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    ui_wants: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     vehicle: Query<
         (Entity, Option<&crate::net::message::NetworkID>),
@@ -162,7 +162,7 @@ fn vehicle_exit_interact(
     interaction_names: Query<&InteractionName>,
 ) {
     use common::game_state::GameState;
-    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
+    let blocked = ui_wants.is_some_and(|ui| ui.keyboard || ui.pointer);
     let Ok((vehicle_entity, net_id)) = vehicle.single() else {
         return;
     };

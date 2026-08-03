@@ -4,10 +4,9 @@ use bevy::prelude::*;
 #[cfg(feature = "client")]
 use bevy::window::*;
 #[cfg(feature = "client")]
-use bevy_egui::input::EguiWantsInput;
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use particles_plugin::prelude::spawn_spaceship_death_explosion_effect;
-use physics::physics_world::*;
+use physics::physics_world::{PhysicsWorld, *};
 use rapier3d::prelude::*;
 
 use super::{
@@ -221,6 +220,7 @@ pub fn on_spaceship_death(entity: Entity, world: &mut World) {
                     .map(|t| (t.translation, Vec3::ZERO))
             })
             .unwrap_or((Vec3::ZERO, Vec3::ZERO));
+        #[cfg(feature = "particles")]
         spawn_spaceship_death_explosion_effect(world, position, velocity);
         spawn_flash(
             world,
@@ -248,12 +248,12 @@ fn gather_spaceship_input(
     gamepads: Query<&Gamepad>,
     sensitivity: Res<MouseSensitivity>,
     cursor_q: Single<&CursorOptions, With<PrimaryWindow>>,
-    egui_wants_input: Option<Res<EguiWantsInput>>,
+    ui_wants_input: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     pawns: Query<(), (With<Controller>, With<SpaceshipPawnComponent>)>,
     mut control: ResMut<common::LocalControl>,
 ) {
-    if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
+    if ui_wants_input.is_some_and(|ui| ui.keyboard || ui.pointer) {
         return;
     }
     if cursor_q.grab_mode == CursorGrabMode::None {

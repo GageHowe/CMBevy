@@ -6,7 +6,6 @@ use bevy::{
     prelude::*,
     window::*,
 };
-use bevy_egui::input::EguiWantsInput;
 use physics::physics_world::PhysicsWorld;
 
 use super::{
@@ -81,7 +80,7 @@ fn gather_biped_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
-    egui_wants_input: Option<Res<EguiWantsInput>>,
+    ui_wants_input: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     sensitivity: Res<MouseSensitivity>,
     mut fixed_presses: ResMut<FixedPressQueue>,
@@ -90,7 +89,7 @@ fn gather_biped_input(
     yaw_pivots: Query<&YawPivot>,
     pitch_pivots: Query<&PitchPivot>,
 ) {
-    if egui_wants_input.map_or(false, |e| e.wants_any_input()) {
+    if ui_wants_input.is_some_and(|ui| ui.keyboard || ui.pointer) {
         fixed_presses.clear_ability1();
         fixed_presses.clear_melee();
         return;
@@ -238,7 +237,7 @@ fn mouse_look(
 
 fn switch_weapon_slot(
     scroll: Res<AccumulatedMouseScroll>,
-    egui_wants_input: Option<Res<EguiWantsInput>>,
+    ui_wants_input: Option<Res<common::UiWantsInput>>,
     mut pawn: Query<&mut WeaponSlots, With<Controller>>,
     mut weapon_states: Query<&mut crate::weapon::WeaponState>,
     mut camera: Query<&mut CameraEffector, With<Camera3d>>,
@@ -246,7 +245,7 @@ fn switch_weapon_slot(
     state: Res<State<common::game_state::GameState>>,
     mut quic: ResMut<crate::net::quic::QuicManager>,
 ) {
-    if scroll.delta.y == 0.0 || egui_wants_input.map_or(false, |e| e.wants_any_input()) {
+    if scroll.delta.y == 0.0 || ui_wants_input.is_some_and(|ui| ui.keyboard || ui.pointer) {
         return;
     }
     let Ok(mut slots) = pawn.single_mut() else {
@@ -393,11 +392,11 @@ fn queue_fixed_inputs(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
-    egui_wants: Option<Res<EguiWantsInput>>,
+    ui_wants: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     mut fixed_presses: ResMut<FixedPressQueue>,
 ) {
-    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
+    let blocked = ui_wants.is_some_and(|ui| ui.keyboard || ui.pointer);
     let gamepad = common::active_gamepad(gamepads.iter());
     if !blocked && bindings.just_pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad) {
         fixed_presses.fire = true;
@@ -421,7 +420,7 @@ fn biped_fire(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
-    egui_wants: Option<Res<EguiWantsInput>>,
+    ui_wants: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     mut pawn: Query<
         (
@@ -441,7 +440,7 @@ fn biped_fire(
     ticker: Res<common::tick::Ticker>,
     mut control: ResMut<common::LocalControl>,
 ) {
-    let blocked = egui_wants.is_some_and(|e| e.wants_any_input());
+    let blocked = ui_wants.is_some_and(|ui| ui.keyboard || ui.pointer);
     let gamepad = common::active_gamepad(gamepads.iter());
     let want_fire =
         !blocked && bindings.pressed(common::InputAction::Fire, &keyboard, &mouse, gamepad);
@@ -613,7 +612,7 @@ fn interactable_in_range(
 }
 
 fn update_interaction_hint(
-    egui_wants: Option<Res<EguiWantsInput>>,
+    ui_wants: Option<Res<common::UiWantsInput>>,
     player: Query<
         (
             Entity,
@@ -639,7 +638,10 @@ fn update_interaction_hint(
     mount_anchor_q: Query<&GlobalTransform>,
     mut hint: ResMut<InteractionHint>,
 ) {
-    if egui_wants.as_ref().is_some_and(|e| e.wants_any_input()) {
+    if ui_wants
+        .as_ref()
+        .is_some_and(|ui| ui.keyboard || ui.pointer)
+    {
         hint.0 = None;
         return;
     }
@@ -695,7 +697,7 @@ fn interact(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
-    egui_wants: Option<Res<EguiWantsInput>>,
+    ui_wants: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     ticker: Res<common::tick::Ticker>,
     mut interaction: ResMut<InteractionGate>,
@@ -712,7 +714,9 @@ fn interact(
     mut quic: ResMut<crate::net::quic::QuicManager>,
 ) {
     use common::game_state::GameState;
-    let blocked = egui_wants.as_ref().is_some_and(|e| e.wants_any_input());
+    let blocked = ui_wants
+        .as_ref()
+        .is_some_and(|ui| ui.keyboard || ui.pointer);
     let Ok((pawn_entity, biped, body_handle)) = player.single() else {
         return;
     };
@@ -869,7 +873,7 @@ fn drop_active_weapon(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     gamepads: Query<&Gamepad>,
-    egui_wants: Res<EguiWantsInput>,
+    ui_wants: Res<common::UiWantsInput>,
     bindings: Res<common::ActiveBindings>,
     state: Res<State<common::game_state::GameState>>,
     player: Query<(Entity, &BipedPawnComponent), With<Controller>>,
@@ -883,7 +887,8 @@ fn drop_active_weapon(
     mut drop_pressed: Local<bool>,
 ) {
     use common::game_state::GameState;
-    if egui_wants.wants_any_input()
+    if ui_wants.keyboard
+        || ui_wants.pointer
         || !consume_fixed_press(
             bindings.pressed(
                 common::InputAction::DropWeapon,

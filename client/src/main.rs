@@ -21,6 +21,7 @@ use gameplay::{
     projectile::*,
 };
 use hosting::cleanup_before_app_exit;
+#[cfg(feature = "particles")]
 use particles_plugin::prelude::GPUParticlesPlugin;
 use reconciliation::*;
 use tick_sync::TickSyncPlugin;
@@ -111,7 +112,6 @@ fn main() {
         .add_plugins(WindowSettingsPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MenuPlugin)
-        .add_plugins(GPUParticlesPlugin)
         .add_plugins(SoundPlugin)
         .add_plugins(sound::ClientSoundPlugin)
         .add_plugins(ClientSessionPlugin {
@@ -146,6 +146,8 @@ fn main() {
         )
         .add_systems(Startup, spawn_camera)
         .add_systems(Last, cleanup_before_app_exit);
+    #[cfg(feature = "particles")]
+    app.add_plugins(GPUParticlesPlugin);
     app.add_systems(OnExit(GameState::SinglePlayer), cleanup_level);
     app.add_systems(OnExit(GameState::Multiplayer), cleanup_level);
 

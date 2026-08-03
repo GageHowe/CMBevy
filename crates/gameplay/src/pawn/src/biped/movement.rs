@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use physics::physics_world::*;
+use physics::physics_world::{PhysicsWorld, *};
 use rapier3d::prelude::*;
 
 use super::*;

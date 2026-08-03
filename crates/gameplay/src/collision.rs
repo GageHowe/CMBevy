@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use particles_plugin::prelude::{spawn_dust_impact_effect, spawn_sparks_impact_effect};
 use physics::physics_world::{PhysicsWorld, step_physics};
 
@@ -30,7 +30,7 @@ pub enum CollisionFxMaterial {
 }
 
 impl CollisionFxMaterial {
-    #[cfg(feature = "client")]
+    #[cfg(all(feature = "client", feature = "particles"))]
     fn min_relative_speed(self) -> f32 {
         match self {
             Self::Dust => 8.0,
@@ -55,7 +55,7 @@ impl Plugin for CollisionPlugin {
                     .after(step_physics)
                     .in_set(CollisionImpactSet),
             );
-        #[cfg(feature = "client")]
+        #[cfg(all(feature = "client", feature = "particles"))]
         app.add_systems(FixedUpdate, spawn_collision_fx.after(CollisionImpactSet));
     }
 }
@@ -75,10 +75,9 @@ fn collect_collision_impacts(world: Res<PhysicsWorld>, mut impacts: ResMut<Colli
         let mut is_new = false;
         for manifold in &pair.manifolds {
             is_new |= manifold
-                .data
-                .solver_contacts
+                .points
                 .iter()
-                .any(|contact| contact.is_new > 0.5);
+                .any(|contact| contact.data.impulse == 0.0);
             for contact in &manifold.points {
                 position.get_or_insert_with(|| {
                     let point1 = collider1.position().rotation * contact.local_p1
@@ -136,7 +135,7 @@ fn collect_collision_impacts(world: Res<PhysicsWorld>, mut impacts: ResMut<Colli
     }
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 fn spawn_collision_fx(
     impacts: Res<CollisionImpacts>,
     materials: Query<&CollisionFxMaterial>,

@@ -1,7 +1,7 @@
 #[cfg(feature = "client")]
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
-use physics::physics_world::*;
+use physics::physics_world::{PhysicsWorld, *};
 use rapier3d::prelude::*;
 
 #[cfg(not(feature = "client"))]
@@ -18,9 +18,9 @@ use crate::pawn::biped::consume_fixed_press;
 pub mod fx;
 pub mod implementors;
 pub use fx::fx_channel;
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 use fx::{cleanup_orphaned_jetpack_fx, sync_jetpack_fx_velocity};
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "particles"))]
 pub use fx::{queue_fx, queue_remote_fx};
 
 pub use crate::net::message::AbilityFx;
@@ -44,8 +44,9 @@ impl Plugin for BipedAbilityPlugin {
             drop_active_ability_input
                 .run_if(resource_exists::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>)
                 .in_set(super::GatherInputSet),
-        )
-        .add_systems(
+        );
+        #[cfg(all(feature = "client", feature = "particles"))]
+        app.add_systems(
             bevy::app::FixedPostUpdate,
             sync_jetpack_fx_velocity.in_set(common::game_state::SimulationSystems),
         )
@@ -162,8 +163,10 @@ fn simulate_abilities(
         let fx = apply_input(entity, input.0, &mut world, &mut biped);
         commands.entity(entity).remove::<AbilityInput>();
         let Some(fx) = fx else { continue };
-        #[cfg(feature = "client")]
+        #[cfg(all(feature = "client", feature = "particles"))]
         queue_fx(entity, fx, &world, &mut commands);
+        #[cfg(all(feature = "client", not(feature = "particles")))]
+        let _ = fx;
         #[cfg(not(feature = "client"))]
         if let (Some(net_id), Some(quic)) = (net_id, quic.as_deref_mut()) {
             let target = registry
@@ -448,7 +451,7 @@ fn drop_active_ability_input(
     keyboard: Res<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>,
     mouse: Res<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>,
     gamepads: Query<&Gamepad>,
-    egui_wants: Option<Res<bevy_egui::input::EguiWantsInput>>,
+    ui_wants: Option<Res<common::UiWantsInput>>,
     bindings: Res<common::ActiveBindings>,
     state: Res<State<common::game_state::GameState>>,
     possessed: Query<Entity, With<super::Controller>>,
@@ -458,7 +461,7 @@ fn drop_active_ability_input(
     mut quic: Option<ResMut<QuicManager>>,
     mut drop_pressed_latched: Local<bool>,
 ) {
-    let blocked = egui_wants.map_or(false, |e| e.wants_any_input());
+    let blocked = ui_wants.is_some_and(|ui| ui.keyboard || ui.pointer);
     let Ok(pawn_entity) = possessed.single() else {
         return;
     };

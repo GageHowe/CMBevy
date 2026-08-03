@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 watch_assets = ["bevy/embedded_watcher", "bevy/file_watcher"]
+particles = ["dep:particles_plugin", "gameplay/particles", "particles_plugin/particles"]
 
 [lints]
 workspace = true
@@ -12,8 +13,7 @@ workspace = true
 [dependencies]
 audio = { path = "../crates/audio", features = ["client"] }
 bevy = { workspace = true, features = ["3d", "hdr", "jpeg", "ktx2", "tga", "ui"] }
-bevy_dev_tools = "0.19.0"
-bevy_egui = { workspace = true }
+bevy_dev_tools = { git = "https://github.com/bevyengine/bevy" }
 zstd = { workspace = true }
 rapier3d = { workspace = true }
 steamworks = "0.13.0"
@@ -28,4 +28,4 @@ http_common = { path = "../crates/http_common" }
 physics = { path = "../crates/physics" }
 gameplay = { path = "../crates/gameplay", features = ["client"] }
 master_plugin = { path = "../crates/master_plugin", features = ["client"] }
-particles_plugin = { path = "../crates/particles_plugin" }
+particles_plugin = { path = "../crates/particles_plugin", optional = true }

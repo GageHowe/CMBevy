@@ -12,7 +12,7 @@ use gameplay::{
         gravity::{GravitySource, apply_gravity_impulses},
         snap::{SnapSource, orient_bipeds_to_snap_sources_impulses},
     },
-    pawn::{GatherInputSet, Mounted, Controller, biped::BipedPawnComponent},
+    pawn::{Controller, GatherInputSet, Mounted, biped::BipedPawnComponent},
     session::PendingReconciliation,
 };
 use physics::physics_world::{

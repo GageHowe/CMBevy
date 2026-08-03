@@ -4,7 +4,6 @@ dist
 *.DS_Store
 *.exe
 *.sqlite
-Cargo.lock
 perf.data*
 assets/fmod-out
 ssh

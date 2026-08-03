@@ -29,6 +29,7 @@ use bevy::{
 
 /// Add to a camera entity to enable screen-space edge outlines.
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
+#[extract_app(RenderApp)]
 pub struct OutlineSettings {
     /// Edge detection threshold — lower = more edges. Good range: 0.02–0.15.
     pub threshold: f32,

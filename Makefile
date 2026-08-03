@@ -1,6 +1,3 @@
-# feature-unification = "package" in .cargo/config.toml means each binary gets its own
-# feature set — no unification across workspace members. Use -p <package> to be explicit.
-
 define CLIPPY_COMMANDS
 	cargo clippy -p client --bin client --no-deps -q
 	cargo clippy -p gameserver --bin gameserver --no-deps -q
@@ -49,6 +46,8 @@ runc-testing:
 emulator:
 	cargo run -p network_emulator --release
 
+buildc:
+	cargo build -p client
 builds:
 	cargo build -p gameserver
 build-r: builds-r buildc-r
