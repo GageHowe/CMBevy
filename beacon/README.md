@@ -49,10 +49,10 @@ That binds `127.0.0.1:8000`.
 
 Production with Caddy:
 ```bash
-cargo build -p beacon --release
+make beacon-r
 sudo cp beacon/Caddyfile /etc/caddy/Caddyfile
 sudo systemctl restart caddy
-./target/release/beacon
+./build/beacon
 ```
 
 Caddy handles HTTPS for `criticalmass.dev` on `:443` and proxies to `http://127.0.0.1:8000`.

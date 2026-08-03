@@ -22,7 +22,7 @@ jobs:
           cache-on-failure: true
 
       - name: Build gameserver
-        run: cargo build --release --locked -p gameserver --bin gameserver
+        run: make builds-r
 
       - name: Package gameserver
         run: tar -C target/release -czf gameserver-linux-x86_64.tar.gz gameserver

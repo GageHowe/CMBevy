@@ -1,8 +1,6 @@
 # feature-unification = "package" in .cargo/config.toml means each binary gets its own
 # feature set — no unification across workspace members. Use -p <package> to be explicit.
 
-.PHONY: build beacon-release gameserver-image runb dummy run runs runs-release runs-testing runc runc-release runc-testing emulator pack-assets build-release build-testing check clippy clean
-
 define CLIPPY_COMMANDS
 	cargo clippy -p client --bin client --no-deps -q
 	cargo clippy -p gameserver --bin gameserver --no-deps -q
@@ -16,7 +14,7 @@ build:
 # beacon:
 # 	cargo build -p beacon
 
-beacon-release:
+beacon-r:
 	cargo build -p beacon --release
 	mkdir -p build
 	cp target/release/beacon build/beacon.new
@@ -25,7 +23,7 @@ beacon-release:
 gameserver-image:
 	DOCKER_BUILDKIT=1 docker build -f gameserver/Dockerfile -t cmbevy-gameserver:testing .
 
-runb: beacon-release
+runb: beacon-r
 	cargo run -p beacon --release
 
 dummy:
@@ -36,14 +34,14 @@ run:  # --features watch_assets
 
 runs:
 	cargo run -p gameserver
-runs-release:
+runs-r:
 	cargo run -p gameserver --release
 runs-testing:
 	cargo run -p gameserver --profile profiling
 
 runc:
 	cargo run -p client
-runc-release:
+runc-r:
 	cargo run -p client --release
 runc-testing:
 	cargo run -p client --profile profiling
@@ -51,8 +49,14 @@ runc-testing:
 emulator:
 	cargo run -p network_emulator --release
 
-build-release:
-	cargo run -p packaging_tool --release
+builds:
+	cargo build -p gameserver
+build-r: builds-r buildc-r
+	# cargo run -p packaging_tool --release
+builds-r:
+	cargo build -p gameserver --release
+buildc-r:
+	cargo build -p client --release
 
 build-testing: # optimized, contains debug info
 	cargo build -p gameserver --profile profiling

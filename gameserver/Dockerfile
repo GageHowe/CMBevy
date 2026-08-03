@@ -17,7 +17,7 @@ RUN sed -i '/codegen-backend/d' .cargo/config.toml
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --release -p gameserver --bin gameserver \
+    make builds-r \
     && cp /app/target/release/gameserver /usr/local/bin/gameserver
 
 # Runtime

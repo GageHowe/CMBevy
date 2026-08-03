@@ -7,11 +7,11 @@ RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/
 
 WORKDIR /app
 COPY . .
-RUN cargo build --release -p beacon
+RUN make beacon-r
 
 FROM debian:bookworm-slim
 WORKDIR /app
-COPY --from=builder /app/target/release/beacon .
+COPY --from=builder /app/build/beacon .
 
 EXPOSE 8000
 CMD ["./beacon"]
