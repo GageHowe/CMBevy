@@ -4,7 +4,7 @@ use bevy::{
 };
 use common::{ActiveBindings, InputAction, active_gamepad};
 
-use crate::{GameState, SimState, UiState, settings::ControlsCapture};
+use crate::{GameState, SimState, UiState};
 
 pub struct WindowSettingsPlugin;
 
@@ -29,7 +29,6 @@ fn toggle_ui_state(
     ui_wants_input: Option<Res<common::UiWantsInput>>,
     active_bindings: Res<ActiveBindings>,
     gamepads: Query<&Gamepad>,
-    capture: Option<Res<ControlsCapture>>,
     game_state: Res<State<GameState>>,
     ui_state: Res<State<UiState>>,
     mut next_ui: ResMut<NextState<UiState>>,
@@ -42,10 +41,6 @@ fn toggle_ui_state(
     if !in_game {
         return;
     }
-    if capture.as_ref().is_some_and(|capture| capture.is_active()) {
-        return;
-    }
-
     let ui_wants_keyboard = ui_wants_input.as_ref().is_some_and(|ui| ui.keyboard);
 
     // Don't open the pause menu if the chat input has keyboard focus.

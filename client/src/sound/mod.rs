@@ -1,5 +1,5 @@
 use audio::{AudioListener, AudioSettings, FmodStudio, set_global_parameter};
-pub use audio::{AudioOutputDevices, UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
+pub use audio::{UI_BACK_EVENT, UI_CLICK_EVENT, queue_ui_sound};
 use bevy::prelude::*;
 use gameplay::{components::atmosphere::AreaReverbComponent, pawn::Controller};
 use physics::physics_world::{PhysicsWorld, RigidBodyHandleComponent};
