@@ -5,7 +5,7 @@ Critical Mass is a multiplayer and singleplayer physics-based space combat game.
 
 ## Notes
 
-Use of AI in development is usually discouraged. AI, even coding agents like Codex are pretty terrible at large, complex codebases, and they usually make it larger and more complex.
+Use of AI in development is usually discouraged in this project.
 
 Need to spend some time offline working on the codebase and cleaning things up.
 
