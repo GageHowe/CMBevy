@@ -4,5 +4,8 @@ feature-unification = true
 [resolver]
 feature-unification = "package"
 
+[env]
+STEAM_SDK_LOCATION = { value = "assets/lib/steamworks_sdk_165/sdk", relative = true }
+
 [target.aarch64-apple-darwin]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]

@@ -31,7 +31,10 @@ pub struct LocalCharacterNetId(pub Option<NetworkID>);
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]
 /// Snapshot waiting to be applied by the reconciliation system.
-pub struct PendingReconciliation(pub Option<SimulationState>);
+pub struct PendingReconciliation {
+    pub snapshot: Option<SimulationState>,
+    pub last_tick: u64,
+}
 
 #[cfg(feature = "client")]
 #[derive(Resource, Default)]

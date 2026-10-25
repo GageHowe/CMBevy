@@ -29,6 +29,12 @@ pub(super) fn configure(app: &mut App) {
                 biped_fire
                     .run_if(resource_exists::<ButtonInput<MouseButton>>)
                     .in_set(super::GatherInputSet),
+            )
+                .chain(),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            (
                 drop_active_weapon.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 update_interaction_hint.run_if(resource_exists::<ButtonInput<KeyCode>>),
                 interact
@@ -508,10 +514,8 @@ fn biped_fire(
 
 enum InteractTarget {
     Mount(Entity),
-    Entity {
-        hit_entity: Entity,
-        net_id: Option<crate::net::message::NetworkID>,
-    },
+    Weapon(Entity, Option<crate::net::message::NetworkID>),
+    Ability(Entity, Option<crate::net::message::NetworkID>),
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -520,6 +524,7 @@ struct InteractWorldParams<'w, 's> {
         'w,
         's,
         (
+            Entity,
             Option<&'static crate::net::message::NetworkID>,
             &'static crate::interaction::Interactable,
         ),
@@ -527,10 +532,12 @@ struct InteractWorldParams<'w, 's> {
     >,
     possessed_q: Query<'w, 's, &'static mut WeaponSlots, With<Controller>>,
     weapon_states: Query<'w, 's, &'static mut crate::weapon::WeaponState>,
+    weapons: Query<'w, 's, (), With<crate::weapon::WeaponComponent>>,
     camera_fx: Query<'w, 's, &'static mut CameraEffector, With<Camera3d>>,
     mount_net_ids: Query<'w, 's, &'static crate::net::message::NetworkID, With<CharacterMount>>,
     interaction_names: Query<'w, 's, &'static InteractionName>,
     ability_pickups: Query<'w, 's, &'static crate::pawn::biped_ability::AbilityPickup>,
+    ability_pickup_markers: Query<'w, 's, (), With<crate::pawn::biped_ability::AbilityPickup>>,
     mounts: ParamSet<
         'w,
         's,
@@ -555,6 +562,7 @@ fn current_interact_target(
     world: &PhysicsWorld,
     interactables: &Query<
         (
+            Entity,
             Option<&crate::net::message::NetworkID>,
             &crate::interaction::Interactable,
         ),
@@ -562,6 +570,8 @@ fn current_interact_target(
     >,
     mounts: &Query<(Entity, &CharacterMount)>,
     mount_anchors: &Query<&GlobalTransform>,
+    weapon_q: &Query<(), With<crate::weapon::WeaponComponent>>,
+    pickup_q: &Query<(), With<crate::pawn::biped_ability::AbilityPickup>>,
 ) -> Option<InteractTarget> {
     let mut mount_target = None;
     for (parent_entity, mount) in mounts.iter() {
@@ -590,25 +600,39 @@ fn current_interact_target(
         return Some(InteractTarget::Mount(parent_entity));
     }
 
-    let (hit_entity, _distance) =
-        world.cast_ray_ignoring_shields(origin, forward, 4.0, &[pawn_entity])?;
-    let (net_id, interactable) = interactables.get(hit_entity).ok()?;
-    if !interactable_in_range(world, pawn_entity, hit_entity, interactable.range) {
-        return None;
+    let mut best = None;
+    for (entity, net_id, interactable) in interactables.iter() {
+        if !world.entities_within_range(pawn_entity, entity, interactable.range) {
+            continue;
+        }
+        let Some(pos) = world.body_pos(entity) else {
+            continue;
+        };
+        let offset = pos - origin;
+        let along = offset.dot(forward);
+        if !(0.0..=4.0).contains(&along) {
+            continue;
+        }
+        let miss = (offset - forward * along).length_squared();
+        if miss > 1.0 {
+            continue;
+        }
+        let score = miss + along * 0.01;
+        let target = if weapon_q.contains(entity) {
+            InteractTarget::Weapon(entity, net_id.cloned())
+        } else if pickup_q.contains(entity) {
+            InteractTarget::Ability(entity, net_id.cloned())
+        } else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score < *best_score)
+        {
+            best = Some((score, target));
+        }
     }
-    Some(InteractTarget::Entity {
-        hit_entity,
-        net_id: net_id.cloned(),
-    })
-}
-
-fn interactable_in_range(
-    world: &PhysicsWorld,
-    pawn_entity: Entity,
-    target_entity: Entity,
-    range: f32,
-) -> bool {
-    world.entities_within_range(pawn_entity, target_entity, range)
+    best.map(|(_, target)| target)
 }
 
 fn update_interaction_hint(
@@ -625,6 +649,7 @@ fn update_interaction_hint(
     prompt_device: Option<Res<common::PromptDevicePreference>>,
     interactables: Query<
         (
+            Entity,
             Option<&crate::net::message::NetworkID>,
             &crate::interaction::Interactable,
         ),
@@ -663,6 +688,8 @@ fn update_interaction_hint(
         &interactables,
         &mount_q,
         &mount_anchor_q,
+        &weapon_q,
+        &pickup_q,
     ) else {
         hint.0 = None;
         return;
@@ -676,19 +703,10 @@ fn update_interaction_hint(
             .get(parent_entity)
             .ok()
             .map(|name| format_interaction_prompt(&key, "enter", name)),
-        InteractTarget::Entity { hit_entity, .. } if weapon_q.contains(hit_entity) => {
-            interaction_names
-                .get(hit_entity)
-                .ok()
-                .map(|name| format_interaction_prompt(&key, "equip", name))
-        }
-        InteractTarget::Entity { hit_entity, .. } if pickup_q.contains(hit_entity) => {
-            interaction_names
-                .get(hit_entity)
-                .ok()
-                .map(|name| format_interaction_prompt(&key, "equip", name))
-        }
-        _ => None,
+        InteractTarget::Weapon(entity, _) | InteractTarget::Ability(entity, _) => interaction_names
+            .get(entity)
+            .ok()
+            .map(|name| format_interaction_prompt(&key, "equip", name)),
     };
 }
 
@@ -736,6 +754,8 @@ fn interact(
         &sp.interactables,
         &sp.mounts.p0(),
         &sp.mount_anchor_visuals,
+        &sp.weapons,
+        &sp.ability_pickup_markers,
     ) else {
         return;
     };
@@ -793,79 +813,76 @@ fn interact(
             }
             _ => {}
         },
-        InteractTarget::Entity {
-            hit_entity,
-            net_id: interact_net_id,
-        } => {
-            if let Ok(pickup) = sp.ability_pickups.get(hit_entity) {
-                match state.get() {
-                    GameState::SinglePlayer => sp.commands.queue({
-                        let pickup = *pickup;
-                        move |world: &mut World| {
-                            let _ = crate::pawn::biped_ability::set_ability_kind(
-                                pawn_entity,
-                                pickup.0.spawn_name,
-                                world,
-                            );
-                            if let Ok(entity) = world.get_entity_mut(hit_entity) {
-                                entity.despawn();
-                            }
-                        }
-                    }),
-                    GameState::Multiplayer => {
-                        if let Some(interact_net_id) = interact_net_id {
-                            quic.send_to_server(
-                                crate::net::quic::Channel::Ordered,
-                                &crate::net::message::MsgType::Interact(
-                                    crate::net::message::Interact(interact_net_id),
-                                ),
-                            );
-                        }
-                    }
-                    _ => {}
-                }
-                return;
-            }
-            match state.get() {
-                GameState::SinglePlayer => {
-                    let Some(interact_net_id) = interact_net_id else {
-                        return;
-                    };
-                    let Ok(mut slots) = sp.possessed_q.single_mut() else {
-                        return;
-                    };
-                    let drop_velocity = forward * 8.0
-                        + crate::projectile::shooter_velocity(&world, Some(pawn_entity));
-                    if !crate::weapon::helpers::pickup_local_world_weapon(
-                        pawn_entity,
-                        hit_entity,
-                        &interact_net_id,
-                        pitch_e,
-                        &mut slots,
-                        origin + forward,
-                        drop_velocity,
-                        &mut sp.weapon_states,
-                        &mut sp.commands,
-                        &mut world,
-                        &mut sp.camera_fx,
-                        &sp.interaction_names,
-                    ) {
-                        return;
-                    }
-                }
-                GameState::Multiplayer => {
-                    if let Some(interact_net_id) = interact_net_id {
-                        quic.send_to_server(
-                            crate::net::quic::Channel::Ordered,
-                            &crate::net::message::MsgType::Interact(crate::net::message::Interact(
-                                interact_net_id,
-                            )),
+        InteractTarget::Ability(hit_entity, interact_net_id) => match state.get() {
+            GameState::SinglePlayer => {
+                let Ok(pickup) = sp.ability_pickups.get(hit_entity) else {
+                    return;
+                };
+                sp.commands.queue({
+                    let pickup = *pickup;
+                    move |world: &mut World| {
+                        let _ = crate::pawn::biped_ability::set_ability_kind(
+                            pawn_entity,
+                            pickup.0.spawn_name,
+                            world,
                         );
+                        if let Ok(entity) = world.get_entity_mut(hit_entity) {
+                            entity.despawn();
+                        }
                     }
-                }
-                _ => {}
+                });
             }
-        }
+            GameState::Multiplayer => {
+                let Some(interact_net_id) = interact_net_id else {
+                    return;
+                };
+                quic.send_to_server(
+                    crate::net::quic::Channel::Ordered,
+                    &crate::net::message::MsgType::Interact(crate::net::message::Interact(
+                        interact_net_id,
+                    )),
+                );
+            }
+            _ => {}
+        },
+        InteractTarget::Weapon(hit_entity, interact_net_id) => match state.get() {
+            GameState::SinglePlayer => {
+                let Some(interact_net_id) = interact_net_id else {
+                    return;
+                };
+                let Ok(mut slots) = sp.possessed_q.single_mut() else {
+                    return;
+                };
+                let drop_velocity =
+                    forward * 8.0 + crate::projectile::shooter_velocity(&world, Some(pawn_entity));
+                if !crate::weapon::helpers::pickup_local_world_weapon(
+                    hit_entity,
+                    &interact_net_id,
+                    pitch_e,
+                    &mut slots,
+                    origin + forward,
+                    drop_velocity,
+                    &mut sp.weapon_states,
+                    &mut sp.commands,
+                    &mut world,
+                    &mut sp.camera_fx,
+                    &sp.interaction_names,
+                ) {
+                    return;
+                }
+            }
+            GameState::Multiplayer => {
+                if let Some(interact_net_id) = interact_net_id {
+                    quic.send_to_server(
+                        crate::net::quic::Channel::Ordered,
+                        &crate::net::message::MsgType::Interact(crate::net::message::Interact(
+                            interact_net_id,
+                        )),
+                    );
+                }
+            }
+            _ => {}
+        },
     }
 }
 

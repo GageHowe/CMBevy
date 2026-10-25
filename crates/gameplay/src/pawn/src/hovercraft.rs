@@ -9,7 +9,7 @@ use rapier3d::prelude::*;
 #[cfg(feature = "client")]
 use super::GatherInputSet;
 use super::{
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
+    vehicle::{VehicleComponent, VehiclePawn, apply_vehicle_input_world, spawn_driver_mount},
     *,
 };
 use crate::{
@@ -48,13 +48,13 @@ impl Plugin for HovercraftPlugin {
         #[cfg(feature = "client")]
         app.add_systems(
             FixedPreUpdate,
-            (
-                gather_hovercraft_input
-                    .run_if(resource_exists::<ButtonInput<KeyCode>>)
-                    .in_set(GatherInputSet),
-                move_hovercrafts.in_set(MovePawnsSet),
-            )
-                .chain(),
+            gather_hovercraft_input
+                .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                .in_set(GatherInputSet),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            move_hovercrafts.after(GatherInputSet).in_set(MovePawnsSet),
         );
         #[cfg(not(feature = "client"))]
         app.add_systems(FixedPreUpdate, move_hovercrafts.in_set(MovePawnsSet));
@@ -101,6 +101,7 @@ impl crate::archetype::SpawnArchetypeTrait for crate::archetype::Hovercraft {
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<HovercraftPawnComponent>(),
+            PawnInputApplier(apply_vehicle_input_world),
             InteractionName("Hovercraft"),
             CollisionFxMaterial::Sparks,
             Transform::from(transform),

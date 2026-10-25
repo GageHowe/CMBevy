@@ -106,12 +106,19 @@ fn stage_steam_appid(target_dir: &Path) {
 }
 
 fn copy_steam_runtime(target_dir: &Path, os: &str) {
-    let lib_name = match os {
-        "macos" => "libsteam_api.dylib",
-        "windows" => "steam_api64.dll",
-        "linux" => "libsteam_api.so",
+    let (lib_name, sdk_lib_dir) = match os {
+        "macos" => ("libsteam_api.dylib", "redistributable_bin/osx"),
+        "windows" => ("steam_api64.dll", "redistributable_bin/win64"),
+        "linux" => ("libsteam_api.so", "redistributable_bin/linux64"),
         _ => return,
     };
+    if let Ok(sdk) = std::env::var("STEAM_SDK_LOCATION") {
+        let candidate = Path::new(&sdk).join(sdk_lib_dir).join(lib_name);
+        if candidate.exists() {
+            let _ = std::fs::copy(&candidate, target_dir.join(lib_name));
+            return;
+        }
+    }
     if let Ok(entries) = std::fs::read_dir(target_dir.join("build")) {
         for entry in entries.flatten() {
             let candidate = entry.path().join("out").join(lib_name);

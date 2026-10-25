@@ -224,34 +224,31 @@ fn load_skybox(
     ));
 }
 
-pub fn cleanup_world(
-    mut commands: Commands,
-    camera: Query<(Entity, Option<&Children>), With<Camera3d>>,
-    roots: Query<Entity, (With<Transform>, Without<Camera3d>, Without<ChildOf>)>,
-) {
-    if let Ok((cam, children)) = camera.single() {
-        if let Some(ch) = children {
-            for child in ch.iter() {
-                commands.queue(move |world: &mut World| {
-                    if let Ok(entity) = world.get_entity_mut(child) {
-                        entity.despawn();
-                    }
-                });
-            }
+pub fn cleanup_world(world: &mut World) {
+    let cameras = world
+        .query_filtered::<Entity, With<Camera3d>>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    for camera in &cameras {
+        if let Ok(mut entity) = world.get_entity_mut(*camera) {
+            entity.remove_parent_in_place();
         }
-        commands.queue(move |world: &mut World| {
-            if let Ok(mut entity) = world.get_entity_mut(cam) {
-                entity.remove_parent_in_place();
-            }
-        });
     }
-    for entity in roots.iter() {
-        commands.queue(move |world: &mut World| {
-            if let Ok(entity) = world.get_entity_mut(entity) {
-                entity.despawn();
-            }
-        });
+    let entities = world
+        .query_filtered::<Entity, (With<Transform>, Without<Camera3d>)>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    for entity in entities {
+        if let Ok(entity) = world.get_entity_mut(entity) {
+            entity.despawn();
+        }
     }
+    world.insert_resource(PhysicsWorld::new(rapier3d::prelude::Vector3::ZERO));
+    world.insert_resource(crate::NetworkEntityMap::default());
+    world.insert_resource(NetworkIDResource::default());
+    world.remove_resource::<PendingMapScene>();
+    world.remove_resource::<MapMeta>();
+    world.remove_resource::<LevelBytes>();
 }
 
 fn connect(mut commands: Commands, mut quic: ResMut<QuicManager>, addr: Res<ServerAddr>) {
@@ -285,7 +282,8 @@ fn disconnect(
     local_character.0 = None;
     quic.disconnect();
     quic.inbound.clear();
-    pending.0 = None;
+    pending.snapshot = None;
+    pending.last_tick = 0;
 }
 
 // maybe make this part of one larger system TODO
@@ -293,17 +291,232 @@ fn remove_script(mut commands: Commands) {
     commands.remove_resource::<crate::scripting::ScriptConfig>();
 }
 
-impl Message for MapHash {
-    fn handle(self, world: &mut World) {
-        let hash = self.0;
-        if let Some(compressed) = read_cached_map(&hash) {
-            if compressed_level_hash(&compressed).as_deref() == Some(hash.as_str()) {
-                crate::messages::push_world(world, "Using cached map.");
-                world.insert_resource(PendingMapScene(compressed));
-                return;
-            }
-            crate::messages::push_world(world, "Cached map invalid. Redownloading.");
+impl Message for crate::net::message::State {
+    fn handle(self, world: &mut World, meta: crate::net::message::PacketMeta) {
+        let snapshot = self.0;
+        if let Some(mut stats) = world.get_resource_mut::<common::tick::NetworkStats>() {
+            stats.last_packet_bytes = meta.packet_size;
         }
+        if let Some(mut last_acked) = world.get_resource_mut::<LastAckedInputSeq>() {
+            last_acked.0 = snapshot.last_input_seq;
+        }
+        let snapshot_tick = snapshot.tick;
+        if let Some(mut pending) = world.get_resource_mut::<PendingReconciliation>() {
+            if snapshot_tick > pending.last_tick {
+                pending.last_tick = snapshot_tick;
+                pending.snapshot = Some(snapshot);
+            }
+        }
+    }
+}
+
+impl Message for crate::net::message::Possess {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let net_id = self.0;
+        if let Some(mut local) = world.get_resource_mut::<LocalCharacterNetId>() {
+            local.0 = Some(net_id.clone());
+        }
+        let Some(entity) = crate::find_entity_by_net_id(world, &net_id) else {
+            return;
+        };
+        let old = world
+            .query_filtered::<Entity, With<Controller>>()
+            .iter(world)
+            .collect::<Vec<_>>();
+        for old in old {
+            if old != entity {
+                world.entity_mut(old).remove::<Controller>();
+            }
+        }
+        world.entity_mut(entity).insert(Controller::new(128));
+    }
+}
+
+impl Message for crate::net::message::DespawnCommand {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let mut state: bevy::ecs::system::SystemState<(
+            ResMut<LocalCharacterNetId>,
+            Res<crate::NetworkEntityMap>,
+            Query<Entity, With<Camera3d>>,
+            bevy::ecs::system::ParamSet<(
+                Query<
+                    (
+                        &mut crate::pawn::WeaponSlots,
+                        &crate::pawn::biped::BipedPawnComponent,
+                    ),
+                    With<Controller>,
+                >,
+                Query<&crate::pawn::biped::BipedPawnComponent>,
+                Query<&mut crate::pawn::biped::BipedPawnComponent>,
+            )>,
+            Commands,
+        )> = bevy::ecs::system::SystemState::new(world);
+        let Ok((mut local, networked, camera, mut biped_q, mut commands)) = state.get_mut(world)
+        else {
+            return;
+        };
+        crate::lifecycle::apply_despawn(
+            &self.0,
+            &mut local.0,
+            &networked,
+            &camera,
+            &mut biped_q,
+            &mut commands,
+        );
+    }
+}
+
+impl Message for crate::net::message::MountState {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let mut state: bevy::ecs::system::SystemState<(
+            Res<LocalCharacterNetId>,
+            Res<crate::NetworkEntityMap>,
+            Query<&crate::interaction::InteractionName>,
+            Query<&crate::pawn::Mounted>,
+            Query<&crate::pawn::mount::CharacterMount>,
+            Query<&Transform>,
+            Commands,
+            ResMut<PhysicsWorld>,
+        )> = bevy::ecs::system::SystemState::new(world);
+        let Ok((
+            local,
+            networked,
+            names,
+            mounted,
+            mounts,
+            anchor_transforms,
+            mut commands,
+            mut physics,
+        )) = state.get_mut(world)
+        else {
+            return;
+        };
+        crate::pawn::mount::apply_mount_state(
+            &self.biped_net_id,
+            self.parent_net_id.as_ref(),
+            local.0.as_ref(),
+            &std::collections::HashMap::new(),
+            &networked,
+            &names,
+            &mounted,
+            &mounts,
+            &anchor_transforms,
+            &mut commands,
+            &mut physics,
+        );
+    }
+}
+
+impl Message for crate::net::message::BipedLook {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let mut state: bevy::ecs::system::SystemState<(
+            Res<LocalCharacterNetId>,
+            Res<crate::NetworkEntityMap>,
+            Query<&mut crate::pawn::biped::BipedPawnComponent>,
+        )> = bevy::ecs::system::SystemState::new(world);
+        let Ok((local, networked, mut bipeds)) = state.get_mut(world) else {
+            return;
+        };
+        crate::pawn::apply_remote_pawn_look(
+            &self.net_id,
+            self.yaw,
+            self.pitch,
+            local.0.as_ref(),
+            &networked,
+            &mut bipeds,
+        );
+    }
+}
+
+impl Message for crate::net::message::ProjectileSpawn {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        crate::weapon::spawn_remote_projectile(
+            &self.weapon,
+            self.net_id,
+            self.position,
+            self.starting_velocity,
+            self.shooter_velocity,
+            world,
+        );
+    }
+}
+
+impl Message for crate::net::message::AbilityState {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let mut state: bevy::ecs::system::SystemState<(
+            Res<LocalCharacterNetId>,
+            Res<crate::NetworkEntityMap>,
+            Commands,
+        )> = bevy::ecs::system::SystemState::new(world);
+        let Ok((local, networked, mut commands)) = state.get_mut(world) else {
+            return;
+        };
+        crate::pawn::biped_ability::apply_state_message(
+            &self.owner_net_id,
+            self.ability,
+            local.0.as_ref(),
+            &networked,
+            &mut commands,
+        );
+    }
+}
+
+impl Message for crate::net::message::AbilityFxMessage {
+    fn handle(self, _world: &mut World, _meta: crate::net::message::PacketMeta) {
+        #[cfg(feature = "particles")]
+        {
+            let mut state: bevy::ecs::system::SystemState<(
+                Res<LocalCharacterNetId>,
+                Res<crate::NetworkEntityMap>,
+                Res<PhysicsWorld>,
+                Commands,
+            )> = bevy::ecs::system::SystemState::new(_world);
+            let Ok((local, networked, physics, mut commands)) = state.get_mut(_world) else {
+                return;
+            };
+            crate::pawn::biped_ability::queue_remote_fx(
+                &self.net_id,
+                self.fx,
+                local.0.as_ref(),
+                &networked,
+                &physics,
+                &mut commands,
+            );
+        }
+    }
+}
+
+impl Message for crate::net::message::WeaponStateMessage {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let Some(entity) = crate::find_entity_by_net_id(world, &self.net_id) else {
+            return;
+        };
+        crate::weapon::apply_weapon_state_world(entity, self.weapon_state, world);
+    }
+}
+
+impl Message for crate::net::message::Health {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let Some(entity) = crate::find_entity_by_net_id(world, &self.net_id) else {
+            return;
+        };
+        crate::health::apply_health(
+            entity,
+            self.current,
+            self.max,
+            self.regen_per_tick_num,
+            self.regen_delay_ticks,
+            self.regen_delay_remaining_ticks,
+            self.regen_accum,
+            self.damage_accum_millis,
+            world,
+        );
+    }
+}
+
+impl Message for MapHash {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let _ = self;
         crate::messages::push_world(world, "Downloading map...");
         if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
             quic.send(
@@ -316,15 +529,9 @@ impl Message for MapHash {
 }
 
 impl Message for FileData {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         let Self { name, compressed } = self;
         if name == "map.scn.ron" {
-            let Some(hash) = compressed_level_hash(&compressed) else {
-                eprintln!("FileData: failed to hash map.scn.ron");
-                return;
-            };
-            info!("Client: received map.scn.ron {hash}");
-            write_cached_map(&hash, &compressed);
             world.insert_resource(PendingMapScene(compressed));
             return;
         }

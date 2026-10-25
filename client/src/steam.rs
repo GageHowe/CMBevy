@@ -71,6 +71,7 @@ fn print_steam_info(client: Option<Res<SteamClient>>) {
     let utils = client.utils();
     println!("AppId: {:?}", utils.app_id());
     println!("UI Language: {}", utils.ui_language());
+    println!("OverlayEnabled: {}", utils.is_overlay_enabled());
 
     let appid = AppId(APP_ID);
     let apps = client.apps();

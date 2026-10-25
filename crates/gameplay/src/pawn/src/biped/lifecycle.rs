@@ -34,6 +34,7 @@ impl crate::archetype::SpawnArchetypeTrait for crate::archetype::Biped {
             LastDamageSource::default(),
             Transform::from(transform),
             BipedPawnComponent::default(),
+            PawnInputApplier(apply_biped_input_world),
         ));
 
         let (rb_handle, collider_handle) = {
@@ -75,6 +76,22 @@ impl crate::archetype::SpawnArchetypeTrait for crate::archetype::Biped {
         #[cfg(feature = "client")]
         spawn_visuals(entity, world);
     }
+}
+
+fn apply_biped_input_world(world: &mut World, entity: Entity, input: common::BipedInput) {
+    let Some(handle) = world
+        .get::<RigidBodyHandleComponent>(entity)
+        .map(|handle| RigidBodyHandleComponent(handle.0))
+    else {
+        return;
+    };
+    world.resource_scope(|world, mut physics: Mut<PhysicsWorld>| {
+        if let Some(mut biped) = world.get_mut::<BipedPawnComponent>(entity) {
+            movement::apply_biped_input(&mut physics, entity, input, &handle, &mut biped);
+            let _ =
+                crate::pawn::biped_ability::apply_input(entity, input, &mut physics, &mut biped);
+        }
+    });
 }
 
 pub fn on_biped_death(entity: Entity, world: &mut World) {

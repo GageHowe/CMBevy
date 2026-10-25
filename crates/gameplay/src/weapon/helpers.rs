@@ -301,7 +301,6 @@ pub fn drop_local_active_weapon(
 
 #[cfg(feature = "client")]
 pub fn pickup_local_world_weapon(
-    player_entity: Entity,
     weapon_entity: Entity,
     weapon_id: &NetworkID,
     pitch_parent: Entity,
@@ -314,7 +313,6 @@ pub fn pickup_local_world_weapon(
     camera_fx: &mut Query<&mut CameraEffector, With<Camera3d>>,
     interaction_names: &Query<&InteractionName>,
 ) -> bool {
-    let _ = player_entity;
     if slots.is_full() {
         drop_local_active_weapon(
             slots,
@@ -388,7 +386,7 @@ pub fn sync_local_active_weapon(
 
 #[cfg(feature = "client")]
 impl crate::net::message::Message for crate::net::message::WeaponPickup {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         if !apply_pickup_packet(&self, world) {
             warn!("WeaponPickup could not resolve entities: {:?}", self);
         }
@@ -397,7 +395,7 @@ impl crate::net::message::Message for crate::net::message::WeaponPickup {
 
 #[cfg(feature = "client")]
 impl crate::net::message::Message for crate::net::message::WeaponDrop {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         apply_drop_packet(&self, world);
     }
 }
@@ -548,10 +546,10 @@ fn detach_viewmodel_world(world: &mut World, weapon_entity: Entity) {
 
 #[cfg(not(feature = "client"))]
 impl crate::net::message::Message for crate::net::message::WeaponPickup {
-    fn handle(self, _world: &mut World) {}
+    fn handle(self, _world: &mut World, _meta: crate::net::message::PacketMeta) {}
 }
 
 #[cfg(not(feature = "client"))]
 impl crate::net::message::Message for crate::net::message::WeaponDrop {
-    fn handle(self, _world: &mut World) {}
+    fn handle(self, _world: &mut World, _meta: crate::net::message::PacketMeta) {}
 }

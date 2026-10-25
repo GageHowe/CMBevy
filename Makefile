@@ -6,10 +6,6 @@ define CLIPPY_COMMANDS
 	# cargo clippy -p network_emulator --lib --bin network_emulator --no-deps -q
 endef
 
-build:
-	cargo build -p client
-	cargo build -p gameserver
-
 # beacon:
 # 	cargo build -p beacon
 
@@ -48,16 +44,24 @@ runc-testing:
 emulator:
 	cargo run -p network_emulator --release
 
+# build commands
+
+build: buildc builds
+builds:
+	cargo build -p gameserver
+buildc:
+	cargo build -p client
 build-r: builds-r buildc-r
 	# cargo run -p packaging_tool --release
 builds-r:
 	cargo build -p gameserver --release
 buildc-r:
 	cargo build -p client --release
+build-all: buildc buildc-r builds builds-r
 
-build-testing: # optimized, contains debug info
-	cargo build -p gameserver --profile profiling
-	cargo build -p client --profile profiling
+# build-testing: # optimized, contains debug info
+# 	cargo build -p gameserver --profile profiling
+# 	cargo build -p client --profile profiling
 
 check:
 	cargo check -p gameserver

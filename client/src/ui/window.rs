@@ -54,7 +54,9 @@ fn toggle_ui_state(
         match ui_state.get() {
             UiState::Playing => {
                 next_ui.set(UiState::PauseMenu);
-                next_sim.set(SimState::Paused);
+                if *game_state.get() == GameState::SinglePlayer {
+                    next_sim.set(SimState::Paused);
+                }
             }
             _ => {
                 next_ui.set(UiState::Playing);

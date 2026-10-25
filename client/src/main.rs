@@ -16,7 +16,7 @@ use camera::spawn_camera;
 pub use common::game_state::{GameState, SimState};
 use gameplay::{
     components::{gravity::draw_gravity_radii, snap::draw_snap_radii},
-    level::{cleanup_level, draw_script_zone_debug},
+    level::draw_script_zone_debug,
     pawn::{self, biped::draw_melee_debug, mount::draw_mount_debug, *},
     projectile::*,
 };
@@ -75,8 +75,13 @@ fn parse_server_addr() -> SocketAddr {
     }
 }
 
+fn headless_enabled() -> bool {
+    std::env::args().skip(1).any(|arg| arg == "--headless")
+}
+
 fn main() {
     let server_addr = parse_server_addr();
+    let headless = headless_enabled();
     let mut app = App::new();
     register_asset_pak(&mut app);
 
@@ -94,7 +99,7 @@ fn main() {
                 ..default()
             })
             .set(WindowPlugin {
-                primary_window: Some(Window {
+                primary_window: (!headless).then_some(Window {
                     title: "Critical Mass".into(),
                     present_mode: PresentMode::FifoRelaxed,
                     ..default()
@@ -103,17 +108,11 @@ fn main() {
             }),
     );
 
-    app.add_plugins((AutoExposurePlugin, OutlinePlugin))
-        .init_state::<GameState>()
+    app.init_state::<GameState>()
         .init_state::<UiState>()
         .add_plugins(MasterPlugin)
         .add_plugins(SteamworksPlugin) // prints steam info on Startup
         .add_plugins(SettingsPlugin)
-        .add_plugins(WindowSettingsPlugin)
-        .add_plugins(UIPlugin)
-        .add_plugins(MenuPlugin)
-        .add_plugins(SoundPlugin)
-        .add_plugins(sound::ClientSoundPlugin)
         .add_plugins(ClientSessionPlugin {
             main_menu: GameState::NotPlaying,
             single_player: GameState::SinglePlayer,
@@ -144,13 +143,20 @@ fn main() {
                     in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
                 ),
         )
-        .add_systems(Startup, spawn_camera)
         .add_systems(Last, cleanup_before_app_exit);
+    if headless {
+        app.add_systems(Startup, enter_headless_multiplayer);
+    } else {
+        app.add_plugins((AutoExposurePlugin, OutlinePlugin))
+            .add_plugins(WindowSettingsPlugin)
+            .add_plugins(UIPlugin)
+            .add_plugins(MenuPlugin)
+            .add_plugins(SoundPlugin)
+            .add_plugins(sound::ClientSoundPlugin)
+            .add_systems(Startup, spawn_camera);
+    }
     #[cfg(feature = "particles")]
     app.add_plugins(GPUParticlesPlugin);
-    app.add_systems(OnExit(GameState::SinglePlayer), cleanup_level);
-    app.add_systems(OnExit(GameState::Multiplayer), cleanup_level);
-
     // FixedPreUpdate ordering:
     //   maybe_reconcile → GatherInputSet (per-pawn-type gather) → send_X_input → MovePawnsSet
     // (maybe_reconcile registered by ReconciliationPlugin)
@@ -163,22 +169,34 @@ fn main() {
             .run_if(in_state(GameState::Multiplayer)),
     );
 
-    app.add_systems(Update, draw_gravity_radii.run_if(gameplay_overlay_on));
-    app.add_systems(Update, draw_snap_radii.run_if(gameplay_overlay_on));
-    app.add_systems(Update, draw_script_zone_debug.run_if(debug_render_on));
-    app.add_systems(Update, draw_mount_debug.run_if(debug_render_on));
-    app.add_systems(Update, draw_melee_debug.run_if(debug_render_on));
-    app.add_systems(
-        FixedUpdate,
-        (draw_projectile_debug, draw_projectile_raycast_debug)
-            .after(step_physics)
-            .in_set(common::game_state::SimulationSystems)
-            .run_if(debug_render_on)
-            .run_if(in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer))),
-    );
+    if !headless {
+        app.add_systems(Update, draw_gravity_radii.run_if(gameplay_overlay_on));
+        app.add_systems(Update, draw_snap_radii.run_if(gameplay_overlay_on));
+        app.add_systems(Update, draw_script_zone_debug.run_if(debug_render_on));
+        app.add_systems(Update, draw_mount_debug.run_if(debug_render_on));
+        app.add_systems(Update, draw_melee_debug.run_if(debug_render_on));
+        app.add_systems(
+            FixedUpdate,
+            (draw_projectile_debug, draw_projectile_raycast_debug)
+                .after(step_physics)
+                .in_set(common::game_state::SimulationSystems)
+                .run_if(debug_render_on)
+                .run_if(
+                    in_state(GameState::SinglePlayer).or_else(in_state(GameState::Multiplayer)),
+                ),
+        );
+    }
 
     info!("starting client...");
     app.run();
+}
+
+fn enter_headless_multiplayer(
+    mut next_game: ResMut<NextState<GameState>>,
+    mut next_ui: ResMut<NextState<UiState>>,
+) {
+    next_game.set(GameState::Multiplayer);
+    next_ui.set(UiState::Playing);
 }
 
 fn debug_render_on(s: Res<Settings>) -> bool {

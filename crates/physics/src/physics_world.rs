@@ -402,49 +402,6 @@ impl PhysicsWorld {
         true
     }
 
-    // these joint functions are unstable, ai-written, and not to be used until reviewed by a human
-
-    // pub fn insert_fixed_joint(
-    //     &mut self,
-    //     body1_entity: Entity,
-    //     body2_entity: Entity,
-    //     frame1: Pose,
-    //     frame2: Pose,
-    //     contacts_enabled: bool,
-    // ) -> Option<ImpulseJointHandle> {
-    //     let body1 = *self.entity_to_handle.get(&body1_entity)?;
-    //     let body2 = *self.entity_to_handle.get(&body2_entity)?;
-    //     let joint = FixedJointBuilder::new()
-    //         .local_frame1(frame1)
-    //         .local_frame2(frame2)
-    //         .contacts_enabled(contacts_enabled);
-    //     Some(self.impulse_joint_set.insert(body1, body2, joint, true))
-    // }
-
-    // pub fn insert_rope_joint(
-    //     &mut self,
-    //     body1_entity: Entity,
-    //     body2_entity: Entity,
-    //     anchor1: Vec3,
-    //     anchor2: Vec3,
-    //     max_dist: f32,
-    //     contacts_enabled: bool,
-    // ) -> Option<ImpulseJointHandle> {
-    //     let body1 = *self.entity_to_handle.get(&body1_entity)?;
-    //     let body2 = *self.entity_to_handle.get(&body2_entity)?;
-    //     let joint = RopeJointBuilder::new(max_dist.max(0.001))
-    //         .local_anchor1(anchor1)
-    //         .local_anchor2(anchor2)
-    //         .contacts_enabled(contacts_enabled);
-    //     Some(self.impulse_joint_set.insert(body1, body2, joint, true))
-    // }
-
-    // pub fn remove_impulse_joint(&mut self, handle: ImpulseJointHandle) {
-    //     self.impulse_joint_set.remove(handle, true);
-    // }
-}
-
-impl PhysicsWorld {
     pub fn collider_owner_entity(&self, collider: ColliderHandle) -> Option<Entity> {
         self.collider_to_entity
             .get(&collider)
@@ -458,6 +415,7 @@ impl PhysicsWorld {
         let rb_handle = collider.parent()?;
         self.handle_to_entity.get(&rb_handle).copied()
     }
+
     fn cast_hits(
         &self,
         origin: Vec3,

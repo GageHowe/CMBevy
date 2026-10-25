@@ -99,9 +99,7 @@ impl Plugin for BipedPlugin {
             controls::configure(app);
             app.add_systems(
                 FixedUpdate,
-                melee::send_predicted_melee_hit
-                    .in_set(physics::physics_world::ForceApplication)
-                    .in_set(common::game_state::SimulationSystems),
+                melee::send_predicted_melee_hit.in_set(physics::physics_world::ForceApplication),
             );
         }
         app.add_systems(

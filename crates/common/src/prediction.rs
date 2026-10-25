@@ -60,6 +60,10 @@ impl LocalControl {
     pub fn latest_seq(&self) -> u64 {
         self.next_seq.saturating_sub(1)
     }
+
+    pub fn first_seq(&self) -> Option<u64> {
+        self.history.front().map(|(seq, _)| *seq)
+    }
 }
 
 #[derive(Clone)]

@@ -33,7 +33,7 @@ pub struct StartBeamCharge {
     pub weapon: NetworkID,
 }
 impl Message for StartBeamCharge {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         #[cfg(feature = "client")]
         apply_remote_start_charge(world, self.weapon);
         #[cfg(not(feature = "client"))]
@@ -48,7 +48,7 @@ pub struct StartBeam {
     pub dir: Vec3,
 }
 impl Message for StartBeam {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         #[cfg(feature = "client")]
         apply_remote_start_beam(world, self.weapon, self.origin, self.dir);
         #[cfg(not(feature = "client"))]
@@ -64,7 +64,7 @@ pub struct BeamHitReport {
     pub target: Option<NetworkID>,
 }
 impl Message for BeamHitReport {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         #[cfg(feature = "client")]
         apply_remote_beam_report(world, self.weapon, self.origin, self.dir);
         #[cfg(not(feature = "client"))]
@@ -77,7 +77,7 @@ pub struct EndBeam {
     pub weapon: NetworkID,
 }
 impl Message for EndBeam {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         #[cfg(feature = "client")]
         apply_remote_end_beam(world, self.weapon);
         #[cfg(not(feature = "client"))]

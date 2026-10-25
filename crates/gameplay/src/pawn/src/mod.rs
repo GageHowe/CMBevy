@@ -30,6 +30,15 @@ use crate::net::{
     quic::{Channel, ConnectionId, QuicManager, SendTarget},
 };
 
+#[derive(Component, Clone, Copy)]
+pub struct PawnInputApplier(pub fn(&mut World, Entity, PawnInput));
+
+impl PawnInputApplier {
+    pub fn apply(self, world: &mut World, entity: Entity, input: PawnInput) {
+        (self.0)(world, entity, input);
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct PlayerRegistry {
     character_by_conn: HashMap<ConnectionId, (Entity, NetworkID)>,

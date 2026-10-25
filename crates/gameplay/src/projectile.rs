@@ -36,10 +36,30 @@ pub struct ProjectileConfirmation {
     pub net_id: NetworkID,
 }
 
+#[cfg(feature = "client")]
 impl crate::net::message::Message for ProjectileConfirmation {
-    fn handle(self, _world: &mut World) {
-        // Confirmation reconciliation is still performed by the client session system.
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
+        let mut state: bevy::ecs::system::SystemState<(
+            ResMut<PredictedProjectileMap>,
+            Query<(Entity, &ProjectileTempId)>,
+            Commands,
+        )> = bevy::ecs::system::SystemState::new(world);
+        let Ok((mut predicted, projectiles, mut commands)) = state.get_mut(world) else {
+            return;
+        };
+        confirm_projectile(
+            self.temp_id,
+            self.net_id,
+            &mut predicted,
+            &projectiles,
+            &mut commands,
+        );
     }
+}
+
+#[cfg(not(feature = "client"))]
+impl crate::net::message::Message for ProjectileConfirmation {
+    fn handle(self, _world: &mut World, _meta: crate::net::message::PacketMeta) {}
 }
 
 pub struct FiredProjectile {

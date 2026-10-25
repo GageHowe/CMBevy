@@ -55,11 +55,14 @@ ureq = { version = "2", features = ["json"] }
 noise-functions = "0.8.2"
 chacha20poly1305 = "0.10" # encryption
 
+[patch.crates-io]
+steamworks = { path = "crates/steamworks" }
+steamworks-sys = { path = "crates/steamworks-sys" }
+
 [profile.dev]
 opt-level = 1
 lto = false
 #incremental = false
-strip = "debuginfo" # for compilation speed
 
 # Optimize all dependencies even in debug builds (does not affect workspace packages):
 [profile.dev.package."*"]

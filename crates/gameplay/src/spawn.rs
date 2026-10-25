@@ -122,7 +122,7 @@ impl Command for SpawnGameObjectCommand {
 }
 
 impl crate::net::message::Message for SpawnCommand {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: crate::net::message::PacketMeta) {
         let entity = crate::find_entity_by_net_id(world, &self.net_id)
             .unwrap_or_else(|| world.spawn_empty().id());
         SpawnGameObjectCommand { entity, cmd: self }.apply(world);

@@ -23,7 +23,10 @@ pub use runtime::has_authority;
 #[cfg(feature = "client")]
 pub use runtime::{ClientSessionPlugin, cleanup_world, has_authority};
 
-use crate::net::quic::QuicManager;
+use crate::net::{
+    message::PacketMeta,
+    quic::QuicManager,
+};
 
 /// calls per-message handlers of received messages
 pub fn on_message(world: &mut World) {
@@ -33,7 +36,12 @@ pub fn on_message(world: &mut World) {
         };
         quic.inbound
             .drain(..)
-            .map(|inbound| inbound.packet)
+            .map(|inbound| {
+                inbound.packet.with_meta(PacketMeta {
+                    conn_id: inbound.conn_id,
+                    packet_size: inbound.packet_size,
+                })
+            })
             .collect::<Vec<_>>()
     };
 

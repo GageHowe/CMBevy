@@ -12,10 +12,10 @@ use physics::physics_world::*;
 use crate::{
     SpawnGameObjectCommand,
     health::Health,
-    level::{PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
+    level::{LevelBytes, PendingMapScene, SpawnPoint, default_asset_dir, load_level_source},
     mode::{MatchPhase, MatchState, ModeConfig, PlayerNumbers, Team, TeamNumbers},
     net::{message::*, quic::*},
-    pawn::{Controller, Mounted, PendingRespawns, PlayerRegistry},
+    pawn::{Controller, HeldWeaponMap, Mounted, PendingRespawns, PlayerRegistry, WeaponSlots},
     scripting::{ScriptConfig, get_script_global},
     session::{
         replication::{broadcast_tick, spawn_player},
@@ -99,9 +99,7 @@ impl Plugin for ServerSessionPlugin {
         )
         .add_systems(
             FixedUpdate,
-            crate::pawn::biped::apply_melee_hit_requests
-                .in_set(ForceApplication)
-                .in_set(common::game_state::SimulationSystems),
+            crate::pawn::biped::apply_melee_hit_requests.in_set(ForceApplication),
         )
         .add_systems(
             FixedUpdate,
@@ -137,6 +135,396 @@ impl Plugin for ServerSessionPlugin {
                 (heartbeat_hosted_lobby, poll_hosted_lobby_peers),
             );
         }
+    }
+}
+
+impl crate::net::message::Message for Connected {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        world
+            .resource_mut::<ActiveConnections>()
+            .0
+            .insert(meta.conn_id);
+        send_level(meta.conn_id, world);
+        send_gametype(meta.conn_id, world);
+    }
+}
+
+impl crate::net::message::Message for Disconnected {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        world
+            .resource_mut::<ActiveConnections>()
+            .0
+            .remove(&meta.conn_id);
+        world
+            .resource_mut::<PendingInputs>()
+            .0
+            .remove(&meta.conn_id);
+        if let Some((entity, _)) = world
+            .resource_mut::<PlayerRegistry>()
+            .remove_character_for_conn(meta.conn_id)
+            && let Ok(entity) = world.get_entity_mut(entity)
+        {
+            entity.despawn();
+        }
+    }
+}
+
+impl crate::net::message::Message for RequestMap {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        send_level(meta.conn_id, world);
+    }
+}
+
+impl crate::net::message::Message for ClientReady {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        spawn_ready_player(meta.conn_id, world);
+    }
+}
+
+impl crate::net::message::Message for Input {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        let mut pending = world.resource_mut::<PendingInputs>();
+        let state = pending.0.entry(meta.conn_id).or_default();
+        if self.seq > state.applied_seq {
+            state.queue.insert(self.seq, self.input);
+        } else {
+            state.held = Some(self.input);
+        }
+    }
+}
+
+impl crate::net::message::Message for BipedLook {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        let Some((entity, net_id)) = world
+            .get_resource::<PlayerRegistry>()
+            .and_then(|registry| registry.character(meta.conn_id))
+        else {
+            return;
+        };
+        if *net_id != self.net_id {
+            return;
+        }
+        if let Some(mut biped) = world.get_mut::<crate::pawn::biped::BipedPawnComponent>(entity) {
+            biped.look_yaw = self.yaw;
+            biped.look_pitch = self.pitch;
+            biped.look_sync_dirty = true;
+        }
+    }
+}
+
+impl crate::net::message::Message for MeleeHitRequest {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        world
+            .resource_mut::<crate::pawn::biped::PendingMeleeHits>()
+            .0
+            .insert(meta.conn_id, self.0);
+    }
+}
+
+impl crate::net::message::Message for SetActiveWeaponSlot {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        let mut state: SystemState<(
+            Res<PlayerRegistry>,
+            Query<&mut WeaponSlots>,
+            Query<(
+                &mut crate::weapon::WeaponState,
+                &crate::weapon::WeaponConfig,
+            )>,
+            ResMut<QuicManager>,
+        )> = SystemState::new(world);
+        let Ok((registry, mut slots, mut weapons, mut quic)) = state.get_mut(world) else {
+            return;
+        };
+        crate::weapon::handle_set_active_slot_request(
+            meta.conn_id,
+            self.0,
+            &registry,
+            &mut slots,
+            &mut weapons,
+            &mut quic,
+        );
+    }
+}
+
+impl crate::net::message::Message for DropWeapon {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        let mut state: SystemState<(
+            Res<PlayerRegistry>,
+            Query<&mut WeaponSlots>,
+            ResMut<HeldWeaponMap>,
+            ResMut<PhysicsWorld>,
+            Query<(
+                &mut crate::weapon::WeaponState,
+                &crate::weapon::WeaponConfig,
+            )>,
+            Commands,
+            ResMut<QuicManager>,
+        )> = SystemState::new(world);
+        let Ok((registry, mut slots, mut held, mut physics, mut weapons, mut commands, mut quic)) =
+            state.get_mut(world)
+        else {
+            return;
+        };
+        crate::weapon::handle_drop_request(
+            meta.conn_id,
+            &registry,
+            &mut slots,
+            &mut held,
+            &mut physics,
+            &mut weapons,
+            &mut commands,
+            &mut quic,
+            self.0,
+        );
+    }
+}
+
+impl crate::net::message::Message for DropAbility {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        let Some((owner, _)) = world
+            .get_resource::<PlayerRegistry>()
+            .and_then(|registry| registry.character(meta.conn_id))
+        else {
+            return;
+        };
+        world
+            .commands()
+            .queue(crate::pawn::biped_ability::DropActiveAbility {
+                owner,
+                aim_dir: self.0,
+            });
+    }
+}
+
+impl crate::net::message::Message for Interact {
+    fn handle(self, world: &mut World, meta: PacketMeta) {
+        let mut state: SystemState<(
+            ResMut<PlayerRegistry>,
+            Res<crate::NetworkEntityMap>,
+            ResMut<QuicManager>,
+            ResMut<PhysicsWorld>,
+            Query<&mut WeaponSlots>,
+            ResMut<HeldWeaponMap>,
+            Query<(
+                &mut crate::weapon::WeaponState,
+                &crate::weapon::WeaponConfig,
+            )>,
+            Query<&crate::interaction::Interactable>,
+            Query<&NetworkID>,
+            Query<&mut crate::pawn::mount::CharacterMount>,
+            Query<&Transform>,
+            Query<&crate::pawn::biped_ability::AbilityPickup>,
+            Query<(), With<crate::weapon::WeaponComponent>>,
+            Commands,
+        )> = SystemState::new(world);
+        let Ok((
+            mut registry,
+            networked,
+            mut quic,
+            mut physics,
+            mut slots,
+            mut held,
+            mut weapons,
+            interactables,
+            net_ids,
+            mut mounts,
+            anchor_transforms,
+            ability_pickups,
+            weapon_markers,
+            mut commands,
+        )) = state.get_mut(world)
+        else {
+            return;
+        };
+        let Some(target) = networked.get(&self.0) else {
+            return;
+        };
+        let Some((player, player_net_id)) = registry
+            .character(meta.conn_id)
+            .map(|(entity, net_id)| (entity, net_id.clone()))
+        else {
+            return;
+        };
+        if mounts.get(target).is_ok() {
+            crate::pawn::mount::handle_server_interact(
+                meta.conn_id,
+                player,
+                player,
+                &player_net_id,
+                target,
+                &self.0,
+                &mut registry,
+                &mut quic,
+                &mut physics,
+                &net_ids,
+                &mut mounts,
+                &anchor_transforms,
+                &mut commands,
+            );
+            return;
+        }
+        if crate::pawn::biped_ability::interact_pickup(
+            player,
+            target,
+            &physics,
+            &interactables,
+            &ability_pickups,
+            &mut commands,
+        ) {
+            return;
+        }
+        if !weapon_markers.contains(target) {
+            return;
+        }
+        crate::weapon::handle_interact_pickup_request(
+            player,
+            player_net_id,
+            target,
+            self.0,
+            &mut quic,
+            &mut physics,
+            &mut weapons,
+            &mut held,
+            &mut slots,
+            &mut commands,
+            &interactables,
+            Vec3::NEG_Z,
+        );
+    }
+}
+
+fn send_level(conn_id: ConnectionId, world: &mut World) {
+    let Some(level) = world.get_resource::<LevelBytes>().cloned() else {
+        return;
+    };
+    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::FileData(FileData {
+                name: "map.scn.ron".into(),
+                compressed: level.compressed,
+            }),
+        );
+    }
+}
+
+fn send_gametype(conn_id: ConnectionId, world: &mut World) {
+    let Some(path) = world
+        .get_resource::<ScriptConfig>()
+        .map(|config| config.path.clone())
+    else {
+        return;
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    if let Some(mut quic) = world.get_resource_mut::<QuicManager>() {
+        quic.send_file(SendTarget::One(conn_id), "gametype.lua".into(), bytes);
+    }
+}
+
+fn spawn_ready_player(conn_id: ConnectionId, world: &mut World) {
+    if world
+        .get_resource::<PlayerRegistry>()
+        .is_some_and(|registry| registry.character(conn_id).is_some())
+    {
+        return;
+    }
+    send_existing_spawns(conn_id, world);
+    let mut state: SystemState<(
+        ResMut<QuicManager>,
+        ResMut<PlayerRegistry>,
+        ResMut<NetworkIDResource>,
+        Commands,
+        Res<common::tick::Ticker>,
+        Query<(Entity, &SpawnPoint, &Transform, Option<&ChildOf>)>,
+        Query<&Transform>,
+        Query<&ChildOf>,
+        Query<&RigidBodyHandleComponent>,
+        Res<PhysicsWorld>,
+    )> = SystemState::new(world);
+    let Ok((
+        mut quic,
+        mut registry,
+        mut net_ids,
+        mut commands,
+        tick,
+        spawn_points,
+        parent_transforms,
+        parent_parents,
+        parent_bodies,
+        physics,
+    )) = state.get_mut(world)
+    else {
+        return;
+    };
+    let Some((pos, rot, vel)) = crate::lifecycle::pick_spawn_point_with_velocity(
+        &spawn_points,
+        &parent_transforms,
+        &parent_parents,
+        &parent_bodies,
+        &physics,
+        0,
+        registry.controlled_count(),
+    ) else {
+        return;
+    };
+    spawn_player(
+        conn_id,
+        crate::archetype::Archetype::Biped(crate::archetype::Biped),
+        Team(0),
+        pos,
+        rot,
+        vel,
+        &mut quic,
+        &mut registry,
+        &mut net_ids,
+        &mut commands,
+        tick.tick,
+    );
+}
+
+fn send_existing_spawns(conn_id: ConnectionId, world: &mut World) {
+    let mut state: SystemState<(
+        ResMut<QuicManager>,
+        Res<PhysicsWorld>,
+        Query<(
+            &NetworkID,
+            &crate::archetype::Archetype,
+            Option<&RigidBodyHandleComponent>,
+            Option<&Transform>,
+            Option<&ChildOf>,
+        )>,
+        Query<&NetworkID>,
+        Res<common::tick::Ticker>,
+    )> = SystemState::new(world);
+    let Ok((mut quic, physics, spawns, net_ids, tick)) = state.get_mut(world) else {
+        return;
+    };
+    for (net_id, archetype, body, transform, child_of) in &spawns {
+        let mut cmd = SpawnCommand::new(net_id.clone(), archetype.clone(), tick.tick);
+        if let Some(body) = body.and_then(|body| physics.rigid_body_set.get(body.0)) {
+            cmd = cmd
+                .position(rb_pos(body))
+                .rotation(rb_rot(body))
+                .velocity(rb_vel(body))
+                .angular_velocity(rb_angvel(body));
+        } else if let Some(transform) = transform {
+            cmd = cmd
+                .position(transform.translation)
+                .rotation(transform.rotation);
+        }
+        if let Some(parent_net_id) =
+            child_of.and_then(|child_of| net_ids.get(child_of.parent()).ok())
+        {
+            cmd = cmd.parent(parent_net_id.clone());
+        }
+        quic.send(
+            SendTarget::One(conn_id),
+            Channel::Ordered,
+            &MsgType::SpawnCommand(cmd),
+        );
     }
 }
 

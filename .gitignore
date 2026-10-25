@@ -13,3 +13,9 @@ build
 criticalmass-*-.zip
 encrypted_assets
 .idea/
+assets/lib/steamworks_sdk_*/sdk/
+assets/blender/*.obj
+assets/blender/*.mat
+assets/blender/*.glb
+**.blend1
+criticalmass-*.zip

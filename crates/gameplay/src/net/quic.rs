@@ -116,6 +116,13 @@ pub struct QuicManager {
 
 impl QuicManager {
     pub fn send(&mut self, target: SendTarget, channel: Channel, msg: &MsgType) {
+        if channel == Channel::Unreliable && matches!(msg, MsgType::State(_)) {
+            self.outbound.retain(|(queued_target, queued_channel, queued_msg)| {
+                *queued_channel != Channel::Unreliable
+                    || !same_target(queued_target, &target)
+                    || !matches!(queued_msg, MsgType::State(_))
+            });
+        }
         self.outbound.push_back((target, channel, msg.clone()));
     }
 
@@ -363,7 +370,6 @@ fn drain_server_packets(
     packets
 }
 
-#[cfg(not(feature = "client"))]
 fn same_target(a: &SendTarget, b: &SendTarget) -> bool {
     match (a, b) {
         (SendTarget::One(a), SendTarget::One(b)) => a == b,
@@ -874,7 +880,16 @@ pub(crate) fn drain_transport_events(quic: &mut QuicManager, events: Vec<Transpo
                 update_client_connection_state(quic, conn_id, false);
                 push_status_message(quic, conn_id, MsgType::Disconnected(Disconnected));
             }
-            TransportEvent::Message(message) => quic.inbound.push_back(message),
+            TransportEvent::Message(message) => {
+                if message.channel == Channel::Unreliable && message.packet.is_state_only() {
+                    quic.inbound.retain(|queued| {
+                        queued.conn_id != message.conn_id
+                            || queued.channel != Channel::Unreliable
+                            || !queued.packet.is_state_only()
+                    });
+                }
+                quic.inbound.push_back(message);
+            }
             #[cfg(feature = "client")]
             TransportEvent::Notice(message) => quic.notices.push_back(message),
         }

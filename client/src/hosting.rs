@@ -94,7 +94,8 @@ pub fn cleanup_before_app_exit(
         quic.inbound.clear();
     }
     if let Some(pending) = pending.as_deref_mut() {
-        pending.0 = None;
+        pending.snapshot = None;
+        pending.last_tick = 0;
     }
 }
 

@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 #[cfg(feature = "client")]
 #[allow(unused_imports)]
 use bevy::light::{AmbientLight, CascadeShadowConfig, DirectionalLight};
@@ -383,32 +381,6 @@ pub fn apply_pending_map_scene(world: &mut World) {
     crate::messages::push_world(world, "Map loaded");
 }
 
-pub fn map_cache_dir() -> PathBuf {
-    if std::path::Path::new("map_cache").exists() || !cfg!(debug_assertions) {
-        PathBuf::from("map_cache")
-    } else {
-        PathBuf::from("../map_cache")
-    }
-}
-
-pub fn map_cache_path(hash: &str) -> PathBuf {
-    map_cache_dir().join(format!("{}.zst", sanitize_hash(hash)))
-}
-
-pub fn read_cached_map(hash: &str) -> Option<Vec<u8>> {
-    std::fs::read(map_cache_path(hash)).ok()
-}
-
-pub fn write_cached_map(hash: &str, compressed: &[u8]) {
-    std::fs::create_dir_all(map_cache_dir()).expect("map cache dir create failed");
-    std::fs::write(map_cache_path(hash), compressed).expect("map cache write failed");
-}
-
-pub fn compressed_level_hash(compressed: &[u8]) -> Option<String> {
-    let bytes = zstd::stream::decode_all(compressed).ok()?;
-    Some(format!("sha256:{}", hex_sha256(&bytes)))
-}
-
 fn compress_level_bytes(raw: &[u8]) -> LevelBytes {
     LevelBytes {
         hash: format!("sha256:{}", hex_sha256(raw)),
@@ -424,15 +396,6 @@ fn hex_sha256(bytes: &[u8]) -> String {
         let _ = write!(&mut out, "{byte:02x}");
     }
     out
-}
-
-fn sanitize_hash(hash: &str) -> String {
-    hash.chars()
-        .map(|ch| match ch {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | ':' => ch,
-            _ => '_',
-        })
-        .collect()
 }
 
 // ── systems ───────────────────────────────────────────────────────────────────

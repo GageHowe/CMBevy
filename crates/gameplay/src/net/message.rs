@@ -14,6 +14,12 @@ pub use crate::{projectile::ProjectileConfirmation, weapon::beamer::*};
 const MAX_DECOMPRESSED_PACKET_MESSAGES_SIZE: usize = 64 * 1024 * 1024;
 const ZSTD_LEVEL: i32 = 3;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PacketMeta {
+    pub conn_id: u64,
+    pub packet_size: usize,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinPlatform {
@@ -316,7 +322,7 @@ pub enum MsgType {
 #[enum_dispatch]
 pub trait Message: Serialize + serde::de::DeserializeOwned + Debug + PartialEq + Clone {
     /// mutate the world in some way in response to receiving this message
-    fn handle(self, world: &mut World);
+    fn handle(self, world: &mut World, meta: PacketMeta);
 }
 
 // ----------- INDIVIDUAL PACKET TYPES ------------
@@ -325,46 +331,26 @@ macro_rules! impl_noop_message {
     ($($ty:ty),* $(,)?) => {
         $(
             impl Message for $ty {
-                fn handle(self, _world: &mut World) {}
+                fn handle(self, _world: &mut World, _meta: PacketMeta) {}
             }
         )*
     }
 }
 
 impl_noop_message!(
-    Connected,
     JoinChallenge,
     ClientHello,
     JoinAccepted,
     JoinRejected,
-    ClientReady,
-    RequestMap,
-    Disconnected,
     Ping,
     Pong,
-    Input,
-    State,
-    DespawnCommand,
-    Possess,
-    MountState,
-    Interact,
-    DropWeapon,
-    DropAbility,
-    SetActiveWeaponSlot,
-    BipedLook,
-    MeleeHitRequest,
-    ProjectileSpawn,
     HitResult,
     TimePing,
     TimePong,
-    AbilityFxMessage,
-    AbilityState,
-    WeaponStateMessage,
-    Health,
 );
 
 impl Message for ChatMessage {
-    fn handle(self, world: &mut World) {
+    fn handle(self, world: &mut World, _meta: PacketMeta) {
         #[cfg(feature = "client")]
         if let Some(mut state) = world.get_resource_mut::<crate::session::GuiState>() {
             state.chat.push(self);
@@ -384,7 +370,33 @@ impl Message for ChatMessage {
 }
 
 #[cfg(not(feature = "client"))]
-impl_noop_message!(MapHash, FileData);
+impl_noop_message!(
+    State,
+    DespawnCommand,
+    Possess,
+    MountState,
+    ProjectileSpawn,
+    AbilityFxMessage,
+    AbilityState,
+    WeaponStateMessage,
+    Health,
+    MapHash,
+    FileData,
+);
+
+#[cfg(feature = "client")]
+impl_noop_message!(
+    Connected,
+    ClientReady,
+    RequestMap,
+    Disconnected,
+    Input,
+    Interact,
+    DropWeapon,
+    DropAbility,
+    SetActiveWeaponSlot,
+    MeleeHitRequest,
+);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Packet {
@@ -394,19 +406,32 @@ pub struct Packet {
     )]
     messages: Vec<MsgType>,
     frame_number: u64,
+    #[serde(skip)]
+    meta: PacketMeta,
 }
 impl Packet {
     pub fn new(messages: Vec<MsgType>, frame_number: u64) -> Self {
         Self {
             messages,
             frame_number,
+            meta: PacketMeta::default(),
         }
     }
 
+    pub fn with_meta(mut self, meta: PacketMeta) -> Self {
+        self.meta = meta;
+        self
+    }
+
     pub fn handle_all(self, world: &mut World) {
+        let meta = self.meta;
         for msg in self.messages {
-            msg.handle(world);
+            msg.handle(world, meta);
         }
+    }
+
+    pub fn is_state_only(&self) -> bool {
+        matches!(self.messages.as_slice(), [MsgType::State(_)])
     }
 }
 

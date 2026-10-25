@@ -10,8 +10,8 @@ use physics::physics_world::{PhysicsWorld, *};
 use rapier3d::prelude::*;
 
 use super::{
-    Controller, MovePawnsSet,
-    vehicle::{VehicleComponent, VehiclePawn, spawn_driver_mount},
+    Controller, MovePawnsSet, PawnInputApplier,
+    vehicle::{VehicleComponent, VehiclePawn, apply_vehicle_input_world, spawn_driver_mount},
 };
 #[cfg(feature = "client")]
 use super::{GatherInputSet, MouseSensitivity};
@@ -48,13 +48,13 @@ impl Plugin for SpaceshipPlugin {
         #[cfg(feature = "client")]
         app.add_systems(
             FixedPreUpdate,
-            (
-                gather_spaceship_input
-                    .run_if(resource_exists::<ButtonInput<KeyCode>>)
-                    .in_set(GatherInputSet),
-                move_spaceships.in_set(MovePawnsSet),
-            )
-                .chain(),
+            gather_spaceship_input
+                .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                .in_set(GatherInputSet),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            move_spaceships.after(GatherInputSet).in_set(MovePawnsSet),
         );
         #[cfg(not(feature = "client"))]
         app.add_systems(FixedPreUpdate, move_spaceships.in_set(MovePawnsSet));
@@ -121,6 +121,7 @@ impl crate::archetype::SpawnArchetypeTrait for crate::archetype::Spaceship {
             },
             LastDamageSource::default(),
             VehicleComponent::for_vehicle::<SpaceshipPawnComponent>(),
+            PawnInputApplier(apply_vehicle_input_world),
             InteractionName("Spaceship"),
             CollisionFxMaterial::Sparks,
             AimReticle("textures/crosshairs/crosshair001.png", None),

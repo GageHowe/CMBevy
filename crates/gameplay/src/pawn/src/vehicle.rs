@@ -30,6 +30,17 @@ impl VehicleComponent {
     }
 }
 
+pub fn apply_vehicle_input_world(world: &mut World, entity: Entity, input: common::PawnInput) {
+    let Some(apply_input) = world
+        .get::<VehicleComponent>(entity)
+        .map(|vehicle| vehicle.apply_input)
+    else {
+        return;
+    };
+    let mut physics = world.resource_mut::<PhysicsWorld>();
+    apply_input(&mut physics, entity, input);
+}
+
 /// Vehicle-specific tuning required by the generic driver-mount helper.
 pub trait VehiclePawn: Component {
     const CAMERA_OFFSET: Vec3;
